@@ -525,7 +525,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
       <div id="site-map" style="width:100%;height:420px;border-radius:8px;border:1px solid var(--br);overflow:hidden;background:#e8e0d5"></div>
       <!-- Drawing toolbar -->
       <div style="position:absolute;top:10px;left:10px;display:flex;flex-direction:column;gap:6px;z-index:10">
-        <button onclick="toggleExpand()" id="btn-expand" class="map-tool-btn" style="background:rgba(43,74,28,.95)" title="Open a big drawing view — easier to trace with finger or pencil">\u2922 Expand Map</button>
+        <button onclick="toggleExpand()" id="btn-expand" class="map-tool-btn" style="background:rgba(43,74,28,.95)" title="Open a big drawing view — easier to trace with finger or pencil">Expand Map</button>
         <button onclick="toggleFreehand()" id="btn-freehand" class="map-tool-btn" style="background:rgba(74,144,217,.92)" title="Draw areas with your finger or Apple Pencil instead of tapping points">Freehand: Off</button>
         <button onclick="startDraw('lot')"     id="btn-draw-lot"      class="map-tool-btn" title="Trace lot boundary">Trace Lot</button>
         <button onclick="startDraw('limit')"    id="btn-draw-limit"    class="map-tool-btn" title="Trace limit of work (e.g. rear yard only)">Trace Limit of Work</button>
@@ -3275,11 +3275,36 @@ function _fhGetCapture(){
   _fhCapture=d; return d;
 }
 function _fhPoint(e){ const r=_fhCapture.getBoundingClientRect(); return new google.maps.Point(e.clientX-r.left,e.clientY-r.top); }
-function _fhToLatLng(pt){ const proj=window._projOverlay&&window._projOverlay.getProjection(); return proj?proj.fromContainerPixelToLatLng(pt):null; }
+function _fhToLatLng(pt){
+  try{
+    var proj=window._projOverlay && window._projOverlay.getProjection && window._projOverlay.getProjection();
+    if(proj){ return proj.fromContainerPixelToLatLng(pt); }
+  }catch(e){}
+  // Fallback: interpolate from the current map bounds (accurate enough at trace zoom)
+  try{
+    var b=map.getBounds(); if(!b||!_fhCapture) return null;
+    var ne=b.getNorthEast(), sw=b.getSouthWest();
+    var r=_fhCapture.getBoundingClientRect();
+    var fx=pt.x/r.width, fy=pt.y/r.height;
+    var lng=sw.lng()+(ne.lng()-sw.lng())*fx;
+    var lat=ne.lat()-(ne.lat()-sw.lat())*fy;
+    return new google.maps.LatLng(lat,lng);
+  }catch(e){ return null; }
+}
+function _ensureProjOverlay(){
+  if(window._projOverlay || !map || !window.google || !google.maps || !google.maps.OverlayView) return;
+  try{
+    var ov=new google.maps.OverlayView();
+    ov.onAdd=function(){}; ov.draw=function(){}; ov.onRemove=function(){};
+    ov.setMap(map);
+    window._projOverlay=ov;
+  }catch(e){}
+}
 
 function startFreehand(mode){
   if(!map){ alert("Type your address and pick it from the dropdown first — selecting it loads the map you trace on."); return; }
   cancelDraw();
+  _ensureProjOverlay();
   _fhMode=mode; currentDrawMode=mode;
   if(window._origGesture==null) window._origGesture=map.get("gestureHandling")||"auto";
   const cap=_fhGetCapture(); cap.style.display="block";
@@ -3290,6 +3315,7 @@ function startFreehand(mode){
 }
 function _fhDown(e){
   e.preventDefault();
+  try{ if(e.pointerId!=null && _fhCapture.setPointerCapture) _fhCapture.setPointerCapture(e.pointerId); }catch(_){}
   _fhActive=true; _fhPts=[]; _fhLatLngs=[];
   const col=TRACE_COLORS[_fhMode]||{stroke:"#ffffff"};
   if(_fhLine) _fhLine.setMap(null);
