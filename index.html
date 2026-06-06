@@ -491,7 +491,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
       </div>
       <div style="display:flex;align-items:center;gap:1rem">
         <div id="pro-landscape-sf" style="font-family:'Cormorant Garamond',serif;font-size:1.2rem;color:var(--gm)">—</div>
-        <button class="btn btn-g" style="font-size:.72rem;padding:.35rem .75rem" onclick="autoPopulateProQtys()">↓ Apply typical section areas</button>
+        <button class="btn btn-g" style="font-size:.72rem;padding:.35rem .75rem" onclick="setupAreas()" title="Uses your traced areas where available, plus typical percentages for the rest. Everything starts at $0.">↓ Auto-fill Section Areas</button>
       </div>
     </div>
   </div>
@@ -581,9 +581,8 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
         <button onclick="applyMeasure('limit')" class="map-apply-btn" style="border-color:#7B4FB0;color:#7B4FB0">Set as work area</button><button onclick="delTrace('limit')" class="map-apply-btn" style="margin-left:.3rem;border-color:#bbb;color:#999">Delete</button>
       </div>
     </div>
-    <div class="noprint" style="margin-top:.85rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
-      <button class="btn btn-g" onclick="applyAllTraces()" style="font-size:.8rem">Apply All Traced Areas</button>
-      <span style="font-size:.68rem;color:var(--tl);line-height:1.45;max-width:34rem">Public records fill the estimator automatically. Trace an area and tap its <strong>Apply</strong> (or <strong>Apply All</strong>) to override the matching value with your traced measurement.</span>
+    <div class="noprint" style="margin-top:.85rem;font-size:.68rem;color:var(--tl);line-height:1.5;max-width:42rem">
+      Apply a single area with its <strong>Apply</strong> button above, or use <strong>Auto-fill Section Areas</strong> (up in Estimated Landscape Area) to apply everything you traced at once — plus typical percentages for any section you didn't trace. Public records fill lot &amp; home automatically.
     </div>
   </div>
 
@@ -2848,6 +2847,30 @@ function autoPopulateProQtys(){
   renderProSummary();
   updateProBar();
   alert("Typical section areas staged (e.g. hardscape "+(SEC_DEFAULTS.paving)+"%). Turn on the sections you want, then check line items — everything starts at $0.");
+}
+
+// One smart action: apply traced measurements where available, fill the rest with typical %.
+function setupAreas(){
+  // 1) Apply traced site dimensions (real measurements) -> drives Estimated Landscape Area
+  ["lot","building","driveway","exclusion","limit","demo"].forEach(function(m){ if(measured[m]&&measured[m]>0) applyMeasure(m,true); });
+  var la=S.proLandscapeArea||0;
+  if(!la){ alert("Enter a lot size (or trace the lot on the map) first, then tap Auto-fill Section Areas."); return; }
+  // 2) Stage section areas: traced planting -> real %, other area-model sections -> typical %
+  var usedTrace=[];
+  ["lot","building","driveway","exclusion","limit","demo","planting"].forEach(function(m){ if(measured[m]&&measured[m]>0) usedTrace.push(m); });
+  PB.forEach(function(cat){
+    if(!usesAreaModel(cat.id)) return;
+    if(cat.id==="planting" && measured.planting && measured.planting>0){
+      S.cats.planting.secPct=Math.min(100,Math.round(measured.planting/la*100));
+    } else {
+      S.cats[cat.id].secPct=SEC_DEFAULTS[cat.id]||0;
+    }
+  });
+  buildProCats(); renderProSummary(); updateProBar();
+  var msg = usedTrace.length
+    ? "Section areas set up — using your traced measurements ("+usedTrace.join(", ")+") and typical percentages for the rest. Turn on the sections you want; everything starts at $0."
+    : "Section areas set up with typical percentages. Trace areas on the map for real measurements. Turn on the sections you want; everything starts at $0.";
+  alert(msg);
 }
 
 function updateProBar(){
