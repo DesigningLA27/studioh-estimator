@@ -521,10 +521,11 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
     </div>
 
     <!-- Satellite Map -->
-    <div style="position:relative;margin-bottom:.75rem">
+    <div id="map-wrap" style="position:relative;margin-bottom:.75rem">
       <div id="site-map" style="width:100%;height:420px;border-radius:8px;border:1px solid var(--br);overflow:hidden;background:#e8e0d5"></div>
       <!-- Drawing toolbar -->
       <div style="position:absolute;top:10px;left:10px;display:flex;flex-direction:column;gap:6px;z-index:10">
+        <button onclick="toggleExpand()" id="btn-expand" class="map-tool-btn" style="background:rgba(43,74,28,.95)" title="Open a big drawing view — easier to trace with finger or pencil">\u2922 Expand Map</button>
         <button onclick="toggleFreehand()" id="btn-freehand" class="map-tool-btn" style="background:rgba(74,144,217,.92)" title="Draw areas with your finger or Apple Pencil instead of tapping points">Freehand: Off</button>
         <button onclick="startDraw('lot')"     id="btn-draw-lot"      class="map-tool-btn" title="Trace lot boundary">Trace Lot</button>
         <button onclick="startDraw('limit')"    id="btn-draw-limit"    class="map-tool-btn" title="Trace limit of work (e.g. rear yard only)">Trace Limit of Work</button>
@@ -533,6 +534,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
         <button onclick="startDraw('planting')" id="btn-draw-planting" class="map-tool-btn" title="Trace planting area">Trace Planting</button>
         <button onclick="startDraw('exclusion')" id="btn-draw-exclusion" class="map-tool-btn" title="Trace areas to exclude (pool, courts) — multiple allowed">Trace Exclusions</button>
         <button onclick="startDraw('demo')"    id="btn-draw-demo"     class="map-tool-btn" title="Trace demo area — multiple allowed">Trace Demo</button>
+        <button onclick="undoLastTrace()" id="btn-undo" class="map-tool-btn" style="background:rgba(74,144,217,.92)" title="Remove the last shape you drew">Undo Last</button>
         <button onclick="clearDrawings()"                              class="map-tool-btn" style="background:rgba(155,123,58,.9)" title="Clear all drawings">Clear All</button>
       </div>
       <!-- Scale hint -->
@@ -3083,6 +3085,7 @@ function buildMap(center){
   }catch(e){}
   window._dbg.mapSet=true;
   window._dbg.dmSet=true;
+  map.addListener("click", function(){ if(!currentDrawMode && !_fhActive) deselectTrace(); });
   console.log("[Site Intelligence] Map ready; custom trace tools active.");
 }
 
@@ -3221,10 +3224,7 @@ function finishDraw(){
   const poly=new google.maps.Polygon({map:map,paths:verts,strokeColor:col.stroke,strokeWeight:2.5,fillColor:col.fill,fillOpacity:col.opacity,editable:true,draggable:false,zIndex:25});
   window._dbg.polyCount=(window._dbg.polyCount||0)+1;
   _clearTemp();
-  _modePolys(mode).push(poly);
-  polygons[mode]=poly;
-  _attachPolyHandlers(poly, mode);
-  recalcMulti(mode);
+  _registerTrace(poly, mode);
   currentDrawMode=null;
   document.querySelectorAll(".map-tool-btn").forEach(b=>b.classList.remove("active"));
   _hideDrawHint();
@@ -3235,6 +3235,7 @@ function _attachPolyHandlers(poly, mode){
   google.maps.event.addListener(pth,"set_at",()=>recalcMulti(mode));
   google.maps.event.addListener(pth,"insert_at",()=>recalcMulti(mode));
   google.maps.event.addListener(pth,"remove_at",()=>recalcMulti(mode));
+  poly.addListener("click", function(){ selectTrace(poly, mode); });
   // right-click a vertex to delete that point; right-click the shape body to remove that whole area
   poly.addListener("rightclick",function(e){
     if(e.vertex!=null){ if(pth.getLength()>3){ pth.removeAt(e.vertex); recalcMulti(mode); } return; }
@@ -3313,10 +3314,7 @@ function _fhUp(e){
     const col=TRACE_COLORS[mode]||{stroke:"#ffffff",fill:"#ffffff",opacity:0.3};
     const poly=new google.maps.Polygon({map:map,paths:pts,strokeColor:col.stroke,strokeWeight:2.5,fillColor:col.fill,fillOpacity:col.opacity,editable:true,draggable:false,zIndex:25});
     window._dbg.polyCount=(window._dbg.polyCount||0)+1;
-    _modePolys(mode).push(poly);
-    polygons[mode]=poly;
-    _attachPolyHandlers(poly,mode);
-    recalcMulti(mode);
+    _registerTrace(poly, mode);
   }
 }
 function _showFreehandHint(mode){
@@ -3326,6 +3324,87 @@ function _showFreehandHint(mode){
   const h=document.getElementById("draw-hint");
   if(h){ const fin=h.querySelector("button"); if(fin) fin.style.display="none"; }
 }
+
+function _registerTrace(poly, mode){
+  _modePolys(mode).push(poly);
+  polygons[mode]=poly;
+  _attachPolyHandlers(poly, mode);
+  if(!window._traceHistory) window._traceHistory=[];
+  window._traceHistory.push({mode:mode, poly:poly});
+  recalcMulti(mode);
+}
+
+let _selectedTrace=null;
+function selectTrace(poly, mode){
+  deselectTrace();
+  _selectedTrace={poly:poly, mode:mode, sw:poly.get("strokeWeight")||2.5, sc:poly.get("strokeColor")||"#ffffff"};
+  try{ poly.setOptions({strokeColor:"#ffd400", strokeWeight:4, zIndex:60}); }catch(e){}
+  _showDeleteBar();
+}
+function deselectTrace(){
+  if(_selectedTrace && _selectedTrace.poly){
+    try{ _selectedTrace.poly.setOptions({strokeColor:_selectedTrace.sc, strokeWeight:_selectedTrace.sw, zIndex:25}); }catch(e){}
+  }
+  _selectedTrace=null; _hideDeleteBar();
+}
+function deleteSelectedTrace(){
+  if(!_selectedTrace) return;
+  var poly=_selectedTrace.poly, mode=_selectedTrace.mode;
+  _selectedTrace=null; _hideDeleteBar();
+  if(window._traceHistory){ window._traceHistory=window._traceHistory.filter(function(h){return h.poly!==poly;}); }
+  _removeSubPoly(mode, poly);
+}
+function undoLastTrace(){
+  if(!window._traceHistory || !window._traceHistory.length) return;
+  var last=window._traceHistory.pop();
+  if(_selectedTrace && _selectedTrace.poly===last.poly) deselectTrace();
+  _removeSubPoly(last.mode, last.poly);
+}
+function _delBarEl(){
+  if(window._delBar) return window._delBar;
+  var host=document.getElementById("map-wrap")||document.body;
+  var d=document.createElement("div"); d.id="trace-delete-bar";
+  d.style.cssText="position:absolute;top:48px;left:50%;transform:translateX(-50%);z-index:45;display:none;gap:8px;background:rgba(28,43,22,.95);padding:6px 8px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.3)";
+  d.innerHTML='<button onclick="deleteSelectedTrace()" style="background:#b3422e;color:#fff;border:none;border-radius:6px;padding:.4rem .7rem;font-size:.72rem;font-weight:600;cursor:pointer">Delete this area</button><button onclick="deselectTrace()" style="background:rgba(255,255,255,.18);color:#fff;border:none;border-radius:6px;padding:.4rem .7rem;font-size:.72rem;font-weight:500;cursor:pointer">Cancel</button>';
+  host.appendChild(d); window._delBar=d; return d;
+}
+function _showDeleteBar(){ _delBarEl().style.display="flex"; }
+function _hideDeleteBar(){ if(window._delBar) window._delBar.style.display="none"; }
+
+let _mapExpanded=false,_mapWrapStyle="",_siteMapStyle="";
+function _doneBarEl(){
+  if(window._doneBar) return window._doneBar;
+  var host=document.getElementById("map-wrap")||document.body;
+  var d=document.createElement("div"); d.id="map-done-bar";
+  d.style.cssText="position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:47;display:none";
+  d.innerHTML='<button onclick="collapseMap()" style="background:var(--gm,#2B4A1C);color:#fff;border:none;border-radius:9px;padding:.55rem 1.1rem;font-size:.85rem;font-weight:600;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.4)">Done</button>';
+  host.appendChild(d); window._doneBar=d; return d;
+}
+function _showDoneBar(){ _doneBarEl().style.display="block"; }
+function _hideDoneBar(){ if(window._doneBar) window._doneBar.style.display="none"; }
+function expandMap(){
+  if(_mapExpanded||!map) return;
+  var wrap=document.getElementById("map-wrap"), sm=document.getElementById("site-map");
+  if(!wrap||!sm) return;
+  _mapWrapStyle=wrap.getAttribute("style")||""; _siteMapStyle=sm.getAttribute("style")||"";
+  var c=map.getCenter();
+  wrap.style.cssText="position:fixed;inset:0;z-index:9998;margin:0;background:#000;max-width:none";
+  sm.style.cssText="width:100%;height:100%;border:none;border-radius:0;overflow:hidden;background:#e8e0d5";
+  try{ map.setOptions({fullscreenControl:false}); }catch(e){}
+  _showDoneBar(); _mapExpanded=true;
+  setTimeout(function(){ try{ google.maps.event.trigger(map,"resize"); if(c) map.setCenter(c); }catch(e){} },80);
+}
+function collapseMap(){
+  if(!_mapExpanded) return;
+  var wrap=document.getElementById("map-wrap"), sm=document.getElementById("site-map");
+  var c=map?map.getCenter():null;
+  if(wrap) wrap.setAttribute("style", _mapWrapStyle);
+  if(sm) sm.setAttribute("style", _siteMapStyle);
+  try{ map.setOptions({fullscreenControl:true}); }catch(e){}
+  _hideDoneBar(); _mapExpanded=false;
+  setTimeout(function(){ try{ google.maps.event.trigger(map,"resize"); if(c) map.setCenter(c); }catch(e){} },80);
+}
+function toggleExpand(){ _mapExpanded?collapseMap():expandMap(); }
 
 function clearDrawings(){
   Object.keys(polygons).forEach(k=>{ if(polygons[k]){polygons[k].setMap(null);polygons[k]=null;} });
