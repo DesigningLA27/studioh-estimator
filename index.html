@@ -494,6 +494,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
         <button class="btn btn-g" style="font-size:.72rem;padding:.35rem .75rem" onclick="setupAreas()" title="Uses your traced areas where available, plus typical percentages for the rest. Everything starts at $0.">↓ Auto-fill Section Areas</button>
       </div>
     </div>
+    <div id="area-budget-card" style="display:none;margin-top:.85rem"></div>
   </div>
 
   <!-- Site Intelligence Card -->
@@ -553,6 +554,9 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
       <div style="background:#EFF5EC;border:1px solid #C5DEC0;border-radius:8px;padding:.65rem .85rem">
         <div style="font-size:.68rem;font-weight:600;color:var(--gm);text-transform:uppercase;letter-spacing:.07em">Building Footprint (traced)</div>
         <div id="msr-building" style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:var(--gm);margin:.15rem 0">—</div>
+        <div style="display:flex;align-items:center;gap:.35rem;font-size:.64rem;color:var(--tm);margin:.1rem 0 .2rem">Eave overhang
+          <input id="bldg-overhang" type="number" min="0" step="0.5" value="0" oninput="updateBuildingFootprint()" style="width:3rem;padding:.12rem .3rem;border:1px solid var(--br);border-radius:4px;font-size:.7rem"> ft</div>
+        <div id="bldg-fp-note" style="font-size:.6rem;color:var(--tl);line-height:1.35;margin-bottom:.25rem"></div>
         <button onclick="applyMeasure('building')" class="map-apply-btn">Apply to estimator</button><button onclick="delTrace('building')" class="map-apply-btn" style="margin-left:.3rem;border-color:#bbb;color:#999">Delete</button>
       </div>
       <div style="background:#FFF8ED;border:1px solid #E8D9B8;border-radius:8px;padding:.65rem .85rem">
@@ -2828,6 +2832,7 @@ function updateProSiteDims(){
       refreshCatTotals(cat.id);
     });
   }
+  if(typeof _abLiveText==="function") _abLiveText();
 }
 
 function autoPopulateProQtys(){
@@ -2922,6 +2927,7 @@ function renderProSummary(){
   if(S.pi.notes){nd.style.display="block";document.getElementById("pro-notes-text").textContent=S.pi.notes;}
   else nd.style.display="none";
   updateProBar();
+  if(typeof renderAreaBudget==="function") renderAreaBudget();
 }
 
 // ── ARCH VIEW ────────────────────────────────────────────────
@@ -3131,6 +3137,13 @@ function _polyAreaSF(poly){
   if(!poly||!google.maps.geometry||!google.maps.geometry.spherical) return 0;
   return Math.round(google.maps.geometry.spherical.computeArea(poly.getPath())*10.7639);
 }
+function _polyPerimLF(poly){
+  if(!poly||!google.maps.geometry||!google.maps.geometry.spherical) return 0;
+  var pts=poly.getPath().getArray().slice();
+  if(pts.length<2) return 0;
+  pts.push(pts[0]);
+  return Math.round(google.maps.geometry.spherical.computeLength(pts)*3.28084);
+}
 function _modePolys(mode){
   if(!window._multiPolys) window._multiPolys={};
   if(!window._multiPolys[mode]) window._multiPolys[mode]=[];
@@ -3141,6 +3154,12 @@ function recalcMulti(mode){
   const arr=_modePolys(mode);
   let total=0; arr.forEach(p=>{ total+=_polyAreaSF(p); });
   measured[mode]=total;
+  if(mode==="building"){
+    var per=0; arr.forEach(function(p){ per+=_polyPerimLF(p); });
+    window._buildingPerimLF=per;
+    if(typeof updateBuildingFootprint==="function") updateBuildingFootprint();
+  }
+  if(typeof _syncTraceToEstimator==="function") _syncTraceToEstimator(mode);
   const el=document.getElementById("msr-"+mode);
   if(!el) return;
   if(total>0){
@@ -3153,6 +3172,93 @@ function recalcMulti(mode){
   } else {
     el.textContent="\u2014";
   }
+}
+
+const GROUND_COVER=["paving","planting","water","amenities"];
+function _abG(id){ var e=document.getElementById(id); return e?(+e.value||0):0; }
+function _abBaseline(){ var limit=_abG("pro-limit-sf"), lot=_abG("pro-lot-sf"); return {B:(limit>0?limit:lot), limit:limit, lot:lot}; }
+
+function renderAreaBudget(){
+  var el=document.getElementById("area-budget-card"); if(!el) return;
+  var bx=_abBaseline(), B=bx.B;
+  if(!B){ el.style.display="none"; el.innerHTML=""; return; }
+  el.style.display="block";
+  var fp=_abG("pro-footprint-sf"), dwy=_abG("pro-driveway-sf"), excl=_abG("pro-exclusions-sf"), demo=_abG("demo-sf-inp");
+  var dwyInc=(document.getElementById("pro-dwy-include")||{}).checked;
+  var baseLabel=bx.limit>0?"Limit of Work":"Lot Size";
+  var rows=[];
+  rows.push({key:"fp",label:"Building Footprint",sf:fp,color:"#6b7280",kind:"dim",input:"pro-footprint-sf"});
+  if(!dwyInc) rows.push({key:"dwy",label:"Driveway (excluded)",sf:dwy,color:"#2C6CB0",kind:"dim",input:"pro-driveway-sf"});
+  rows.push({key:"excl",label:"Exclusions",sf:excl,color:"#B23F3C",kind:"dim",input:"pro-exclusions-sf"});
+  var sectionSF=0;
+  GROUND_COVER.forEach(function(id){ if(!S.cats[id]) return; var sf=secArea(id); if(sf>0||S.cats[id].on){ var nm=(PB.find(function(cc){return cc.id===id;})||{}).name||id; rows.push({key:"sec-"+id,label:nm,sf:sf,color:"#3F7A30",kind:"sec",id:id}); sectionSF+=sf; } });
+  var landscape=(typeof S!=="undefined"&&S.proLandscapeArea)?S.proLandscapeArea:Math.max(0,B-(fp+(dwyInc?0:dwy)+excl));
+  var un=landscape-sectionSF;
+  var pctOf=function(sf){ return B>0?Math.round(sf/B*100):0; };
+  var h='<div style="background:#F7FAF5;border:1px solid #C5DEC0;border-radius:8px;padding:.75rem .9rem">';
+  h+='<div style="font-size:.7rem;font-weight:700;color:var(--gm);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem">Site Area Budget</div>';
+  h+='<div style="display:flex;justify-content:space-between;font-size:.82rem;font-weight:700;color:var(--gm);padding:.25rem 0;border-bottom:1px solid #DCEAD6"><span>'+baseLabel+'</span><span>'+B.toLocaleString()+' SF &middot; 100%</span></div>';
+  rows.forEach(function(r){
+    var oninput = r.kind==="dim" ? "_abSetDim('"+r.input+"',this.value)" : "_abSetSec('"+r.id+"',this.value)";
+    var mx = r.kind==="dim" ? B : Math.max(landscape,1);
+    h+='<div style="padding:.35rem 0;border-bottom:1px solid #EDF3EA">'
+      +'<div style="display:flex;justify-content:space-between;font-size:.74rem;color:'+r.color+';font-weight:600"><span>'+r.label+'</span><span id="ab-val-'+r.key+'">'+r.sf.toLocaleString()+' SF &middot; '+pctOf(r.sf)+'%</span></div>'
+      +'<input type="range" min="0" max="'+mx+'" step="50" value="'+r.sf+'" oninput="'+oninput+'" onchange="renderProSummary()" style="width:100%;margin-top:.25rem;accent-color:'+r.color+'"></div>';
+  });
+  if(un>=0){
+    h+='<div style="display:flex;justify-content:space-between;font-size:.8rem;font-weight:700;color:#5a6b52;padding:.4rem 0"><span>Unassigned (available)</span><span id="ab-unassigned">'+un.toLocaleString()+' SF &middot; '+pctOf(un)+'%</span></div>';
+  } else {
+    h+='<div style="display:flex;justify-content:space-between;font-size:.8rem;font-weight:700;color:#c0392b;background:#FBECEC;border-radius:6px;padding:.4rem .5rem"><span>OVER baseline</span><span id="ab-unassigned">OVER by '+Math.abs(un).toLocaleString()+' SF &middot; '+Math.abs(pctOf(un))+'%</span></div>';
+  }
+  if(demo>0){
+    h+='<div style="display:flex;justify-content:space-between;font-size:.72rem;color:#FF6B35;padding:.3rem 0;border-top:1px dashed #E8D9B8;margin-top:.25rem"><span>Demo (work overlay — not deducted)</span><span id="ab-val-demo">'+demo.toLocaleString()+' SF &middot; '+pctOf(demo)+'%</span></div>';
+  }
+  h+='<div style="font-size:.62rem;color:var(--tl);margin-top:.45rem;line-height:1.45">Building, driveway &amp; exclusions come off the '+baseLabel.toLowerCase()+'. Planting, hardscape &amp; other ground areas draw from Unassigned. Demo overlaps existing areas, so it is not deducted. Trace on the map and values fill here automatically.</div>';
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+function _abLiveText(){
+  if(!document.getElementById("area-budget-card")) return;
+  var bx=_abBaseline(), B=bx.B; if(!B) return;
+  var fp=_abG("pro-footprint-sf"), dwy=_abG("pro-driveway-sf"), excl=_abG("pro-exclusions-sf"), demo=_abG("demo-sf-inp");
+  var dwyInc=(document.getElementById("pro-dwy-include")||{}).checked;
+  var setval=function(key,sf){ var s=document.getElementById("ab-val-"+key); if(s) s.textContent=sf.toLocaleString()+" SF · "+Math.round(sf/B*100)+"%"; };
+  setval("fp",fp); if(!dwyInc) setval("dwy",dwy); setval("excl",excl);
+  var sectionSF=0;
+  GROUND_COVER.forEach(function(id){ if(!S.cats[id]) return; var sf=secArea(id); setval("sec-"+id,sf); if(sf>0||S.cats[id].on) sectionSF+=sf; });
+  var landscape=(typeof S!=="undefined"&&S.proLandscapeArea)?S.proLandscapeArea:Math.max(0,B-(fp+(dwyInc?0:dwy)+excl));
+  var un=landscape-sectionSF;
+  var ue=document.getElementById("ab-unassigned");
+  if(ue){ if(un>=0){ ue.textContent=un.toLocaleString()+" SF · "+Math.round(un/B*100)+"%"; ue.style.color="#5a6b52"; } else { ue.textContent="OVER by "+Math.abs(un).toLocaleString()+" SF · "+Math.abs(Math.round(un/B*100))+"%"; ue.style.color="#c0392b"; } }
+  var de=document.getElementById("ab-val-demo"); if(de) de.textContent=demo.toLocaleString()+" SF · "+Math.round(demo/B*100)+"%";
+}
+
+function _abSetDim(inputId,val){ var e=document.getElementById(inputId); if(e){ e.value=val; updateProSiteDims(); } _abLiveText(); }
+function _abSetSec(catId,sfVal){ if(S.cats[catId]) S.cats[catId].on=true; setMasterSF(catId,+sfVal); refreshCatTotals(catId); _abLiveText(); }
+
+// LIVE: a traced area auto-fills (or, when removed, clears) its estimator field.
+function _syncTraceToEstimator(mode){
+  var sf=measured[mode]||0;
+  if(sf>0){ try{ applyMeasure(mode, true); }catch(e){} }
+  else {
+    if(mode==="lot"){
+      var rec=window._parcelData&&window._parcelData.lotSF;
+      var pl=document.getElementById("pro-lot-sf");
+      if(rec){ if(pl){pl.value=rec;} S.lotSize=Math.min(rec,30000); }
+      else if(pl){ pl.value=0; }
+      var sl=document.getElementById("lot-slider"); if(sl && rec){ sl.value=Math.min(rec,30000); setGrad(sl); }
+      var ld=document.getElementById("lot-display"); if(ld && rec) ld.textContent=Math.min(rec,30000).toLocaleString()+" SF";
+      try{ calcFP(); }catch(e){} updateProSiteDims();
+    }
+    else if(mode==="building"){ var f=document.getElementById("pro-footprint-sf"); if(f){f.value=0;} window._buildingApplied=false; updateProSiteDims(); }
+    else if(mode==="driveway"){ var d=document.getElementById("pro-driveway-sf"); if(d){d.value=0;} updateProSiteDims(); }
+    else if(mode==="exclusion"){ var x=document.getElementById("pro-exclusions-sf"); if(x){x.value=0;} updateProSiteDims(); }
+    else if(mode==="limit"){ var l=document.getElementById("pro-limit-sf"); if(l){l.value=0;} updateProSiteDims(); }
+    else if(mode==="demo"){ var dm=document.getElementById("demo-sf-inp"); if(dm){dm.value=0; if(typeof updatePrep==="function") updatePrep();} }
+    else if(mode==="planting"){ S.plantingAreaSF=0; if(S.cats.planting) S.cats.planting.secPct=0; try{ buildProCats(); renderProSummary(); }catch(e){} }
+  }
+  if(typeof renderAreaBudget==="function") renderAreaBudget();
 }
 
 const TRACE_COLORS={
@@ -3495,9 +3601,14 @@ function applyMeasure(mode, silent){
     const proLot=document.getElementById("pro-lot-sf");
     if(proLot){ proLot.value=sf; updateProSiteDims(); }
   } else if(mode==="building"){
-    // Push to pro site dimensions
+    // Apply the eave-adjusted footprint (roofline minus perimeter x overhang)
+    var ohEl=document.getElementById("bldg-overhang");
+    var oh=ohEl?(parseFloat(ohEl.value)||0):0;
+    var perim=window._buildingPerimLF||0;
+    var fp=Math.max(0, sf-Math.round(perim*oh));
+    window._buildingApplied=true;
     const proFP=document.getElementById("pro-footprint-sf");
-    if(proFP){ proFP.value=sf; updateProSiteDims(); }
+    if(proFP){ proFP.value=fp; updateProSiteDims(); }
   } else if(mode==="demo"){
     const di=document.getElementById("demo-sf-inp");
     if(di){di.value=sf;updatePrep();}
@@ -3520,6 +3631,26 @@ function applyMeasure(mode, silent){
     buildProCats();
     renderProSummary();
     if(!silent) alert("Planting area "+sf.toLocaleString()+" SF applied to the Planting section. (Also shown as a reference in Lighting for fixture counts.)");
+  }
+}
+
+function updateBuildingFootprint(){
+  var roof=measured.building||0;
+  var perim=window._buildingPerimLF||0;
+  var ohEl=document.getElementById("bldg-overhang");
+  var oh=ohEl?(parseFloat(ohEl.value)||0):0;
+  var ring=Math.round(perim*oh);
+  var fp=Math.max(0, roof-ring);
+  var note=document.getElementById("bldg-fp-note");
+  if(note){
+    if(roof<=0){ note.textContent=""; }
+    else if(oh>0){ note.innerHTML="Roofline "+roof.toLocaleString()+" SF &minus; overhang "+ring.toLocaleString()+" SF ("+perim.toLocaleString()+" LF &times; "+oh+" ft) = <strong>Footprint "+fp.toLocaleString()+" SF</strong>"; }
+    else { note.innerHTML="Roofline "+roof.toLocaleString()+" SF &middot; set an overhang to deduct the eaves"; }
+  }
+  // If already applied, keep the estimator in sync as the overhang changes
+  if(window._buildingApplied && roof>0){
+    var proFP=document.getElementById("pro-footprint-sf");
+    if(proFP){ proFP.value=fp; updateProSiteDims(); }
   }
 }
 
@@ -4192,6 +4323,7 @@ function applyAssessorToEstimator(silent){
   } else if(!silent){
     alert("No data available to apply.");
   }
+  if(typeof renderAreaBudget==="function") renderAreaBudget();
 }
 
 document.getElementById("pi-date").value=S.pi.date;
