@@ -515,8 +515,8 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
         <div><div class="lbl" style="margin:0">APN / Parcel #</div><div id="asr-apn" style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gm)">—</div></div>
       </div>
       <div style="margin-top:.6rem">
-        <button class="btn btn-g" style="font-size:.72rem;padding:.3rem .75rem" onclick="applyAssessorToEstimator()">↓ Apply to Estimator</button>
-        <span style="font-size:.68rem;color:var(--tl);margin-left:.5rem">Populates lot size & home SF in the site area calculator</span>
+        <button class="btn btn-g" style="font-size:.72rem;padding:.3rem .75rem" onclick="applyAssessorToEstimator()">↻ Re-apply Public Records</button>
+        <span style="font-size:.68rem;color:var(--tl);margin-left:.5rem">Lot size & home SF auto-fill the estimator on load. Use this to restore them.</span>
       </div>
     </div>
 
@@ -580,6 +580,10 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
         <div id="msr-limit" style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:#7B4FB0;margin:.15rem 0">—</div>
         <button onclick="applyMeasure('limit')" class="map-apply-btn" style="border-color:#7B4FB0;color:#7B4FB0">Set as work area</button><button onclick="delTrace('limit')" class="map-apply-btn" style="margin-left:.3rem;border-color:#bbb;color:#999">Delete</button>
       </div>
+    </div>
+    <div class="noprint" style="margin-top:.85rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <button class="btn btn-g" onclick="applyAllTraces()" style="font-size:.8rem">Apply All Traced Areas</button>
+      <span style="font-size:.68rem;color:var(--tl);line-height:1.45;max-width:34rem">Public records fill the estimator automatically. Trace an area and tap its <strong>Apply</strong> (or <strong>Apply All</strong>) to override the matching value with your traced measurement.</span>
     </div>
   </div>
 
@@ -3457,7 +3461,7 @@ function delTrace(mode){
   recalcMulti(mode);
 }
 
-function applyMeasure(mode){
+function applyMeasure(mode, silent){
   const sf=measured[mode];if(!sf)return;
   if(mode==="lot"){
     S.lotSize=sf;
@@ -3474,7 +3478,7 @@ function applyMeasure(mode){
   } else if(mode==="demo"){
     const di=document.getElementById("demo-sf-inp");
     if(di){di.value=sf;updatePrep();}
-    alert("Demo area set to "+sf.toLocaleString()+" SF.");
+    if(!silent) alert("Demo area set to "+sf.toLocaleString()+" SF.");
   } else if(mode==="driveway"){
     const dd=document.getElementById("pro-driveway-sf");
     if(dd){ dd.value=sf; updateProSiteDims(); }
@@ -3492,8 +3496,17 @@ function applyMeasure(mode){
     if(total>0) S.cats.planting.secPct=Math.min(100,Math.round(sf/total*100));
     buildProCats();
     renderProSummary();
-    alert("Planting area "+sf.toLocaleString()+" SF applied to the Planting section. (Also shown as a reference in Lighting for fixture counts.)");
+    if(!silent) alert("Planting area "+sf.toLocaleString()+" SF applied to the Planting section. (Also shown as a reference in Lighting for fixture counts.)");
   }
+}
+
+function applyAllTraces(){
+  const order=["lot","building","driveway","planting","exclusion","limit","demo"];
+  const labels={lot:"Lot size",building:"Building footprint",driveway:"Driveway",planting:"Planting area",exclusion:"Exclusions",limit:"Limit of work",demo:"Demo area"};
+  let applied=[];
+  order.forEach(function(m){ if(measured[m] && measured[m]>0){ applyMeasure(m, true); applied.push("\u2022 "+labels[m]+": "+measured[m].toLocaleString()+" SF"); } });
+  if(applied.length){ alert("Applied your traced areas to the estimator:\n\n"+applied.join("\n")); }
+  else { alert("No traced areas yet — trace areas on the map first, then tap Apply All."); }
 }
 
 // ── SITE FLAGS ───────────────────────────────────────────────
@@ -4059,6 +4072,9 @@ function handleParcelResponse(data, fields, countyName){
   asrSet("asr-zone", zone);
   asrSet("asr-apn", apn);
 
+  // Public records auto-fill the estimator (traced values can override later)
+  try{ applyAssessorToEstimator(true); }catch(e){}
+
   // Add direct assessor portal link using APN
   if(apn && apn !== "—"){
     const isOC2 = countyName.toLowerCase().includes("orange");
@@ -4123,7 +4139,7 @@ function showParcelFallback(countyName){
   link.innerHTML += '<div style="margin-top:.4rem;color:var(--tm);line-height:1.5">The automatic parcel layer didn\'t respond. You can still tap <strong>Trace Lot</strong> on the map to draw the property — it calculates the exact lot size from your outline.</div>';
 }
 
-function applyAssessorToEstimator(){
+function applyAssessorToEstimator(silent){
   const d=window._parcelData;
   if(!d){return;}
   let applied=[];
@@ -4150,7 +4166,7 @@ function applyAssessorToEstimator(){
     if(proLot && d.lotSF) proLot.value=d.lotSF;
     if(proFP && d.homeSF) proFP.value=Math.round(d.homeSF/(S.stories||1));
     updateProSiteDims();
-  } else {
+  } else if(!silent){
     alert("No data available to apply.");
   }
 }
