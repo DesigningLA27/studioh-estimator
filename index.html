@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v297</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v299</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3062,6 +3062,47 @@ function plantBookMerge(data, mode){ if(!data) return; PLANT_KINDS.forEach(k=>{ 
   data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; } } else { PLANT_DB[k].push(JSON.parse(JSON.stringify(p))); byId[p.id]=PLANT_DB[k][PLANT_DB[k].length-1]; } }); }); }
 function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="plantbook-data.json"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
 function plantBookImport(input){ const f=input.files&&input.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=e=>{ try{ const data=JSON.parse(e.target.result); plantBookMerge(data,"overwrite"); plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof renderPlantingBuilder==="function") renderPlantingBuilder(); }catch(err){ alert("Import failed — that doesn't look like a plant-book file."); } input.value=""; }; rd.readAsText(f); }
+// ── Auto-fetch commercial-safe plant images (iNaturalist via worker) ──
+let _fillStop=false;
+async function fetchPlantImage(kind,pid,licenses){ const p=plantDbFind(kind,pid); if(!p) return {ok:false}; const name=(botName(p)||"").trim(); if(!name) return {ok:false,skip:true};
+  const endpoint=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!endpoint) return {ok:false,noproxy:true};
+  try{ const r=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"plantimage",name,licenses:licenses||["cc0"]})}); const d=await r.json();
+    if(d&&d.found&&d.image){ p.img=d.image; p.imgLic=d.license||""; p.imgAttr=d.attribution||""; p.imgFlag=!!d.flag; p.imgConf=d.confidence||""; p.imgSrc=d.source||"iNaturalist"; return {ok:true,flag:!!d.flag}; }
+    return {ok:false,notfound:true}; }catch(e){ return {ok:false,err:(e&&e.message)}; }
+}
+function _allPlantsFlat(){ const out=[]; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>out.push({kind:k,p})); }); return out; }
+function openFillImages(){ let d=document.getElementById("fillimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fillimg-modal";
+  const blanks=_allPlantsFlat().filter(x=>!x.p.img).length;
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="font-size:1.05rem;font-weight:700;color:#6A4FA3;margin-bottom:.3rem">🖼 Fill missing plant images</div>
+      <div style="font-size:.78rem;color:var(--tm);line-height:1.5">Auto-fetches <b>commercial-safe</b> photos (never non-commercial) from iNaturalist by botanical name, for the <b>${blanks}</b> plants with no image. Cultivars fall back to the species photo and get flagged ⚠ for you to review.</div>
+      <div style="margin:.8rem 0"><div style="font-size:.64rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.3rem">Licenses to allow</div>
+        <label style="font-size:.8rem;display:flex;align-items:center;gap:.4rem;margin-bottom:.2rem"><input type="radio" name="fillimg-lic" value="cc0" checked> CC0 only — no attribution ever (fewer matches)</label>
+        <label style="font-size:.8rem;display:flex;align-items:center;gap:.4rem"><input type="radio" name="fillimg-lic" value="ccby"> CC0 + CC BY + CC BY-SA — many more matches (shows a small photo credit)</label>
+      </div>
+      <div id="fillimg-progress" style="font-size:.82rem;color:var(--tm);min-height:1.4rem"></div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
+        <button class="btn" onclick="_fillStop=true;document.getElementById('fillimg-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+        <button id="fillimg-start" class="btn" onclick="fillMissingImages()" style="padding:.45rem 1.1rem;font-size:.85rem;background:var(--gm);color:#fff;border:none;font-weight:600">Start</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+}
+async function fillMissingImages(){ const licSel=(document.querySelector('input[name="fillimg-lic"]:checked')||{}).value||"cc0";
+  const licenses = licSel==="ccby"?["cc0","cc-by","cc-by-sa"]:["cc0"];
+  const prog=document.getElementById("fillimg-progress"); const startBtn=document.getElementById("fillimg-start"); if(startBtn){ startBtn.textContent="Working…"; startBtn.disabled=true; }
+  const todo=_allPlantsFlat().filter(x=>!x.p.img); _fillStop=false; let done=0,found=0,flagged=0,miss=0;
+  for(const x of todo){ if(_fillStop) break; const res=await fetchPlantImage(x.kind,x.p.id,licenses); done++;
+    if(res.ok){ found++; if(res.flag) flagged++; } else if(res.notfound){ miss++; } else if(res.noproxy){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">No worker connected — set AI_PROXY_URL. Can't fetch images.</span>`; break; }
+    if(prog && done%3===0) prog.textContent=`${done}/${todo.length} checked · ${found} added · ${flagged} flagged · ${miss} none found`;
+    await new Promise(r=>setTimeout(r,120)); // throttle (polite to the free API)
+  }
+  plantBookSave(); if(prog) prog.innerHTML=`<b>Done.</b> ${found} images added${flagged?`, <span style="color:#b8952a">${flagged} flagged ⚠</span>`:''}${miss?`, ${miss} had no safe image`:''}. ${_fillStop?'(stopped)':''}`;
+  if(startBtn){ startBtn.textContent="Start"; startBtn.disabled=false; }
+  if(typeof renderPlantBook==="function") renderPlantBook();
+}
+function fetchOnePlantImage(kind,pid){ const licenses=["cc0","cc-by","cc-by-sa"]; fetchPlantImage(kind,pid,licenses).then(res=>{ plantBookSave(); if(res.ok){ _afterColorChange(kind,pid); } else { alert(res.noproxy?"No worker connected.":res.notfound?"No commercial-safe photo found for this plant.":"Image lookup failed."); } }); }
 // ---- CSV master-plant importer ----
 function csvParse(text){ const rows=[]; let row=[],cur="",q=false; text=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
   for(let i=0;i<text.length;i++){ const ch=text[i];
@@ -3132,7 +3173,8 @@ function duplicatePlant(kind,id){ const arr=PLANT_DB[kind]||[]; const idx=arr.fi
 function addCustomPlant(kind){ const id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7); const base={shrub:{w:3,h:3,wu:"L",basal:0.8},tree:{w:25,h:30,wu:"L"},palm:{perFt:200,h:25,wu:"L"},gc:{oc:12,pf:36,wu:"L",habit:"spreader"}}[kind]||{}; (PLANT_DB[kind]=PLANT_DB[kind]||[]).push(Object.assign({id,c:"New "+(PLANT_KIND_LABEL[kind]||"plant").replace(/s$/,""),b:"",cls:"common",sunset:"",usda:"",bloom:"",color:"",tags:[]},base)); plantBookSave(); }
 function delCustomPlant(kind,id){ if(id.indexOf("cust_")!==0)return; PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(p=>p.id!==id); plantBookSave(); }
 const PLANT_TAG_VOCAB=(function(){ const s=new Set(); PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>(p.tags||[]).forEach(t=>s.add(t)))); return Array.from(s).sort(); })();
-let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all"};
+let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all", imgstate:"all"};
+function pbBookImg(m){ PB_BOOK.imgstate=m; renderPlantBook(); }
 function pbBookFav(){ PB_BOOK.fav=!PB_BOOK.fav; renderPlantBook(); }
 function pbBookAvail(m){ PB_BOOK.avail=m; renderPlantBook(); }
 // ── Plant List Book view ─────────────────────────────────────────
@@ -3436,6 +3478,7 @@ function renderPlantBook(){
           <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="plantCsvTemplate()" title="Download a CSV template with the expected column headers and example rows">CSV template ↓</button>
           <label class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer" title="Load a previously exported plantbook-data.json">⬆ Import<input type="file" accept="application/json,.json" style="display:none" onchange="plantBookImport(this)"></label>
           <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mergeDuplicates()" title="Find and merge duplicate plants (same species imported twice). Keeps the verified / photo / most-complete record and flags spelling-variant near-duplicates for review.">⛙ Merge dupes</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillImages()" title="Auto-fetch commercial-safe (CC0/CC BY) plant photos from iNaturalist for every plant missing one.">🖼 Fill missing images</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="addCustomPlant('${PB_BOOK.kind}')">+ Add ${PLANT_KIND_LABEL[PB_BOOK.kind].replace(/s$/,'').toLowerCase()}</button>
         </div>
       </div>
@@ -3448,6 +3491,8 @@ function renderPlantBook(){
         <button class="btn" style="padding:.12rem .6rem;font-size:.68rem;border-radius:11px;margin-left:.6rem;${PB_BOOK.fav?'background:#FCF4DC;color:#B8860B;border:1px solid #E3B341':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookFav()">★ Favorites</button>
         <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-left:.4rem">Avail:</span>
         ${[["all","All"],["common","Common"],["available","Available"],["specialty","Specialty"]].map(o=>{const on=PB_BOOK.avail===o[0];return `<button class="btn" style="padding:.12rem .6rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookAvail('${o[0]}')">${o[1]}</button>`;}).join('')}
+        <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-left:.4rem">Photo:</span>
+        ${[["all","All"],["has","Has"],["blank","No photo"],["flagged","⚠ Flagged"]].map(o=>{const on=PB_BOOK.imgstate===o[0];return `<button class="btn" style="padding:.12rem .6rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookImg('${o[0]}')">${o[1]}</button>`;}).join('')}
       </div>
       <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
         <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase">Filter by category:</span>
@@ -3473,6 +3518,9 @@ function renderPlantBookList(){
     if(PB_BOOK.nursery){ const st=NURSERY_DB.stock[PB_BOOK.nursery]; if(!st||!st[p.id]) return false; }
     if(PB_BOOK.fav && !p.fav) return false;
     if(PB_BOOK.avail!=="all" && availOf(p)!==PB_BOOK.avail) return false;
+    if(PB_BOOK.imgstate==="blank" && p.img) return false;
+    if(PB_BOOK.imgstate==="has" && !p.img) return false;
+    if(PB_BOOK.imgstate==="flagged" && !p.imgFlag) return false;
     return true;
   });
   const money=v=>fmtN(v);
@@ -3503,8 +3551,10 @@ function renderPlantBookList(){
     return `<div class="card" id="pbcard-${p.id}" style="margin-bottom:.7rem;padding:.8rem .9rem">
       <div style="display:flex;gap:.6rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:.5rem">
         ${starBtn(kind,p)}
-        <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" alt="" ${p.img?`data-img="${escAttr(p.img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p))}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA;flex:none${p.img?';cursor:zoom-in':''}">
-        <div style="flex:1;min-width:180px">${fld("Common name",inp(p.c,`setPlantField('${kind}','${p.id}','c',this.value)`))}</div>
+        <div style="flex:none;width:64px">
+        <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" alt="" ${p.img?`data-img="${escAttr(p.img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p))}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA${p.img?';cursor:zoom-in':''}">
+        ${p.img?`${p.imgFlag?`<div style="font-size:.54rem;color:#b8952a;text-align:center;margin-top:.15rem;font-weight:700">⚠ verify</div>`:''}${(p.imgAttr&&p.imgLic&&p.imgLic!=="cc0")?`<div style="font-size:.5rem;color:var(--tl);line-height:1.15;margin-top:.1rem;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(p.imgAttr)}">© ${escAttr((p.imgAttr||"").replace(/^\(c\)\s*/i,"").slice(0,36))}</div>`:''}`:`<button class="btn" onclick="fetchOnePlantImage('${kind}','${p.id}')" style="width:64px;margin-top:.15rem;padding:.12rem;font-size:.54rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:5px;cursor:pointer" title="Fetch a commercial-safe photo">🖼 fetch</button>`}
+        </div>        <div style="flex:1;min-width:180px">${fld("Common name",inp(p.c,`setPlantField('${kind}','${p.id}','c',this.value)`))}</div>
         <div style="flex:1.4;min-width:200px">${fld("Botanical name",`<input class="inp" value="${escAttr(p.b||'')}" style="font-size:.78rem;font-style:italic;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','b',this.value)">`)}</div>
         <div style="flex:.9;min-width:130px">${fld("Variety / cultivar",`<input class="inp" value="${escAttr(p.cv||'')}" placeholder="e.g. Hot Lips" style="font-size:.78rem;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','cv',this.value)">`)}</div>
         <div style="display:flex;gap:.3rem;align-items:flex-end">
@@ -8782,7 +8832,8 @@ function ptEditPoly(idx){ const p=PT.polys[idx]; if(!p) return; const md=_ptMode
   const catSel=`<div style="margin:.5rem 0"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Category</div><select id="pt-edit-cat" onchange="ptEditCatChange(${idx},this.value)" style="width:100%;font-size:.9rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${sameKindModes.map(m=>`<option value="${m.k}" ${p.mode===m.k?'selected':''}>${m.label}</option>`).join('')}</select></div>`;
   const typeSel=md.types?`<div style="margin:.5rem 0"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">${md.kind==="linear"?"Segment label":"Material / type"}</div><select id="pt-edit-type" style="width:100%;font-size:.9rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${md.types.map(t=>`<option ${p.type===t?'selected':''}>${t}</option>`).join('')}</select></div>`:'';
   const nameFld=`<div style="margin:.5rem 0"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Label (e.g. Front yard lawn)</div><input id="pt-edit-name" value="${(p.name||'').replace(/"/g,'&quot;')}" placeholder="optional name" style="width:100%;font-size:.9rem;padding:.4rem;border:1px solid var(--br);border-radius:7px"></div>`;
-  const zoneSel=`<div style="display:flex;gap:.5rem;margin:.5rem 0"><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Zone</div><select id="pt-edit-zone" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${["","Front yard","Back yard","Side yard","Courtyard","Entry","Pool area","Whole site"].map(z=>`<option ${(p.zone||"")===z?'selected':''}>${z||"—"}</option>`).join('')}</select></div><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Phase</div><select id="pt-edit-phase" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${["","Phase 1","Phase 2","Phase 3","Phase 4","Future"].map(z=>`<option ${(p.phase||"")===z?'selected':''}>${z||"—"}</option>`).join('')}</select></div></div>`;
+  const _zList=areaOptions().slice(); if(p.zone && !_zList.some(a=>(a||"").toLowerCase()===(p.zone||"").toLowerCase())) _zList.unshift(p.zone);
+  const zoneSel=`<div style="display:flex;gap:.5rem;margin:.5rem 0"><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Zone / area</div><select id="pt-edit-zone" onchange="ptEditZoneChange(${idx},this.value)" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px"><option value="—" ${!p.zone?'selected':''}>—</option>${_zList.map(z=>`<option ${(p.zone||"")===z?'selected':''}>${z}</option>`).join('')}<option value="__add">+ Add new area…</option></select></div><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Phase</div><select id="pt-edit-phase" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${["","Phase 1","Phase 2","Phase 3","Phase 4","Future"].map(z=>`<option ${(p.phase||"")===z?'selected':''}>${z||"—"}</option>`).join('')}</select></div></div>`;
   const tagFld=`<div style="margin:.5rem 0"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Tags (comma-separated, e.g. Automatic louvre, LED)</div><input id="pt-edit-tags" value="${(p.tags||'').replace(/"/g,'&quot;')}" placeholder="optional tags" style="width:100%;font-size:.9rem;padding:.4rem;border:1px solid var(--br);border-radius:7px"></div>`;
   d.innerHTML=`<div style="background:#fff;border-radius:12px;padding:1.1rem 1.2rem;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);max-height:88vh;overflow:auto">
     <div style="font-weight:700;font-size:.95rem;color:${md.color}">${md.label} <span style="color:var(--tm);font-weight:400">· ${meas}</span></div>
@@ -8792,6 +8843,14 @@ function ptEditPoly(idx){ const p=PT.polys[idx]; if(!p) return; const md=_ptMode
       <button onclick="ptSavePolyEdit(${idx})" style="padding:.4rem 1rem;border:none;background:var(--gm);color:#fff;border-radius:7px;cursor:pointer;font-size:.82rem;font-weight:700">Done</button>
     </div></div>`;
   d.addEventListener("mousedown",e=>{ if(e.target===d){ ptSavePolyEdit(idx); } }); document.body.appendChild(d); }
+function ptEditZoneChange(idx,val){ const p=PT.polys[idx]; if(!p) return;
+  const nm=document.getElementById("pt-edit-name"); if(nm) p.name=nm.value.trim();
+  const ph=document.getElementById("pt-edit-phase"); if(ph) p.phase=(ph.value==="—"?"":ph.value);
+  const tg=document.getElementById("pt-edit-tags"); if(tg) p.tags=tg.value.trim();
+  const ty=document.getElementById("pt-edit-type"); if(ty) p.type=ty.value;
+  if(val==="__add"){ const added=addAreaOption(prompt("New area / zone name:")); if(added) p.zone=added; }
+  else { p.zone=(val==="—"?"":val); }
+  ptEditPoly(idx); }
 function ptEditCatChange(idx,newMode){ const p=PT.polys[idx]; if(!p) return; ptSnap(); p.mode=newMode; const md=_ptMode(newMode); if(!md.types){ p.type=""; } else if(!md.types.includes(p.type)){ p.type=md.types[0]; } ptEditPoly(idx); ptDrawOverlay(); ptUpdateInfo(); }
 function ptSavePolyEdit(idx){ const p=PT.polys[idx]; if(p){ ptSnap(); const ty=document.getElementById("pt-edit-type"); if(ty) p.type=ty.value; const nm=document.getElementById("pt-edit-name"); if(nm) p.name=nm.value.trim(); const zn=document.getElementById("pt-edit-zone"); if(zn) p.zone=(zn.value==="—"?"":zn.value); const ph=document.getElementById("pt-edit-phase"); if(ph) p.phase=(ph.value==="—"?"":ph.value); const tg=document.getElementById("pt-edit-tags"); if(tg) p.tags=tg.value.trim(); } const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptDelPolyFromEdit(idx){ ptSnap(); PT.polys.splice(idx,1); const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
@@ -8799,7 +8858,8 @@ function ptEditTree(idx){ const t=PT.trees[idx]; if(!t) return; const mode=_ptMa
   d=document.createElement("div"); d.id="pt-edit-pop"; d.style.cssText="position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center";
   const sizes=_ptMode("tree").types; const sizeSel=mode==="tree"?`<div style="margin:.5rem 0"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Container size</div><select id="pt-edit-size" style="width:100%;font-size:.9rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${sizes.map(sz=>`<option ${t.size===sz?'selected':''}>${sz}</option>`).join('')}</select></div>`:'';
   const typeSel=(md.types&&mode!=="tree")?(()=>{ const opts=md.types.includes(t.size)||t.size==null?md.types:[t.size].concat(md.types); return `<div style="margin:.5rem 0"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">${mode==="stepper"?"Size":"Type"}</div><select id="pt-edit-mtype" onchange="if(this.value==='Custom…'){var l=prompt('Length (in):');var w=prompt('Width (in):');if(parseFloat(l)>0&&parseFloat(w)>0){var o=document.createElement('option');o.text=parseFloat(l)+'×'+parseFloat(w);o.selected=true;this.add(o,0);}else{this.selectedIndex=0;}}" style="width:100%;font-size:.9rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${opts.map(tp=>`<option ${t.size===tp?'selected':''}>${tp}</option>`).join('')}</select></div>`; })():'';
-  const zoneSel=`<div style="display:flex;gap:.5rem;margin:.5rem 0"><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Zone</div><select id="pt-edit-zone" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${["","Front yard","Back yard","Side yard","Courtyard","Entry","Pool area","Whole site"].map(z=>`<option ${(t.zone||"")===z?'selected':''}>${z||"—"}</option>`).join('')}</select></div><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Phase</div><select id="pt-edit-phase" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${["","Phase 1","Phase 2","Phase 3","Phase 4","Future"].map(z=>`<option ${(t.phase||"")===z?'selected':''}>${z||"—"}</option>`).join('')}</select></div></div>`;
+  const _zListT=areaOptions().slice(); if(t.zone && !_zListT.some(a=>(a||"").toLowerCase()===(t.zone||"").toLowerCase())) _zListT.unshift(t.zone);
+  const zoneSel=`<div style="display:flex;gap:.5rem;margin:.5rem 0"><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Zone / area</div><select id="pt-edit-zone" onchange="ptEditTreeZoneChange(${idx},this.value)" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px"><option value="—" ${!t.zone?'selected':''}>—</option>${_zListT.map(z=>`<option ${(t.zone||"")===z?'selected':''}>${z}</option>`).join('')}<option value="__add">+ Add new area…</option></select></div><div style="flex:1"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Phase</div><select id="pt-edit-phase" style="width:100%;font-size:.88rem;padding:.4rem;border:1px solid var(--br);border-radius:7px">${["","Phase 1","Phase 2","Phase 3","Phase 4","Future"].map(z=>`<option ${(t.phase||"")===z?'selected':''}>${z||"—"}</option>`).join('')}</select></div></div>`;
   const tagFld=`<div style="margin:.5rem 0"><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.25rem">Tags</div><input id="pt-edit-tags" value="${(t.tags||'').replace(/"/g,'&quot;')}" placeholder="optional tags" style="width:100%;font-size:.9rem;padding:.4rem;border:1px solid var(--br);border-radius:7px"></div>`;
   d.innerHTML=`<div style="background:#fff;border-radius:12px;padding:1.1rem 1.2rem;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);max-height:88vh;overflow:auto">
     <div style="font-weight:700;font-size:.95rem;color:${md.color}">${md.label}</div>${sizeSel}${typeSel}${zoneSel}${tagFld}
@@ -8808,6 +8868,13 @@ function ptEditTree(idx){ const t=PT.trees[idx]; if(!t) return; const mode=_ptMa
       <button onclick="ptSaveTreeEdit(${idx})" style="padding:.4rem 1rem;border:none;background:var(--gm);color:#fff;border-radius:7px;cursor:pointer;font-size:.82rem;font-weight:700">Done</button>
     </div></div>`;
   d.addEventListener("mousedown",e=>{ if(e.target===d){ ptSaveTreeEdit(idx); } }); document.body.appendChild(d); }
+function ptEditTreeZoneChange(idx,val){ const t=PT.trees[idx]; if(!t) return;
+  const ph=document.getElementById("pt-edit-phase"); if(ph) t.phase=(ph.value==="—"?"":ph.value);
+  const tg=document.getElementById("pt-edit-tags"); if(tg) t.tags=tg.value.trim();
+  const sel=document.getElementById("pt-edit-size"); if(sel) t.size=sel.value; const mt=document.getElementById("pt-edit-mtype"); if(mt) t.size=mt.value;
+  if(val==="__add"){ const added=addAreaOption(prompt("New area / zone name:")); if(added) t.zone=added; }
+  else { t.zone=(val==="—"?"":val); }
+  ptEditTree(idx); }
 function ptSaveTreeEdit(idx){ const t=PT.trees[idx]; if(t){ ptSnap(); const sel=document.getElementById("pt-edit-size"); if(sel) t.size=sel.value; const mt=document.getElementById("pt-edit-mtype"); if(mt) t.size=mt.value; const zn=document.getElementById("pt-edit-zone"); if(zn) t.zone=(zn.value==="—"?"":zn.value); const ph=document.getElementById("pt-edit-phase"); if(ph) t.phase=(ph.value==="—"?"":ph.value); const tg=document.getElementById("pt-edit-tags"); if(tg) t.tags=tg.value.trim(); } const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptDelTreeFromEdit(idx){ ptSnap(); PT.trees.splice(idx,1); const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptUpdateInfo(){ const el=document.getElementById("pt-info"); if(!el) return;
