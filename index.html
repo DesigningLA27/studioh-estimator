@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v294</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v296</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3975,7 +3975,13 @@ function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:nul
         <label style="font-size:.74rem;color:var(--tm);display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="ai-fav"> Prioritize my ★ favorites</label>
         <label style="font-size:.74rem;color:var(--tm);display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="ai-common" checked> Prioritize commonly-available</label>
       </div>
-      <div style="margin:-.1rem 0 .4rem"><label style="font-size:.74rem;color:#8a4a2a;display:flex;align-items:center;gap:.3rem;font-weight:600"><input type="checkbox" id="ai-nosun"> ☀️ Exclude full-sun plants (drops known full-sun before the AI sees them)</label></div>
+      <div style="border:1px solid var(--br);border-radius:8px;padding:.5rem .6rem;margin:.5rem 0">
+        <div style="font-size:.64rem;color:#8a4a2a;text-transform:uppercase;font-weight:700;margin-bottom:.35rem">Required — hard filter, excludes the rest (leave blank = no limit)</div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.3rem"><span style="font-size:.7rem;color:var(--tm);width:52px">Water</span>${[["VL","VL"],["L","Low"],["M","Med"],["H","High"]].map(o=>`<label style="font-size:.72rem;display:flex;align-items:center;gap:.2rem"><input type="checkbox" class="ai-req-water" value="${o[0]}"> ${o[1]}</label>`).join('')}</div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.3rem"><span style="font-size:.7rem;color:var(--tm);width:52px">Sun</span>${[["sun","Full sun"],["sunpart","Sun–part"],["part","Part shade"],["shade","Shade"]].map(o=>`<label style="font-size:.72rem;display:flex;align-items:center;gap:.2rem"><input type="checkbox" class="ai-req-sun" value="${o[0]}"> ${o[1]}</label>`).join('')}</div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center"><span style="font-size:.7rem;color:var(--tm);width:52px">Color</span>${BLOOM_COLORS.filter(c=>c.k!=='none'&&c.k!=='multi').map(c=>`<label title="${c.lab}" style="display:flex;align-items:center;gap:.15rem;font-size:.62rem;cursor:pointer"><input type="checkbox" class="ai-req-color" value="${c.k}"> <span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:${c.hex};border:1px solid rgba(0,0,0,.2)"></span></label>`).join('')}</div>
+        <div style="font-size:.6rem;color:var(--tl);margin-top:.35rem">Plants with <b>no</b> sun/color data are kept but flagged ⚠ — use “✨ check sun” or the 100% filter to tighten.</div>
+      </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
         <span style="font-size:.66rem;color:var(--tl);text-transform:uppercase;font-weight:700">Include types</span>
         ${["shrub","gc","tree","palm"].map(k=>`<label style="font-size:.74rem;color:var(--tm);display:flex;align-items:center;gap:.25rem"><input type="checkbox" class="ai-kind" value="${k}" ${k==="shrub"||k==="gc"?"checked":""}> ${{shrub:"Shrubs",gc:"Groundcover / grass",tree:"Trees",palm:"Palms"}[k]}</label>`).join('')}
@@ -3992,13 +3998,22 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
   const count=Math.max(1,Math.min(40,+(document.getElementById("ai-count")||{}).value||20));
   const prioFav=!!(document.getElementById("ai-fav")||{}).checked, prioCommon=!!(document.getElementById("ai-common")||{}).checked;
   const kinds=[...document.querySelectorAll(".ai-kind")].filter(c=>c.checked).map(c=>c.value); if(!kinds.length) kinds.push("shrub");
-  const noSun=!!(document.getElementById("ai-nosun")||{}).checked;
+  const reqWater=[...document.querySelectorAll(".ai-req-water:checked")].map(x=>x.value);
+  const reqSun=[...document.querySelectorAll(".ai-req-sun:checked")].map(x=>x.value);
+  const reqColor=[...document.querySelectorAll(".ai-req-color:checked")].map(x=>x.value);
   let cands=[]; kinds.forEach(kind=>{ (PLANT_DB[kind]||[]).forEach(p=>cands.push({kind,p})); });
-  if(noSun) cands=cands.filter(c=>lightOf(c.p)!=="sun");  // drop KNOWN full-sun; unknown-sun kept (can't tell)
+  // hard required filters (water always known = strict; sun/color keep unknowns, flagged)
+  if(reqWater.length) cands=cands.filter(c=>reqWater.indexOf(c.p.wu)>=0);
+  if(reqSun.length) cands=cands.filter(c=>{ const l=lightOf(c.p); return l===""||reqSun.indexOf(l)>=0; });
+  if(reqColor.length) cands=cands.filter(c=>{ const col=bloomColorOf(c.p); return col===""||reqColor.indexOf(col)>=0; });
+  if(!cands.length){ box.innerHTML=`<div style="font-size:.82rem;color:var(--tm)">No plants in your book match those required filters. Loosen them or add more plants.</div>`; return; }
+  const kindById={}; cands.forEach(c=>{ kindById[c.p.id]=c.kind; });
+  const structured={}; if(reqWater.length)structured.water=reqWater; if(reqSun.length)structured.sun=reqSun; if(reqColor.length)structured.colors=reqColor;
   cands.sort((a,b)=>{ const s=x=>((x.p.fav?2:0)+(availOf(x.p)==="common"?1:0)); return s(b)-s(a); });
   const CAP=260; if(cands.length>CAP) cands=cands.slice(0,CAP);
   const lines=cands.map(c=>_aiCandLine(c.kind,c.p)).join("\n");
-  const prompt=`You help a landscape designer choose plants FROM THEIR OWN plant book. Choose ONLY plants present in CANDIDATES, by their exact id. NEVER invent plants or ids.\n\nRequest: "${req}"\nCount wanted: ${count}. Prioritize favorites: ${prioFav}. Prioritize commonly-available: ${prioCommon}.\n\nCANDIDATES (id | common | botanical | water VL/L/M/H | sun sun/sunpart/part/shade | flowerColor | availability common/available/specialty | fav | types):\n${lines}\n\nReturn ONLY minified JSON, no prose, no markdown fences:\n{"criteria":{"water":["VL","L"],"sun":["part","sunpart","shade"],"colors":["yellow","red","purple"],"types":["grass","shrub","succulent"]},"picks":[{"id":"<candidate id>"}]}\ncriteria = constraints parsed from the request (water codes VL/L/M/H; sun codes sun/sunpart/part/shade; colors from white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze; types like shrub,grass,succulent,perennial,groundcover,tree,palm). Only include a dimension in criteria if the request mentions it.\npicks = up to ${count} candidate ids best matching the request, balanced across the requested colors and types, prioritizing favorites/common if asked, and preferring plants matching more criteria.`;
+  const reqLine = (reqWater.length||reqSun.length||reqColor.length)?`\nHARD REQUIREMENTS (only pick plants meeting these): ${reqWater.length?"water in ["+reqWater.join(",")+"]; ":""}${reqSun.length?"sun in ["+reqSun.join(",")+"] (or unknown); ":""}${reqColor.length?"color in ["+reqColor.join(",")+"] (or unknown); ":""}`:"";
+  const prompt=`You help a landscape designer choose plants FROM THEIR OWN plant book. Choose ONLY plants present in CANDIDATES, by their exact id. NEVER invent plants or ids.\n\nRequest: "${req}"${reqLine}\nCount wanted: ${count}. Prioritize favorites: ${prioFav}. Prioritize commonly-available: ${prioCommon}.\n\nCANDIDATES (id | common | botanical | water VL/L/M/H | sun sun/sunpart/part/shade | flowerColor | availability common/available/specialty | fav | types):\n${lines}\n\nReturn ONLY minified JSON, no prose, no markdown fences:\n{"criteria":{"water":["VL","L"],"sun":["part","sunpart","shade"],"colors":["yellow","red","purple"],"types":["grass","shrub","succulent"]},"picks":[{"id":"<candidate id>"}]}\ncriteria = constraints from the request + hard requirements (water codes VL/L/M/H; sun codes sun/sunpart/part/shade; colors from white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze; types like shrub,grass,succulent,perennial,groundcover,tree,palm). Only include a dimension if it's constrained.\npicks = up to ${count} candidate ids best matching the request, balanced across the requested colors and types, prioritizing favorites/common if asked, and preferring plants matching more criteria.`;
   box.innerHTML=`<div style="font-size:.85rem;color:#6A4FA3;display:flex;align-items:center;gap:.5rem"><span style="display:inline-block;width:14px;height:14px;border:2px solid #d9cdec;border-top-color:#6A4FA3;border-radius:50%;animation:aispin .7s linear infinite"></span> Thinking through your plant book…</div><style>@keyframes aispin{to{transform:rotate(360deg)}}</style>`;
   try{
     const _aiEndpoint = (typeof AI_PROXY_URL!=="undefined" && AI_PROXY_URL) ? AI_PROXY_URL : "https://api.anthropic.com/v1/messages";
@@ -4009,9 +4024,10 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
     // pull out the JSON object even if the model added stray words before/after
     const _s=text.indexOf("{"), _e=text.lastIndexOf("}"); if(_s>=0&&_e>_s) text=text.slice(_s,_e+1);
     const parsed=JSON.parse(text);
-    const criteria=parsed.criteria||{}; const rawPicks=(parsed.picks||[]);
+    const aiCrit=parsed.criteria||{}; const rawPicks=(parsed.picks||[]);
+    const criteria={}; ["water","sun","colors","types"].forEach(dim=>{ const v=(structured[dim]&&structured[dim].length)?structured[dim]:(aiCrit[dim]||[]); if(v&&v.length) criteria[dim]=v; });
     const picks=[]; const seen=new Set();
-    rawPicks.forEach(x=>{ const id=x&&x.id; if(!id||seen.has(id))return; const kind=plantKindOf(id); const p=kind?plantDbFind(kind,id):null; if(p){ seen.add(id); picks.push({kind,pid:id,sel:true}); } });
+    rawPicks.forEach(x=>{ const id=x&&x.id; if(!id||seen.has(id))return; const kind=kindById[id]||plantKindOf(id); const p=kind?plantDbFind(kind,id):null; if(p){ seen.add(id); picks.push({kind,pid:id,sel:true}); } });
     _aiState.criteria=criteria; _aiState.picks=picks; _aiState.prioFav=prioFav; _aiState.prioCommon=prioCommon;
     // deterministic prioritization so "prioritize favorites/common" actually reorders the list
     _aiState.picks.sort((a,a2)=>{ const pa=plantDbFind(a.kind,a.pid)||{}, pb=plantDbFind(a2.kind,a2.pid)||{};
@@ -4023,24 +4039,56 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
   }catch(e){ box.innerHTML=`<div style="font-size:.82rem;color:#B23F3C">Couldn't get suggestions (${(e&&e.message)||'error'}). This feature needs an internet connection and the deployed app. You can still add plants manually.</div>`; }
 }
 function _aiCheck(state){ if(state==="exact") return `<span title="exact match" style="color:#2e7d32;font-weight:700">✓</span>`; if(state==="no") return `<span title="doesn't match" style="color:#B23F3C">✕</span>`; return `<span title="no data for this plant" style="color:#b8952a">⚠</span>`; }
-function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(!box) return; const c=_aiState.criteria||{};
-  const rows=_aiState.picks.map((pk,idx)=>{ const p=plantDbFind(pk.kind,pk.pid); if(!p) return ""; const sc=_aiScore(p,pk.kind,c);
-    const dims=[]; if(c.water&&c.water.length) dims.push(`${_aiCheck(sc.checks.water)} water`); if(c.sun&&c.sun.length) dims.push(`${_aiCheck(sc.checks.sun)} sun`); if(c.colors&&c.colors.length) dims.push(`${_aiCheck(sc.checks.color)} color`); if(c.types&&c.types.length) dims.push(`${_aiCheck(sc.checks.type)} type`);
-    const pctCol = sc.pct>=85?"#2e7d32":sc.pct>=60?"#8a7a2a":"#B23F3C";
-    const prio=[]; if(_aiState.prioFav&&p.fav) prio.push(`<span style="background:#FCF4DC;color:#B8860B;border:1px solid #E3B341;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">★ prioritized</span>`); if(_aiState.prioCommon&&availOf(p)==="common") prio.push(`<span style="background:#2E7D3215;color:#2E7D32;border:1px solid #2E7D3255;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">common ↑</span>`);
+function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(!box) return; const c=_aiState.criteria||{}; const only100=!!_aiState.only100;
+  const groupBy=_aiState.groupBy||"none", sortBy=_aiState.sortBy||"match", view=_aiState.view||"list";
+  let entries=_aiState.picks.map((pk,idx)=>{ const p=plantDbFind(pk.kind,pk.pid); return p?{pk,idx,p,sc:_aiScore(p,pk.kind,c)}:null; }).filter(Boolean);
+  if(only100) entries=entries.filter(e=>e.sc.pct>=100);
+  const wuO={VL:0,L:1,M:2,H:3}, avO={common:0,available:1,specialty:2};
+  const sortFn={ match:(a,b)=>b.sc.pct-a.sc.pct, name:(a,b)=>(a.p.c||"").localeCompare(b.p.c||""), water:(a,b)=>((wuO[a.p.wu]==null?9:wuO[a.p.wu])-(wuO[b.p.wu]==null?9:wuO[b.p.wu])), avail:(a,b)=>((avO[availOf(a.p)]==null?9:avO[availOf(a.p)])-(avO[availOf(b.p)]==null?9:avO[availOf(b.p)])) }[sortBy]||((a,b)=>b.sc.pct-a.sc.pct);
+  entries.sort(sortFn);
+  const dimsOf=(p,pk,sc)=>{ const d=[]; if(c.water&&c.water.length)d.push(`${_aiCheck(sc.checks.water)} water`); if(c.sun&&c.sun.length)d.push(`${_aiCheck(sc.checks.sun)} sun`); if(c.colors&&c.colors.length)d.push(`${_aiCheck(sc.checks.color)} color`); if(c.types&&c.types.length)d.push(`${_aiCheck(sc.checks.type)} type`); return d; };
+  const pcol=pct=>pct>=85?"#2e7d32":pct>=60?"#8a7a2a":"#B23F3C";
+  const rowHtml=e=>{ const {pk,idx,p,sc}=e; const dims=dimsOf(p,pk,sc);
+    const prio=[]; if(_aiState.prioFav&&p.fav)prio.push(`<span style="background:#FCF4DC;color:#B8860B;border:1px solid #E3B341;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">★ prioritized</span>`); if(_aiState.prioCommon&&availOf(p)==="common")prio.push(`<span style="background:#2E7D3215;color:#2E7D32;border:1px solid #2E7D3255;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">common ↑</span>`);
     return `<div style="display:flex;gap:.6rem;align-items:center;padding:.45rem .3rem;border-bottom:1px solid var(--br)">
-        <button onclick="_aiToggle(${idx})" title="${pk.sel?'Included — tap to remove':'Excluded — tap to add'}" style="flex:none;width:26px;height:26px;border-radius:6px;border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};background:${pk.sel?'var(--gm)':'#fff'};color:${pk.sel?'#fff':'#bbb'};font-size:.9rem;cursor:pointer">${pk.sel?'✓':'+'}</button>
-        <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--br);flex:none;background:#EEF3EA">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.76rem">${botName(p)||''}</span></div>
-          <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI what sun this needs, then set it" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${availBadge(p)}${p.fav?'<span style="color:#D99A00" title="favorite">★</span>':''}${prio.join('')}</div>
-          <div style="font-size:.64rem;color:var(--tl);display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.2rem;align-items:center">${dims.join('<span style="color:var(--br)">·</span>')}${(c.water&&c.water.length)||(c.sun&&c.sun.length)||(c.colors&&c.colors.length)||(c.types&&c.types.length)?'<span style="color:var(--br)">·</span>':''}${_lookLinkImg((botName(p)||p.c||"")+" plant","see photos")}</div>
-        </div>
-        <div style="flex:none;text-align:right"><div style="font-size:.95rem;font-weight:800;color:${pctCol}">${sc.pct}%</div><div style="font-size:.54rem;color:var(--tl)">match</div></div>
-      </div>`; }).join("");
+      <button onclick="_aiToggle(${idx})" style="flex:none;width:26px;height:26px;border-radius:6px;border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};background:${pk.sel?'var(--gm)':'#fff'};color:${pk.sel?'#fff':'#bbb'};font-size:.9rem;cursor:pointer">${pk.sel?'✓':'+'}</button>
+      <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--br);flex:none;background:#EEF3EA">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.76rem">${botName(p)||''}</span></div>
+        <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI, then set" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${availBadge(p)}${p.fav?'<span style="color:#D99A00">★</span>':''}${prio.join('')}</div>
+        <div style="font-size:.64rem;color:var(--tl);display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.2rem;align-items:center">${dims.join('<span style="color:var(--br)">·</span>')}${dims.length?'<span style="color:var(--br)">·</span>':''}${_lookLinkImg((botName(p)||p.c||"")+" plant","see photos")}</div>
+      </div>
+      <div style="flex:none;text-align:right"><div style="font-size:.95rem;font-weight:800;color:${pcol(sc.pct)}">${sc.pct}%</div><div style="font-size:.54rem;color:var(--tl)">match</div></div>
+    </div>`; };
+  const cardHtml=e=>{ const {pk,idx,p,sc}=e;
+    return `<div style="border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};border-radius:9px;padding:.4rem;position:relative;background:#fff">
+      <button onclick="_aiToggle(${idx})" style="position:absolute;top:.35rem;left:.35rem;width:24px;height:24px;border-radius:6px;border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};background:${pk.sel?'var(--gm)':'#fff'};color:${pk.sel?'#fff':'#bbb'};font-size:.8rem;cursor:pointer;z-index:2">${pk.sel?'✓':'+'}</button>
+      <span style="position:absolute;top:.35rem;right:.35rem;font-size:.66rem;font-weight:800;color:${pcol(sc.pct)};background:rgba(255,255,255,.9);border-radius:6px;padding:0 .3rem">${sc.pct}%</span>
+      <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:100%;height:96px;object-fit:cover;border-radius:6px;background:#EEF3EA">
+      <div style="font-size:.74rem;font-weight:600;margin-top:.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''}</div>
+      <div style="font-size:.62rem;font-style:italic;color:var(--tm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${botName(p)||''}</div>
+      <div style="display:flex;gap:.25rem;flex-wrap:wrap;margin-top:.28rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${bloomColorBadge(p)}</div>
+      <div style="font-size:.6rem;margin-top:.28rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">${_lookLinkImg((botName(p)||p.c||"")+" plant","photos")}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.56rem;font-weight:700;cursor:pointer">✨ sun</button>`:''}</div>
+    </div>`; };
+  const renderEntry = view==="gallery"?cardHtml:rowHtml;
+  const wrap = es => view==="gallery" ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.5rem;padding:.4rem 0">${es.map(renderEntry).join('')}</div>` : es.map(renderEntry).join('');
+  let bodyHtml="";
+  if(!entries.length){ bodyHtml=`<div style="padding:.6rem;font-size:.78rem;color:var(--tl)">Nothing to show. Turn off the 100% filter to see partial matches.</div>`; }
+  else if(groupBy==="type"){ const order=["shrub","gc","tree","palm"], lab={shrub:"Shrubs",gc:"Groundcover / grass",tree:"Trees",palm:"Palms"};
+    order.forEach(k=>{ const es=entries.filter(e=>e.pk.kind===k); if(!es.length)return; bodyHtml+=`<div style="display:flex;align-items:center;gap:.5rem;margin:.5rem 0 .25rem;padding:.25rem .5rem;background:#EEF3EA;border-radius:7px"><strong style="font-size:.76rem;color:var(--gm)">${lab[k]}</strong><span style="font-size:.64rem;color:var(--tm)">${es.length}</span></div>`+wrap(es); });
+  } else bodyHtml=wrap(entries);
   const nSel=_aiState.picks.filter(p=>p.sel).length;
-  box.innerHTML=`<div style="font-size:.74rem;color:var(--tm);margin-bottom:.3rem">${_aiState.picks.length} suggestions from your book · <b>${nSel} selected</b>. Uncheck any you don't want, then add.</div>
-    <div style="max-height:44vh;overflow:auto;border:1px solid var(--br);border-radius:8px;padding:0 .4rem">${rows}</div>
+  const seg=(cur,opts,key)=>opts.map(o=>`<button onclick="_aiState.${key}='${o[0]}';_aiRenderReview()" style="padding:.12rem .5rem;font-size:.66rem;border-radius:9px;cursor:pointer;${cur===o[0]?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}">${o[1]}</button>`).join('');
+  box.innerHTML=`<div style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">
+      <span style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700">Group</span>${seg(groupBy,[["none","None"],["type","Type"]],"groupBy")}
+      <span style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-left:.2rem">Sort</span>${seg(sortBy,[["match","Match"],["name","Name"],["water","Water"],["avail","Avail"]],"sortBy")}
+      <span style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-left:.2rem">View</span>${seg(view,[["list","List"],["gallery","Gallery"]],"view")}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem;gap:.5rem;flex-wrap:wrap">
+      <span style="font-size:.72rem;color:var(--tm)">${entries.length} shown · <b>${nSel} selected</b></span>
+      <label style="font-size:.7rem;color:var(--tm);display:flex;align-items:center;gap:.3rem;cursor:pointer"><input type="checkbox" ${only100?'checked':''} onchange="_aiState.only100=this.checked;_aiRenderReview()"> Only 100% matches</label>
+    </div>
+    <div style="max-height:46vh;overflow:auto;border:1px solid var(--br);border-radius:8px;padding:0 .4rem">${bodyHtml}</div>
     <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.7rem">
       <button class="btn" onclick="closeAiSuggest()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Cancel</button>
       <button class="btn" onclick="aiAddSelected()" style="padding:.45rem 1.1rem;font-size:.85rem;background:var(--gm);color:#fff;border:none;font-weight:600">Add ${nSel} to this zone</button>
