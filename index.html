@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v296</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v297</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -8628,7 +8628,7 @@ async function _ptOpenDocBuf(buf, keepTrace){
   PT.pdfData=b64;
   PT.numPages=PT.doc.numPages; PT.page=1;
   if(!keepTrace){ PT.ppf=null; PT.polys=[]; PT.trees=[]; PT.subtype={}; }
-  PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true;
+  PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.detectedScale=null; PT.sheetIn=null;
   try{ const pg1=await PT.doc.getPage(1); const vp=pg1.getViewport({scale:1}); PT.sheetIn={w:vp.width/72,h:vp.height/72};
     const tc=await pg1.getTextContent(); const txt=tc.items.map(i=>i.str).join(" "); PT.detectedScale=_ptParseScale(txt); }catch(e){}
@@ -8655,6 +8655,7 @@ function ptCanvasXY(e){ const cv=document.getElementById("pt-canvas"); const r=c
 function _toPdf(pt){ return {x:pt.x/PT.renderScale, y:pt.y/PT.renderScale}; }
 function _toCanvas(pt){ return {x:pt.x*PT.renderScale, y:pt.y*PT.renderScale}; }
 function ptCanvasClick(e){ if(!PT.doc) return; const c=ptCanvasXY(e); const p=_toPdf(c);
+  if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c); if(hit){ if(hit.type==="tree") ptEditTree(hit.idx); else ptEditPoly(hit.idx); } return; }
   if(PT.calibrating){ PT.calib.push(p); if(PT.calib.length===2){ const dx=PT.calib[1].x-PT.calib[0].x, dy=PT.calib[1].y-PT.calib[0].y; const distPdf=Math.hypot(dx,dy);
       const ans=prompt("How long is that line in the real world? Enter feet (e.g. 20 or 15.5):"); const ft=parseFloat(ans);
       if(!isNaN(ft)&&ft>0){ PT.ppf=distPdf/ft; } PT.calibrating=false; PT.calib=[]; ptRenderModal(); }
@@ -8675,7 +8676,7 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; } PT.polys.push({mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page}); } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
-function ptSetMode(m){ const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
+function ptSetMode(m){ PT.selectMode=false; const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
 function ptSetSubtype(v){ let rerender=false; if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):",""); const L=parseFloat(l),W=parseFloat(w); if(L>0&&W>0){ v=`${L}×${W}`; rerender=true; } else { ptRenderModal(); return; } } PT.subtype[PT.mode]=v; if(rerender) ptRenderModal(); }
 function ptStartCalib(){ PT.calibrating=true; PT.calib=[]; PT.cur=[]; const d=document.getElementById("pt-scale-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 const PT_SCALES=[["1/16\" = 1'-0\"",0.0625],["3/32\" = 1'-0\"",0.09375],["1/8\" = 1'-0\"",0.125],["3/16\" = 1'-0\"",0.1875],["1/4\" = 1'-0\"",0.25],["3/8\" = 1'-0\"",0.375],["1/2\" = 1'-0\"",0.5],["3/4\" = 1'-0\"",0.75],["1\" = 1'-0\"",1.0],["1-1/2\" = 1'-0\"",1.5],["1\" = 10'",0.1],["1\" = 20'",0.05],["1\" = 30'",0.033333],["1\" = 40'",0.025],["1\" = 50'",0.02],["1\" = 60'",0.016667],["1\" = 100'",0.01]];
@@ -8720,10 +8721,21 @@ async function ptFitPage(){ if(!PT.doc) return; const page=await PT.doc.getPage(
   let s=Math.min(cw/vp1.width, ch/vp1.height); if(!isFinite(s)||s<=0) s=1; PT.scale=Math.max(0.12,Math.min(3,s)); PT._fitScale=PT.scale; }
 async function ptPage(d){ const n=PT.page+d; if(n<1||n>PT.numPages) return; PT.page=n; PT.cur=[]; await ptRenderPage(); ptRenderModal(); await ptRenderPage(); }
 function ptDelTree(i){ ptSnap(); PT.trees.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
-function _ptInteractive(mode){ return PT.cur.length===0 && !PT.calibrating && PT.mode===mode; } // clickable only on its own layer, when not mid-trace
+function _ptInteractive(mode){ return PT.cur.length===0 && !PT.calibrating && (PT.selectMode || PT.mode===mode); } // clickable on its own layer, or any layer in Select mode
+function ptSelectMode(){ PT.selectMode=!PT.selectMode; if(PT.selectMode) PT.cur=[]; ptRenderModal(); ptRenderPage(); }
+function _ptSegDist(px,py,ax,ay,bx,by){ const dx=bx-ax,dy=by-ay; const L=dx*dx+dy*dy; let t=L?((px-ax)*dx+(py-ay)*dy)/L:0; t=Math.max(0,Math.min(1,t)); const cx=ax+t*dx,cy=ay+t*dy; return Math.hypot(px-cx,py-cy); }
+function _ptHitTest(q,cxy){ // q=pdf coords, cxy=canvas coords; return {type:'tree'|'poly',idx}
+  const tol=14/(PT.renderScale||1); // pdf units within ~14px
+  for(let i=PT.trees.length-1;i>=0;i--){ const t=PT.trees[i]; if(t.page!==PT.page||PT.hidden[_ptMarkMode(t)]) continue; if(Math.hypot(t.x-q.x,t.y-q.y)<=tol*1.3) return {type:"tree",idx:i}; }
+  // lines/edges
+  for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue; const pts=p.pts; if(!pts||pts.length<2) continue;
+    const segs=p.kind==="linear"?pts.length-1:pts.length; for(let s=0;s<segs;s++){ const a=pts[s], b=pts[(s+1)%pts.length]; if(_ptSegDist(q.x,q.y,a.x,a.y,b.x,b.y)<=tol) return {type:"poly",idx:i}; } }
+  // inside filled areas
+  for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue; if(p.kind==="area"&&p.pts&&p.pts.length>=3&&_ptPointInPoly(q,p.pts)) return {type:"poly",idx:i}; }
+  return null; }
 function ptToggleLayer(m){ PT.hidden[m]=!PT.hidden[m]; ptDrawOverlay(); ptLayersPopover(true); }
 function ptToggleAllLayers(show){ PT_MODES.forEach(m=>{ if(_ptModeUsed(m.k)) PT.hidden[m.k]=!show; }); ptDrawOverlay(); ptLayersPopover(true); }
-function ptLayersPopover(refresh){ let d=document.getElementById("pt-layers-pop"); if(d&&!refresh){ d.remove(); return; } if(!d){ d=document.createElement("div"); d.id="pt-layers-pop"; document.body.appendChild(d); }
+function ptLayersPopover(refresh){ let d=document.getElementById("pt-layers-pop"); if(d&&!refresh){ d.remove(); return; } if(!d){ d=document.createElement("div"); d.id="pt-layers-pop"; (document.getElementById("pt-modal")||document.body).appendChild(d); }
   const used=PT_MODES.filter(m=>_ptModeUsed(m.k)); 
   d.style.cssText="position:fixed;top:54px;left:50%;transform:translateX(-50%);z-index:10003;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:.7rem .8rem;max-width:520px;max-height:70vh;overflow:auto";
   d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem"><strong style="font-size:.85rem">Layers</strong><div style="display:flex;gap:.4rem"><button onclick="ptToggleAllLayers(true)" style="font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:5px;padding:.15rem .5rem;cursor:pointer">Show all</button><button onclick="ptToggleAllLayers(false)" style="font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:5px;padding:.15rem .5rem;cursor:pointer">Hide all</button><button onclick="document.getElementById('pt-layers-pop').remove()" style="font-size:.8rem;border:none;background:#F1ECE3;border-radius:5px;padding:.15rem .5rem;cursor:pointer">✕</button></div></div>
@@ -8824,13 +8836,14 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <span style="opacity:.5">|</span>
       <span style="font-size:.78rem;opacity:.9">Now tracing: <strong style="color:${md.color==='#8a8a8a'?'#ddd':md.color}">${md.label}</strong>${_ptCurType(PT.mode)?` (${_ptCurType(PT.mode)})`:''}</span>
       ${finishLbl?`<button onclick="ptFinishPoly()" style="padding:.3rem .7rem;font-size:.78rem;border:none;border-radius:7px;background:#3d6b2e;color:#fff;cursor:pointer">${finishLbl}</button>`:`<span style="font-size:.72rem;opacity:.7">click to drop each ${md.label.toLowerCase().replace(/s$/,'')}</span>`}
-      <button onclick="ptUndo()" ${PT.undo.length?'':'disabled'} style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:7px;background:${PT.undo.length?'#4A90D9':'#3a4a30'};color:#fff;cursor:${PT.undo.length?'pointer':'default'};opacity:${PT.undo.length?1:.5}">↶ Undo</button>
-      <button onclick="ptRedoAct()" ${PT.redo.length?'':'disabled'} style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:7px;background:${PT.redo.length?'#4A90D9':'#3a4a30'};color:#fff;cursor:${PT.redo.length?'pointer':'default'};opacity:${PT.redo.length?1:.5}">↷ Redo</button>
+      <button id="pt-undo-btn" onclick="ptUndo()" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:7px;background:#4A90D9;color:#fff;cursor:pointer">↶ Undo</button>
+      <button id="pt-redo-btn" onclick="ptRedoAct()" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:7px;background:#4A90D9;color:#fff;cursor:pointer">↷ Redo</button>
       <span style="opacity:.5">|</span>
       <button onclick="ptZoom(1.2)" style="padding:.3rem .55rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer">＋</button>
       <button onclick="ptZoom(0.83)" style="padding:.3rem .55rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer">－</button>
       <button onclick="ptFitPage().then(ptRenderPage)" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Fit page to screen">Fit</button>
       <button onclick="ptToggleFullscreen()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Full screen — best for iPad + Apple Pencil">⛶ Full screen</button>
+      <button onclick="ptSelectMode()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:${PT.selectMode?'#4A90D9':'#3a4a30'};color:#fff;cursor:pointer" title="Select / edit / delete any traced item — tap it to open">⇱ ${PT.selectMode?'Select ON':'Select / edit'}</button>
       <button onclick="ptToggleLabels()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:${PT.hideLabels?'#7a3a38':'#3a4a30'};color:#fff;cursor:pointer" title="Show/hide labels so they don't block tracing">${PT.hideLabels?'Labels off':'Labels on'}</button>
       <button onclick="ptLayersPopover()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Show/hide individual layers to declutter">≡ Layers</button>
       ${toolbarType}
