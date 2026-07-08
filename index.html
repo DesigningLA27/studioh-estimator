@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v299</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v301</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3060,6 +3060,27 @@ const PLANT_KIND_LABEL={shrub:"Shrubs",tree:"Trees",palm:"Palms",gc:"Groundcover
 function plantBookSave(){ try{ localStorage.setItem("studioh_plantbook_v1", JSON.stringify(PLANT_DB)); }catch(e){ alert("Could not save — browser storage may be full. Export your plant book and commit it to the repo to keep your images."); } if(typeof renderPlantBook==="function") renderPlantBook(); }
 function plantBookMerge(data, mode){ if(!data) return; PLANT_KINDS.forEach(k=>{ if(!Array.isArray(data[k])) return; const byId={}; (PLANT_DB[k]=PLANT_DB[k]||[]).forEach(p=>byId[p.id]=p);
   data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; } } else { PLANT_DB[k].push(JSON.parse(JSON.stringify(p))); byId[p.id]=PLANT_DB[k][PLANT_DB[k].length-1]; } }); }); }
+// ── Master plant book on Cloudflare (server = source of truth) ──
+let MASTER_META=null;
+async function masterBookLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbook"})}); const d=await r.json();
+    if(d&&d.found&&d.book){ plantBookMerge(d.book,"overwrite"); MASTER_META=d.meta||null; plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof plantRefresh==="function"&&document.getElementById("planting-builder")) plantRefresh(); if(!silent){ const c=d.meta&&d.meta.counts?d.meta.counts:{}; alert("Master plant book loaded from server."+(d.meta?"\nLast published: "+new Date(d.meta.savedAt).toLocaleString():"")); } return true; }
+    else { if(!silent) alert("No master book on the server yet. Publish one first."); return false; }
+  }catch(e){ if(!silent) alert("Couldn't reach the server ("+((e&&e.message)||"error")+")."); return false; }
+}
+function _adminKey(){ let k=""; try{ k=localStorage.getItem("studioh_admin_key")||""; }catch(e){} if(!k){ k=prompt("Enter the Studio H admin key to publish the master book:")||""; if(k){ try{ localStorage.setItem("studioh_admin_key",k); }catch(e){} } } return k; }
+async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
+  const key=_adminKey(); if(!key) return;
+  const total=PLANT_KINDS.reduce((s,k)=>s+((PLANT_DB[k]||[]).length),0);
+  if(!confirm("Publish your current plant book ("+total+" plants) as the Studio H master?\nThis replaces the master everyone pulls from.")) return;
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H"})}); const d=await r.json();
+    if(d&&d.ok){ alert("Published to master ✓ ("+total+" plants)"); }
+    else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try Publish again."); }
+    else { alert("Publish failed: "+((d&&d.error)||"error")); }
+  }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
+}
+// pull master on startup (server wins), non-blocking
+setTimeout(()=>{ try{ masterBookLoad(true); }catch(e){} }, 800);
 function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="plantbook-data.json"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
 function plantBookImport(input){ const f=input.files&&input.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=e=>{ try{ const data=JSON.parse(e.target.result); plantBookMerge(data,"overwrite"); plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof renderPlantingBuilder==="function") renderPlantingBuilder(); }catch(err){ alert("Import failed — that doesn't look like a plant-book file."); } input.value=""; }; rd.readAsText(f); }
 // ── Auto-fetch commercial-safe plant images (iNaturalist via worker) ──
@@ -3067,9 +3088,10 @@ let _fillStop=false;
 async function fetchPlantImage(kind,pid,licenses){ const p=plantDbFind(kind,pid); if(!p) return {ok:false}; const name=(botName(p)||"").trim(); if(!name) return {ok:false,skip:true};
   const endpoint=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!endpoint) return {ok:false,noproxy:true};
   try{ const r=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"plantimage",name,licenses:licenses||["cc0"]})}); const d=await r.json();
-    if(d&&d.found&&d.image){ p.img=d.image; p.imgLic=d.license||""; p.imgAttr=d.attribution||""; p.imgFlag=!!d.flag; p.imgConf=d.confidence||""; p.imgSrc=d.source||"iNaturalist"; return {ok:true,flag:!!d.flag}; }
+    if(d&&d.found&&((d.images&&d.images.length)||d.image)){ const alts=(d.images&&d.images.length)?d.images:[{image:d.image,license:d.license,licenseLabel:d.licenseLabel,attribution:d.attribution,matchedName:d.matchedName,confidence:d.confidence,flag:d.flag,source:d.source}]; p.imgAlts=alts.slice(0,5); p._imgIdx=0; const a=p.imgAlts[0]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; return {ok:true,flag:!!a.flag}; }
     return {ok:false,notfound:true}; }catch(e){ return {ok:false,err:(e&&e.message)}; }
 }
+function cyclePlantImage(kind,pid,dir){ const p=plantDbFind(kind,pid); if(!p||!p.imgAlts||p.imgAlts.length<2) return; p._imgIdx=(((p._imgIdx||0)+dir)%p.imgAlts.length+p.imgAlts.length)%p.imgAlts.length; const a=p.imgAlts[p._imgIdx]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; plantBookSave(); _afterColorChange(kind,pid); }
 function _allPlantsFlat(){ const out=[]; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>out.push({kind:k,p})); }); return out; }
 function openFillImages(){ let d=document.getElementById("fillimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fillimg-modal";
   const blanks=_allPlantsFlat().filter(x=>!x.p.img).length;
@@ -3478,6 +3500,8 @@ function renderPlantBook(){
           <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="plantCsvTemplate()" title="Download a CSV template with the expected column headers and example rows">CSV template ↓</button>
           <label class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer" title="Load a previously exported plantbook-data.json">⬆ Import<input type="file" accept="application/json,.json" style="display:none" onchange="plantBookImport(this)"></label>
           <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mergeDuplicates()" title="Find and merge duplicate plants (same species imported twice). Keeps the verified / photo / most-complete record and flags spelling-variant near-duplicates for review.">⛙ Merge dupes</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#e8f0e4;color:var(--gm);border:1px solid var(--gm)" onclick="masterBookLoad(false)" title="Pull the latest Studio H master plant book from the server">☁ Pull master</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="masterBookPublish()" title="Publish your current plant book as the Studio H master (admin only)">☁ Publish master</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillImages()" title="Auto-fetch commercial-safe (CC0/CC BY) plant photos from iNaturalist for every plant missing one.">🖼 Fill missing images</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="addCustomPlant('${PB_BOOK.kind}')">+ Add ${PLANT_KIND_LABEL[PB_BOOK.kind].replace(/s$/,'').toLowerCase()}</button>
         </div>
@@ -3553,7 +3577,7 @@ function renderPlantBookList(){
         ${starBtn(kind,p)}
         <div style="flex:none;width:64px">
         <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" alt="" ${p.img?`data-img="${escAttr(p.img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p))}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA${p.img?';cursor:zoom-in':''}">
-        ${p.img?`${p.imgFlag?`<div style="font-size:.54rem;color:#b8952a;text-align:center;margin-top:.15rem;font-weight:700">⚠ verify</div>`:''}${(p.imgAttr&&p.imgLic&&p.imgLic!=="cc0")?`<div style="font-size:.5rem;color:var(--tl);line-height:1.15;margin-top:.1rem;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(p.imgAttr)}">© ${escAttr((p.imgAttr||"").replace(/^\(c\)\s*/i,"").slice(0,36))}</div>`:''}`:`<button class="btn" onclick="fetchOnePlantImage('${kind}','${p.id}')" style="width:64px;margin-top:.15rem;padding:.12rem;font-size:.54rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:5px;cursor:pointer" title="Fetch a commercial-safe photo">🖼 fetch</button>`}
+        ${p.img?`${(p.imgAlts&&p.imgAlts.length>1)?`<div style="display:flex;align-items:center;justify-content:center;gap:.2rem;margin-top:.15rem"><button class="btn" onclick="cyclePlantImage('${kind}','${p.id}',-1)" style="padding:0 .3rem;font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:4px;cursor:pointer">‹</button><span style="font-size:.52rem;color:var(--tl)">${(p._imgIdx||0)+1}/${p.imgAlts.length}</span><button class="btn" onclick="cyclePlantImage('${kind}','${p.id}',1)" style="padding:0 .3rem;font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:4px;cursor:pointer">›</button></div>`:''}${p.imgFlag?`<div style="font-size:.54rem;color:#b8952a;text-align:center;margin-top:.15rem;font-weight:700">⚠ verify</div>`:''}${(p.imgAttr&&p.imgLic&&p.imgLic!=="cc0")?`<div style="font-size:.5rem;color:var(--tl);line-height:1.15;margin-top:.1rem;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(p.imgAttr)}">© ${escAttr((p.imgAttr||"").replace(/^\(c\)\s*/i,"").slice(0,36))}</div>`:''}`:`<button class="btn" onclick="fetchOnePlantImage('${kind}','${p.id}')" style="width:64px;margin-top:.15rem;padding:.12rem;font-size:.54rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:5px;cursor:pointer" title="Fetch a commercial-safe photo">🖼 fetch</button>`}
         </div>        <div style="flex:1;min-width:180px">${fld("Common name",inp(p.c,`setPlantField('${kind}','${p.id}','c',this.value)`))}</div>
         <div style="flex:1.4;min-width:200px">${fld("Botanical name",`<input class="inp" value="${escAttr(p.b||'')}" style="font-size:.78rem;font-style:italic;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','b',this.value)">`)}</div>
         <div style="flex:.9;min-width:130px">${fld("Variety / cultivar",`<input class="inp" value="${escAttr(p.cv||'')}" placeholder="e.g. Hot Lips" style="font-size:.78rem;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','cv',this.value)">`)}</div>
