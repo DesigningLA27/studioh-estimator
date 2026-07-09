@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v305</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v306</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3158,6 +3158,14 @@ async function fillMissingImages(){ const licSel=(document.querySelector('input[
   if(typeof renderPlantBook==="function") renderPlantBook();
 }
 function fetchOnePlantImage(kind,pid){ const licenses=["cc0","cc-by","cc-by-sa"]; fetchPlantImage(kind,pid,licenses).then(res=>{ plantBookSave(); if(res.ok){ _afterColorChange(kind,pid); } else { alert(res.noproxy?"No worker connected.":res.notfound?"No commercial-safe photo found for this plant.":"Image lookup failed."); } }); }
+function _commonsSearchLink(p){ const q=(botName(p)||p.c||""); return `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(q)}&title=Special:MediaSearch&type=image`; }
+async function pasteCommonsImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
+  const url=prompt("Paste a Wikimedia Commons image link\n(from commons.wikimedia.org — these are commercial-safe):"); if(!url) return;
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"verifyimage",url:url.trim()})}); const d=await r.json();
+    if(d&&d.ok&&d.image){ p.img=d.image; p.imgLic=d.license||"cc-by"; p.imgAttr=d.attribution||""; p.imgFlag=false; p.imgConf="high"; p.imgSrc="Wikimedia"; p.imgAlts=[{image:d.image,license:d.license,licenseLabel:d.licenseLabel,attribution:d.attribution,confidence:"high",flag:false,source:"Wikimedia"}]; p._imgIdx=0; plantBookSave(); _afterColorChange(kind,pid); }
+    else alert(d&&d.error?d.error:"Couldn't verify that image. Use a Wikimedia Commons link."); }
+  catch(e){ alert("Couldn't verify that image ("+((e&&e.message)||"error")+")."); }
+}
 // ---- CSV master-plant importer ----
 function csvParse(text){ const rows=[]; let row=[],cur="",q=false; text=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
   for(let i=0;i<text.length;i++){ const ch=text[i];
@@ -3611,6 +3619,10 @@ function renderPlantBookList(){
         <div style="flex:none;width:64px">
         <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" alt="" ${p.img?`data-img="${escAttr(p.img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p))}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA${p.img?';cursor:zoom-in':''}">
         ${p.img?`${(p.imgAlts&&p.imgAlts.length>1)?`<div style="display:flex;align-items:center;justify-content:center;gap:.2rem;margin-top:.15rem"><button class="btn" onclick="cyclePlantImage('${kind}','${p.id}',-1)" style="padding:0 .3rem;font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:4px;cursor:pointer">‹</button><span style="font-size:.52rem;color:var(--tl)">${(p._imgIdx||0)+1}/${p.imgAlts.length}</span><button class="btn" onclick="cyclePlantImage('${kind}','${p.id}',1)" style="padding:0 .3rem;font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:4px;cursor:pointer">›</button></div>`:''}${p.imgFlag?`<div style="font-size:.54rem;color:#b8952a;text-align:center;margin-top:.15rem;font-weight:700">⚠ verify</div>`:''}${(p.imgAttr&&p.imgLic&&p.imgLic!=="cc0")?`<div style="font-size:.5rem;color:var(--tl);line-height:1.15;margin-top:.1rem;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(p.imgAttr)}">© ${escAttr((p.imgAttr||"").replace(/^\(c\)\s*/i,"").slice(0,36))}</div>`:''}`:`<button class="btn" onclick="fetchOnePlantImage('${kind}','${p.id}')" style="width:64px;margin-top:.15rem;padding:.12rem;font-size:.54rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:5px;cursor:pointer" title="Fetch a commercial-safe photo">🖼 fetch</button>`}
+        <div style="display:flex;flex-direction:column;gap:.1rem;margin-top:.2rem;width:64px">
+          <a href="${_commonsSearchLink(p)}" target="_blank" rel="noopener" style="font-size:.5rem;color:var(--gm);text-decoration:underline;text-align:center" title="Browse commercial-safe photos on Wikimedia Commons">⧉ Commons</a>
+          <button class="btn" onclick="pasteCommonsImage('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:#fff;border:1px solid var(--br);border-radius:4px;cursor:pointer" title="Paste a Wikimedia Commons image link">paste link</button>
+        </div>
         </div>        <div style="flex:1;min-width:180px">${fld("Common name",inp(p.c,`setPlantField('${kind}','${p.id}','c',this.value)`))}</div>
         <div style="flex:1.4;min-width:200px">${fld("Botanical name",`<input class="inp" value="${escAttr(p.b||'')}" style="font-size:.78rem;font-style:italic;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','b',this.value)">`)}</div>
         <div style="flex:.9;min-width:130px">${fld("Variety / cultivar",`<input class="inp" value="${escAttr(p.cv||'')}" placeholder="e.g. Hot Lips" style="font-size:.78rem;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','cv',this.value)">`)}</div>
@@ -4163,7 +4175,7 @@ function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(
       <div style="flex:1;min-width:0">
         <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.76rem">${botName(p)||''}</span></div>
         <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI, then set" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${availBadge(p)}${p.fav?'<span style="color:#D99A00">★</span>':''}${prio.join('')}</div>
-        <div style="font-size:.64rem;color:var(--tl);display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.2rem;align-items:center">${dims.join('<span style="color:var(--br)">·</span>')}${dims.length?'<span style="color:var(--br)">·</span>':''}${_lookLinkImg((botName(p)||p.c||"")+" plant","see photos")}</div>
+        <div style="font-size:.64rem;color:var(--tl);display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.2rem;align-items:center">${dims.join('<span style="color:var(--br)">·</span>')}${dims.length?'<span style="color:var(--br)">·</span>':''}${_lookLinkImg((botName(p)||p.c||"")+" plant","see photos")}<a href="${_commonsSearchLink(p)}" target="_blank" rel="noopener" style="color:var(--gm);text-decoration:underline">⧉ Commons</a><button onclick="pasteCommonsImage('${pk.kind}','${pk.pid}')" style="border:none;background:#eef3ea;color:var(--gm);border-radius:6px;padding:0 .3rem;font-size:.6rem;cursor:pointer" title="Paste a Wikimedia Commons image link">+ paste</button></div>
       </div>
       <div style="flex:none;text-align:right"><div style="font-size:.95rem;font-weight:800;color:${pcol(sc.pct)}">${sc.pct}%</div><div style="font-size:.54rem;color:var(--tl)">match</div></div>
     </div>`; };
@@ -4432,7 +4444,7 @@ function renderPlantingBuilder(){
     ${plantPhotoBtn(db)}
     <div style="min-width:0;flex:1">
       <div style="font-size:.88rem;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font-weight:600;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px" onclick="openPlantModal('${db.id}')" title="Open plant details & pricing">${db.c}</span>${bn?` <span style="font-style:italic;color:var(--tm);font-size:.8rem">${bn}</span>`:''}${extra||''}</div>
-      <div style="font-size:.76rem;color:var(--tm);display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;line-height:1.45;margin-top:.5rem">${sizeStr?`<span>${sizeStr}</span>`:''}${wuBadge(db.wu)}${lightBadge(lightOf(db))}${bloomColorBadge(db)}</div>
+      <div style="font-size:.76rem;color:var(--tm);display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;line-height:1.45;margin-top:.5rem">${sizeStr?`<span>${sizeStr}</span>`:''}${wuBadge(db.wu)}${lightBadge(lightOf(db))}${bloomColorBadge(db)}${!db.img?`<a href="${_commonsSearchLink(db)}" target="_blank" rel="noopener" style="font-size:.6rem;color:var(--gm);text-decoration:underline">⧉ Commons</a><button onclick="pasteCommonsImage(plantKindOf('${db.id}')||'shrub','${db.id}')" style="border:none;background:#eef3ea;color:var(--gm);border-radius:6px;padding:0 .3rem;font-size:.58rem;cursor:pointer" title="Paste a Wikimedia Commons image link">+ photo</button>`:''}</div>
     </div>
   </div>`; };
   // stepper whose middle is a text label (for cycling tree size / canopy) — font matches the other steppers
