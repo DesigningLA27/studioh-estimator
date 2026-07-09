@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v301</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v302</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3057,7 +3057,7 @@ const PLANT_KIND_LABEL={shrub:"Shrubs",tree:"Trees",palm:"Palms",gc:"Groundcover
     PLANT_DB[k]=saved[k];
   });
 })();
-function plantBookSave(){ try{ localStorage.setItem("studioh_plantbook_v1", JSON.stringify(PLANT_DB)); }catch(e){ alert("Could not save — browser storage may be full. Export your plant book and commit it to the repo to keep your images."); } if(typeof renderPlantBook==="function") renderPlantBook(); }
+function plantBookSave(){ try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ alert("Could not save — browser storage may be full. Export your plant book and commit it to the repo to keep your images."); } if(typeof renderPlantBook==="function") renderPlantBook(); }
 function plantBookMerge(data, mode){ if(!data) return; PLANT_KINDS.forEach(k=>{ if(!Array.isArray(data[k])) return; const byId={}; (PLANT_DB[k]=PLANT_DB[k]||[]).forEach(p=>byId[p.id]=p);
   data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; } } else { PLANT_DB[k].push(JSON.parse(JSON.stringify(p))); byId[p.id]=PLANT_DB[k][PLANT_DB[k].length-1]; } }); }); }
 // ── Master plant book on Cloudflare (server = source of truth) ──
@@ -3121,6 +3121,11 @@ async function fillMissingImages(){ const licSel=(document.querySelector('input[
     await new Promise(r=>setTimeout(r,120)); // throttle (polite to the free API)
   }
   plantBookSave(); if(prog) prog.innerHTML=`<b>Done.</b> ${found} images added${flagged?`, <span style="color:#b8952a">${flagged} flagged ⚠</span>`:''}${miss?`, ${miss} had no safe image`:''}. ${_fillStop?'(stopped)':''}`;
+  // auto-publish to the server so images persist (if admin key already saved)
+  try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+    if(key&&ep&&found>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (image fill)"})}); const dd=await rr.json(); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Server save failed — click ☁ Publish master."); }
+    else if(found>0 && prog){ prog.innerHTML+=`<br><b>Click ☁ Publish master to save these to the server.</b>`; }
+  }catch(e){ if(prog) prog.innerHTML+=`<br>⚠ Click ☁ Publish master to save to the server.`; }
   if(startBtn){ startBtn.textContent="Start"; startBtn.disabled=false; }
   if(typeof renderPlantBook==="function") renderPlantBook();
 }
