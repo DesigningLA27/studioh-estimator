@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v302</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v303</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -748,6 +748,8 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
         </p>
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn" onclick="configLoad(false)" style="font-size:.8rem;background:#e8f0e4;color:var(--gm);border:1px solid var(--gm)">☁ Pull pricing</button>
+        <button class="btn" onclick="configPublish()" style="font-size:.8rem;background:var(--gm);color:#fff;border:none">☁ Publish pricing</button>
         <button class="btn btn-o" onclick="pbExportCsv()" style="font-size:.8rem">Export CSV</button>
         <button class="btn btn-o" onclick="document.getElementById('pb-import-file').click()" style="font-size:.8rem">Import CSV</button>
         <input type="file" id="pb-import-file" accept=".csv" style="display:none" onchange="pbImportCsv(this.files[0])">
@@ -3081,6 +3083,32 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
 }
 // pull master on startup (server wins), non-blocking
 setTimeout(()=>{ try{ masterBookLoad(true); }catch(e){} }, 800);
+// ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
+const SHARED_CFG_KEYS=["studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1"];
+async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
+  const key=_adminKey(); if(!key) return;
+  if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
+  const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json();
+    if(d&&d.ok) alert("Pricing published to master ✓");
+    else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try again."); }
+    else alert("Publish failed: "+((d&&d.error)||"error"));
+  }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
+}
+async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})}); const d=await r.json();
+    if(d&&d.found&&d.config&&d.config.data){ const serverStamp=d.config.savedAt||""; let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
+      if(serverStamp && serverStamp===applied && silent) return; // already applied
+      Object.keys(d.config.data).forEach(k=>{ try{ localStorage.setItem(k,d.config.data[k]); }catch(e){} });
+      try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
+      if(silent){ // avoid reload loop: only reload once per session
+        let did=""; try{ did=sessionStorage.getItem("studioh_cfg_reloaded")||""; }catch(e){}
+        if(did!==serverStamp){ try{ sessionStorage.setItem("studioh_cfg_reloaded",serverStamp); }catch(e){} location.reload(); }
+      } else { alert("Pricing loaded from server. Reloading to apply."); location.reload(); }
+    } else if(!silent) alert("No master pricing on the server yet. Publish it first.");
+  }catch(e){ if(!silent) alert("Couldn't reach the server."); }
+}
+setTimeout(()=>{ try{ configLoad(true); }catch(e){} }, 1200);
 function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="plantbook-data.json"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
 function plantBookImport(input){ const f=input.files&&input.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=e=>{ try{ const data=JSON.parse(e.target.result); plantBookMerge(data,"overwrite"); plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof renderPlantingBuilder==="function") renderPlantingBuilder(); }catch(err){ alert("Import failed — that doesn't look like a plant-book file."); } input.value=""; }; rd.readAsText(f); }
 // ── Auto-fetch commercial-safe plant images (iNaturalist via worker) ──
