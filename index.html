@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v307</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v317</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -931,6 +931,7 @@ const CATS=[
     {n:"Glass Pool Fence",             u:"LF",q:0, lo:150,hi:380},
     {n:"Cable Railing",                u:"LF",q:0, lo:75, hi:185},
    ]},
+  {id:"pool", name:"Pool / Spa", desc:"Builder — shell, edges, coping, finish, spa, equipment, structural & utilities", lo:0,hi:0, maxA:1500, defA:0, builder:"pool", items:[]},
   {id:"water", name:"Water Features", desc:"Builder — basin, fountain wall, spillways, veneer, pump, filtration & utilities", lo:0,hi:0, maxA:2000, defA:0, builder:"water",
    items:[
     {n:"Prefab Fountain — Standard", u:"EA",q:0, lo:1500, hi:4000,  std:2500, role:"prefab", tier:0},
@@ -1510,6 +1511,7 @@ const S={
   kitchens:[],
   pergolas:[],
   waterFeatures:[],
+  pools:[],
   planting:null,
   pi:{client:"",project:"",address:"",date:new Date().toISOString().slice(0,10),notes:""},
 };
@@ -1821,6 +1823,7 @@ function buildProCats(){
     else if(cat.builder==="kitchen"){ renderKitchenBuilder(); }
     else if(cat.builder==="pergola"){ renderPergolaBuilder(); }
     else if(cat.builder==="water"){ renderWaterBuilder(); }
+    else if(cat.builder==="pool"){ renderPoolBuilder(); }
     else if(cat.builder==="planting"){ renderPlantingBuilder(); }
     else { renderProCatRows(cat.id); }
   });
@@ -1979,6 +1982,7 @@ function catSubtotalRaw(catId){
   else if(catId==="kitchen") base=kitchensSubtotal();
   else if(catId==="pergola") base=pergolasSubtotal();
   else if(catId==="water") base=waterFeaturesSubtotal();
+  else if(catId==="pool") base=poolsSubtotal();
   else if(catId==="planting") base=plantingSubtotal();
   else { const cs=S.cats[catId]; base=(cs&&cs.items)?cs.items.reduce((a,it)=>a+(it.checked?it.q*it.uc*(1+(+it.madj||0)/100):0),0):0; }
   return base * sectionMult(catId);
@@ -2146,6 +2150,7 @@ function setCatTier(catId,ti){
   else if(bcat&&bcat.builder==="kitchen"){ renderKitchenBuilder(); }
   else if(bcat&&bcat.builder==="pergola"){ renderPergolaBuilder(); }
   else if(bcat&&bcat.builder==="water"){ renderWaterBuilder(); }
+  else if(bcat&&bcat.builder==="pool"){ renderPoolBuilder(); }
   else if(bcat&&bcat.builder==="planting"){ renderPlantingBuilder(); }
   else { renderProCatRows(catId); }
   refreshCatTotals(catId); renderProSummary();
@@ -2797,6 +2802,333 @@ function waterFeatureSVG(w,i){
 
 function wfFt(n){ n=+n||0; const f=Math.floor(n), inch=Math.round((n-f)*12); return inch===0?(''+f):(inch===12?(''+(f+1)):(f?f+"'"+inch:n.toFixed(1))); }
 
+// ═══════════════════════════════════════════════════════
+//  POOL / SPA BUILDER  (Phase 1)
+//  SoCal placeholder prices — all editable in the builder's pricing panel,
+//  persisted to localStorage and synced to the server with the rest of pricing.
+// ═══════════════════════════════════════════════════════
+const POOL_PRICE_DEFAULTS={
+  exc:12, haul:6, shellGunite:42, shellShotcrete:44, steel:9,
+  plumbBase:3500, plumbRunPerFt:45, plumbRunIncluded:25,
+  finishPlaster:6, finishQuartz:11, finishPebble:14, finishTile:30, finishGlass:60,
+  waterlineTile:45,
+  copingStandard:45, copingPremiumStone:95, copingPorcelain:70, copingConcrete:40,
+  infinityPerLF:350, catchBasinPerSF:45, catchBasinTilePerSF:30, reservoirTank:4500,
+  zeroEdgePerLF:300, knifeEdgePerLF:420,
+  beamVeneerPerSF:42, beamCapPerLF:55,
+  bajaPerSF:45,
+  spaAttached:12000, spaFreestanding:20000, spaJetEA:250, spaSpillover:2500, spaBaseJets:6,
+  heaterGas:3500, heaterHeatPump:5500, filterDE:1400, pumpVS:1400, saltSystem:2200, automation:3500, ledEA:900,
+  coverManual:2500, coverAuto:12000,
+  caissonEA:3500, permit:2000, soilsReport:5000, structEng:4500,
+  gunitePremiumDepth:0
+};
+let POOL_PRICES=(function(){ try{ const s=JSON.parse(localStorage.getItem("studioh_poolprices_v1")||"null"); return Object.assign({},POOL_PRICE_DEFAULTS,s||{}); }catch(e){ return Object.assign({},POOL_PRICE_DEFAULTS); } })();
+// Energy / utility model (SoCal placeholder defaults — all editable, synced)
+const POOL_ENERGY_DEFAULTS={
+  gasRate:2.00,       // $/therm (SoCalGas, editable)
+  elecRate:0.32,      // $/kWh (SCE/LADWP/SDG&E avg, editable)
+  gasEff:0.82,        // gas heater thermal efficiency
+  hpCOP:5.0,          // heat pump coefficient of performance
+  lossUncovered:5.0,  // BTU/(hr·ft²·°F) total heat loss, no cover (evaporation dominates)
+  lossCovered:1.8,    // with cover on
+  pumpKwSingle:2.0,   // single-speed pump avg kW
+  pumpKwVS:0.6,       // variable-speed pump avg kW
+  solarOffset:0.70,   // fraction of heating a solar system can offset
+  solarInstall:8000   // rough solar-thermal install for payback
+};
+// Monthly avg AIR temps (°F), LA/OC inland climate normal — Jan..Dec, editable
+const POOL_CLIMATE_DEFAULT=[59,60,62,65,68,72,77,78,76,71,64,58];
+const POOL_CLIMATE_PROFILES={
+  coastal:[57,58,59,61,63,66,69,71,70,67,62,57],
+  inland: [58,60,63,67,72,78,84,85,82,74,64,57],
+  desert: [64,68,73,80,88,97,104,103,97,85,72,63]
+};
+const POOL_DESERT_CITIES=["palm springs","palm desert","indio","coachella","cathedral city","rancho mirage","la quinta","desert hot springs","yucca valley","victorville","hesperia","apple valley","lancaster","palmdale"];
+const POOL_COASTAL_CITIES=["santa monica","malibu","venice","marina del rey","manhattan beach","hermosa beach","redondo beach","long beach","san pedro","newport beach","laguna beach","huntington beach","dana point","san clemente","carlsbad","encinitas","del mar","la jolla","coronado","oceanside","ventura","santa barbara","san diego"];
+function detectPoolRegion(){ const c=((S.pi&&S.pi.city)||"").toLowerCase().trim(); if(!c) return "inland";
+  if(POOL_DESERT_CITIES.some(x=>c.indexOf(x)>=0)) return "desert";
+  if(POOL_COASTAL_CITIES.some(x=>c.indexOf(x)>=0)) return "coastal";
+  return "inland"; }
+function detectPoolUtility(){ const c=((S.pi&&S.pi.city)||"").toLowerCase(); let elec="SCE"; if(c.indexOf("los angeles")>=0||c.indexOf("van nuys")>=0||c.indexOf("hollywood")>=0||c.indexOf("venice")>=0||c.indexOf("san pedro")>=0) elec="LADWP"; else if(c.indexOf("san diego")>=0||c.indexOf("la jolla")>=0||c.indexOf("coronado")>=0||c.indexOf("del mar")>=0||c.indexOf("encinitas")>=0||c.indexOf("carlsbad")>=0) elec="SDG&E"; return elec+" + SoCalGas"; }
+function poolClimateTemps(p){ const mode=p.climate||"auto";
+  if(mode==="custom") return (POOL_ENERGY.temps||POOL_CLIMATE_DEFAULT);
+  // Auto: use AI-fetched city temps if we have them, else regional profile
+  if(mode==="auto"){ const city=((S.pi&&S.pi.city)||"").toLowerCase().trim(); if(city&&POOL_CITY_TEMPS[city]) return POOL_CITY_TEMPS[city]; const region=detectPoolRegion(); return POOL_CLIMATE_PROFILES[region]||POOL_CLIMATE_DEFAULT; }
+  return POOL_CLIMATE_PROFILES[mode]||POOL_CLIMATE_DEFAULT; }
+// AI-looked-up monthly avg temps, cached per city (persisted + synced)
+let POOL_CITY_TEMPS=(function(){ try{ return JSON.parse(localStorage.getItem("studioh_citytemps_v1")||"{}")||{}; }catch(e){ return {}; } })();
+function _saveCityTemps(){ try{ localStorage.setItem("studioh_citytemps_v1", JSON.stringify(POOL_CITY_TEMPS)); }catch(e){} }
+async function fetchCityTemps(city){ city=(city||"").trim(); if(!city) return; const key=city.toLowerCase(); if(POOL_CITY_TEMPS[key]) return; // cached
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  try{ const prompt=`Average monthly air temperatures (°F) for ${city}, California. Output ONLY a minified JSON array of 12 numbers, Jan..Dec, the average of daily high and low for each month. Example: [58,59,61,...]`;
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:200,system:"You output only a minified JSON array of 12 numbers. No other text.",messages:[{role:"user",content:prompt}]})}); const d=await r.json();
+    let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return; }
+    if(Array.isArray(arr)&&arr.length===12&&arr.every(n=>typeof n==="number"&&n>-20&&n<130)){ POOL_CITY_TEMPS[key]=arr; _saveCityTemps(); if(typeof poolRefresh==="function") poolRefresh(); }
+  }catch(e){}
+}
+const POOL_MONTH_DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
+const POOL_MONTH_NAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let POOL_ENERGY=(function(){ try{ const s=JSON.parse(localStorage.getItem("studioh_poolenergy_v1")||"null"); const o=Object.assign({},POOL_ENERGY_DEFAULTS,s&&s.vals||{}); o.temps=(s&&Array.isArray(s.temps)&&s.temps.length===12)?s.temps:POOL_CLIMATE_DEFAULT.slice(); return o; }catch(e){ const o=Object.assign({},POOL_ENERGY_DEFAULTS); o.temps=POOL_CLIMATE_DEFAULT.slice(); return o; } })();
+function poolEnergySave(){ try{ const vals={}; Object.keys(POOL_ENERGY_DEFAULTS).forEach(k=>vals[k]=POOL_ENERGY[k]); localStorage.setItem("studioh_poolenergy_v1", JSON.stringify({vals,temps:POOL_ENERGY.temps})); }catch(e){} }
+function PE(k){ const v=POOL_ENERGY[k]; return (v==null?POOL_ENERGY_DEFAULTS[k]:v)||0; }
+function setPoolEnergy(k,v){ POOL_ENERGY[k]=+v||0; poolEnergySave(); poolRefresh(); }
+function setPoolTemp(m,v){ if(!Array.isArray(POOL_ENERGY.temps))POOL_ENERGY.temps=POOL_CLIMATE_DEFAULT.slice(); POOL_ENERGY.temps[m]=+v||0; poolEnergySave(); poolRefresh(); }
+
+function poolEnergyReport(p){ const g=poolGeom(p); const E=POOL_ENERGY; const temps=poolClimateTemps(p);
+  const target=+p.targetTemp||82; const yearRound=(p.heatSeason||"year")==="year";
+  const seasonMonths=yearRound?[0,1,2,3,4,5,6,7,8,9,10,11]:[3,4,5,6,7,8,9]; // Apr–Oct if seasonal
+  const hasCover=(p.cover==="auto"||p.cover==="manual");
+  const btuFor=coeff=>{ let sum=0; const per=[]; for(let m=0;m<12;m++){ const air=temps[m]; const diff=Math.max(0,target-air); const active=seasonMonths.indexOf(m)>=0; const b=active? g.surface*diff*coeff*24*POOL_MONTH_DAYS[m] : 0; sum+=b; per.push(b); } return {sum,per}; };
+  const cov=btuFor(PE("lossCovered")), unc=btuFor(PE("lossUncovered"));
+  const usedBTU=hasCover?cov:unc;
+  const heatCost=(btu,type)=> type==="heatpump" ? (btu/3412/Math.max(1,PE("hpCOP")))*PE("elecRate") : type==="gas" ? (btu/Math.max(.5,PE("gasEff")))/100000*PE("gasRate") : 0;
+  const heaterType=p.heaterType==="none"?"gas":p.heaterType;
+  const heatAnnual=heatCost(usedBTU.sum,heaterType);
+  const heatMonthly=usedBTU.per.map(b=>heatCost(b,heaterType));
+  // pump
+  const pumpHours=+p.pumpHours||8; const pumpKw=p.pumpVS?PE("pumpKwVS"):PE("pumpKwSingle");
+  const pumpAnnual=pumpKw*pumpHours*365*PE("elecRate");
+  const pumpSingle=PE("pumpKwSingle")*pumpHours*365*PE("elecRate");
+  const pumpVS=PE("pumpKwVS")*pumpHours*365*PE("elecRate");
+  // comparisons
+  const gasAnnual=heatCost(usedBTU.sum,"gas"), hpAnnual=heatCost(usedBTU.sum,"heatpump");
+  const coverSave=heatCost(unc.sum,heaterType)-heatCost(cov.sum,heaterType);
+  const pumpSave=pumpSingle-pumpVS;
+  const solarSave=heatAnnual*PE("solarOffset"); const solarPayback=solarSave>0?PE("solarInstall")/solarSave:0;
+  return { surface:g.surface, volGal:g.volGal, target, hasCover, yearRound, heaterType,
+    heatAnnual, heatMonthly, pumpAnnual, totalAnnual:heatAnnual+pumpAnnual,
+    gasAnnual, hpAnnual, coverSave, pumpSave, pumpSingle, pumpVS, solarSave, solarPayback };
+}
+function poolPriceSave(){ try{ localStorage.setItem("studioh_poolprices_v1", JSON.stringify(POOL_PRICES)); }catch(e){} }
+function PP(k){ const v=POOL_PRICES[k]; return (v==null?POOL_PRICE_DEFAULTS[k]:v)||0; }
+function setPoolPrice(k,v){ POOL_PRICES[k]=Math.max(0,Math.round(+v||0)); poolPriceSave(); poolRefresh(); }
+
+function newPool(){ return {
+  title:"", shell:"gunite",
+  useSF:false, lenFt:30, widFt:15, sfDirect:450, perimLF:0,
+  depthShallow:3.5, depthDeep:6,
+  // edges
+  edgeType:"standard", edgeLF:0, edgeCoping:"standard",
+  // infinity specifics
+  catchBasinAuto:true, catchBasinWidthFt:2, reservoir:false,
+  // finish
+  finishType:"plaster", finishScope:"full",
+  // coping
+  copingType:"copingStandard", copingProfile:"bullnose", copingOhIn:2, copingLF:0,
+  // raised bond beam
+  raisedBeam:false, beamLF:0, beamHeightIn:18, beamSides:"one", beamCap:true, beamVeneer:"stone",
+  // baja shelf
+  baja:false, bajaSF:40,
+  // spa
+  spa:false, spaType:"attached", spaJets:6, spaSpillover:true,
+  // equipment
+  heaterType:"gas", heaterQty:1, filter:true, pumpVS:true, salt:false, automation:false, ledQty:2, cover:"none",
+  // structural / site
+  caissons:false, caissonQty:0, equipRunFt:40, streetRunFt:0,
+  permit:true, soilsReport:false, structEng:false,
+  // operating / energy
+  targetTemp:82, heatSeason:"year", pumpHours:8, climate:"auto",
+  notes:""
+}; }
+function addPool(){ if(!S.pools)S.pools=[]; S.pools.push(newPool()); S.cats.pool.on=true; poolRefresh(); }
+function delPool(i){ S.pools.splice(i,1); poolRefresh(); }
+function setPool(i,k,v){ const p=S.pools[i]; if(!p)return; p[k]=v; poolRefresh(); }
+function setPoolNum(i,k,v){ const p=S.pools[i]; if(!p)return; p[k]=+v||0; poolRefresh(); }
+function setPoolBool(i,k,v){ const p=S.pools[i]; if(!p)return; p[k]=!!v; poolRefresh(); }
+function stepPool(i,k,d,min){ const p=S.pools[i]; if(!p)return; p[k]=Math.max(min==null?0:min,Math.round(((+p[k]||0)+d)*100)/100); poolRefresh(); }
+
+function poolGeom(p){ const surface=p.useSF?(+p.sfDirect||0):((+p.lenFt||0)*(+p.widFt||0));
+  const perimeter=(+p.perimLF>0)?+p.perimLF:(p.useSF?Math.round(4*Math.sqrt(Math.max(surface,1))):2*((+p.lenFt||0)+(+p.widFt||0)));
+  const avgDepth=((+p.depthShallow||0)+(+p.depthDeep||0))/2;
+  const wallArea=perimeter*avgDepth; const interior=surface+wallArea;
+  const volCF=surface*avgDepth; const volGal=volCF*7.48;
+  return {surface,perimeter,avgDepth,wallArea,interior,volCF,volGal}; }
+
+function poolLines(p){ const g=poolGeom(p); const L=[]; const add=(label,qty,unit,rate)=>{ const t=Math.round(qty*rate); if(t>0||qty>0) L.push({label,qty:Math.round(qty*10)/10,unit,rate,total:t}); };
+  // shell system
+  add("Excavation & haul", g.surface, "SF", PP("exc")+PP("haul"));
+  add(p.shell==="shotcrete"?"Shotcrete shell":"Gunite shell", g.interior, "SF", p.shell==="shotcrete"?PP("shellShotcrete"):PP("shellGunite"));
+  add("Steel / rebar", g.interior, "SF", PP("steel"));
+  // plumbing + run
+  const runExtra=Math.max(0,(+p.equipRunFt||0)-PP("plumbRunIncluded"));
+  L.push({label:"Plumbing & equipment set (base)",qty:1,unit:"LS",rate:PP("plumbBase"),total:PP("plumbBase")});
+  if(runExtra>0) add("Equipment plumbing run (beyond "+PP("plumbRunIncluded")+" ft)", runExtra, "LF", PP("plumbRunPerFt"));
+  // interior finish
+  const finMap={plaster:"finishPlaster",quartz:"finishQuartz",pebble:"finishPebble",tile:"finishTile",glass:"finishGlass"};
+  const finRate=PP(finMap[p.finishType]||"finishPlaster");
+  if(p.finishScope==="full"){ add("Interior finish — "+p.finishType+" (full)", g.interior, "SF", finRate); }
+  else { add("Interior finish — plaster (field)", g.interior, "SF", PP("finishPlaster")); }
+  // waterline tile band (unless full tile/glass finish)
+  if(!(p.finishScope==="full"&&(p.finishType==="tile"||p.finishType==="glass"))) add("Waterline tile band", g.perimeter, "LF", PP("waterlineTile"));
+  // coping
+  const copeLF=(+p.copingLF>0)?+p.copingLF:g.perimeter; add("Coping — "+({copingStandard:"standard",copingPremiumStone:"premium stone",copingPorcelain:"porcelain",copingConcrete:"concrete"}[p.copingType]||"standard")+(p.copingProfile?" ("+p.copingProfile+")":""), copeLF, "LF", PP(p.copingType||"copingStandard"));
+  // edges
+  if(p.edgeType==="infinity"){ const elf=(+p.edgeLF||0)||Math.round(g.perimeter*0.25); add("Infinity / vanishing edge", elf, "LF", PP("infinityPerLF"));
+    const basinSF=elf*(+p.catchBasinWidthFt||2); add("Catch basin — shell + waterproofing", basinSF, "SF", PP("catchBasinPerSF")); add("Catch basin — tile", basinSF, "SF", PP("catchBasinTilePerSF"));
+    if(p.reservoir) L.push({label:"Surge / reservoir tank",qty:1,unit:"EA",rate:PP("reservoirTank"),total:PP("reservoirTank")});
+  } else if(p.edgeType==="zero"){ const elf=(+p.edgeLF||0)||Math.round(g.perimeter*0.25); add("Zero / slot edge", elf, "LF", PP("zeroEdgePerLF")); }
+  else if(p.edgeType==="knife"){ const elf=(+p.edgeLF||0)||Math.round(g.perimeter*0.25); add("Knife / Lautner edge", elf, "LF", PP("knifeEdgePerLF")); }
+  // raised bond beam
+  if(p.raisedBeam){ const blf=+p.beamLF||0; const venSF=blf*((+p.beamHeightIn||0)/12)*(p.beamSides==="two"?2:1); add("Raised bond beam veneer ("+(p.beamSides==="two"?"both sides":"one side")+")", venSF, "SF", PP("beamVeneerPerSF")); if(p.beamCap) add("Bond beam cap / coping", blf, "LF", PP("beamCapPerLF")); }
+  // baja shelf
+  if(p.baja) add("Baja / tanning shelf", +p.bajaSF||0, "SF", PP("bajaPerSF"));
+  // spa
+  if(p.spa){ L.push({label:"Spa — "+(p.spaType==="freestanding"?"freestanding spillover":"attached")+" (base)",qty:1,unit:"EA",rate:p.spaType==="freestanding"?PP("spaFreestanding"):PP("spaAttached"),total:p.spaType==="freestanding"?PP("spaFreestanding"):PP("spaAttached")});
+    const extraJets=Math.max(0,(+p.spaJets||0)-PP("spaBaseJets")); if(extraJets>0) add("Spa — extra jets", extraJets, "EA", PP("spaJetEA"));
+    if(p.spaSpillover) L.push({label:"Spa spillover to pool",qty:1,unit:"EA",rate:PP("spaSpillover"),total:PP("spaSpillover")}); }
+  // equipment
+  if(p.heaterType==="gas") add("Gas heater", +p.heaterQty||1, "EA", PP("heaterGas"));
+  else if(p.heaterType==="heatpump") add("Heat pump", +p.heaterQty||1, "EA", PP("heaterHeatPump"));
+  if(p.filter) L.push({label:"Filter (DE/cartridge)",qty:1,unit:"EA",rate:PP("filterDE"),total:PP("filterDE")});
+  if(p.pumpVS) L.push({label:"Variable-speed pump (Title 24)",qty:1,unit:"EA",rate:PP("pumpVS"),total:PP("pumpVS")});
+  if(p.salt) L.push({label:"Salt chlorination system",qty:1,unit:"EA",rate:PP("saltSystem"),total:PP("saltSystem")});
+  if(p.automation) L.push({label:"Automation / remote control",qty:1,unit:"EA",rate:PP("automation"),total:PP("automation")});
+  if((+p.ledQty||0)>0) add("LED pool/spa lights", +p.ledQty||0, "EA", PP("ledEA"));
+  if(p.cover==="manual") L.push({label:"Manual pool cover",qty:1,unit:"EA",rate:PP("coverManual"),total:PP("coverManual")});
+  else if(p.cover==="auto") L.push({label:"Automatic pool cover",qty:1,unit:"EA",rate:PP("coverAuto"),total:PP("coverAuto")});
+  // structural / site
+  if(p.caissons&&(+p.caissonQty||0)>0) add("Structural caissons (drilled piers)", +p.caissonQty||0, "EA", PP("caissonEA"));
+  if(p.permit) L.push({label:"Permit & plan check",qty:1,unit:"LS",rate:PP("permit"),total:PP("permit")});
+  if(p.soilsReport) L.push({label:"Soils / geotech report",qty:1,unit:"LS",rate:PP("soilsReport"),total:PP("soilsReport")});
+  if(p.structEng) L.push({label:"Structural engineering",qty:1,unit:"LS",rate:PP("structEng"),total:PP("structEng")});
+  return L;
+}
+function poolCost(p){ return poolLines(p).reduce((a,l)=>a+l.total,0); }
+function poolsSubtotal(){ return (S.pools||[]).reduce((a,p)=>a+poolCost(p),0); }
+function poolRefresh(){ renderPoolBuilder(); refreshCatTotals("pool"); if(typeof renderProSummary==="function") renderProSummary(); }
+function _pNum(i,k,val,min,step,w){ return `<input type="number" value="${val}" min="${min==null?0:min}" step="${step||1}" oninput="setPoolNum(${i},'${k}',this.value)" style="width:${w||64}px;padding:.25rem .3rem;border:1px solid var(--br);border-radius:6px;font-size:.82rem">`; }
+function _pSel(i,k,val,opts){ return `<select onchange="setPool(${i},'${k}',this.value)" style="padding:.28rem .3rem;border:1px solid var(--br);border-radius:6px;font-size:.82rem">${opts.map(o=>`<option value="${o[0]}" ${val===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select>`; }
+function _pChk(i,k,val,label){ return `<label style="display:inline-flex;align-items:center;gap:.3rem;font-size:.82rem;cursor:pointer"><input type="checkbox" ${val?'checked':''} onchange="setPoolBool(${i},'${k}',this.checked)"> ${label}</label>`; }
+function _pFld(label,inner){ return `<div style="display:flex;flex-direction:column;gap:.2rem"><span style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700">${label}</span><div style="display:flex;align-items:center;gap:.3rem">${inner}</div></div>`; }
+function _pSection(title,inner){ return `<div style="border-top:1px solid var(--br);padding:.7rem 0"><div style="font-size:.7rem;font-weight:700;color:var(--gm);text-transform:uppercase;letter-spacing:.03em;margin-bottom:.5rem">${title}</div><div style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:flex-end">${inner}</div></div>`; }
+function renderPoolBuilder(){
+  const host=document.getElementById("pool-builder"); if(!host) return;
+  const pools=S.pools||[];
+  let html=`<div style="padding:.5rem 1rem 1rem">`;
+  if(!pools.length){ html+=`<div style="text-align:center;padding:1.5rem;color:var(--tm)"><p style="margin-bottom:.7rem;font-size:.9rem">Build a pool or spa — shell, edges, coping, finish, spa, equipment, and structural.</p><button class="btn" onclick="addPool()" style="background:var(--gm);color:#fff;border:none;padding:.5rem 1.2rem;font-size:.9rem;font-weight:600">+ Add pool / spa</button></div>`; }
+  pools.forEach((p,i)=>{ const g=poolGeom(p); const lines=poolLines(p); const total=lines.reduce((a,l)=>a+l.total,0);
+    html+=`<div style="border:1px solid var(--br);border-radius:12px;padding:1rem 1.1rem;margin-bottom:1rem;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.3rem">
+        <input value="${escAttr(p.title||'')}" placeholder="Pool / spa name (optional)" oninput="setPool(${i},'title',this.value)" style="flex:1;font-size:1rem;font-weight:600;border:none;border-bottom:1px solid var(--br);padding:.2rem 0;background:transparent">
+        <button class="btn" onclick="delPool(${i})" style="background:#fff;border:1px solid #B23F3C;color:#B23F3C;font-size:.72rem;padding:.2rem .6rem">Remove</button>
+      </div>
+      <div style="background:#EEF3EA;border-radius:8px;padding:.5rem .7rem;margin:.4rem 0;font-size:.82rem;color:var(--gm);display:flex;gap:1.2rem;flex-wrap:wrap">
+        <span><b>${g.surface.toLocaleString()}</b> SF surface</span><span><b>${Math.round(g.perimeter)}</b> LF perimeter</span><span><b>${Math.round(g.volGal).toLocaleString()}</b> gal</span><span><b>${Math.round(g.volCF).toLocaleString()}</b> cu ft</span><span>avg depth <b>${g.avgDepth.toFixed(1)}</b> ft</span>
+      </div>`;
+    // geometry
+    html+=_pSection("Shell & size",
+      _pFld("Shell",_pSel(i,"shell",p.shell,[["gunite","Gunite"],["shotcrete","Shotcrete"]]))+
+      _pFld("Enter by",_pSel(i,"useSF",p.useSF?"1":"0",[["0","L × W"],["1","Direct SF"]]).replace("setPool(","setPoolBool(").replace("'useSF',this.value","'useSF',this.value==='1'"))+
+      (p.useSF? _pFld("Surface SF",_pNum(i,"sfDirect",p.sfDirect,0,10,80))+_pFld("Perimeter LF (opt)",_pNum(i,"perimLF",p.perimLF,0,1,80))
+              : _pFld("Length ft",_pNum(i,"lenFt",p.lenFt,0,1))+_pFld("Width ft",_pNum(i,"widFt",p.widFt,0,1)))+
+      _pFld("Shallow ft",_pNum(i,"depthShallow",p.depthShallow,0,.5,60))+
+      _pFld("Deep ft",_pNum(i,"depthDeep",p.depthDeep,0,.5,60))
+    );
+    // edges
+    html+=_pSection("Edge treatment",
+      _pFld("Edge type",_pSel(i,"edgeType",p.edgeType,[["standard","Standard (coping)"],["infinity","Infinity / vanishing"],["zero","Zero / slot"],["knife","Knife / Lautner"]]))+
+      (p.edgeType!=="standard"? _pFld("Edge LF (0=auto)",_pNum(i,"edgeLF",p.edgeLF,0,1,80)):"")+
+      (p.edgeType==="infinity"? _pFld("Catch basin width ft",_pNum(i,"catchBasinWidthFt",p.catchBasinWidthFt,0,.5,70))+`<div style="align-self:center">${_pChk(i,"reservoir",p.reservoir,"Surge/reservoir tank")}</div>`:"")
+    );
+    // finish
+    html+=_pSection("Interior finish",
+      _pFld("Finish",_pSel(i,"finishType",p.finishType,[["plaster","Plaster"],["quartz","Quartz"],["pebble","Pebble"],["tile","All-tile"],["glass","Glass tile"]]))+
+      _pFld("Scope",_pSel(i,"finishScope",p.finishScope,[["full","Full pool"],["waterline","Waterline only (plaster field)"]]))
+    );
+    // coping
+    html+=_pSection("Coping",
+      _pFld("Type",_pSel(i,"copingType",p.copingType,[["copingConcrete","Concrete"],["copingStandard","Standard stone"],["copingPorcelain","Porcelain"],["copingPremiumStone","Premium stone"]]))+
+      _pFld("Profile",_pSel(i,"copingProfile",p.copingProfile,[["bullnose","Bullnose"],["square","Square"],["dropface","Drop-face"]]))+
+      _pFld("Overhang in",_pNum(i,"copingOhIn",p.copingOhIn,0,.5,60))+
+      _pFld("LF (0=perimeter)",_pNum(i,"copingLF",p.copingLF,0,1,80))
+    );
+    // raised bond beam
+    html+=`<div style="border-top:1px solid var(--br);padding:.7rem 0"><div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap"><div style="font-size:.7rem;font-weight:700;color:var(--gm);text-transform:uppercase">Raised bond beam</div>${_pChk(i,"raisedBeam",p.raisedBeam,"Has raised beam")}</div>`;
+    if(p.raisedBeam){ html+=`<div style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:flex-end;margin-top:.5rem">`+
+      _pFld("Beam LF",_pNum(i,"beamLF",p.beamLF,0,1,70))+
+      _pFld("Height in",_pNum(i,"beamHeightIn",p.beamHeightIn,0,1,70))+
+      _pFld("Veneer sides",_pSel(i,"beamSides",p.beamSides,[["one","One side"],["two","Both sides"]]))+
+      `<div style="align-self:center">${_pChk(i,"beamCap",p.beamCap,"Cap / coping on beam")}</div>`+`</div>`; }
+    html+=`</div>`;
+    // baja + spa
+    html+=`<div style="border-top:1px solid var(--br);padding:.7rem 0"><div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap"><div style="font-size:.7rem;font-weight:700;color:var(--gm);text-transform:uppercase">Baja shelf</div>${_pChk(i,"baja",p.baja,"Add baja / tanning shelf")}${p.baja?_pFld("SF",_pNum(i,"bajaSF",p.bajaSF,0,5,70)):""}</div></div>`;
+    html+=`<div style="border-top:1px solid var(--br);padding:.7rem 0"><div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap"><div style="font-size:.7rem;font-weight:700;color:var(--gm);text-transform:uppercase">Spa</div>${_pChk(i,"spa",p.spa,"Add spa")}</div>`;
+    if(p.spa){ html+=`<div style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:flex-end;margin-top:.5rem">`+
+      _pFld("Type",_pSel(i,"spaType",p.spaType,[["attached","Attached (shared)"],["freestanding","Freestanding spillover"]]))+
+      _pFld("Jets",_pNum(i,"spaJets",p.spaJets,0,1,60))+
+      `<div style="align-self:center">${_pChk(i,"spaSpillover",p.spaSpillover,"Spillover to pool")}</div>`+`</div>`; }
+    html+=`</div>`;
+    // equipment
+    html+=_pSection("Equipment",
+      _pFld("Heater",_pSel(i,"heaterType",p.heaterType,[["gas","Gas"],["heatpump","Heat pump"],["none","None"]]))+
+      (p.heaterType!=="none"?_pFld("Qty",_pNum(i,"heaterQty",p.heaterQty,1,1,55)):"")+
+      _pFld("LED lights",_pNum(i,"ledQty",p.ledQty,0,1,55))+
+      _pFld("Cover",_pSel(i,"cover",p.cover,[["none","None"],["manual","Manual"],["auto","Automatic"]]))+
+      `<div style="align-self:center;display:flex;gap:.8rem;flex-wrap:wrap">${_pChk(i,"filter",p.filter,"Filter")}${_pChk(i,"pumpVS",p.pumpVS,"VS pump")}${_pChk(i,"salt",p.salt,"Salt")}${_pChk(i,"automation",p.automation,"Automation")}</div>`
+    );
+    // structural / site
+    html+=_pSection("Structural & site",
+      `<div style="align-self:center">${_pChk(i,"caissons",p.caissons,"Caissons")}</div>`+
+      (p.caissons?_pFld("Caisson qty",_pNum(i,"caissonQty",p.caissonQty,0,1,60)):"")+
+      _pFld("Equip run ft",_pNum(i,"equipRunFt",p.equipRunFt,0,5,70))+
+      `<div style="align-self:center;display:flex;gap:.8rem;flex-wrap:wrap">${_pChk(i,"permit",p.permit,"Permit")}${_pChk(i,"soilsReport",p.soilsReport,"Soils report")}${_pChk(i,"structEng",p.structEng,"Struct. eng.")}</div>`
+    );
+    // line items
+    html+=`<div style="border-top:2px solid var(--gm);margin-top:.8rem;padding-top:.6rem">
+      <div style="font-size:.7rem;font-weight:700;color:var(--gm);text-transform:uppercase;margin-bottom:.4rem">Line items</div>
+      <table style="width:100%;border-collapse:collapse;font-size:.78rem">${lines.map(l=>`<tr style="border-bottom:1px solid #F0ECE2"><td style="padding:.25rem 0;color:var(--tm)">${l.label}</td><td style="text-align:right;color:var(--tl);white-space:nowrap;padding-left:.5rem">${l.qty} ${l.unit} × $${l.rate.toLocaleString()}</td><td style="text-align:right;font-weight:600;white-space:nowrap;padding-left:.7rem">$${l.total.toLocaleString()}</td></tr>`).join('')}</table>
+      <div style="display:flex;justify-content:space-between;margin-top:.5rem;font-weight:700;font-size:.95rem;color:var(--gm)"><span>Pool total</span><span>$${total.toLocaleString()}</span></div>
+    </div>`;
+    // ── operating cost & savings report ──
+    const R=poolEnergyReport(p); const money=n=>"$"+Math.round(n).toLocaleString();
+    const _region=(p.climate==="auto")?detectPoolRegion():(p.climate==="custom"?"custom":p.climate);
+    const _city=(S.pi&&S.pi.city)||""; const _util=detectPoolUtility(); const _aiTemps=!!(_city&&POOL_CITY_TEMPS[_city.toLowerCase()]&&(p.climate==="auto"));
+    html+=`<div style="border:1px solid #cfe0d6;border-radius:10px;padding:.9rem 1rem;margin-top:.2rem;background:#F4F9F5">
+      <div style="font-size:.82rem;font-weight:700;color:var(--gm);text-transform:uppercase;letter-spacing:.03em">Operating cost & savings <span style="font-weight:600;color:#9a6b1f">· estimate</span></div>
+      <div style="font-size:.66rem;color:var(--tl);margin:.2rem 0 .6rem">${_city?`From project address (<b>${_city}</b>): ${_aiTemps?`<b style="color:var(--gm)">actual monthly temps</b>`:_region+" climate"} · likely ${_util}. `:''}Assumes ${R.target}°F water, ${R.yearRound?'year-round':'Apr–Oct'} heating, ${R.hasCover?'cover ON':'no cover'}, ${R.heaterType==='heatpump'?'heat pump':'gas'} heat. Rates & temps editable below.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;margin-bottom:.7rem">
+        ${_pFld("Target °F",_pNum(i,"targetTemp",p.targetTemp,50,1,60))}
+        ${_pFld("Heating",_pSel(i,"heatSeason",p.heatSeason,[["year","Year-round"],["season","Apr–Oct"]]))}
+        ${_pFld("Pump hrs/day",_pNum(i,"pumpHours",p.pumpHours,0,1,60))}
+        ${_pFld("Climate",_pSel(i,"climate",p.climate,[["auto","Auto (address)"],["coastal","Coastal"],["inland","Inland"],["desert","Desert"],["custom","Custom temps"]]))}
+      </div>
+      <div style="display:flex;gap:1.4rem;flex-wrap:wrap;padding:.5rem 0;border-top:1px solid #dce8e0;border-bottom:1px solid #dce8e0">
+        <div><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase">Heating / yr</div><div style="font-size:1.05rem;font-weight:700">${money(R.heatAnnual)}</div></div>
+        <div><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase">Pump / yr</div><div style="font-size:1.05rem;font-weight:700">${money(R.pumpAnnual)}</div></div>
+        <div><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase">Total / yr</div><div style="font-size:1.15rem;font-weight:800;color:var(--gm)">${money(R.totalAnnual)}</div></div>
+        <div><div style="font-size:.62rem;color:var(--tl);text-transform:uppercase">Per month avg</div><div style="font-size:1.05rem;font-weight:700">${money(R.totalAnnual/12)}</div></div>
+      </div>
+      <div style="font-size:.72rem;font-weight:700;color:var(--gm);margin:.6rem 0 .3rem;text-transform:uppercase">Ways to save (with the math)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:.75rem">
+        ${R.heaterType!=="heatpump"&&(R.gasAnnual-R.hpAnnual)>0?`<tr style="border-bottom:1px solid #e6efe8"><td style="padding:.3rem 0">Switch gas → heat pump</td><td style="text-align:right;color:var(--tl)">${money(R.gasAnnual)} → ${money(R.hpAnnual)}/yr</td><td style="text-align:right;font-weight:700;color:#2e7d32;white-space:nowrap">save ${money(R.gasAnnual-R.hpAnnual)}/yr</td></tr>`:''}
+        ${!R.hasCover&&R.coverSave>0?`<tr style="border-bottom:1px solid #e6efe8"><td style="padding:.3rem 0">Add a pool cover (cuts evaporation)</td><td style="text-align:right;color:var(--tl)">~50–65% less loss</td><td style="text-align:right;font-weight:700;color:#2e7d32;white-space:nowrap">save ${money(R.coverSave)}/yr</td></tr>`:''}
+        ${!p.pumpVS&&R.pumpSave>0?`<tr style="border-bottom:1px solid #e6efe8"><td style="padding:.3rem 0">Variable-speed pump</td><td style="text-align:right;color:var(--tl)">${money(R.pumpSingle)} → ${money(R.pumpVS)}/yr</td><td style="text-align:right;font-weight:700;color:#2e7d32;white-space:nowrap">save ${money(R.pumpSave)}/yr</td></tr>`:''}
+        ${R.solarSave>0?`<tr><td style="padding:.3rem 0">Solar heating (offsets ~${Math.round(PE("solarOffset")*100)}%)</td><td style="text-align:right;color:var(--tl)">~${R.solarPayback>0?R.solarPayback.toFixed(1)+' yr payback':''}</td><td style="text-align:right;font-weight:700;color:#2e7d32;white-space:nowrap">save ${money(R.solarSave)}/yr</td></tr>`:''}
+      </table>
+      <details style="margin-top:.6rem"><summary style="cursor:pointer;font-size:.72rem;font-weight:600;color:var(--gm)">⚙ Edit utility rates & climate</summary>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.3rem .7rem;margin:.4rem 0">
+          ${[["gasRate","Gas $/therm"],["elecRate","Elec $/kWh"],["gasEff","Gas eff."],["hpCOP","Heat-pump COP"],["lossUncovered","Loss no-cover"],["lossCovered","Loss w/cover"],["pumpKwSingle","1-spd pump kW"],["pumpKwVS","VS pump kW"],["solarOffset","Solar offset"],["solarInstall","Solar $ install"]].map(o=>`<label style="display:flex;justify-content:space-between;gap:.3rem;font-size:.68rem;color:var(--tm)"><span>${o[1]}</span><input type="number" step="0.01" value="${PE(o[0])}" oninput="setPoolEnergy('${o[0]}',this.value)" style="width:62px;text-align:right;border:1px solid var(--br);border-radius:4px;font-size:.7rem"></label>`).join('')}
+        </div>
+        <div style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin:.3rem 0 .2rem">Avg air temp °F by month</div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:.25rem">
+          ${POOL_MONTH_NAMES.map((mn,m)=>`<label style="display:flex;flex-direction:column;font-size:.6rem;color:var(--tl);align-items:center"><span>${mn}</span><input type="number" value="${(POOL_ENERGY.temps||POOL_CLIMATE_DEFAULT)[m]}" oninput="setPoolTemp(${m},this.value)" style="width:44px;text-align:center;border:1px solid var(--br);border-radius:4px;font-size:.68rem"></label>`).join('')}
+        </div>
+      </details>
+    </div>`;
+    html+=`</div>`;
+  });
+  if(pools.length){ html+=`<button class="btn" onclick="addPool()" style="background:#fff;border:1px solid var(--gm);color:var(--gm);padding:.4rem 1rem;font-size:.85rem;margin-bottom:.8rem">+ Add another pool / spa</button>`;
+    // pricing editor
+    html+=`<details style="margin-top:.5rem;border:1px solid var(--br);border-radius:8px;padding:.5rem .8rem"><summary style="cursor:pointer;font-size:.82rem;font-weight:600;color:var(--gm)">⚙ Edit pool pricing (SoCal placeholders — adjust to your real numbers)</summary>
+      <div style="font-size:.7rem;color:#9a6b1f;margin:.4rem 0">These are starting placeholders from market research, not your verified prices. Edit each to your real costs — they save and sync with the rest of your pricing.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:.4rem .8rem">${Object.keys(POOL_PRICE_DEFAULTS).map(k=>`<label style="display:flex;justify-content:space-between;align-items:center;gap:.4rem;font-size:.72rem;color:var(--tm)"><span>${k}</span><input type="number" value="${PP(k)}" oninput="setPoolPrice('${k}',this.value)" style="width:80px;padding:.15rem .3rem;border:1px solid var(--br);border-radius:5px;font-size:.75rem;text-align:right"></label>`).join('')}</div>
+    </details>`;
+  }
+  html+=`</div>`;
+  host.innerHTML=html;
+}
+
 function waterRefresh(){ renderWaterBuilder(); refreshCatTotals("water"); renderProSummary(); }
 function renderWaterBuilder(){
   const host=document.getElementById("water-builder"); if(!host) return;
@@ -3084,7 +3416,7 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
 // pull master on startup (server wins), non-blocking
 setTimeout(()=>{ try{ masterBookLoad(true); }catch(e){} }, 800);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
-const SHARED_CFG_KEYS=["studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1"];
+const SHARED_CFG_KEYS=["studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -3121,6 +3453,38 @@ async function fetchPlantImage(kind,pid,licenses){ const p=plantDbFind(kind,pid)
 }
 function cyclePlantImage(kind,pid,dir){ const p=plantDbFind(kind,pid); if(!p||!p.imgAlts||p.imgAlts.length<2) return; p._imgIdx=(((p._imgIdx||0)+dir)%p.imgAlts.length+p.imgAlts.length)%p.imgAlts.length; const a=p.imgAlts[p._imgIdx]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; plantBookSave(); _afterColorChange(kind,pid); }
 function _allPlantsFlat(){ const out=[]; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>out.push({kind:k,p})); }); return out; }
+// ── Find duplicates (same common + botanical name) ──
+function _dupKey(p){ const c=(p.c||"").trim().toLowerCase().replace(/\s+/g," "); const b=(p.b||"").trim().toLowerCase().replace(/\s+/g," "); if(!c&&!b) return ""; return c+"|"+b; }
+function findDuplicateGroups(){ const g={}; _allPlantsFlat().forEach(x=>{ const k=_dupKey(x.p); if(!k) return; (g[k]=g[k]||[]).push(x); }); return Object.keys(g).filter(k=>g[k].length>1).map(k=>g[k]); }
+function _dupScore(p){ return (p.img?4:0)+(p.sv?2:0)+(hasDetails(p)?1:0)+((p.price||0)>0?1:0); } // higher = more complete, keep this one
+function openDuplicates(){ let d=document.getElementById("dup-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="dup-modal";
+  const groups=findDuplicateGroups(); groups.forEach(g=>g.sort((a,b)=>_dupScore(b.p)-_dupScore(a.p)));
+  const total=groups.reduce((s,g)=>s+g.length-1,0);
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  const rows=groups.map(g=>{ const kn=PLANT_KIND_LABEL[g[0].kind]||g[0].kind; return `<div style="border:1px solid var(--br);border-radius:8px;padding:.5rem .6rem;margin-bottom:.5rem">
+      <div style="font-size:.82rem;font-weight:600">${g[0].p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.74rem">${g[0].p.b||''}</span> <span style="font-size:.62rem;color:var(--tl)">· ${g.length} copies</span></div>
+      ${g.map((x,i)=>`<div style="display:flex;align-items:center;gap:.5rem;margin-top:.3rem;font-size:.72rem">
+          <img src="${escAttr(x.p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:28px;height:28px;object-fit:cover;border-radius:5px;border:1px solid var(--br);background:#EEF3EA">
+          <span style="flex:1;color:var(--tm)">${x.p.img?'🖼':'▫'} ${hasDetails(x.p)?'📋':''} ${x.p.sv?'✓size':''} ${(x.p.price||0)>0?'$'+x.p.price:'no price'} <span style="color:var(--tl)">(${x.kind})</span></span>
+          ${i===0?'<span style="font-size:.62rem;font-weight:700;color:var(--gm);background:#EAF3EA;border-radius:6px;padding:.05rem .4rem">keep (most complete)</span>':`<button class="btn" onclick="deleteDupPlant('${x.kind}','${x.p.id}')" style="padding:.15rem .6rem;font-size:.68rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C;border-radius:7px;cursor:pointer">Delete</button>`}
+        </div>`).join('')}
+    </div>`; }).join('');
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:85vh;display:flex;flex-direction:column;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="font-size:1.05rem;font-weight:700;color:var(--gm);margin-bottom:.3rem">Find duplicates</div>
+      <div style="font-size:.78rem;color:var(--tm);margin-bottom:.6rem">${groups.length?`${groups.length} duplicate groups · ${total} extra copies. The most complete copy (image, size, details, price) is kept; delete the others.`:'No duplicates found. 🎉'}</div>
+      <div style="overflow:auto;flex:1">${rows}</div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.7rem">
+        <button class="btn" onclick="document.getElementById('dup-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+        ${groups.length?`<button class="btn" onclick="deleteAllDupExtras()" style="padding:.45rem 1.1rem;font-size:.85rem;background:#B23F3C;color:#fff;border:none;font-weight:600">Delete all ${total} extras</button>`:''}
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+}
+function deleteDupPlant(kind,id){ PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(p=>p.id!==id); plantBookSave(); openDuplicates(); if(typeof renderPlantBook==="function") renderPlantBook(); }
+function deleteAllDupExtras(){ const groups=findDuplicateGroups(); groups.forEach(g=>g.sort((a,b)=>_dupScore(b.p)-_dupScore(a.p))); let n=0;
+  groups.forEach(g=>{ g.slice(1).forEach(x=>{ PLANT_DB[x.kind]=(PLANT_DB[x.kind]||[]).filter(p=>p.id!==x.p.id); n++; }); });
+  plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); openDuplicates(); alert("Deleted "+n+" duplicate copies. Click ☁ Publish master to save to the server.");
+}
 function openFillImages(){ let d=document.getElementById("fillimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fillimg-modal";
   const blanks=_allPlantsFlat().filter(x=>!x.p.img).length;
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
@@ -3158,6 +3522,51 @@ async function fillMissingImages(){ const licSel=(document.querySelector('input[
   if(typeof renderPlantBook==="function") renderPlantBook();
 }
 function fetchOnePlantImage(kind,pid){ const licenses=["cc0","cc-by","cc-by-sa"]; fetchPlantImage(kind,pid,licenses).then(res=>{ plantBookSave(); if(res.ok){ _afterColorChange(kind,pid); } else { alert(res.noproxy?"No worker connected.":res.notfound?"No commercial-safe photo found for this plant.":"Image lookup failed."); } }); }
+// ── AI plant details (form, growth rate, dormancy, fragrance, bloom season) ──
+const DETAIL_FIELDS=["form","growthRate","dormancy","fragrance","bloomSeason","native","toxic","deerResist","fireResist","rootAggr","invasive"];
+const DETAIL_LABELS={form:"Form",growthRate:"Growth rate",dormancy:"Dormancy",fragrance:"Fragrance",bloomSeason:"Flowering season",native:"CA native",toxic:"Toxicity",deerResist:"Deer resistant",fireResist:"Fire-resistant",rootAggr:"Root aggressiveness",invasive:"Invasive in CA"};
+function hasDetails(p){ return !!(p&&(p.growthRate||p.dormancy||p.form||p.bloomSeason)); }
+async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
+  const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
+  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Pets|People|Both","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
+    let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
+    let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return; DETAIL_FIELDS.forEach(f=>{ if(o[f]!=null && o[f]!=="") p[f]=(""+o[f]).trim(); }); p.detFlag=true; p.detSrc="AI"; n++; }); return {ok:true,n};
+  }catch(e){ return {err:(e&&e.message)||"error"}; }
+}
+function fetchOnePlantDetails(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const name=(botName(p)||p.c||"").trim(); if(!name){ alert("No botanical name."); return; }
+  fetchDetailsBatch([{kind,pid,name}]).then(res=>{ if(res.ok){ plantBookSave(); _afterColorChange(kind,pid); } else alert(res.noproxy?"No worker connected.":"Couldn't fetch details."); }); }
+function setDetail(kind,id,field,val){ const p=plantDbFind(kind,id); if(!p) return; p[field]=val; p.detFlag=false; p.detSrc="user"; plantBookSave(); }
+let _detStop=false;
+function openFillDetails(){ let d=document.getElementById("filldet-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="filldet-modal";
+  const miss=_allPlantsFlat().filter(x=>!hasDetails(x.p)).length;
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="font-size:1.05rem;font-weight:700;color:#6A4FA3;margin-bottom:.3rem">✨ Fill plant details</div>
+      <div style="font-size:.78rem;color:var(--tm);line-height:1.5">Uses AI to fill <b>form, growth rate, dormancy (evergreen/deciduous), fragrance, and flowering season</b> for the <b>${miss}</b> plants missing them. Values are <b>flagged ⚠ AI</b> so you can review them (Details filter → ⚠ AI). Runs in batches; a big book takes a few minutes.</div>
+      <div id="filldet-progress" style="font-size:.82rem;color:var(--tm);min-height:1.4rem;margin-top:.7rem"></div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
+        <button class="btn" onclick="_detStop=true;document.getElementById('filldet-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+        <button id="filldet-start" class="btn" onclick="fillMissingDetails()" style="padding:.45rem 1.1rem;font-size:.85rem;background:var(--gm);color:#fff;border:none;font-weight:600">Start</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+}
+async function fillMissingDetails(){ const prog=document.getElementById("filldet-progress"); const sb=document.getElementById("filldet-start"); if(sb){ sb.textContent="Working…"; sb.disabled=true; }
+  const todo=_allPlantsFlat().filter(x=>!hasDetails(x.p)).map(x=>({kind:x.kind,pid:x.p.id,name:(botName(x.p)||x.p.c||"").trim()})).filter(x=>x.name);
+  _detStop=false; let done=0,ok=0; const BATCH=10;
+  for(let i=0;i<todo.length;i+=BATCH){ if(_detStop) break; const chunk=todo.slice(i,i+BATCH); const res=await fetchDetailsBatch(chunk);
+    if(res.noproxy){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">No worker connected.</span>`; break; }
+    if(res.ok) ok+=res.n; done+=chunk.length; if(prog) prog.textContent=`${done}/${todo.length} processed · ${ok} filled`;
+    await new Promise(r=>setTimeout(r,300));
+  }
+  plantBookSave(); if(prog) prog.innerHTML=`<b>Done.</b> ${ok} plants filled${_detStop?' (stopped)':''}.`;
+  try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+    if(key&&ep&&ok>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (details)"})}); const dd=await rr.json(); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Click ☁ Publish master to save."); }
+    else if(ok>0&&prog) prog.innerHTML+=`<br><b>Click ☁ Publish master to save these.</b>`;
+  }catch(e){}
+  if(sb){ sb.textContent="Start"; sb.disabled=false; } if(typeof renderPlantBook==="function") renderPlantBook();
+}
 function _commonsSearchLink(p){ const q=(botName(p)||p.c||""); return `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(q)}&title=Special:MediaSearch&type=image`; }
 async function pasteCommonsImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const url=prompt("Paste a Wikimedia Commons image link\n(from commons.wikimedia.org — these are commercial-safe):"); if(!url) return;
@@ -3235,8 +3644,37 @@ function addVariety(kind,id){ const arr=PLANT_DB[kind]||[]; const idx=arr.findIn
 function duplicatePlant(kind,id){ const arr=PLANT_DB[kind]||[]; const idx=arr.findIndex(p=>p.id===id); if(idx<0)return; const src=arr[idx]; const copy=JSON.parse(JSON.stringify(src)); copy.id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7); copy.c=(src.c||"Plant")+" (copy)"; copy.tags=Array.isArray(src.tags)?src.tags.slice():[]; arr.splice(idx+1,0,copy); plantBookSave(); }
 function addCustomPlant(kind){ const id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7); const base={shrub:{w:3,h:3,wu:"L",basal:0.8},tree:{w:25,h:30,wu:"L"},palm:{perFt:200,h:25,wu:"L"},gc:{oc:12,pf:36,wu:"L",habit:"spreader"}}[kind]||{}; (PLANT_DB[kind]=PLANT_DB[kind]||[]).push(Object.assign({id,c:"New "+(PLANT_KIND_LABEL[kind]||"plant").replace(/s$/,""),b:"",cls:"common",sunset:"",usda:"",bloom:"",color:"",tags:[]},base)); plantBookSave(); }
 function delCustomPlant(kind,id){ if(id.indexOf("cust_")!==0)return; PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(p=>p.id!==id); plantBookSave(); }
+async function addPlantByName(kind){ const name=(prompt("Enter the plant name (common or botanical) — AI will find the rest:")||"").trim(); if(!name) return;
+  const id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7);
+  const base={shrub:{w:3,h:3,wu:"L",basal:0.8},tree:{w:25,h:30,wu:"L"},palm:{perFt:200,h:25,wu:"L"},gc:{oc:12,pf:36,wu:"L",habit:"spreader"}}[kind]||{};
+  const p=Object.assign({id,c:name,b:"",cls:"common",sunset:"",usda:"",bloom:"",color:"",tags:[]},base);
+  (PLANT_DB[kind]=PLANT_DB[kind]||[]).push(p);
+  PB_BOOK.q=""; PB_BOOK.kind=kind; PB_BOOK.imgstate="all"; PB_BOOK.detstate="all"; PB_BOOK.avail="all"; PB_BOOK.fav=false; PB_BOOK.tags=[];
+  if(typeof renderPlantBook==="function") renderPlantBook(); goToPlantInBook(kind,id);
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("Plant added. (No worker connected, so data wasn't auto-filled.)"); plantBookSave(); return; }
+  const kindWord={shrub:"shrub",tree:"tree",palm:"palm",gc:"groundcover/perennial"}[kind]||"plant";
+  const prompt2=`Give horticultural data for the landscape ${kindWord} "${name}" for Southern California gardens. Output ONLY minified JSON, no prose:\n{"common":"correct common name","botanical":"Genus species 'Cultivar'","water":"VL|L|M|H","sun":"sun|sunpart|part|shade","widthFt":number,"heightFt":number,"form":"1-2 words e.g. Rounded/Upright/Mounding/Spreading","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list Spring,Summer,Fall,Winter or Year-round","bloomColor":"one of white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze or empty","native":"Yes|No","toxic":"None|Pets|People|Both","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No","rootAggr":"Low|Moderate|High","invasive":"Yes|No"}\nUse best-known horticultural values; use "" or null only if genuinely unknown.`;
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:500,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt2}]})}); const data=await r.json();
+    let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("{"),b=t.lastIndexOf("}"); if(a>=0&&b>=0){ let o={}; try{ o=JSON.parse(t.slice(a,b+1)); }catch(e){}
+      if(o.common) p.c=(""+o.common).trim(); if(o.botanical) p.b=(""+o.botanical).trim();
+      if(o.water&&/^(VL|L|M|H)$/i.test(o.water)) p.wu=(""+o.water).toUpperCase();
+      if(o.sun) p.light=(""+o.sun).trim();
+      if(o.widthFt>0) p.w=+o.widthFt; if(o.heightFt>0) p.h=+o.heightFt;
+      if(o.form) p.form=(""+o.form).trim(); if(o.growthRate) p.growthRate=(""+o.growthRate).trim(); if(o.dormancy) p.dormancy=(""+o.dormancy).trim(); if(o.fragrance) p.fragrance=(""+o.fragrance).trim(); if(o.bloomSeason) p.bloomSeason=(""+o.bloomSeason).trim();
+      ["native","toxic","deerResist","fireResist","rootAggr","invasive"].forEach(f=>{ if(o[f]!=null&&o[f]!=="") p[f]=(""+o[f]).trim(); });
+      if(o.bloomColor && BLOOM_COLOR_MAP[(""+o.bloomColor).toLowerCase()]){ p.bloomColor=(""+o.bloomColor).toLowerCase(); const c=BLOOM_COLOR_MAP[p.bloomColor]; p.bloomHex=(c&&(""+c.hex).indexOf("gradient")<0&&p.bloomColor!=="none")?c.hex:""; }
+      p.detFlag=true; p.detSrc="AI";
+    }
+  }catch(e){}
+  try{ await fetchPlantImage(kind,id,["cc0","cc-by","cc-by-sa"]); }catch(e){}
+  plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); goToPlantInBook(kind,id);
+}
 const PLANT_TAG_VOCAB=(function(){ const s=new Set(); PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>(p.tags||[]).forEach(t=>s.add(t)))); return Array.from(s).sort(); })();
-let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all", imgstate:"all"};
+let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all", imgstate:"all", detstate:"all", colors:[], seasons:[], dorm:"all"};
+function pbBookColor(k){ const a=PB_BOOK.colors, i=a.indexOf(k); if(i>=0)a.splice(i,1); else a.push(k); renderPlantBook(); }
+function pbBookSeason(k){ const a=PB_BOOK.seasons, i=a.indexOf(k); if(i>=0)a.splice(i,1); else a.push(k); renderPlantBook(); }
+function pbBookDorm(m){ PB_BOOK.dorm=m; renderPlantBook(); }
+function pbBookDet(m){ PB_BOOK.detstate=m; renderPlantBook(); }
 function pbBookImg(m){ PB_BOOK.imgstate=m; renderPlantBook(); }
 function pbBookFav(){ PB_BOOK.fav=!PB_BOOK.fav; renderPlantBook(); }
 function pbBookAvail(m){ PB_BOOK.avail=m; renderPlantBook(); }
@@ -3543,8 +3981,10 @@ function renderPlantBook(){
           <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mergeDuplicates()" title="Find and merge duplicate plants (same species imported twice). Keeps the verified / photo / most-complete record and flags spelling-variant near-duplicates for review.">⛙ Merge dupes</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#e8f0e4;color:var(--gm);border:1px solid var(--gm)" onclick="masterBookLoad(false)" title="Pull the latest Studio H master plant book from the server">☁ Pull master</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="masterBookPublish()" title="Publish your current plant book as the Studio H master (admin only)">☁ Publish master</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C" onclick="openDuplicates()" title="Find plants listed more than once (same common + botanical name)">🔍 Find duplicates</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillImages()" title="Auto-fetch commercial-safe (CC0/CC BY) plant photos from iNaturalist for every plant missing one.">🖼 Fill missing images</button>
-          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="addCustomPlant('${PB_BOOK.kind}')">+ Add ${PLANT_KIND_LABEL[PB_BOOK.kind].replace(/s$/,'').toLowerCase()}</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillDetails()" title="Use AI to fill form, growth rate, dormancy, fragrance, and flowering season.">✨ Fill plant details</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="addPlantByName('${PB_BOOK.kind}')" title="Type a name — AI finds the botanical name, water, sun, size, form, bloom, and a photo">+ Add ${PLANT_KIND_LABEL[PB_BOOK.kind].replace(/s$/,'').toLowerCase()}</button>
         </div>
       </div>
       <input class="inp" value="${escAttr(PB_BOOK.q)}" placeholder="🔍 Search name or botanical…" style="font-size:.85rem;margin-bottom:.6rem" oninput="pbBookSearch(this.value)">
@@ -3558,7 +3998,16 @@ function renderPlantBook(){
         ${[["all","All"],["common","Common"],["available","Available"],["specialty","Specialty"]].map(o=>{const on=PB_BOOK.avail===o[0];return `<button class="btn" style="padding:.12rem .6rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookAvail('${o[0]}')">${o[1]}</button>`;}).join('')}
         <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-left:.4rem">Photo:</span>
         ${[["all","All"],["has","Has"],["blank","No photo"],["flagged","⚠ Flagged"]].map(o=>{const on=PB_BOOK.imgstate===o[0];return `<button class="btn" style="padding:.12rem .6rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookImg('${o[0]}')">${o[1]}</button>`;}).join('')}
+        <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-left:.4rem">Details:</span>
+        ${[["all","All"],["has","Has"],["missing","Missing"],["ai","⚠ AI"]].map(o=>{const on=PB_BOOK.detstate===o[0];return `<button class="btn" style="padding:.12rem .6rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookDet('${o[0]}')">${o[1]}</button>`;}).join('')}
       </div>
+      <div style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin-top:.4rem">
+        <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase">Bloom color:</span>
+        ${BLOOM_COLORS.filter(c=>c.k!=='none'&&c.k!=='multi').map(c=>{const on=PB_BOOK.colors.indexOf(c.k)>=0;return `<button title="${c.lab}" onclick="pbBookColor('${c.k}')" style="width:20px;height:20px;border-radius:50%;background:${c.hex};cursor:pointer;border:2px solid ${on?'var(--gm)':'rgba(0,0,0,.2)'};box-shadow:${on?'0 0 0 1px var(--gm)':'none'}"></button>`;}).join('')}
+        <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-left:.5rem">Season:</span>
+        ${["Spring","Summer","Fall","Winter"].map(s=>{const on=PB_BOOK.seasons.indexOf(s)>=0;return `<button class="btn" style="padding:.12rem .55rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookSeason('${s}')">${s}</button>`;}).join('')}
+        <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-left:.5rem">Foliage:</span>
+        ${[["all","All"],["evergreen","Evergreen"],["deciduous","Deciduous"],["semi","Semi"]].map(o=>{const on=PB_BOOK.dorm===o[0];return `<button class="btn" style="padding:.12rem .55rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookDorm('${o[0]}')">${o[1]}</button>`;}).join('')}
       <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
         <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase">Filter by category:</span>
         ${tagChips||'<span style="font-size:.72rem;color:var(--tl)">no tags yet</span>'}
@@ -3581,11 +4030,17 @@ function renderPlantBookList(){
     if(PB_BOOK.sizev==="yes" && !p.sv) return false;
     if(PB_BOOK.sizev==="no" && p.sv) return false;
     if(PB_BOOK.nursery){ const st=NURSERY_DB.stock[PB_BOOK.nursery]; if(!st||!st[p.id]) return false; }
-    if(PB_BOOK.fav && !p.fav) return false;
+    if(PB_BOOK.fav && !isFav(p,PB_BOOK.kind)) return false;
     if(PB_BOOK.avail!=="all" && availOf(p)!==PB_BOOK.avail) return false;
     if(PB_BOOK.imgstate==="blank" && p.img) return false;
     if(PB_BOOK.imgstate==="has" && !p.img) return false;
     if(PB_BOOK.imgstate==="flagged" && !p.imgFlag) return false;
+    if(PB_BOOK.detstate==="has" && !hasDetails(p)) return false;
+    if(PB_BOOK.detstate==="missing" && hasDetails(p)) return false;
+    if(PB_BOOK.detstate==="ai" && !p.detFlag) return false;
+    if(PB_BOOK.colors.length){ const bc=bloomColorOf(p); if(!bc||PB_BOOK.colors.indexOf(bc)<0) return false; }
+    if(PB_BOOK.seasons.length){ const bs=(p.bloomSeason||"").toLowerCase(); const hit=PB_BOOK.seasons.some(s=> bs.indexOf(s.toLowerCase())>=0 || bs.indexOf("year")>=0 ); if(!hit) return false; }
+    if(PB_BOOK.dorm!=="all"){ const dm=(p.dormancy||"").toLowerCase(); if(PB_BOOK.dorm==="evergreen"&&dm.indexOf("evergreen")<0) return false; if(PB_BOOK.dorm==="deciduous"&&(dm.indexOf("deciduous")<0||dm.indexOf("semi")>=0)) return false; if(PB_BOOK.dorm==="semi"&&dm.indexOf("semi")<0) return false; }
     return true;
   });
   const money=v=>fmtN(v);
@@ -3643,6 +4098,21 @@ function renderPlantBookList(){
         ${typeFields}
         ${(()=>{const u=p.sv==="user",s=p.sv&&!u;const lbl=u?'👤 you verified':(s?'🌐 source-verified':'⚠ needs check');const col=p.sv?'background:#EAF3EA;color:var(--gm);border:1px solid var(--gm)':'background:#FBF1E4;color:#9a6b1f;border:1px solid #E5D2AE';const click=p.sv?`togglePlantVerified('${kind}','${p.id}')`:`openVerifyModal('${kind}','${p.id}')`;const tip=u?'You verified this size. Click to un-verify.':(s?'Source-verified from references. Click to un-verify.':'Unverified placeholder — click to confirm the size and mark it verified.');return fld("Size data",`<button class="btn" onclick="${click}" title="${tip}" style="padding:.18rem .55rem;font-size:.66rem;border-radius:11px;${col}">${lbl}</button>`);})()}
         ${(kind==="tree"||kind==="palm")?fld("Typical install",inp(p.inst,`setPlantField('${kind}','${p.id}','inst',this.value)`,"92px","24\" box")):''}
+      </div>
+      <div style="display:flex;gap:.7rem;flex-wrap:wrap;margin-bottom:.5rem;align-items:flex-end;padding:.5rem;background:#F7F5FB;border-radius:8px">
+        <span style="font-size:.6rem;font-weight:700;color:#6A4FA3;text-transform:uppercase;align-self:center">Plant overview${p.detFlag?' <span style="color:#b8952a">⚠ AI</span>':''}</span>
+        ${fld("Form",inp(p.form,`setDetail('${kind}','${p.id}','form',this.value)`,"110px","Rounded"))}
+        ${fld("Growth rate",inp(p.growthRate,`setDetail('${kind}','${p.id}','growthRate',this.value)`,"90px","Moderate"))}
+        ${fld("Dormancy",inp(p.dormancy,`setDetail('${kind}','${p.id}','dormancy',this.value)`,"100px","Evergreen"))}
+        ${fld("Fragrance",inp(p.fragrance,`setDetail('${kind}','${p.id}','fragrance',this.value)`,"90px","None"))}
+        ${fld("Flowering season",inp(p.bloomSeason,`setDetail('${kind}','${p.id}','bloomSeason',this.value)`,"130px","Spring, Summer"))}
+        ${fld("CA native",inp(p.native,`setDetail('${kind}','${p.id}','native',this.value)`,"70px","Yes/No"))}
+        ${fld("Toxicity",inp(p.toxic,`setDetail('${kind}','${p.id}','toxic',this.value)`,"90px","None/Pets"))}
+        ${fld("Deer resist",inp(p.deerResist,`setDetail('${kind}','${p.id}','deerResist',this.value)`,"80px","Yes/Some/No"))}
+        ${fld("Fire-resistant",inp(p.fireResist,`setDetail('${kind}','${p.id}','fireResist',this.value)`,"90px","Yes/Mod/No"))}
+        ${fld("Root aggr.",inp(p.rootAggr,`setDetail('${kind}','${p.id}','rootAggr',this.value)`,"80px","Low/Mod/High"))}
+        ${fld("Invasive",inp(p.invasive,`setDetail('${kind}','${p.id}','invasive',this.value)`,"70px","Yes/No"))}
+        <button class="btn" onclick="fetchOnePlantDetails('${kind}','${p.id}')" style="padding:.2rem .55rem;font-size:.64rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:7px;cursor:pointer" title="Fill these with AI">✨ AI fill</button>
       </div>
       ${priceGrid}
       <div style="display:flex;gap:.7rem;flex-wrap:wrap;margin-bottom:.5rem">
@@ -3724,8 +4194,12 @@ const AVAIL_COMMON_GENERA=new Set(["lavandula","salvia","rosmarinus","agave","al
 function availOf(p){ if(!p) return "available"; if(p.avail) return p.avail; const g=((p.b||"").trim().toLowerCase().split(/\s+/)[0]); return AVAIL_COMMON_GENERA.has(g)?"common":"available"; }
 function availBadge(p){ const a=availOf(p); const info=AVAIL_INFO[a]||AVAIL_INFO.available; return `<span title="Nursery availability" style="display:inline-flex;align-items:center;gap:.15rem;background:${info.col}1a;color:${info.col};border:1px solid ${info.col}55;border-radius:9px;padding:0 .35rem;font-size:.6rem;font-weight:700;white-space:nowrap">${info.lab}</span>`; }
 function setPlantAvail(kind,id,v){ const p=plantDbFind(kind,id); if(p){ p.avail=v; plantBookSave(); _afterColorChange(kind,id); } }
-function togglePlantFav(kind,id){ const p=plantDbFind(kind,id); if(p){ p.fav=!p.fav; plantBookSave(); _afterColorChange(kind,id); } }
-function starBtn(kind,p){ const on=!!p.fav; return `<button class="btn" title="${on?'Favorite — click to unstar':'Mark as favorite'}" onclick="togglePlantFav('${kind}','${p.id}')" style="flex:none;width:28px;height:28px;padding:0;border-radius:6px;border:1px solid ${on?'#E3B341':'var(--br)'};background:${on?'#FCF4DC':'#fff'};color:${on?'#D99A00':'#bbb'};font-size:.95rem;cursor:pointer;line-height:1">${on?'★':'☆'}</button>`; }
+let FAVS=(function(){ try{ return new Set(JSON.parse(localStorage.getItem("studioh_favs_v1")||"[]")); }catch(e){ return new Set(); } })();
+function _favKey(kind,id){ return kind+":"+id; }
+function isFav(p,kind){ if(!p) return false; if(kind) return FAVS.has(_favKey(kind,p.id)); return FAVS.has("shrub:"+p.id)||FAVS.has("gc:"+p.id)||FAVS.has("tree:"+p.id)||FAVS.has("palm:"+p.id); }
+function saveFavs(){ try{ localStorage.setItem("studioh_favs_v1", JSON.stringify([...FAVS])); }catch(e){} }
+function togglePlantFav(kind,id){ const k=_favKey(kind,id); if(FAVS.has(k)) FAVS.delete(k); else FAVS.add(k); saveFavs(); _afterColorChange(kind,id); }
+function starBtn(kind,p){ const on=isFav(p,kind); return `<button class="btn" title="${on?'Favorite — click to unstar':'Mark as favorite'}" onclick="togglePlantFav('${kind}','${p.id}')" style="flex:none;width:28px;height:28px;padding:0;border-radius:6px;border:1px solid ${on?'#E3B341':'var(--br)'};background:${on?'#FCF4DC':'#fff'};color:${on?'#D99A00':'#bbb'};font-size:.95rem;cursor:pointer;line-height:1">${on?'★':'☆'}</button>`; }
 function infoIcon(text){ return `<button type="button" class="info-i" data-info="${escAttr(text)}" onclick="showInfoPop(event)" style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#2c2a26;color:#fff;border:none;font-size:10px;font-weight:700;cursor:pointer;vertical-align:middle;font-style:italic;font-family:Georgia,serif;line-height:1;padding:0">i</button>`; }
 function showInfoPop(ev){ ev.stopPropagation(); document.querySelectorAll(".info-pop").forEach(e=>e.remove()); const t=(ev.currentTarget&&ev.currentTarget.dataset.info)||""; const d=document.createElement("div"); d.className="info-pop"; d.textContent=t; const x=Math.min(ev.clientX, (window.innerWidth||800)-280); d.style.cssText="position:fixed;top:"+(ev.clientY+14)+"px;left:"+Math.max(8,x)+"px;max-width:260px;background:#2c2a26;color:#fff;font-size:.72rem;line-height:1.45;padding:.55rem .7rem;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);z-index:9999"; document.body.appendChild(d); setTimeout(()=>{ const close=()=>{ d.remove(); document.removeEventListener("click",close); }; document.addEventListener("click",close); },10); }
 function plantPhotoBtn(db){ if(!db) return ''; const img=db.img||''; const has=!!img;
@@ -4079,7 +4553,7 @@ function _aiScore(p,kind,c){ const checks={}; let hit=0,tot=0; c=c||{};
   if(c.colors&&c.colors.length){ const col=bloomColorOf(p); tot++; if(!col) checks.color="unknown"; else { const ok=c.colors.indexOf(col)>=0; checks.color=ok?"exact":"no"; if(ok)hit++; } }
   if(c.types&&c.types.length){ const ts=_aiPlantTypes(p,kind); tot++; if(ts.size===0) checks.type="unknown"; else { const ok=c.types.some(x=>ts.has(x)); checks.type=ok?"exact":"no"; if(ok)hit++; } }
   return { pct: tot>0?Math.round(hit/tot*100):100, checks }; }
-function _aiCandLine(kind,p){ const types=[..._aiPlantTypes(p,kind)].join("/"); return `${p.id} | ${p.c||''} | ${botName(p)||''} | ${p.wu||'?'} | ${lightOf(p)||'?'} | ${bloomColorOf(p)||'?'} | ${availOf(p)} | ${p.fav?'fav':'-'} | ${types}`; }
+function _aiCandLine(kind,p){ const types=[..._aiPlantTypes(p,kind)].join("/"); return `${p.id} | ${p.c||''} | ${botName(p)||''} | ${p.wu||'?'} | ${lightOf(p)||'?'} | ${bloomColorOf(p)||'?'} | ${availOf(p)} | ${isFav(p,kind)?'fav':'-'} | ${types}`; }
 function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:null};
   const d=document.createElement("div"); d.id="ai-modal"; d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:1.2rem;overflow:auto";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3);margin-top:2rem">
@@ -4128,7 +4602,7 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
   if(!cands.length){ box.innerHTML=`<div style="font-size:.82rem;color:var(--tm)">No plants in your book match those required filters. Loosen them or add more plants.</div>`; return; }
   const kindById={}; cands.forEach(c=>{ kindById[c.p.id]=c.kind; });
   const structured={}; if(reqWater.length)structured.water=reqWater; if(reqSun.length)structured.sun=reqSun; if(reqColor.length)structured.colors=reqColor;
-  cands.sort((a,b)=>{ const s=x=>((x.p.fav?2:0)+(availOf(x.p)==="common"?1:0)); return s(b)-s(a); });
+  cands.sort((a,b)=>{ const s=x=>((isFav(x.p,x.kind)?2:0)+(availOf(x.p)==="common"?1:0)); return s(b)-s(a); });
   const CAP=260; if(cands.length>CAP) cands=cands.slice(0,CAP);
   const lines=cands.map(c=>_aiCandLine(c.kind,c.p)).join("\n");
   const reqLine = (reqWater.length||reqSun.length||reqColor.length)?`\nHARD REQUIREMENTS (only pick plants meeting these): ${reqWater.length?"water in ["+reqWater.join(",")+"]; ":""}${reqSun.length?"sun in ["+reqSun.join(",")+"] (or unknown); ":""}${reqColor.length?"color in ["+reqColor.join(",")+"] (or unknown); ":""}`:"";
@@ -4150,7 +4624,7 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
     _aiState.criteria=criteria; _aiState.picks=picks; _aiState.prioFav=prioFav; _aiState.prioCommon=prioCommon;
     // deterministic prioritization so "prioritize favorites/common" actually reorders the list
     _aiState.picks.sort((a,a2)=>{ const pa=plantDbFind(a.kind,a.pid)||{}, pb=plantDbFind(a2.kind,a2.pid)||{};
-      if(prioFav){ const fa=pa.fav?1:0, fb=pb.fav?1:0; if(fb-fa) return fb-fa; }
+      if(prioFav){ const fa=isFav(pa,a.kind)?1:0, fb=isFav(pb,a2.kind)?1:0; if(fb-fa) return fb-fa; }
       if(prioCommon){ const ca=availOf(pa)==="common"?1:0, cb=availOf(pb)==="common"?1:0; if(cb-ca) return cb-ca; }
       const sa=_aiScore(pa,a.kind,criteria).pct, sb=_aiScore(pb,a2.kind,criteria).pct; return sb-sa; });
     if(!picks.length){ box.innerHTML=`<div style="font-size:.82rem;color:var(--tm)">No matching plants found in your book for that request. Try loosening the constraints, or add more plants to your book.</div>`; return; }
@@ -4168,13 +4642,13 @@ function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(
   const dimsOf=(p,pk,sc)=>{ const d=[]; if(c.water&&c.water.length)d.push(`${_aiCheck(sc.checks.water)} water`); if(c.sun&&c.sun.length)d.push(`${_aiCheck(sc.checks.sun)} sun`); if(c.colors&&c.colors.length)d.push(`${_aiCheck(sc.checks.color)} color`); if(c.types&&c.types.length)d.push(`${_aiCheck(sc.checks.type)} type`); return d; };
   const pcol=pct=>pct>=85?"#2e7d32":pct>=60?"#8a7a2a":"#B23F3C";
   const rowHtml=e=>{ const {pk,idx,p,sc}=e; const dims=dimsOf(p,pk,sc);
-    const prio=[]; if(_aiState.prioFav&&p.fav)prio.push(`<span style="background:#FCF4DC;color:#B8860B;border:1px solid #E3B341;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">★ prioritized</span>`); if(_aiState.prioCommon&&availOf(p)==="common")prio.push(`<span style="background:#2E7D3215;color:#2E7D32;border:1px solid #2E7D3255;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">common ↑</span>`);
+    const prio=[]; if(_aiState.prioFav&&isFav(p,pk.kind))prio.push(`<span style="background:#FCF4DC;color:#B8860B;border:1px solid #E3B341;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">★ prioritized</span>`); if(_aiState.prioCommon&&availOf(p)==="common")prio.push(`<span style="background:#2E7D3215;color:#2E7D32;border:1px solid #2E7D3255;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">common ↑</span>`);
     return `<div style="display:flex;gap:.6rem;align-items:center;padding:.45rem .3rem;border-bottom:1px solid var(--br)">
       <button onclick="_aiToggle(${idx})" style="flex:none;width:26px;height:26px;border-radius:6px;border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};background:${pk.sel?'var(--gm)':'#fff'};color:${pk.sel?'#fff':'#bbb'};font-size:.9rem;cursor:pointer">${pk.sel?'✓':'+'}</button>
       <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--br);flex:none;background:#EEF3EA">
       <div style="flex:1;min-width:0">
         <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.76rem">${botName(p)||''}</span></div>
-        <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI, then set" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${availBadge(p)}${p.fav?'<span style="color:#D99A00">★</span>':''}${prio.join('')}</div>
+        <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI, then set" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${availBadge(p)}${isFav(p,pk.kind)?'<span style="color:#D99A00">★</span>':''}${prio.join('')}</div>
         <div style="font-size:.64rem;color:var(--tl);display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.2rem;align-items:center">${dims.join('<span style="color:var(--br)">·</span>')}${dims.length?'<span style="color:var(--br)">·</span>':''}${_lookLinkImg((botName(p)||p.c||"")+" plant","see photos")}<a href="${_commonsSearchLink(p)}" target="_blank" rel="noopener" style="color:var(--gm);text-decoration:underline">⧉ Commons</a><button onclick="pasteCommonsImage('${pk.kind}','${pk.pid}')" style="border:none;background:#eef3ea;color:var(--gm);border-radius:6px;padding:0 .3rem;font-size:.6rem;cursor:pointer" title="Paste a Wikimedia Commons image link">+ paste</button></div>
       </div>
       <div style="flex:none;text-align:right"><div style="font-size:.95rem;font-weight:800;color:${pcol(sc.pct)}">${sc.pct}%</div><div style="font-size:.54rem;color:var(--tl)">match</div></div>
@@ -7224,6 +7698,10 @@ function onPlaceSelected(){
   if(!place.geometry)return;
   window._dbg.placeSelected=true; window._dbg.addr=place.formatted_address;
   S.pi.address=place.formatted_address;
+  try{ const loc=place.geometry.location; S.pi.lat=(typeof loc.lat==="function"?loc.lat():loc.lat); S.pi.lng=(typeof loc.lng==="function"?loc.lng():loc.lng);
+    const comps=place.address_components||[]; S.pi.city=((comps.find(c=>c.types.includes("locality"))||comps.find(c=>c.types.includes("sublocality"))||comps.find(c=>c.types.includes("neighborhood"))||{}).long_name||""); }catch(e){}
+  if(S.pi&&S.pi.city && typeof fetchCityTemps==="function") fetchCityTemps(S.pi.city);
+  if(typeof poolRefresh==="function" && (S.pools||[]).length) poolRefresh();
   updatePI("address",place.formatted_address);
   document.getElementById("site-intel-card").style.display="block";
   buildMap(place.geometry.location);
