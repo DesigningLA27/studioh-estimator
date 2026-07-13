@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v322</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v323</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -4705,7 +4705,7 @@ function _aiScore(p,kind,c){ const checks={}; let hit=0,tot=0; c=c||{};
   if(c.colors&&c.colors.length){ const col=bloomColorOf(p); tot++; if(!col) checks.color="unknown"; else { const ok=c.colors.indexOf(col)>=0; checks.color=ok?"exact":"no"; if(ok)hit++; } }
   if(c.types&&c.types.length){ const ts=_aiPlantTypes(p,kind); tot++; if(ts.size===0) checks.type="unknown"; else { const ok=c.types.some(x=>ts.has(x)); checks.type=ok?"exact":"no"; if(ok)hit++; } }
   return { pct: tot>0?Math.round(hit/tot*100):100, checks }; }
-function _aiCandLine(kind,p){ const types=[..._aiPlantTypes(p,kind)].join("/"); return `${p.id} | ${p.c||''} | ${botName(p)||''} | ${p.wu||'?'} | ${lightOf(p)||'?'} | ${bloomColorOf(p)||'?'} | ${availOf(p)} | ${isFav(p,kind)?'fav':'-'} | ${types}`; }
+function _aiCandLine(kind,p){ const types=[..._aiPlantTypes(p,kind)].join("/"); return `${p.id} | ${p.c||''} | ${botName(p)||''} | ${p.wu||'?'} | ${lightOf(p)||'?'} | ${bloomColorOf(p)||'?'} | ${availOf(p)} | ${isFav(p,kind)?'fav':'-'} | fireZone:${dsZoneOf(p)||'?'} | ${types}`; }
 function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:null};
   const d=document.createElement("div"); d.id="ai-modal"; d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:1.2rem;overflow:auto";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3);margin-top:2rem">
@@ -4725,6 +4725,10 @@ function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:nul
         <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.3rem"><span style="font-size:.7rem;color:var(--tm);width:52px">Water</span>${[["VL","VL"],["L","Low"],["M","Med"],["H","High"]].map(o=>`<label style="font-size:.72rem;display:flex;align-items:center;gap:.2rem"><input type="checkbox" class="ai-req-water" value="${o[0]}"> ${o[1]}</label>`).join('')}</div>
         <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.3rem"><span style="font-size:.7rem;color:var(--tm);width:52px">Sun</span>${[["sun","Full sun"],["sunpart","Sun–part"],["part","Part shade"],["shade","Shade"]].map(o=>`<label style="font-size:.72rem;display:flex;align-items:center;gap:.2rem"><input type="checkbox" class="ai-req-sun" value="${o[0]}"> ${o[1]}</label>`).join('')}</div>
         <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center"><span style="font-size:.7rem;color:var(--tm);width:52px">Color</span>${BLOOM_COLORS.filter(c=>c.k!=='none'&&c.k!=='multi').map(c=>`<label title="${c.lab}" style="display:flex;align-items:center;gap:.15rem;font-size:.62rem;cursor:pointer"><input type="checkbox" class="ai-req-color" value="${c.k}"> <span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:${c.hex};border:1px solid rgba(0,0,0,.2)"></span></label>`).join('')}</div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.35rem;padding-top:.35rem;border-top:1px dashed var(--br)"><span style="font-size:.7rem;color:#B23F3C;width:52px;font-weight:700">🔥 Fire</span>
+          ${[["0","Zone 0 · 0–5ft"],["1","Zone 1 · 5–30ft"],["2","Zone 2 · 30–100ft"]].map(o=>`<label style="font-size:.72rem;display:flex;align-items:center;gap:.2rem"><input type="checkbox" class="ai-req-zone" value="${o[0]}"> ${o[1]}</label>`).join('')}
+          <label style="font-size:.72rem;display:flex;align-items:center;gap:.2rem;color:#B23F3C;font-weight:600;margin-left:.4rem"><input type="checkbox" id="ai-no-avoid"> Exclude high-fuel / ⚠ Avoid plants</label>
+        </div>
         <div style="font-size:.6rem;color:var(--tl);margin-top:.35rem">Plants with <b>no</b> sun/color data are kept but flagged ⚠ — use “✨ check sun” or the 100% filter to tighten.</div>
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -4746,18 +4750,25 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
   const reqWater=[...document.querySelectorAll(".ai-req-water:checked")].map(x=>x.value);
   const reqSun=[...document.querySelectorAll(".ai-req-sun:checked")].map(x=>x.value);
   const reqColor=[...document.querySelectorAll(".ai-req-color:checked")].map(x=>x.value);
+  const reqZone=[...document.querySelectorAll(".ai-req-zone:checked")].map(x=>x.value);
+  const noAvoid=!!(document.getElementById("ai-no-avoid")||{}).checked;
   let cands=[]; kinds.forEach(kind=>{ (PLANT_DB[kind]||[]).forEach(p=>cands.push({kind,p})); });
   // hard required filters (water always known = strict; sun/color keep unknowns, flagged)
   if(reqWater.length) cands=cands.filter(c=>reqWater.indexOf(c.p.wu)>=0);
   if(reqSun.length) cands=cands.filter(c=>{ const l=lightOf(c.p); return l===""||reqSun.indexOf(l)>=0; });
   if(reqColor.length) cands=cands.filter(c=>{ const col=bloomColorOf(c.p); return col===""||reqColor.indexOf(col)>=0; });
+  // fire: exclude high-fuel/avoid plants (hard — never suggest these when asked)
+  if(noAvoid) cands=cands.filter(c=>{ const z=dsZoneOf(c.p); return z!=="avoid" && !fireAvoidFlag(c.p); });
+  // fire: required defensible-space zone(s). A plant rated for a CLOSER zone is also fine further out
+  // (Zone 0 plants work in Zone 1 & 2), so accept any plant whose zone is <= the largest requested zone.
+  if(reqZone.length){ const maxZ=Math.max(...reqZone.map(z=>+z)); cands=cands.filter(c=>{ const z=dsZoneOf(c.p); if(z==="avoid") return false; if(z==="") return true; return (+z)<=maxZ; }); }
   if(!cands.length){ box.innerHTML=`<div style="font-size:.82rem;color:var(--tm)">No plants in your book match those required filters. Loosen them or add more plants.</div>`; return; }
   const kindById={}; cands.forEach(c=>{ kindById[c.p.id]=c.kind; });
   const structured={}; if(reqWater.length)structured.water=reqWater; if(reqSun.length)structured.sun=reqSun; if(reqColor.length)structured.colors=reqColor;
   cands.sort((a,b)=>{ const s=x=>((isFav(x.p,x.kind)?2:0)+(availOf(x.p)==="common"?1:0)); return s(b)-s(a); });
   const CAP=260; if(cands.length>CAP) cands=cands.slice(0,CAP);
   const lines=cands.map(c=>_aiCandLine(c.kind,c.p)).join("\n");
-  const reqLine = (reqWater.length||reqSun.length||reqColor.length)?`\nHARD REQUIREMENTS (only pick plants meeting these): ${reqWater.length?"water in ["+reqWater.join(",")+"]; ":""}${reqSun.length?"sun in ["+reqSun.join(",")+"] (or unknown); ":""}${reqColor.length?"color in ["+reqColor.join(",")+"] (or unknown); ":""}`:"";
+  const reqLine = (reqWater.length||reqSun.length||reqColor.length||reqZone.length||noAvoid)?`\nHARD REQUIREMENTS (only pick plants meeting these): ${reqWater.length?"water in ["+reqWater.join(",")+"]; ":""}${reqSun.length?"sun in ["+reqSun.join(",")+"] (or unknown); ":""}${reqColor.length?"color in ["+reqColor.join(",")+"] (or unknown); ":""}${reqZone.length?"must be appropriate for California defensible-space Zone ["+reqZone.join(",")+"] (fire hazard area); ":""}${noAvoid?"NEVER pick high-fuel/flammable plants (no juniper, pampas/fountain grass, eucalyptus, cypress); ":""}`:"";
   const prompt=`You help a landscape designer choose plants FROM THEIR OWN plant book. Choose ONLY plants present in CANDIDATES, by their exact id. NEVER invent plants or ids.\n\nRequest: "${req}"${reqLine}\nCount wanted: ${count}. Prioritize favorites: ${prioFav}. Prioritize commonly-available: ${prioCommon}.\n\nCANDIDATES (id | common | botanical | water VL/L/M/H | sun sun/sunpart/part/shade | flowerColor | availability common/available/specialty | fav | types):\n${lines}\n\nReturn ONLY minified JSON, no prose, no markdown fences:\n{"criteria":{"water":["VL","L"],"sun":["part","sunpart","shade"],"colors":["yellow","red","purple"],"types":["grass","shrub","succulent"]},"picks":[{"id":"<candidate id>"}]}\ncriteria = constraints from the request + hard requirements (water codes VL/L/M/H; sun codes sun/sunpart/part/shade; colors from white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze; types like shrub,grass,succulent,perennial,groundcover,tree,palm). Only include a dimension if it's constrained.\npicks = up to ${count} candidate ids best matching the request, balanced across the requested colors and types, prioritizing favorites/common if asked, and preferring plants matching more criteria.`;
   box.innerHTML=`<div style="font-size:.85rem;color:#6A4FA3;display:flex;align-items:center;gap:.5rem"><span style="display:inline-block;width:14px;height:14px;border:2px solid #d9cdec;border-top-color:#6A4FA3;border-radius:50%;animation:aispin .7s linear infinite"></span> Thinking through your plant book…</div><style>@keyframes aispin{to{transform:rotate(360deg)}}</style>`;
   try{
@@ -4800,7 +4811,7 @@ function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(
       <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--br);flex:none;background:#EEF3EA">
       <div style="flex:1;min-width:0">
         <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.76rem">${botName(p)||''}</span></div>
-        <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI, then set" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${availBadge(p)}${isFav(p,pk.kind)?'<span style="color:#D99A00">★</span>':''}${prio.join('')}</div>
+        <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI, then set" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${dsZoneBadge(p)}${fireAvoidFlag(p)?'<span title="High-fuel genus" style="color:#B23F3C;font-size:.58rem;font-weight:700">⚠fuel</span>':''}${availBadge(p)}${isFav(p,pk.kind)?'<span style="color:#D99A00">★</span>':''}${prio.join('')}</div>
         <div style="font-size:.64rem;color:var(--tl);display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.2rem;align-items:center">${dims.join('<span style="color:var(--br)">·</span>')}${dims.length?'<span style="color:var(--br)">·</span>':''}${_lookLinkImg((botName(p)||p.c||"")+" plant","see photos")}<a href="${_commonsSearchLink(p)}" target="_blank" rel="noopener" style="color:var(--gm);text-decoration:underline">⧉ Commons</a><button onclick="pasteCommonsImage('${pk.kind}','${pk.pid}')" style="border:none;background:#eef3ea;color:var(--gm);border-radius:6px;padding:0 .3rem;font-size:.6rem;cursor:pointer" title="Paste a Wikimedia Commons image link">+ paste</button></div>
       </div>
       <div style="flex:none;text-align:right"><div style="font-size:.95rem;font-weight:800;color:${pcol(sc.pct)}">${sc.pct}%</div><div style="font-size:.54rem;color:var(--tl)">match</div></div>
@@ -4812,7 +4823,7 @@ function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(
       <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:100%;height:96px;object-fit:cover;border-radius:6px;background:#EEF3EA">
       <div style="font-size:.74rem;font-weight:600;margin-top:.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''}</div>
       <div style="font-size:.62rem;font-style:italic;color:var(--tm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${botName(p)||''}</div>
-      <div style="display:flex;gap:.25rem;flex-wrap:wrap;margin-top:.28rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${bloomColorBadge(p)}</div>
+      <div style="display:flex;gap:.25rem;flex-wrap:wrap;margin-top:.28rem;align-items:center">${wuBadge(p.wu)}${lightBadge(lightOf(p))}${bloomColorBadge(p)}${dsZoneBadge(p)}</div>
       <div style="font-size:.6rem;margin-top:.28rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">${_lookLinkImg((botName(p)||p.c||"")+" plant","photos")}${!lightOf(p)?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.56rem;font-weight:700;cursor:pointer">✨ sun</button>`:''}</div>
     </div>`; };
   const renderEntry = view==="gallery"?cardHtml:rowHtml;
