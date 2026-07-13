@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v320</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v321</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3462,6 +3462,37 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
 }
 // pull master on startup (server wins), non-blocking
+// ── Master book backups (auto-saved on every publish) ──
+async function openBackups(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
+  let d=document.getElementById("bk-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="bk-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="font-size:1.05rem;font-weight:700;color:var(--gm);margin-bottom:.2rem">☁ Plant book backups</div>
+    <div style="font-size:.76rem;color:var(--tm);margin-bottom:.7rem">A backup is saved automatically every time you publish. Restore any version if a publish went wrong.</div>
+    <div id="bk-list" style="font-size:.82rem;color:var(--tl)">Loading…</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:.8rem"><button class="btn" onclick="document.getElementById('bk-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
+  </div>`;
+  document.body.appendChild(d);
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"listbackups"})}); const dd=await r.json();
+    const box=document.getElementById("bk-list"); if(!box) return;
+    const bks=(dd&&dd.backups)||[];
+    if(!bks.length){ box.innerHTML=`<div style="padding:.5rem 0">No backups yet. One will be saved the next time you publish.</div>`; return; }
+    box.innerHTML=bks.map(b=>{ const c=(b.meta&&b.meta.counts)||{}; const tot=(c.shrub||0)+(c.tree||0)+(c.gc||0)+(c.palm||0);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:.45rem 0;border-bottom:1px solid var(--br)">
+        <div><div style="font-size:.82rem;color:var(--tx);font-weight:600">${new Date(b.at).toLocaleString()}</div><div style="font-size:.68rem;color:var(--tl)">${tot?tot.toLocaleString()+" plants":"(before this publish)"}${b.by?" · "+b.by:""}</div></div>
+        <button class="btn" onclick="restoreBackup('${b.key}')" style="padding:.25rem .7rem;font-size:.74rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C">Restore</button>
+      </div>`; }).join('');
+  }catch(e){ const box=document.getElementById("bk-list"); if(box) box.innerHTML=`<span style="color:#B23F3C">Couldn't load backups.</span>`; }
+}
+async function restoreBackup(key){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  if(!confirm("Restore the plant book to this backup?\nYour current master will itself be backed up first, so this is undoable.")) return;
+  const akey=_adminKey(); if(!akey) return;
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"restorebackup",key:akey,backup:key})}); const d=await r.json();
+    if(d&&d.ok&&d.book){ plantBookMerge(d.book,"overwrite"); plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); const m=document.getElementById("bk-modal"); if(m) m.remove(); alert("Restored ✓ — the master book is back to that version."); }
+    else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try again."); }
+    else alert("Restore failed: "+((d&&d.error)||"error"));
+  }catch(e){ alert("Restore failed."); }
+}
 setTimeout(()=>{ try{ masterBookLoad(true); }catch(e){} }, 800);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 const SHARED_CFG_KEYS=["studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1"];
@@ -4091,6 +4122,7 @@ function renderPlantBook(){
           <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mergeDuplicates()" title="Find and merge duplicate plants (same species imported twice). Keeps the verified / photo / most-complete record and flags spelling-variant near-duplicates for review.">⛙ Merge dupes</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#e8f0e4;color:var(--gm);border:1px solid var(--gm)" onclick="masterBookLoad(false)" title="Pull the latest Studio H master plant book from the server">☁ Pull master</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="masterBookPublish()" title="Publish your current plant book as the Studio H master (admin only)">☁ Publish master</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="openBackups()" title="Restore a previous version of the master plant book">↺ Backups</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C" onclick="openDuplicates()" title="Find plants listed more than once (same common + botanical name)">🔍 Find duplicates</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillImages()" title="Auto-fetch commercial-safe (CC0/CC BY) plant photos from iNaturalist for every plant missing one.">🖼 Fill missing images</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillDetails()" title="Use AI to fill form, growth rate, dormancy, fragrance, and flowering season.">✨ Fill plant details</button>
