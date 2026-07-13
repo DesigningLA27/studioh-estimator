@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v321</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v322</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3669,7 +3669,7 @@ function needsDetails(p){ if(!p) return false; return DETAIL_FIELDS.some(f=>!p[f
 async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
   const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
-  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:6000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
     let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
     let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return; DETAIL_FIELDS.forEach(f=>{ if(o[f]!=null && o[f]!=="") p[f]=(""+o[f]).trim(); }); p.detFlag=true; p.detSrc="AI"; n++; }); return {ok:true,n};
   }catch(e){ return {err:(e&&e.message)||"error"}; }
@@ -3694,11 +3694,17 @@ function openFillDetails(){ let d=document.getElementById("filldet-modal"); if(d
 }
 async function fillMissingDetails(){ const prog=document.getElementById("filldet-progress"); const sb=document.getElementById("filldet-start"); if(sb){ sb.textContent="Working…"; sb.disabled=true; }
   const todo=_allPlantsFlat().filter(x=>needsDetails(x.p)).map(x=>({kind:x.kind,pid:x.p.id,name:(botName(x.p)||x.p.c||"").trim()})).filter(x=>x.name);
-  _detStop=false; let done=0,ok=0; const BATCH=10;
-  for(let i=0;i<todo.length;i+=BATCH){ if(_detStop) break; const chunk=todo.slice(i,i+BATCH); const res=await fetchDetailsBatch(chunk);
-    if(res.noproxy){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">No worker connected.</span>`; break; }
-    if(res.ok) ok+=res.n; done+=chunk.length; if(prog) prog.textContent=`${done}/${todo.length} processed · ${ok} filled`;
-    await new Promise(r=>setTimeout(r,300));
+  _detStop=false; let done=0,ok=0; const BATCH=20, PARALLEL=5;
+  const t0=Date.now();
+  for(let i=0;i<todo.length;i+=BATCH*PARALLEL){ if(_detStop) break;
+    const group=[]; for(let j=0;j<PARALLEL;j++){ const chunk=todo.slice(i+j*BATCH, i+(j+1)*BATCH); if(chunk.length) group.push(chunk); }
+    if(!group.length) break;
+    const results=await Promise.all(group.map(c=>fetchDetailsBatch(c).catch(()=>({err:"x"}))));
+    if(results.some(r=>r&&r.noproxy)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">No worker connected.</span>`; break; }
+    results.forEach((r,k)=>{ if(r&&r.ok) ok+=r.n; done+=group[k].length; });
+    if(prog){ const el=(Date.now()-t0)/1000; const rate=done/Math.max(1,el); const left=Math.max(0,todo.length-done); const eta=rate>0?Math.round(left/rate/60):0;
+      prog.textContent=`${done}/${todo.length} processed · ${ok} filled${eta?` · ~${eta} min left`:''}`; }
+    await new Promise(r=>setTimeout(r,120));
   }
   plantBookSave(); if(prog) prog.innerHTML=`<b>Done.</b> ${ok} plants filled${_detStop?' (stopped)':''}.`;
   try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
