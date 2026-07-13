@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v319</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.6rem;opacity:.5;font-weight:400;letter-spacing:.02em">v320</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3571,13 +3571,73 @@ async function fillMissingImages(){ const licSel=(document.querySelector('input[
 }
 function fetchOnePlantImage(kind,pid){ const licenses=["cc0","cc-by","cc-by-sa"]; fetchPlantImage(kind,pid,licenses).then(res=>{ plantBookSave(); if(res.ok){ _afterColorChange(kind,pid); } else { alert(res.noproxy?"No worker connected.":res.notfound?"No commercial-safe photo found for this plant.":"Image lookup failed."); } }); }
 // ── AI plant details (form, growth rate, dormancy, fragrance, bloom season) ──
-const DETAIL_FIELDS=["form","growthRate","dormancy","fragrance","bloomSeason","native","toxic","deerResist","fireResist","rootAggr","invasive"];
-const DETAIL_LABELS={form:"Form",growthRate:"Growth rate",dormancy:"Dormancy",fragrance:"Fragrance",bloomSeason:"Flowering season",native:"CA native",toxic:"Toxicity",deerResist:"Deer resistant",fireResist:"Fire-resistant",rootAggr:"Root aggressiveness",invasive:"Invasive in CA"};
+const DETAIL_FIELDS=["form","growthRate","dormancy","fragrance","bloomSeason","native","toxic","deerResist","fireResist","rootAggr","invasive","dsZone"];
+const DETAIL_LABELS={form:"Form",growthRate:"Growth rate",dormancy:"Dormancy",fragrance:"Fragrance",bloomSeason:"Flowering season",native:"CA native",toxic:"Toxicity",deerResist:"Deer resistant",fireResist:"Fire-resistant",rootAggr:"Root aggressiveness",invasive:"Invasive in CA",dsZone:"Defensible-space zone"};
+// Defensible space (CA Fire Safe / Zone 0 ember-resistant zone)
+const DS_ZONES={
+  "0":{lab:"Zone 0 · 0–5 ft",short:"Z0",color:"#B23F3C",desc:"Ember-resistant zone. Essentially no combustible vegetation — hardscape, gravel, or very low succulents only."},
+  "1":{lab:"Zone 1 · 5–30 ft",short:"Z1",color:"#D98324",desc:"Lean, clean & green. Low-growing, well-irrigated, well-spaced fire-resistant plants. No ladder fuels."},
+  "2":{lab:"Zone 2 · 30–100 ft",short:"Z2",color:"#5B8C3E",desc:"Reduced fuel zone. Spaced plantings, native shrubs OK with maintenance and separation."},
+  "avoid":{lab:"Avoid near structures",short:"⚠",color:"#8B2C29",desc:"High fuel / high flammability — avoid near structures in a fire hazard zone."}
+};
+// Known high-fuel genera (industry consensus for CA WUI) — used to pre-flag
+const FIRE_AVOID_GENERA=["juniperus","cortaderia","pennisetum","eucalyptus","cupressus","acacia","pinus","thuja","chamaecyparis","nerium","rosmarinus","artemisia"];
+function dsZoneOf(p){ const z=(""+(p&&p.dsZone||"")).trim().toLowerCase(); if(z==="0"||z==="zone 0"||z==="z0") return "0"; if(z==="1"||z==="zone 1"||z==="z1") return "1"; if(z==="2"||z==="zone 2"||z==="z2") return "2"; if(z.indexOf("avoid")>=0) return "avoid"; return ""; }
+function dsZoneBadge(p){ const z=dsZoneOf(p); if(!z) return ""; const d=DS_ZONES[z]; return `<span title="${d.desc}" style="background:${d.color}18;color:${d.color};border:1px solid ${d.color}66;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700">${d.short}</span>`; }
+function fireAvoidFlag(p){ const b=(botName(p)||"").toLowerCase(); return FIRE_AVOID_GENERA.some(g=>b.indexOf(g)===0||b.indexOf(" "+g)>=0); }
+// ── Fire-safe / defensible-space plant report (project plants, grouped by zone) ──
+function _projectPlantList(){ const out=[]; const seen={}; const P=S.planting; if(!P||!P.zones) return out;
+  P.zones.forEach(z=>{ [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const key=kind+":"+p.id; if(seen[key]){ seen[key].qty+=(+r.qty||0); return; } const rec={kind,p,qty:(+r.qty||0),zones:[z.title||"Zone"]}; seen[key]=rec; out.push(rec); }); }); });
+  return out; }
+function openFireReport(){ let d=document.getElementById("fire-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fire-modal";
+  const list=_projectPlantList();
+  const groups={"0":[],"1":[],"2":[],"avoid":[],"":[]};
+  list.forEach(r=>{ const z=dsZoneOf(r.p)|| (fireAvoidFlag(r.p)?"avoid":""); groups[z]?groups[z].push(r):groups[""].push(r); });
+  const addr=(S.pi&&S.pi.address)||""; const proj=(S.pi&&S.pi.client)||"";
+  const sec=(z)=>{ const g=groups[z]; if(!g.length) return ""; const d0=DS_ZONES[z]; return `
+    <div style="margin-bottom:1rem">
+      <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;background:${d0.color}12;border-left:4px solid ${d0.color};border-radius:4px">
+        <b style="color:${d0.color};font-size:.9rem">${d0.lab}</b><span style="font-size:.7rem;color:var(--tm)">${g.length} plant${g.length>1?'s':''}</span>
+      </div>
+      <div style="font-size:.7rem;color:var(--tm);margin:.3rem 0 .4rem">${d0.desc}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:.78rem">
+        ${g.map(r=>`<tr style="border-bottom:1px solid #F0ECE2"><td style="padding:.25rem 0;width:26px">${r.p.img?`<img src="${escAttr(r.p.img)}" style="width:22px;height:22px;object-fit:cover;border-radius:4px">`:''}</td><td style="padding:.25rem .4rem"><b>${r.p.c||''}</b> <i style="color:var(--tm)">${botName(r.p)||''}</i></td><td style="text-align:right;color:var(--tl);white-space:nowrap">${r.qty?r.qty+" ea":""}</td><td style="text-align:right;white-space:nowrap;padding-left:.5rem">${wuBadge(r.p.wu)}${r.p.fireResist?`<span style="font-size:.58rem;color:var(--tm);margin-left:.25rem">fire: ${r.p.fireResist}</span>`:''}</td></tr>`).join('')}
+      </table>
+    </div>`; };
+  const unzoned=groups[""].length;
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:720px;width:100%;max-height:88vh;display:flex;flex-direction:column;padding:1.3rem 1.5rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-size:1.05rem;font-weight:700;color:#B23F3C">🔥 Fire-Safe Planting — Defensible Space</div>
+          <div style="font-size:.74rem;color:var(--tm)">${addr?addr+" · ":""}Plants grouped by California defensible-space zone</div>
+        </div>
+        <button class="btn" onclick="document.getElementById('fire-modal').remove()" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+      </div>
+      <div id="fire-report-body" style="overflow:auto;flex:1;margin-top:.8rem">
+        ${list.length?"":'<div style="color:var(--tl);font-size:.85rem;padding:1rem">No plants in the project yet. Add plants to your planting zones first.</div>'}
+        ${sec("0")}${sec("1")}${sec("2")}${sec("avoid")}
+        ${unzoned?`<div style="border:1px dashed var(--br);border-radius:8px;padding:.5rem .7rem"><b style="font-size:.82rem;color:var(--tm)">Zone not set (${unzoned})</b><div style="font-size:.7rem;color:var(--tl);margin:.2rem 0 .4rem">Run ✨ Fill plant details, or set the Defensible zone on each plant in the Plant Book.</div><div style="font-size:.76rem;color:var(--tm)">${groups[""].map(r=>(r.p.c||"")).join(" · ")}</div></div>`:''}
+      </div>
+      <div style="font-size:.64rem;color:var(--tl);border-top:1px solid var(--br);padding-top:.5rem;margin-top:.6rem;line-height:1.5">
+        <b>Note:</b> No plant is fireproof. Fire performance depends on maintenance, irrigation, spacing, and removal of dead material. Zone 0 (0–5 ft) is an ember-resistant zone — California is phasing in requirements for essentially no combustible vegetation there in high fire hazard areas. Verify against your local fire authority (this project is in a Very High Fire Hazard Severity Zone if applicable).
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
+        <button class="btn" onclick="printFireReport()" style="padding:.45rem 1.1rem;font-size:.85rem;background:#B23F3C;color:#fff;border:none;font-weight:600">🖨 Print / Save PDF</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+}
+function printFireReport(){ const body=document.getElementById("fire-report-body"); if(!body) return; const addr=(S.pi&&S.pi.address)||"";
+  const w=window.open("","_blank"); if(!w){ alert("Allow pop-ups to print."); return; }
+  w.document.write(`<html><head><title>Fire-Safe Planting — Defensible Space</title><style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:32px;color:#2b2b28}h1{font-size:18px;color:#B23F3C;margin:0 0 2px}table{width:100%;border-collapse:collapse}img{display:none}</style></head><body><h1>Fire-Safe Planting — Defensible Space</h1><div style="font-size:12px;color:#666;margin-bottom:16px">${addr}</div>${body.innerHTML}<div style="font-size:10px;color:#888;margin-top:18px;border-top:1px solid #ddd;padding-top:8px">No plant is fireproof. Fire performance depends on maintenance, irrigation, spacing, and removal of dead material. Verify with your local fire authority.</div></body></html>`);
+  w.document.close(); setTimeout(()=>w.print(),300);
+}
 function hasDetails(p){ return !!(p&&(p.growthRate||p.dormancy||p.form||p.bloomSeason)); }
 function needsDetails(p){ if(!p) return false; return DETAIL_FIELDS.some(f=>!p[f]); } // missing ANY field → re-fill
 async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
-  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
+  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
     let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
     let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return; DETAIL_FIELDS.forEach(f=>{ if(o[f]!=null && o[f]!=="") p[f]=(""+o[f]).trim(); }); p.detFlag=true; p.detSrc="AI"; n++; }); return {ok:true,n};
@@ -3702,7 +3762,7 @@ async function addPlantByName(kind){ const name=(prompt("Enter the plant name (c
   if(typeof renderPlantBook==="function") renderPlantBook(); goToPlantInBook(kind,id);
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("Plant added. (No worker connected, so data wasn't auto-filled.)"); plantBookSave(); return; }
   const kindWord={shrub:"shrub",tree:"tree",palm:"palm",gc:"groundcover/perennial"}[kind]||"plant";
-  const prompt2=`Give horticultural data for the landscape ${kindWord} "${name}" for Southern California gardens. Output ONLY minified JSON, no prose:\n{"common":"correct common name","botanical":"Genus species 'Cultivar'","water":"VL|L|M|H","sun":"sun|sunpart|part|shade","widthFt":number,"heightFt":number,"form":"1-2 words e.g. Rounded/Upright/Mounding/Spreading","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list Spring,Summer,Fall,Winter or Year-round","bloomColor":"one of white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze or empty","native":"Yes|No","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No","rootAggr":"Low|Moderate|High","invasive":"Yes|No"}\nUse best-known horticultural values; use "" or null only if genuinely unknown.`;
+  const prompt2=`Give horticultural data for the landscape ${kindWord} "${name}" for Southern California gardens. Output ONLY minified JSON, no prose:\n{"common":"correct common name","botanical":"Genus species 'Cultivar'","water":"VL|L|M|H","sun":"sun|sunpart|part|shade","widthFt":number,"heightFt":number,"form":"1-2 words e.g. Rounded/Upright/Mounding/Spreading","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list Spring,Summer,Fall,Winter or Year-round","bloomColor":"one of white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze or empty","native":"Yes|No","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No","rootAggr":"Low|Moderate|High","invasive":"Yes|No","dsZone":"0|1|2|avoid (CA defensible-space zone: 0=0-5ft ember zone, 1=5-30ft, 2=30-100ft, avoid=high fuel)"}\nUse best-known horticultural values; use "" or null only if genuinely unknown.`;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:500,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt2}]})}); const data=await r.json();
     let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("{"),b=t.lastIndexOf("}"); if(a>=0&&b>=0){ let o={}; try{ o=JSON.parse(t.slice(a,b+1)); }catch(e){}
       if(o.common) p.c=(""+o.common).trim(); if(o.botanical) p.b=(""+o.botanical).trim();
@@ -3719,7 +3779,8 @@ async function addPlantByName(kind){ const name=(prompt("Enter the plant name (c
   plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); goToPlantInBook(kind,id);
 }
 const PLANT_TAG_VOCAB=(function(){ const s=new Set(); PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>(p.tags||[]).forEach(t=>s.add(t)))); return Array.from(s).sort(); })();
-let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all", imgstate:"all", detstate:"all", colors:[], seasons:[], dorm:"all"};
+let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all", imgstate:"all", detstate:"all", colors:[], seasons:[], dorm:"all", dszone:"all"};
+function pbBookZone(m){ PB_BOOK.dszone=m; renderPlantBook(); }
 function pbBookColor(k){ const a=PB_BOOK.colors, i=a.indexOf(k); if(i>=0)a.splice(i,1); else a.push(k); renderPlantBook(); }
 function pbBookSeason(k){ const a=PB_BOOK.seasons, i=a.indexOf(k); if(i>=0)a.splice(i,1); else a.push(k); renderPlantBook(); }
 function pbBookDorm(m){ PB_BOOK.dorm=m; renderPlantBook(); }
@@ -4057,6 +4118,8 @@ function renderPlantBook(){
         ${["Spring","Summer","Fall","Winter"].map(s=>{const on=PB_BOOK.seasons.indexOf(s)>=0;return `<button class="btn" style="padding:.12rem .55rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookSeason('${s}')">${s}</button>`;}).join('')}
         <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-left:.5rem">Foliage:</span>
         ${[["all","All"],["evergreen","Evergreen"],["deciduous","Deciduous"],["semi","Semi"]].map(o=>{const on=PB_BOOK.dorm===o[0];return `<button class="btn" style="padding:.12rem .55rem;font-size:.68rem;border-radius:11px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookDorm('${o[0]}')">${o[1]}</button>`;}).join('')}
+        <span style="font-size:.7rem;font-weight:700;color:#B23F3C;text-transform:uppercase;margin-left:.5rem">🔥 Defensible zone:</span>
+        ${[["all","All"],["safe","Fire-safe (any zone)"],["0","Zone 0 · 0–5ft"],["1","Zone 1 · 5–30ft"],["2","Zone 2 · 30–100ft"],["avoid","⚠ Avoid"]].map(o=>{const on=PB_BOOK.dszone===o[0];return `<button class="btn" style="padding:.12rem .55rem;font-size:.68rem;border-radius:11px;${on?'background:#B23F3C;color:#fff;border:1px solid #B23F3C':'background:#fff;color:var(--tm);border:1px solid var(--br)'}" onclick="pbBookZone('${o[0]}')">${o[1]}</button>`;}).join('')}
       <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">
         <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase">Filter by category:</span>
         ${tagChips||'<span style="font-size:.72rem;color:var(--tl)">no tags yet</span>'}
@@ -4089,6 +4152,7 @@ function renderPlantBookList(){
     if(PB_BOOK.detstate==="ai" && !p.detFlag) return false;
     if(PB_BOOK.colors.length){ const bc=bloomColorOf(p); if(!bc||PB_BOOK.colors.indexOf(bc)<0) return false; }
     if(PB_BOOK.seasons.length){ const bs=(p.bloomSeason||"").toLowerCase(); const hit=PB_BOOK.seasons.some(s=> bs.indexOf(s.toLowerCase())>=0 || bs.indexOf("year")>=0 ); if(!hit) return false; }
+    if(PB_BOOK.dszone!=="all"){ const z=dsZoneOf(p); if(PB_BOOK.dszone==="safe"){ if(!z||z==="avoid") return false; } else if(z!==PB_BOOK.dszone) return false; }
     if(PB_BOOK.dorm!=="all"){ const dm=(p.dormancy||"").toLowerCase(); if(PB_BOOK.dorm==="evergreen"&&dm.indexOf("evergreen")<0) return false; if(PB_BOOK.dorm==="deciduous"&&(dm.indexOf("deciduous")<0||dm.indexOf("semi")>=0)) return false; if(PB_BOOK.dorm==="semi"&&dm.indexOf("semi")<0) return false; }
     return true;
   });
@@ -4161,6 +4225,7 @@ function renderPlantBookList(){
         ${fld("Fire-resistant",inp(p.fireResist,`setDetail('${kind}','${p.id}','fireResist',this.value)`,"90px","Yes/Mod/No"))}
         ${fld("Root aggr.",inp(p.rootAggr,`setDetail('${kind}','${p.id}','rootAggr',this.value)`,"80px","Low/Mod/High"))}
         ${fld("Invasive",inp(p.invasive,`setDetail('${kind}','${p.id}','invasive',this.value)`,"70px","Yes/No"))}
+        ${fld("Defensible zone",`<select onchange="setDetail('${kind}','${p.id}','dsZone',this.value)" style="padding:.2rem;border:1px solid var(--br);border-radius:6px;font-size:.78rem"><option value="" ${!dsZoneOf(p)?'selected':''}>—</option>${Object.keys(DS_ZONES).map(z=>`<option value="${z}" ${dsZoneOf(p)===z?'selected':''}>${DS_ZONES[z].lab}</option>`).join('')}</select>${fireAvoidFlag(p)&&dsZoneOf(p)!=='avoid'?'<span title="Botanical genus is on the high-fuel list — verify" style="color:#B23F3C;font-size:.7rem;font-weight:700">⚠ high fuel</span>':''}`)}
         <button class="btn" onclick="fetchOnePlantDetails('${kind}','${p.id}')" style="padding:.2rem .55rem;font-size:.64rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:7px;cursor:pointer" title="Fill these with AI">✨ AI fill</button>
       </div>
       ${priceGrid}
@@ -5161,7 +5226,10 @@ function renderPlantingBuilder(){
       <span style="font-size:.68rem;color:var(--tl);margin-left:.3rem;text-transform:uppercase;font-weight:700">Sort</span>${sbBtn('none','—')}${sbBtn('size','Size')}${sbBtn('cost','Cost')}${sbBtn('name','Name')}
     </div>
     ${zonesHtml}
-    <button class="btn" style="padding:.3rem .8rem;font-size:.78rem;background:var(--gm);color:#fff;border:none;margin-top:.4rem" onclick="addZone()">+ Add planting zone</button>`;
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.4rem">
+      <button class="btn" style="padding:.3rem .8rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="addZone()">+ Add planting zone</button>
+      <button class="btn" style="padding:.3rem .8rem;font-size:.78rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C" onclick="openFireReport()" title="Group this project's plants by California defensible-space zone">🔥 Fire-safe report</button>
+    </div>`;
 
   // ---- plant pricing panel ----
   const sizeRate=(it,label)=>{ if(!it) return ''; const inst=installedUC(it); const mf=(it.matf!=null)?it.matf:0.4; const ratio=mf>0?((1-mf)/mf):0;
