@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v323</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v324</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3618,8 +3618,103 @@ function dsZoneBadge(p){ const z=dsZoneOf(p); if(!z) return ""; const d=DS_ZONES
 function fireAvoidFlag(p){ const b=(botName(p)||"").toLowerCase(); return FIRE_AVOID_GENERA.some(g=>b.indexOf(g)===0||b.indexOf(" "+g)>=0); }
 // ── Fire-safe / defensible-space plant report (project plants, grouped by zone) ──
 function _projectPlantList(){ const out=[]; const seen={}; const P=S.planting; if(!P||!P.zones) return out;
-  P.zones.forEach(z=>{ [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const key=kind+":"+p.id; if(seen[key]){ seen[key].qty+=(+r.qty||0); return; } const rec={kind,p,qty:(+r.qty||0),zones:[z.title||"Zone"]}; seen[key]=rec; out.push(rec); }); }); });
+  P.zones.forEach(z=>{ [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const key=kind+":"+p.id; if(seen[key]){ seen[key].qty+=(+r.qty||0); return; } const rec={kind,p,qty:(+r.qty||0),zones:[z.name||"Zone"]}; seen[key]=rec; out.push(rec); }); }); });
   return out; }
+// ── Plant list / palette report (by planting zone, images + specs) ──
+function _plStyle(){ return `
+  .plr-wrap{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#2b2b28}
+  .plr-zone{margin-bottom:20px;break-inside:avoid}
+  .plr-zhead{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #3d6b2e;padding-bottom:5px;margin-bottom:9px}
+  .plr-ztitle{font-size:15px;font-weight:700;color:#3d6b2e;margin:0}
+  .plr-zmeta{font-size:11px;color:#8a8a80}
+  .plr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .plr-card{border:1px solid #e2ded2;border-radius:9px;overflow:hidden;background:#fff;break-inside:avoid}
+  .plr-img{width:100%;height:110px;object-fit:cover;background:#EEF3EA;display:block}
+  .plr-noimg{width:100%;height:110px;background:#EEF3EA;display:flex;align-items:center;justify-content:center;color:#b9c9b1;font-size:22px}
+  .plr-body{padding:7px 9px 9px}
+  .plr-name{font-size:12.5px;font-weight:700;line-height:1.25;margin:0}
+  .plr-bot{font-size:11px;font-style:italic;color:#6f6f66;margin:1px 0 5px}
+  .plr-specs{display:flex;flex-wrap:wrap;gap:3px}
+  .plr-chip{font-size:9px;font-weight:600;border-radius:7px;padding:1px 5px;border:1px solid #d8d3c4;color:#5b5b52;background:#faf9f5;white-space:nowrap}
+  .plr-qty{font-size:10px;color:#8a8a80;margin-top:5px}
+  .plr-foot{font-size:9.5px;color:#8a8a80;border-top:1px solid #e2ded2;padding-top:7px;margin-top:14px;line-height:1.5}
+  @media print{ .plr-card{page-break-inside:avoid} .plr-zone{page-break-inside:avoid} }
+`; }
+function _plChips(p){ const c=[];
+  if(p.wu) c.push(`<span class="plr-chip" style="border-color:#7fb3d5;color:#2c5f82;background:#eef6fb">💧 ${WU_INFO&&WU_INFO[p.wu]?WU_INFO[p.wu].lab:p.wu}</span>`);
+  const l=lightOf(p); if(l&&LIGHT_INFO[l]) c.push(`<span class="plr-chip" style="border-color:#e0c060;color:#8a6d1f;background:#fdf8e8">${LIGHT_INFO[l].icon||'☀'} ${LIGHT_INFO[l].lab}</span>`);
+  const z=dsZoneOf(p); if(z&&DS_ZONES[z]) c.push(`<span class="plr-chip" style="border-color:${DS_ZONES[z].color}66;color:${DS_ZONES[z].color};background:${DS_ZONES[z].color}12">🔥 ${DS_ZONES[z].short}</span>`);
+  if(p.dormancy) c.push(`<span class="plr-chip">${p.dormancy}</span>`);
+  const bc=bloomColorOf(p); if(bc&&BLOOM_COLOR_MAP[bc]) c.push(`<span class="plr-chip"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${BLOOM_COLOR_MAP[bc].hex};border:1px solid rgba(0,0,0,.2);vertical-align:middle"></span> ${BLOOM_COLOR_MAP[bc].lab}</span>`);
+  if(p.bloomSeason) c.push(`<span class="plr-chip">🌸 ${p.bloomSeason}</span>`);
+  const sz=[(p.w?p.w+"' w":""),(p.h?p.h+"' h":"")].filter(Boolean).join(" × "); if(sz) c.push(`<span class="plr-chip">↔ ${sz}</span>`);
+  if((p.native||"").toLowerCase().indexOf("yes")===0) c.push(`<span class="plr-chip" style="border-color:#8fbf7a;color:#3d6b2e;background:#eef5ea">CA native</span>`);
+  const tx=(p.toxic||"").toLowerCase(); if(tx&&tx!=="none") c.push(`<span class="plr-chip" style="border-color:#d9a0a0;color:#9c3b3b;background:#fbeeee">⚠ toxic: ${p.toxic}</span>`);
+  return c.join("");
+}
+function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P&&P.zones)||[];
+  const showImg=opts.images!==false, showQty=opts.qty!==false;
+  let body="";
+  zones.forEach(z=>{ const recs=[]; const seen={};
+    [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const k=kind+":"+p.id; if(seen[k]){ seen[k].qty+=(+r.qty||0); return; } const rec={kind,p,qty:(+r.qty||0)}; seen[k]=rec; recs.push(rec); }); });
+    if(!recs.length) return;
+    const sf=(+z.areaSF||0);
+    body+=`<div class="plr-zone">
+      <div class="plr-zhead"><h2 class="plr-ztitle">${escAttr(z.name||"Planting Zone")}</h2><span class="plr-zmeta">${recs.length} species${sf?" · "+sf.toLocaleString()+" SF":""}${z.location?" · "+escAttr(z.location):""}${z.phase?" · "+escAttr(z.phase):""}</span></div>
+      <div class="plr-grid">
+        ${recs.map(r=>{ const p=r.p; return `<div class="plr-card">
+          ${showImg?(p.img?`<img class="plr-img" src="${escAttr(p.img)}">`:`<div class="plr-noimg">🌿</div>`):''}
+          <div class="plr-body">
+            <p class="plr-name">${escAttr(p.c||"")}</p>
+            <p class="plr-bot">${escAttr(botName(p)||"")}</p>
+            <div class="plr-specs">${_plChips(p)}</div>
+            ${showQty&&r.qty?`<div class="plr-qty">Qty: <b>${r.qty}</b>${p.sz?" · "+escAttr(p.sz):""}</div>`:''}
+          </div></div>`; }).join("")}
+      </div></div>`;
+  });
+  if(!body) body=`<div style="color:#999;font-size:13px;padding:20px">No plants in the project yet. Add plants to your planting zones first.</div>`;
+  const addr=(S.pi&&S.pi.address)||""; const client=(S.pi&&S.pi.client)||"";
+  const anyFire=zones.some(z=>[["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].some(([rk,kind])=>(z[rk]||[]).some(r=>{const p=plantDbFind(kind,r.pid); return p&&dsZoneOf(p);})));
+  return `<div class="plr-wrap">
+    <div style="border-bottom:3px solid #3d6b2e;padding-bottom:8px;margin-bottom:16px">
+      <div style="font-size:19px;font-weight:800;color:#3d6b2e">Planting Palette</div>
+      <div style="font-size:12px;color:#6f6f66;margin-top:2px">${escAttr(client||"")}${client&&addr?" · ":""}${escAttr(addr)}</div>
+      <div style="font-size:10px;color:#a5a59b;margin-top:3px">Studio H · ${new Date().toLocaleDateString()}</div>
+    </div>
+    ${body}
+    <div class="plr-foot">
+      Plant sizes are mature estimates and vary with site conditions, exposure, and maintenance. Water use per WUCOLS.
+      ${anyFire?" Fire zone ratings indicate the California defensible-space zone each plant is appropriate for (Zone 0 = 0–5 ft ember zone, Zone 1 = 5–30 ft, Zone 2 = 30–100 ft). No plant is fireproof — fire performance depends on irrigation, spacing, and removal of dead material. Verify with your local fire authority.":""}
+    </div>
+  </div>`;
+}
+function openPlantListReport(){ let d=document.getElementById("pl-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="pl-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:860px;width:100%;max-height:90vh;display:flex;flex-direction:column;padding:1.2rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem">
+      <div style="font-size:1.05rem;font-weight:700;color:var(--gm)">🌿 Plant list / palette</div>
+      <div style="display:flex;gap:.4rem;align-items:center">
+        <label style="font-size:.72rem;color:var(--tm);display:flex;align-items:center;gap:.25rem"><input type="checkbox" id="pl-img" checked onchange="_plRender()"> Images</label>
+        <label style="font-size:.72rem;color:var(--tm);display:flex;align-items:center;gap:.25rem"><input type="checkbox" id="pl-qty" checked onchange="_plRender()"> Quantities</label>
+        <button class="btn" onclick="document.getElementById('pl-modal').remove()" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+      </div>
+    </div>
+    <style>${_plStyle()}</style>
+    <div id="pl-body" style="overflow:auto;flex:1;margin-top:.8rem;padding-right:.3rem"></div>
+    <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.7rem;border-top:1px solid var(--br);padding-top:.7rem">
+      <button class="btn" onclick="printPlantList()" style="padding:.45rem 1.1rem;font-size:.85rem;background:var(--gm);color:#fff;border:none;font-weight:600">🖨 Print / Save PDF</button>
+    </div>
+  </div>`;
+  document.body.appendChild(d); _plRender();
+}
+function _plRender(){ const b=document.getElementById("pl-body"); if(!b) return;
+  const images=(document.getElementById("pl-img")||{}).checked!==false; const qty=(document.getElementById("pl-qty")||{}).checked!==false;
+  b.innerHTML=_plantListHTML({images,qty}); }
+function printPlantList(){ const images=(document.getElementById("pl-img")||{}).checked!==false; const qty=(document.getElementById("pl-qty")||{}).checked!==false;
+  const w=window.open("","_blank"); if(!w){ alert("Allow pop-ups to print."); return; }
+  w.document.write(`<html><head><title>Planting Palette</title><style>@page{margin:14mm}body{margin:0;padding:0}${_plStyle()}</style></head><body>${_plantListHTML({images,qty})}</body></html>`);
+  w.document.close(); setTimeout(()=>{ try{ w.print(); }catch(e){} }, 700);
+}
 function openFireReport(){ let d=document.getElementById("fire-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fire-modal";
   const list=_projectPlantList();
   const groups={"0":[],"1":[],"2":[],"avoid":[],"":[]};
@@ -5277,6 +5372,7 @@ function renderPlantingBuilder(){
     ${zonesHtml}
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.4rem">
       <button class="btn" style="padding:.3rem .8rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="addZone()">+ Add planting zone</button>
+      <button class="btn" style="padding:.3rem .8rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="openPlantListReport()" title="Plant palette with images, water, sun, fire zone — print or save PDF">🌿 Plant list report</button>
       <button class="btn" style="padding:.3rem .8rem;font-size:.78rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C" onclick="openFireReport()" title="Group this project's plants by California defensible-space zone">🔥 Fire-safe report</button>
     </div>`;
 
