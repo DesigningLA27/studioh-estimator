@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v342</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v343</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3930,11 +3930,34 @@ ${trees?`Trees: ${trees}\n`:""}${palms?`Palms: ${palms}\n`:""}${shrubs?`Shrubs: 
 Plant in naturalistic drifts and repeating masses, not evenly scattered. Mediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, wide establishing shot, high detail --ar 3:2 --style raw`;
 }
 function copyRenderPrompt(){ const z=_zonePick(); if(!z) return; _renderPromptModal(z); }
-function setSitePhoto(input, zid){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
-  const rd=new FileReader();
-  rd.onload=()=>{ const P=ensurePlanting(); P._sitePhoto=P._sitePhoto||{}; P._sitePhoto[zid]=rd.result;
-    const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z); };
-  rd.readAsDataURL(f);
+// Phone photos are 5-12MB. Sending that as base64 through the worker kills the request
+// ("network connection lost"), so downscale to a sane size first — the models don't need more.
+function _downscaleImage(file, maxPx, quality){
+  return new Promise((resolve,reject)=>{
+    const rd=new FileReader();
+    rd.onload=()=>{ const img=new Image();
+      img.onload=()=>{
+        let w=img.naturalWidth, h=img.naturalHeight;
+        const scale=Math.min(1, maxPx/Math.max(w,h));
+        w=Math.round(w*scale); h=Math.round(h*scale);
+        const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+        const ctx=cv.getContext("2d"); ctx.drawImage(img,0,0,w,h);
+        try{ resolve(cv.toDataURL("image/jpeg", quality||0.85)); }
+        catch(e){ reject(e); }
+      };
+      img.onerror=()=>reject(new Error("Couldn't read that image."));
+      img.src=rd.result;
+    };
+    rd.onerror=()=>reject(new Error("Couldn't read that file."));
+    rd.readAsDataURL(file);
+  });
+}
+async function setSitePhoto(input, zid){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
+  try{
+    const small=await _downscaleImage(f, 1280, 0.85);
+    const P=ensurePlanting(); P._sitePhoto=P._sitePhoto||{}; P._sitePhoto[zid]=small;
+    const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z);
+  }catch(e){ alert("Couldn't use that photo ("+((e&&e.message)||"error")+")."); }
 }
 function clearSitePhoto(zid){ const P=ensurePlanting(); if(P._sitePhoto) delete P._sitePhoto[zid];
   const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z); }
@@ -4005,9 +4028,13 @@ async function _rpGenerate(zid, stage){
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering… (10–20 sec)","#6A4FA3");
   try{
-    const ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
+    let ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
+    if(ref && ref.length > 4*1024*1024){ setSt("Site photo is too large even after resizing — try a smaller image.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({type:"genimage",key,prompt,model:imgModel(),aspect:"3:2",refs:ref?[ref]:[]})});
+    if(!r.ok){ let t=""; try{ t=(await r.text()).slice(0,200); }catch(e){}
+      setSt("Server error "+r.status+(t?": "+t:""),"#B23F3C");
+      document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const d=await r.json();
     if(d&&d.ok&&d.url){
       // pull the image into the app so it saves with the project (fal URLs expire)
