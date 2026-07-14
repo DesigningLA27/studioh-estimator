@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v335</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v337</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -9647,7 +9647,13 @@ function _ptParseScale(t){ if(!t) return null; t=t.replace(/\s+/g," ");
   // engineering: 1" = 20'  (1 paper inch = N feet -> paper inches per foot = 1/N)
   m=t.match(/1\s*["″]?\s*=\s*(\d+)\s*'/); if(m){ const n=parseFloat(m[1]); if(n>0) return 1/n; }
   return null; }
-function ptClose(){ PT.open=false; const h=document.getElementById("pt-modal"); if(h) h.remove(); }
+function ptClose(){ PT.open=false;
+  // MUST exit fullscreen first — removing the fullscreen element while still in
+  // fullscreen leaves the browser showing a black screen.
+  try{ if(document.fullscreenElement||document.webkitFullscreenElement){ const ex=document.exitFullscreen||document.webkitExitFullscreen; if(ex) { const p=ex.call(document); if(p&&p.catch) p.catch(()=>{}); } } }catch(e){}
+  const h=document.getElementById("pt-modal"); if(h) h.remove();
+  try{ document.body.style.overflow=""; }catch(e){}
+}
 async function ptRenderPage(){ if(!PT.doc) return; const page=await PT.doc.getPage(PT.page);
   const vp=page.getViewport({scale:PT.scale}); PT.renderScale=PT.scale; PT.canvasW=vp.width; PT.canvasH=vp.height;
   const cv=document.getElementById("pt-canvas"); if(!cv) return; cv.width=vp.width; cv.height=vp.height;
@@ -9747,24 +9753,38 @@ function ptLayersPopover(refresh){ let d=document.getElementById("pt-layers-pop"
     ${used.length?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:.3rem">${used.map(m=>{ const hid=PT.hidden[m.k]; return `<button onclick="ptToggleLayer('${m.k}')" style="display:flex;align-items:center;gap:.4rem;font-size:.75rem;border:1px solid ${m.color};background:${hid?'#fff':m.color};color:${hid?'#999':'#fff'};border-radius:6px;padding:.25rem .5rem;cursor:pointer;text-align:left">${hid?'○':'●'} ${m.label}</button>`; }).join('')}</div>`:'<div style="font-size:.75rem;color:var(--tl)">Nothing traced yet.</div>'}`;
 }
 function ptTogglePanel(){ PT.panelOpen=!PT.panelOpen; ptRenderModal(); ptRenderPage(); }
-function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) return; let s=""; const hide=PT.hideLabels;
+// Keep trace labels from stacking on top of each other: nudge each new label
+// until it no longer collides with one already placed, and draw a leader line if moved.
+function _ptPlaceLabel(placed, cx, cy, w, h){
+  const pad=3; let y=cy; const step=h+5; let tries=0; let dir=1; let n=1;
+  const hits=(yy)=>placed.some(r=> !(cx+w/2+pad < r.x1 || cx-w/2-pad > r.x2 || yy+h/2+pad < r.y1 || yy-h/2-pad > r.y2) );
+  while(hits(y) && tries<40){ y = cy + dir*step*n; dir=-dir; if(dir===1) n++; tries++; }
+  placed.push({x1:cx-w/2, x2:cx+w/2, y1:y-h/2, y2:y+h/2});
+  return y;
+}
+function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) return; let s=""; const hide=PT.hideLabels; const _placed=[];
   PT.polys.forEach((p,idx)=>{ if(p.page!==PT.page||PT.hidden[p.mode]) return; const md=_ptMode(p.mode); const c=_ptFill(p); const cpts=p.pts.map(_toCanvas);
     const act=_ptInteractive(p.mode); const pe=act?'pointer-events:auto;cursor:pointer':'pointer-events:none';
     if(p.kind==="linear"){ const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "); const dash=(p.mode==="drainline"||p.mode==="tapelight")?` stroke-dasharray="${p.mode==='tapelight'?'2 5':'10 7'}"`:"";
       s+=`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
       if(!hide){ const mid=cpts[Math.floor(cpts.length/2)]||cpts[0]; const lbl=(p.name?p.name+" · ":"")+(p.type?p.type+" · ":"")+(p.lf?Math.round(p.lf).toLocaleString()+" LF":"—"); const lw=Math.max(46,lbl.length*6.4);
-        s+=`<g style="${pe}" onclick="ptEditPoly(${idx})"><rect x="${(mid.x-lw/2).toFixed(1)}" y="${(mid.y-27).toFixed(1)}" width="${lw.toFixed(0)}" height="19" rx="4" fill="#fff" stroke="${c}" stroke-width="1.5"/><text x="${mid.x.toFixed(1)}" y="${(mid.y-17.5).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="700" fill="#333">${lbl}</text></g>`; }
+        const ly=_ptPlaceLabel(_placed, mid.x, mid.y-17.5, lw, 19);
+        const lead=(Math.abs(ly-(mid.y-17.5))>2)?`<line x1="${mid.x.toFixed(1)}" y1="${mid.y.toFixed(1)}" x2="${mid.x.toFixed(1)}" y2="${ly.toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="2 2" opacity="0.7"/>`:"";
+        s+=`<g style="${pe}" onclick="ptEditPoly(${idx})">${lead}<rect x="${(mid.x-lw/2).toFixed(1)}" y="${(ly-9.5).toFixed(1)}" width="${lw.toFixed(0)}" height="19" rx="4" fill="#fff" stroke="${c}" stroke-width="1.5"/><text x="${mid.x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="700" fill="#333">${lbl}</text></g>`; }
       return; }
     const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
     s+=`<polygon points="${pts}" fill="${c}" fill-opacity="${md.noFill?0:0.25}" stroke="${c}" stroke-width="2.5"/>`;
     if(!hide){ const ct=_toCanvas(_ptCentroid(p.pts));
       const nm=p.name||""; const meta=(p.zone?p.zone+" · ":"")+(p.sf?Math.round(p.sf).toLocaleString()+" SF":"—")+(p.type?" · "+p.type:"");
-      const lbl=nm?nm:meta; const w=Math.max(50,lbl.length*7.2);
-      s+=`<g style="${pe}" onclick="ptEditPoly(${idx})">`;
-      s+=`<rect x="${(ct.x-w/2).toFixed(1)}" y="${(ct.y-(nm?18:9)).toFixed(1)}" width="${w.toFixed(0)}" height="${nm?32:18}" rx="5" fill="#fff" fill-opacity="0.94" stroke="${c}" stroke-width="1.5"/>`;
-      if(nm){ s+=`<text x="${ct.x.toFixed(1)}" y="${(ct.y-6).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="800" fill="#1a1a1a">${nm}</text>`;
-        s+=`<text x="${ct.x.toFixed(1)}" y="${(ct.y+8).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="600" fill="#666">${meta}</text>`; }
-      else { s+=`<text x="${ct.x.toFixed(1)}" y="${ct.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="700" fill="#222">${meta}</text>`; }
+      const lbl=nm?nm:meta; const w=Math.max(50, Math.max(lbl.length, nm?meta.length*0.85:0)*7.2); const h=nm?32:18;
+      const cy=_ptPlaceLabel(_placed, ct.x, ct.y, w, h);
+      const moved=Math.abs(cy-ct.y)>2;
+      const lead=moved?`<line x1="${ct.x.toFixed(1)}" y1="${ct.y.toFixed(1)}" x2="${ct.x.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="2 2" opacity="0.7"/><circle cx="${ct.x.toFixed(1)}" cy="${ct.y.toFixed(1)}" r="2" fill="${c}"/>`:"";
+      s+=`<g style="${pe}" onclick="ptEditPoly(${idx})">${lead}`;
+      s+=`<rect x="${(ct.x-w/2).toFixed(1)}" y="${(cy-h/2).toFixed(1)}" width="${w.toFixed(0)}" height="${h}" rx="5" fill="#fff" fill-opacity="0.94" stroke="${c}" stroke-width="1.5"/>`;
+      if(nm){ s+=`<text x="${ct.x.toFixed(1)}" y="${(cy-6).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="800" fill="#1a1a1a">${nm}</text>`;
+        s+=`<text x="${ct.x.toFixed(1)}" y="${(cy+8).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="600" fill="#666">${meta}</text>`; }
+      else { s+=`<text x="${ct.x.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="700" fill="#222">${meta}</text>`; }
       s+=`</g>`; }
   });
   const mS=Math.max(0.5,Math.min(1.25,(PT.renderScale||1)/(PT._fitScale||PT.renderScale||1)));
