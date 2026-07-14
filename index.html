@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v343</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v347</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3535,7 +3535,65 @@ async function fetchPlantImage(kind,pid,licenses){ const p=plantDbFind(kind,pid)
     if(d&&d.found&&((d.images&&d.images.length)||d.image)){ const alts=(d.images&&d.images.length)?d.images:[{image:d.image,license:d.license,licenseLabel:d.licenseLabel,attribution:d.attribution,matchedName:d.matchedName,confidence:d.confidence,flag:d.flag,source:d.source}]; p.imgAlts=alts.slice(0,5); p._imgIdx=0; const a=p.imgAlts[0]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; return {ok:true,flag:!!a.flag}; }
     return {ok:false,notfound:true}; }catch(e){ return {ok:false,err:(e&&e.message)}; }
 }
-function cyclePlantImage(kind,pid,dir){ const p=plantDbFind(kind,pid); if(!p||!p.imgAlts||p.imgAlts.length<2) return; p._imgIdx=(((p._imgIdx||0)+dir)%p.imgAlts.length+p.imgAlts.length)%p.imgAlts.length; const a=p.imgAlts[p._imgIdx]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; plantBookSave(); _afterColorChange(kind,pid); }
+// ── AI plant portrait ──────────────────────────────────────────
+// An ILLUSTRATION, not a photograph. Image models render a plausible plant, not a
+// verified cultivar — so anything generated here is flagged in the app and labelled
+// in the client report. A real photo always wins; this only fills gaps.
+function plantPortraitPrompt(p,kind){
+  const bot=(botName(p)||"").trim(), com=(p.c||"").trim();
+  const bits=[];
+  if(p.w||p.h) bits.push(`mature size roughly ${p.w||"?"} ft wide by ${p.h||"?"} ft tall`);
+  const bc=bloomColorOf(p); if(bc&&BLOOM_COLOR_MAP[bc]) bits.push(`${BLOOM_COLOR_MAP[bc].lab.toLowerCase()} flowers`);
+  if(p.bloomSeason) bits.push(`blooming in ${p.bloomSeason.toLowerCase()}`);
+  if(p.form) bits.push(`${p.form.toLowerCase()} form`);
+  if(p.dormancy) bits.push(p.dormancy.toLowerCase());
+  const kindTxt={shrub:"shrub",gc:"groundcover plant",tree:"tree",palm:"palm"}[kind]||"plant";
+  return `Botanically accurate nursery catalogue photograph of a single healthy ${bot||com} ${kindTxt}${com&&bot?` (common name: ${com})`:""}, `+
+    `a well-grown specimen in a garden setting, ${bits.join(", ")}. `+
+    `Photographed like a professional plant nursery catalogue: the whole plant filling the frame, natural daylight, shallow depth of field with a soft neutral background, `+
+    `true-to-life foliage colour and leaf shape, accurate growth habit. Sharp, clean, realistic horticultural photography. No text, no watermarks, no people, no hands.`;
+}
+async function aiPlantImage(kind,pid){
+  const p=plantDbFind(kind,pid); if(!p) return {ok:false};
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){ key=_adminKey(); if(!key) return {ok:false,err:"No key"}; }
+  const prompt=plantPortraitPrompt(p,kind);
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"genimage",key,prompt,model:imgModel(),aspect:"1:1"})});
+    const d=await r.json();
+    if(!(d&&d.ok&&d.url)) return {ok:false,err:(d&&(d.detail||d.error))||"failed"};
+    // pull it in so it persists with the book
+    let dataUrl=d.url;
+    try{ const ir=await fetch(d.url); const blob=await ir.blob();
+      dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
+    }catch(e){}
+    // keep whatever real photo existed so it can be restored
+    if(p.img && !p.imgAI && !p.imgPrev) p.imgPrev=p.img;
+    p.img=dataUrl; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false;
+    plantBookSave();
+    return {ok:true};
+  }catch(e){ return {ok:false,err:(e&&e.message)||"error"}; }
+}
+async function aiPlantImageBtn(kind,pid){
+  const p=plantDbFind(kind,pid); if(!p) return;
+  const nm=(p.c||botName(p)||"this plant");
+  if(!confirm(`Generate an AI image for ${nm}?\n\nThis is an ILLUSTRATION, not a photograph — the AI renders a plausible plant, and cultivar details can be wrong. Check it against the real plant before you put it in front of a client.\n\n~$0.03. Any existing photo can be restored.`)) return;
+  const el=document.querySelector(`[data-aiimg="${kind}:${pid}"]`); if(el){ el.textContent="…"; el.disabled=true; }
+  const r=await aiPlantImage(kind,pid);
+  if(!r.ok) alert("Couldn't generate: "+(r.err||"error"));
+  if(typeof renderPlantBook==="function") renderPlantBook();
+  if(document.getElementById("pl-modal")) _plRender();
+}
+function restorePlantPhoto(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return;
+  if(p.imgPrev){ p.img=p.imgPrev; delete p.imgPrev; }
+  else { p.img=""; }
+  delete p.imgAI; p.imgSrc=""; plantBookSave();
+  if(typeof renderPlantBook==="function") renderPlantBook();
+  if(document.getElementById("pl-modal")) _plRender();
+}
+function cyclePlantImage(kind,pid,dir){ const p=plantDbFind(kind,pid); if(!p||!p.imgAlts||p.imgAlts.length<2) return; p._imgIdx=(((p._imgIdx||0)+dir)%p.imgAlts.length+p.imgAlts.length)%p.imgAlts.length; const a=p.imgAlts[p._imgIdx]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; delete p.imgAI; plantBookSave(); _afterColorChange(kind,pid); }
 function _allPlantsFlat(){ const out=[]; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>out.push({kind:k,p})); }); return out; }
 // ── Find duplicates (same common + botanical name) ──
 function _dupKey(p){ const c=(p.c||"").trim().toLowerCase().replace(/\s+/g," "); const b=(p.b||"").trim().toLowerCase().replace(/\s+/g," "); if(!c&&!b) return ""; return c+"|"+b; }
@@ -3701,13 +3759,16 @@ function _plStyle(){ return `
   .plr-qty b{color:#23231f}
   .plr-render{margin:12px 0 4px;border:1px solid #e2ded2;border-radius:9px;overflow:hidden}
   .plr-render img{width:100%;display:block}
+  .plr-rm{position:absolute;top:5px;right:5px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(20,28,18,.6);color:#fff;font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .plr-zact{margin:2px 0 8px}
+  .plr-zact button{font-size:11px;font-weight:700;color:#6A4FA3;background:#F3EEFA;border:1px solid #cbb9e6;border-radius:7px;padding:4px 10px;cursor:pointer}
   .plr-render .cap{font-size:9px;color:#8a8a80;padding:5px 8px;background:#fbfaf7;border-top:1px solid #e2ded2}
   .plr-tbl{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:6px}
   .plr-tbl th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#8a8a80;border-bottom:1px solid #d9d4c6;padding:4px 6px 4px 0}
   .plr-tbl td{padding:4px 6px 4px 0;border-bottom:1px solid #f0ece2}
   .plr-tbl tr.tot td{font-weight:800;border-top:1.5px solid #3d6b2e;border-bottom:none;color:#3d6b2e}
   .plr-foot{font-size:9px;color:#8a8a80;border-top:1px solid #e2ded2;padding-top:8px;margin-top:16px;line-height:1.6}
-  @media print{ .plr-card,.plr-zone,.plr-render{page-break-inside:avoid} .plr-sum{page-break-inside:avoid} }
+  @media print{ .plr-card,.plr-zone,.plr-render{page-break-inside:avoid} .plr-sum{page-break-inside:avoid} .plr-rm,.plr-zact{display:none} }
 `; }
 // ── monoline icons (inline SVG, print-safe) ──
 const PLI={
@@ -3741,13 +3802,32 @@ function _plChips(p,kind,qty){ const c=[];
   const tx=(p.toxic||"").toLowerCase(); if(tx&&tx!=="none") c.push(_plIco(PLI.skull, "Toxic: "+p.toxic, "#9c3b3b"));
   return c.join("");
 }
+// ── Zone selector for the plant list report (null = all zones included) ──
+let _plZoneSel=null;
+function _plZonesWithPlants(){ const P=S.planting; const zones=(P&&P.zones)||[]; return zones.filter(z=>["shrubRows","gcRows","treeRows","palmRows"].some(k=>(z[k]||[]).length)); }
+function _plZoneIncluded(z){ return !_plZoneSel || _plZoneSel.has(z.id); }
+function togglePlZone(zid,on){ const all=_plZonesWithPlants().map(z=>z.id); if(!_plZoneSel) _plZoneSel=new Set(all); if(on) _plZoneSel.add(zid); else _plZoneSel.delete(zid); if(_plZoneSel.size>=all.length) _plZoneSel=null; _plRender(); }
+// ── Zone renderings: up to 4 per zone, stored as a list [{url,cap}] (migrates old {install,mature}) ──
+function _zoneRenders(zid){ const P=ensurePlanting(); P._renders=P._renders||{}; let r=P._renders[zid];
+  if(!Array.isArray(r)){ const arr=[];
+    if(r&&r.install) arr.push({url:r.install,cap:"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only."});
+    if(r&&r.mature) arr.push({url:r.mature,cap:"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only."});
+    r=arr; P._renders[zid]=r; }
+  return r; }
+function _zoneRenderAdd(zid,url,cap){ const r=_zoneRenders(zid); if(r.length>=4) return false; r.push({url,cap:cap||"Concept rendering, illustrative only."}); return true; }
+function openRenderForZone(zid){ const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z); }
+function _zonePlantsAll(z){ const out=[]; const seen={}; [["treeRows","tree"],["palmRows","palm"],["shrubRows","shrub"],["gcRows","gc"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const k=kind+":"+p.id; if(seen[k]) return; seen[k]=1; out.push({kind,p}); }); }); return out; }
+function _plZoneChecksHTML(){ const zs=_plZonesWithPlants(); if(zs.length<2) return "";
+  const chips=zs.map(z=>`<label style="font-size:.7rem;color:var(--tm);display:flex;align-items:center;gap:.25rem;white-space:nowrap"><input type="checkbox" ${_plZoneIncluded(z)?"checked":""} onchange="togglePlZone('${z.id}',this.checked)"> ${escAttr(z.name||"Zone")}</label>`).join("");
+  return `<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.4rem;padding:.4rem .6rem;background:#F4F9F5;border:1px solid #cfe0d6;border-radius:8px"><span style="font-size:.66rem;font-weight:700;color:#3d6b2e;text-transform:uppercase">Zones</span>${chips}</div>`; }
 function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P&&P.zones)||[];
   const showImg=opts.images!==false, showQty=opts.qty!==false, showWater=opts.water!==false;
   const KIND_LABEL={shrub:"Shrubs",gc:"Groundcover & Grasses",tree:"Trees",palm:"Palms"};
   const KIND_ORDER=["tree","palm","shrub","gc"];
-  let body=""; let totGal=0, totQty=0; const allSpecies=new Set();
+  let body=""; let totGal=0, totQty=0; const allSpecies=new Set(); let anyAI=false;
   zones.forEach((z,zi)=>{
-    const byKind={}; 
+    if(!_plZoneIncluded(z)) return;
+    const byKind={};
     [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{
       (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return;
         byKind[kind]=byKind[kind]||{};
@@ -3765,22 +3845,27 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
         <span class="plr-zmeta">${recs.length} species${sf?" · "+sf.toLocaleString()+" SF":""}${z.location?" · "+escAttr(z.location):""}</span>
         ${showWater&&zGal>0?`<span class="plr-zwater">${Math.round(zGal).toLocaleString()} gal/yr · $${Math.round(waterCostFor(zGal)).toLocaleString()}/yr</span>`:""}
       </div>`;
-    // Rendering slots — at-installation and grown-in, side by side when both exist
-    const R=(P._renders&&P._renders[z.id])||{};
-    const rI=R.install||"", rM=R.mature||"";
-    if(rI||rM){
-      const both=rI&&rM;
-      body+=`<div style="display:grid;grid-template-columns:${both?"1fr 1fr":"1fr"};gap:9px;margin:12px 0 4px">`;
-      if(rI) body+=`<div class="plr-render"><img src="${escAttr(rI)}"><div class="cap"><b>At installation</b> — plants at nursery size, spacing visible. Concept rendering, illustrative only.</div></div>`;
-      if(rM) body+=`<div class="plr-render"><img src="${escAttr(rM)}"><div class="cap"><b>Grown in, ~5 years</b> — plants at mature size. Concept rendering, illustrative only.</div></div>`;
+    body+=`<div class="plr-zact"><button onclick="openRenderForZone('${z.id}')">🎨 Renderings &amp; Midjourney prompt</button></div>`;
+    // Rendering slots — up to 4 per zone: 1 large, then 2–3 smaller in a half/half grid
+    const _rlist=_zoneRenders(z.id);
+    if(_rlist.length){
+      const rcard=(rr,idx)=>`<div class="plr-render" style="position:relative"><img src="${escAttr(rr.url)}"><button class="plr-rm" onclick="removeZoneRender('${z.id}',${idx})" title="Remove rendering">×</button><div class="cap">${escAttr(rr.cap||"")}</div></div>`;
+      body+=`<div style="margin:12px 0 4px">`;
+      body+=rcard(_rlist[0],0);
+      const rest=_rlist.slice(1);
+      if(rest.length){
+        body+=`<div style="display:grid;grid-template-columns:${rest.length>=2?"1fr 1fr":"1fr"};gap:9px;margin-top:9px">`;
+        rest.forEach((rr,i)=>{ body+=rcard(rr,i+1); });
+        body+=`</div>`;
+      }
       body+=`</div>`;
     }
     KIND_ORDER.forEach(k=>{ if(!byKind[k]) return;
       const list=Object.keys(byKind[k]).map(id=>byKind[k][id]); if(!list.length) return;
       body+=`<div class="plr-grp">${KIND_LABEL[k]} <span style="color:#c3c3b8">(${list.length})</span></div><div class="plr-grid">`;
-      list.forEach(r=>{ const p=r.p; const g=plantAnnualGal(p,r.kind,r.qty);
+      list.forEach(r=>{ const p=r.p; const g=plantAnnualGal(p,r.kind,r.qty); if(p.imgAI) anyAI=true;
         body+=`<div class="plr-card">
-          ${showImg?(p.img?`<img class="plr-img" src="${escAttr(p.img)}">`:`<div class="plr-noimg">${PLI.leaf.replace('<svg','<svg style="width:26px;height:26px;stroke:#b9c9b1;stroke-width:1.4;fill:none"')}</div>`):""}
+          ${showImg?(p.img?`<div style="position:relative"><img class="plr-img" src="${escAttr(p.img)}">${p.imgAI?`<span style="position:absolute;left:5px;bottom:5px;background:rgba(255,255,255,.92);color:#5b5b52;border:1px solid #d9d4c6;border-radius:4px;padding:1px 4px;font-size:7.5px;font-weight:700;letter-spacing:.03em">AI ILLUSTRATION</span>`:""}</div>`:`<div class="plr-noimg">${PLI.leaf.replace('<svg','<svg style="width:26px;height:26px;stroke:#b9c9b1;stroke-width:1.4;fill:none"')}</div>`):""}
           <div class="plr-body">
             <p class="plr-name">${escAttr(p.c||"")}</p>
             <p class="plr-bot">${escAttr(botName(p)||"")}</p>
@@ -3826,6 +3911,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
     <div class="plr-foot">
       Plant sizes are mature estimates and vary with site conditions, exposure, and maintenance. Water use is calculated by the WUCOLS/MWELO method and is an <b>estimate</b> — actual use depends on soil, microclimate, irrigation design, and controller scheduling.
       Fire zone ratings indicate the California defensible-space zone each plant is appropriate for (Zone 0 = 0–5 ft ember zone, Zone 1 = 5–30 ft, Zone 2 = 30–100 ft). No plant is fireproof — performance depends on irrigation, spacing, and removal of dead material. Verify with your local fire authority.
+      ${anyAI?`<br><b>Images marked "AI ILLUSTRATION" are AI-generated representations, not photographs of the specific plant supplied.</b> They indicate character and habit only; actual plants vary by grower, cultivar, and season.`:""}
     </div>
   </div>`;
 }
@@ -3853,10 +3939,12 @@ function openPlantListReport(){ try{ plantRefresh(); }catch(e){}   // ensure der
       <button id="pl-water-ai" class="btn" onclick="fetchCityWater()" style="padding:.2rem .6rem;font-size:.7rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3">✨ Look up my city</button>
       ${WATER_CFG.agency?`<span style="font-size:.64rem;color:var(--tl)">${escAttr(WATER_CFG.agency)}</span>`:""}
       <span style="margin-left:auto;display:flex;gap:.35rem">
+        <button id="pl-aifill" class="btn" onclick="aiFillProjectImages()" style="padding:.2rem .6rem;font-size:.7rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" title="Generate AI illustrations for plants in this project that have no photo">✨ AI images for missing</button>
         <button class="btn" onclick="copyRenderPrompt()" style="padding:.2rem .6rem;font-size:.7rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" title="Copy a Midjourney/AI prompt built from this zone's actual plant list">⧉ Copy render prompt</button>
         <label class="btn" style="padding:.2rem .6rem;font-size:.7rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer;margin:0">＋ Add rendering<input type="file" accept="image/*" style="display:none" onchange="addZoneRender(this)"></label>
       </span>
     </div>
+    ${_plZoneChecksHTML()}
     <style>${_plStyle()}</style>
     <div id="pl-body" style="overflow:auto;flex:1;margin-top:.7rem;padding-right:.3rem"></div>
     <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem;border-top:1px solid var(--br);padding-top:.6rem">
@@ -3864,6 +3952,26 @@ function openPlantListReport(){ try{ plantRefresh(); }catch(e){}   // ensure der
     </div>
   </div>`;
   document.body.appendChild(d); _plRender();
+}
+async function aiFillProjectImages(){
+  const P=S.planting; const zones=(P&&P.zones)||[];
+  const need=[]; const seen=new Set();
+  zones.forEach(z=>{ [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{
+    (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const k=kind+":"+p.id;
+      if(seen.has(k)||p.img) return; seen.add(k); need.push({kind,pid:p.id,name:(p.c||botName(p)||"")}); }); }); });
+  if(!need.length){ alert("Every plant in this project already has an image."); return; }
+  const cost=(need.length*(imgModel()==="nano-2"?0.08:imgModel()==="flux-klein"?0.014:0.03)).toFixed(2);
+  if(!confirm(`Generate AI images for the ${need.length} plant${need.length>1?"s":""} in this project with no photo?\n\n~$${cost}.\n\nThese are ILLUSTRATIONS, not photographs — the AI renders a plausible plant and cultivar details can be wrong. Review each one before it goes to a client. You can revert any of them.`)) return;
+  const btn=document.getElementById("pl-aifill"); if(btn){ btn.disabled=true; }
+  let ok=0;
+  for(let i=0;i<need.length;i++){
+    if(btn) btn.textContent=`Generating ${i+1}/${need.length}…`;
+    const r=await aiPlantImage(need[i].kind,need[i].pid);
+    if(r.ok) ok++; else if(r.err && /balance|locked/i.test(r.err)){ alert("fal.ai: "+r.err); break; }
+    _plRender();
+  }
+  if(btn){ btn.textContent="✨ AI images for missing"; btn.disabled=false; }
+  alert(`Generated ${ok} of ${need.length}.\n\nReview them in the Plant Book — anything wrong can be reverted with "↺ real photo".`);
 }
 function _plRender(){ const b=document.getElementById("pl-body"); if(!b) return;
   const images=(document.getElementById("pl-img")||{}).checked!==false;
@@ -4001,10 +4109,23 @@ function _renderPromptModal(z){
       <button class="rp-gen btn" onclick="_rpGenerate('${z.id}','install')" style="flex:1;padding:.5rem;font-size:.8rem;background:#6A4FA3;color:#fff;border:none;font-weight:600">✨ Generate: at installation<div style="font-size:.62rem;font-weight:400;opacity:.85">young plants, visible spacing</div></button>
       <button class="rp-gen btn" onclick="_rpGenerate('${z.id}','mature')" style="flex:1;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">✨ Generate: grown in (5 yr)<div style="font-size:.62rem;font-weight:400;opacity:.85">mature, filled out</div></button>
     </div>
-    <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.9rem 0 .3rem">Or copy the prompt (Midjourney etc.)</div>
-    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-      <button class="btn" onclick="_rpCopy('${z.id}','install')" style="flex:1;padding:.4rem;font-size:.76rem;background:#fff;color:var(--gm);border:1px solid var(--gm)">⧉ At installation</button>
-      <button class="btn" onclick="_rpCopy('${z.id}','mature')" style="flex:1;padding:.4rem;font-size:.76rem;background:#fff;color:var(--gm);border:1px solid var(--gm)">⧉ Grown in (5 yr)</button>
+    <div style="margin:.9rem 0 0;padding:.6rem .7rem;background:#EAF2FB;border:1px solid #b9d3ef;border-radius:9px">
+      <div style="font-size:.74rem;font-weight:800;color:#1f4e79;margin-bottom:.15rem">⧉ Midjourney prompt</div>
+      <div style="font-size:.68rem;color:#3a6491;margin-bottom:.4rem">Copies a ready-to-paste Midjourney prompt built from this zone's real plant list (includes --ar/--style raw). Paste into Midjourney, then use ＋ Add rendering to bring the image back.</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn" onclick="_rpCopy('${z.id}','install')" style="flex:1;padding:.45rem;font-size:.78rem;background:#1f4e79;color:#fff;border:none;font-weight:600">⧉ At installation</button>
+        <button class="btn" onclick="_rpCopy('${z.id}','mature')" style="flex:1;padding:.45rem;font-size:.78rem;background:#1f4e79;color:#fff;border:none;font-weight:600">⧉ Grown in (5 yr)</button>
+      </div>
+    </div>
+    <div style="margin:.9rem 0 0;padding:.6rem .7rem;background:#F3EEFA;border:1px solid #cbb9e6;border-radius:9px">
+      <div style="font-size:.74rem;font-weight:800;color:#5a3d94;margin-bottom:.15rem">🍌 Custom grouping — pick plants + describe the scene</div>
+      <div style="font-size:.68rem;color:#6a4fa3;margin-bottom:.4rem">Select specific plants and describe the layout (e.g. "20×20 planting area on a slope, these shrubs massed at the base, this tree up top, sun at a low angle"). Generates with Nano Banana and attaches to this zone.</div>
+      <div style="max-height:120px;overflow:auto;background:#fff;border:1px solid #cbb9e6;border-radius:8px;padding:.4rem .55rem;margin-bottom:.4rem">
+        ${(()=>{ const ap=_zonePlantsAll(z); return ap.length?ap.map(r=>`<label style="display:flex;align-items:center;gap:.4rem;font-size:.74rem;padding:.12rem 0"><input type="checkbox" class="rp-cust-pick" value="${escAttr(r.kind+':'+r.p.id)}"> ${escAttr(r.p.c||botName(r.p)||"")} <span style="color:var(--tl);font-size:.68rem">${({tree:"tree",palm:"palm",shrub:"shrub",gc:"GC"})[r.kind]}</span></label>`).join(""):'<div style="font-size:.74rem;color:var(--tl)">No plants in this zone.</div>'; })()}
+      </div>
+      <textarea id="rp-custom-scene" placeholder="Describe the scene and layout for this grouping…" style="width:100%;min-height:56px;padding:.5rem;border:1px solid #cbb9e6;border-radius:8px;font-size:.8rem;font-family:inherit;resize:vertical"></textarea>
+      <button class="rp-gen btn" onclick="_rpCustomGenerate('${z.id}')" style="width:100%;margin-top:.4rem;padding:.5rem;font-size:.8rem;background:#8a5cc4;color:#fff;border:none;font-weight:600">🍌 Generate custom grouping (Nano Banana · ~$0.08)</button>
+      <div id="rp-custom-status" style="font-size:.72rem;color:var(--tm);margin-top:.25rem"></div>
     </div>
     <div style="font-size:.64rem;color:var(--tl);margin-top:.6rem;line-height:1.45">Concept renderings only — an AI impression of the palette and character, not a botanically exact depiction of each cultivar. Labelled as such in the report.</div>
     <div style="display:flex;justify-content:flex-end;margin-top:.6rem"><button class="btn" onclick="document.getElementById('rp-modal').remove()" style="padding:.4rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
@@ -4043,8 +4164,8 @@ async function _rpGenerate(zid, stage){
       try{ const ir=await fetch(d.url); const blob=await ir.blob();
         dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
       }catch(e){ /* fall back to the remote URL */ }
-      P._renders=P._renders||{}; P._renders[z.id]=P._renders[z.id]||{};
-      P._renders[z.id][stage]=dataUrl;
+      const _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
+      if(!_zoneRenderAdd(z.id,dataUrl,_cap)){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       setSt("✓ Added to the report.","var(--gm)");
       _plRender();
     } else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} setSt("Wrong admin key — cleared it, try again.","#B23F3C"); }
@@ -4063,15 +4184,59 @@ function _rpCopy(zid, stage){
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(p).then(done,()=>{ prompt("Copy this prompt:",p); }); }
   else prompt("Copy this prompt:",p);
 }
+// Custom grouping render — user-picked plants + free-text scene, generated with Nano Banana
+async function _rpCustomGenerate(zid){
+  const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
+  const st=document.getElementById("rp-custom-status");
+  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } };
+  const scene=((document.getElementById("rp-custom-scene")||{}).value||"").trim();
+  const picks=[].slice.call(document.querySelectorAll(".rp-cust-pick:checked")).map(c=>c.value);
+  if(!picks.length){ setSt("Pick at least one plant for the grouping.","#B23F3C"); return; }
+  if(!scene){ setSt("Describe the scene first.","#B23F3C"); return; }
+  if(_zoneRenders(z.id).length>=4){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); return; }
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ setSt("No worker connected.","#B23F3C"); return; }
+  const key=_adminKey(); if(!key) return;
+  const names=picks.map(v=>{ const i=v.indexOf(":"); const kind=v.slice(0,i), pid=v.slice(i+1); const p=plantDbFind(kind,pid); if(!p) return null; return (p.c||"")+(botName(p)?" ("+botName(p)+")":""); }).filter(Boolean);
+  const city=(S.pi&&S.pi.city)||"Southern California";
+  let ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
+  const photoTxt = ref ? "USE THE SUPPLIED PHOTOGRAPH AS THE SITE — keep the existing terrain, slope, grade, structures, hardscape and camera viewpoint EXACTLY; replace only the planting areas. " : "";
+  const prompt=`Photorealistic landscape architecture rendering in ${city}. ${photoTxt}${scene}\n\nFeature these plants, arranged naturalistically in drifts and masses (not evenly scattered): ${names.join(", ")}.\nMediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, high detail.`;
+  document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
+  setSt("Generating with Nano Banana… (10–30 sec)","#8a5cc4");
+  try{
+    if(ref && ref.length > 4*1024*1024){ setSt("Site photo is too large even after resizing — try a smaller image.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"genimage",key,prompt,model:"nano-2",aspect:"3:2",refs:ref?[ref]:[]})});
+    if(!r.ok){ let t=""; try{ t=(await r.text()).slice(0,200); }catch(e){}
+      setSt("Server error "+r.status+(t?": "+t:""),"#B23F3C");
+      document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
+    const d=await r.json();
+    if(d&&d.ok&&d.url){
+      setSt("Downloading image…","#8a5cc4");
+      let dataUrl=d.url;
+      try{ const ir=await fetch(d.url); const blob=await ir.blob();
+        dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
+      }catch(e){}
+      const cap="Custom grouping — "+(scene.length>90?scene.slice(0,90)+"…":scene)+" Concept rendering, illustrative only.";
+      if(!_zoneRenderAdd(z.id,dataUrl,cap)){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
+      setSt("✓ Added to the report.","var(--gm)");
+      _plRender();
+    } else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} setSt("Wrong admin key — cleared it, try again.","#B23F3C"); }
+    else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
+    else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
+  }catch(e){ setSt("Failed ("+((e&&e.message)||"error")+").","#B23F3C"); }
+  document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false);
+}
 function addZoneRender(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
   const z=_zonePick(); if(!z) return;
+  if(_zoneRenders(z.id).length>=4){ alert("Up to 4 renderings per zone. Remove one first."); return; }
   const stage=confirm('Which rendering is this?\n\nOK = "Grown in (5 yr)"\nCancel = "At installation"') ? "mature" : "install";
+  const cap=stage==="mature"?"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.":"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.";
   const rd=new FileReader();
-  rd.onload=()=>{ const P=ensurePlanting(); P._renders=P._renders||{}; P._renders[z.id]=P._renders[z.id]||{};
-    P._renders[z.id][stage]=rd.result; _plRender(); };
+  rd.onload=()=>{ _zoneRenderAdd(z.id,rd.result,cap); _plRender(); };
   rd.readAsDataURL(f);
 }
-function removeZoneRender(zid,stage){ const P=ensurePlanting(); if(P._renders&&P._renders[zid]){ delete P._renders[zid][stage]; _plRender(); } }
+function removeZoneRender(zid,idx){ const r=_zoneRenders(zid); if(idx>=0&&idx<r.length){ r.splice(idx,1); _plRender(); } }
 function openFireReport(){ let d=document.getElementById("fire-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fire-modal";
   const list=_projectPlantList();
   const groups={"0":[],"1":[],"2":[],"avoid":[],"":[]};
@@ -4739,7 +4904,10 @@ function renderPlantBookList(){
         <div style="flex:none;width:64px">
         <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" alt="" ${p.img?`data-img="${escAttr(p.img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p))}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA${p.img?';cursor:zoom-in':''}">
         ${p.img?`${(p.imgAlts&&p.imgAlts.length>1)?`<div style="display:flex;align-items:center;justify-content:center;gap:.2rem;margin-top:.15rem"><button class="btn" onclick="cyclePlantImage('${kind}','${p.id}',-1)" style="padding:0 .3rem;font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:4px;cursor:pointer">‹</button><span style="font-size:.52rem;color:var(--tl)">${(p._imgIdx||0)+1}/${p.imgAlts.length}</span><button class="btn" onclick="cyclePlantImage('${kind}','${p.id}',1)" style="padding:0 .3rem;font-size:.7rem;border:1px solid var(--br);background:#fff;border-radius:4px;cursor:pointer">›</button></div>`:''}${p.imgFlag?`<div style="font-size:.54rem;color:#b8952a;text-align:center;margin-top:.15rem;font-weight:700">⚠ verify</div>`:''}${(p.imgAttr&&p.imgLic&&p.imgLic!=="cc0")?`<div style="font-size:.5rem;color:var(--tl);line-height:1.15;margin-top:.1rem;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(p.imgAttr)}">© ${escAttr((p.imgAttr||"").replace(/^\(c\)\s*/i,"").slice(0,36))}</div>`:''}`:`<button class="btn" onclick="fetchOnePlantImage('${kind}','${p.id}')" style="width:64px;margin-top:.15rem;padding:.12rem;font-size:.54rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:5px;cursor:pointer" title="Fetch a commercial-safe photo">🖼 fetch</button>`}
+        ${p.imgAI?`<div style="font-size:.5rem;color:#6A4FA3;text-align:center;margin-top:.15rem;font-weight:800;letter-spacing:.03em">✨ AI IMAGE</div>`:''}
         <div style="display:flex;flex-direction:column;gap:.1rem;margin-top:.2rem;width:64px">
+          <button class="btn" data-aiimg="${kind}:${p.id}" onclick="aiPlantImageBtn('${kind}','${p.id}')" style="font-size:.5rem;padding:.08rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:4px;cursor:pointer" title="Generate an AI illustration of this plant (~$0.03). Not a photograph — verify it.">✨ AI image</button>
+          ${p.imgAI?`<button class="btn" onclick="restorePlantPhoto('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:#fff;border:1px solid var(--br);border-radius:4px;cursor:pointer" title="Remove the AI image and go back to the real photo">↺ real photo</button>`:''}
           <a href="${_commonsSearchLink(p)}" target="_blank" rel="noopener" style="font-size:.5rem;color:var(--gm);text-decoration:underline;text-align:center" title="Browse commercial-safe photos on Wikimedia Commons">⧉ Commons</a>
           <button class="btn" onclick="pasteCommonsImage('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:#fff;border:1px solid var(--br);border-radius:4px;cursor:pointer" title="Paste a Wikimedia Commons image link">paste link</button>
         </div>
