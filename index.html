@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v340</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v342</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3624,7 +3624,7 @@ function dsZoneBadge(p){ const z=dsZoneOf(p); if(!z) return ""; const d=DS_ZONES
 function fireAvoidFlag(p){ const b=(botName(p)||"").toLowerCase(); return FIRE_AVOID_GENERA.some(g=>b.indexOf(g)===0||b.indexOf(" "+g)>=0); }
 // ── Fire-safe / defensible-space plant report (project plants, grouped by zone) ──
 function _projectPlantList(){ const out=[]; const seen={}; const P=S.planting; if(!P||!P.zones) return out;
-  P.zones.forEach(z=>{ [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const key=kind+":"+p.id; if(seen[key]){ seen[key].qty+=(+r.qty||0); return; } const rec={kind,p,qty:(+r.qty||0),zones:[z.name||"Zone"]}; seen[key]=rec; out.push(rec); }); }); });
+  P.zones.forEach(z=>{ [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const key=kind+":"+p.id; if(seen[key]){ seen[key].qty+=rowQty(r); return; } const rec={kind,p,qty:rowQty(r),zones:[z.name||"Zone"]}; seen[key]=rec; out.push(rec); }); }); });
   return out; }
 // ── Plant list / palette report (by planting zone, images + specs) ──
 // ═══════════════════════════════════════════════════════
@@ -3752,7 +3752,8 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
       (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return;
         byKind[kind]=byKind[kind]||{};
         const ex=byKind[kind][p.id];
-        if(ex) ex.qty+=(+r.qty||0); else byKind[kind][p.id]={kind,p,qty:(+r.qty||0)}; });
+        const q=rowQty(r);
+        if(ex) ex.qty+=q; else byKind[kind][p.id]={kind,p,qty:q}; });
     });
     const recs=[]; KIND_ORDER.forEach(k=>{ if(byKind[k]) Object.keys(byKind[k]).forEach(id=>recs.push(byKind[k][id])); });
     if(!recs.length) return;
@@ -3828,7 +3829,8 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
     </div>
   </div>`;
 }
-function openPlantListReport(){ let d=document.getElementById("pl-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="pl-modal";
+function openPlantListReport(){ try{ plantRefresh(); }catch(e){}   // ensure derived quantities are current
+  let d=document.getElementById("pl-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="pl-modal";
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:940px;width:100%;max-height:92vh;display:flex;flex-direction:column;padding:1.1rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem">
@@ -3884,10 +3886,11 @@ function _zonePick(){ const P=S.planting; const zones=(P&&P.zones)||[]; const wi
 // Build a render prompt from the zone's REAL plant list — with coverage percentages
 // (qty x mature canopy), so the image reflects the actual design proportions.
 function _zoneMix(z){
+  try{ plantRefresh(); }catch(e){}   // ensure derived quantities are current
   const rows=[]; let totalCanopy=0;
   [["treeRows","tree"],["palmRows","palm"],["shrubRows","shrub"],["gcRows","gc"]].forEach(([rk,kind])=>{
     (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return;
-      const qty=+r.qty||0; if(!qty) return;
+      const qty=rowQty(r); if(!qty) return;
       const canopy=plantCanopySF(p,kind)*qty;
       totalCanopy+=canopy;
       rows.push({kind,p,qty,canopy}); });
@@ -3914,8 +3917,12 @@ function _renderPrompt(z, stage){
   const stageTxt = stage==="install"
     ? `AT INSTALLATION — plants are young nursery stock at their planting size, spaced apart at design spacing with visible bare soil and fresh mulch between them, gaps clearly readable, shrubs roughly 1-2 ft across, groundcover not yet knitted together, trees are young 24-inch box specimens. Show the spacing honestly — this is day one, not grown in.`
     : `FULLY GROWN IN, 5 YEARS AFTER PLANTING — plants at mature size, groundcover fully knitted into continuous drifts with no bare soil, shrubs touching and massed, trees at mature canopy. Lush and established.`;
+  const hasPhoto = !!((P._sitePhoto&&P._sitePhoto[z.id])||"");
+  const photoTxt = hasPhoto
+    ? `\nUSE THE SUPPLIED PHOTOGRAPH AS THE SITE. Keep the existing terrain, slope, grade, structures, hardscape, walls, buildings, background trees, horizon and camera viewpoint EXACTLY as they are in the photo. Replace ONLY the planting areas with the palette below. Match the photo's lighting, season, and perspective. Do not redesign the site, do not move the camera, do not invent new structures.\n`
+    : "";
   return `Photorealistic landscape architecture rendering. ${sun} residential planting${sf?` of approximately ${sf.toLocaleString()} SF`:""} in ${city}.
-${ctx?`SITE: ${ctx}\n`:""}
+${photoTxt}${ctx?`SITE: ${ctx}\n`:""}
 ${stageTxt}
 
 PLANTING MIX (percentages are share of planted area — respect these proportions):
@@ -3923,6 +3930,14 @@ ${trees?`Trees: ${trees}\n`:""}${palms?`Palms: ${palms}\n`:""}${shrubs?`Shrubs: 
 Plant in naturalistic drifts and repeating masses, not evenly scattered. Mediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, wide establishing shot, high detail --ar 3:2 --style raw`;
 }
 function copyRenderPrompt(){ const z=_zonePick(); if(!z) return; _renderPromptModal(z); }
+function setSitePhoto(input, zid){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ const P=ensurePlanting(); P._sitePhoto=P._sitePhoto||{}; P._sitePhoto[zid]=rd.result;
+    const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z); };
+  rd.readAsDataURL(f);
+}
+function clearSitePhoto(zid){ const P=ensurePlanting(); if(P._sitePhoto) delete P._sitePhoto[zid];
+  const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z); }
 function _renderPromptModal(z){
   const P=ensurePlanting(); P._siteNotes=P._siteNotes||{};
   let d=document.getElementById("rp-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="rp-modal";
@@ -3931,6 +3946,19 @@ function _renderPromptModal(z){
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:88vh;display:flex;flex-direction:column;padding:1.2rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.35)">
     <div style="font-size:1.02rem;font-weight:700;color:var(--gm)">Render prompt — ${escAttr(z.name||"Zone")}</div>
     <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .6rem">Built from this zone's actual plant list and coverage percentages. Paste into Midjourney, then use ＋ Add rendering.</div>
+    <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.25rem">Site photo (optional — renders onto your actual site)</div>
+    ${(()=>{ const ph=(P._sitePhoto&&P._sitePhoto[z.id])||"";
+      return ph
+      ? `<div style="display:flex;gap:.6rem;align-items:center;margin-bottom:.6rem">
+           <img src="${escAttr(ph)}" style="width:110px;height:70px;object-fit:cover;border-radius:7px;border:1px solid var(--br)">
+           <div style="font-size:.72rem;color:var(--gm);font-weight:600">✓ Using your site photo<div style="font-size:.66rem;color:var(--tm);font-weight:400">The AI keeps the terrain, house, walls and viewpoint — and replants it.</div></div>
+           <button class="btn" onclick="clearSitePhoto('${z.id}')" style="margin-left:auto;padding:.2rem .5rem;font-size:.68rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C">Remove</button>
+         </div>`
+      : `<label class="btn" style="display:block;text-align:center;padding:.55rem;margin-bottom:.6rem;font-size:.76rem;background:#F4F9F5;color:var(--gm);border:1px dashed var(--gm);cursor:pointer">
+           📷 Upload a photo of the slope / site
+           <div style="font-size:.64rem;font-weight:400;color:var(--tm)">The rendering keeps your real terrain, house and viewpoint — big quality jump</div>
+           <input type="file" accept="image/*" style="display:none" onchange="setSitePhoto(this,'${z.id}')">
+         </label>`; })()}
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.25rem">Describe the site (optional but makes it much better)</div>
     <textarea id="rp-notes" placeholder="e.g. Steep slope below the house, home sits at the top of the hill, full sun, mature oaks surrounding the property, view down toward the parking court." style="width:100%;min-height:64px;padding:.5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;font-family:inherit;resize:vertical">${escAttr(P._siteNotes[z.id]||"")}</textarea>
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.7rem 0 .25rem">Planting mix (share of planted area)</div>
@@ -3942,7 +3970,7 @@ function _renderPromptModal(z){
       <select id="rp-model" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
         <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
         <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
-        <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · Google · ~$0.08</option>
+        <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · Google · ~$0.08 · best with a site photo</option>
       </select>
       <span id="rp-status" style="font-size:.72rem;color:var(--tm)"></span>
     </div>
@@ -3977,8 +4005,9 @@ async function _rpGenerate(zid, stage){
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering… (10–20 sec)","#6A4FA3");
   try{
+    const ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"genimage",key,prompt,model:imgModel(),aspect:"3:2"})});
+      body:JSON.stringify({type:"genimage",key,prompt,model:imgModel(),aspect:"3:2",refs:ref?[ref]:[]})});
     const d=await r.json();
     if(d&&d.ok&&d.url){
       // pull the image into the app so it saves with the project (fal URLs expire)
@@ -4879,6 +4908,13 @@ function plantWaterPop(ev){ ev.stopPropagation(); document.querySelectorAll(".in
 const PLANT_WATER={ et0:48, ie:0.75, conv:0.62 };   // annual ET0 (in), irrigation efficiency, gal/sf/in
 function ocFromSpread(wFt){ return Math.max(0.5, (+wFt||3)*0.75); }   // 75%-of-mature-width rule, feet
 function ocInFromSpread(wFt){ return Math.max(6, Math.round(((+wFt||3)*0.75*12)/6)*6); }  // → inches, snapped to 6"
+// Effective quantity for a planting row: the number you typed, else the number the
+// app derived from spacing (75% of mature width) x zone area x that plant's mix %.
+function rowQty(r){ if(!r) return 0;
+  if(r.qty>0) return Math.round(r.qty);
+  if(r.n>0) return Math.round(r.n);            // trees/palms use n
+  if(r._calcQty>0) return Math.round(r._calcQty);
+  return 0; }
 function snap6(v){ return Math.max(6, Math.round((+v||6)/6)*6); }
 function plantGalYr(wFt,wu){ const info=WU_INFO[wu]||WU_INFO.L; const canopy=Math.PI*Math.pow((+wFt||3)/2,2);
   return PLANT_WATER.et0*info.k*canopy*PLANT_WATER.conv/PLANT_WATER.ie; }
@@ -5426,6 +5462,7 @@ function plantingCalc(){
       const each=count>0?(mat+lab)/count:0, cost=mat+lab;
       const galEa=plantGalYr(db.w,db.wu), costEa=galEa*cpg, gal=count*galEa, galCost=gal*cpg;
       zd.shrubGal+=gal; zd.shrubGalCost+=galCost; zd.shrubPct+=pctEff; parts.shrubs+=cost;
+      r._calcQty=count;   // derived from spacing (75% of mature width) x zone area x mix %
       zd.shrubRows.push({count,each,mat,lab,cost,ocIn,gal,galCost,galEa,costEa,pctEff,isQty});
     });
     z.gcRows.forEach(r=>{
@@ -5435,6 +5472,7 @@ function plantingCalc(){
       const realFlat=bestPlantCost("gc",r.pid,"flat"); const matCost=flats*(realFlat?realFlat.price:flatUC), install=subSF*instUC, cost=matCost+install;
       const galEa=gcGalYr(app,db.wu), costEa=galEa*cpg, gal=gcGalYr(subSF,db.wu), galCost=gal*cpg;
       zd.gcGal+=gal; zd.gcGalCost+=galCost; zd.gcPct+=(+r.pct||0); parts.gc+=cost;
+      r._calcQty=plants;  // derived from O.C. spacing x zone area x mix %
       zd.gcRows.push({plants,flats,cost,matCost,install,ocIn,perFlat,subSF,gal,galCost,galEa,costEa});
     });
     z.treeRows.forEach(r=>{
@@ -5445,6 +5483,7 @@ function plantingCalc(){
       const each=mat+lab, count=Math.max(0,Math.round(+r.n||0)), cost=count*each;
       const needsCrane=!!r.spec || ["48","60","72","84"].indexOf(r.sz)>=0;
       if(needsCrane) craneUnits+=count;
+      r._calcQty=count;
       parts.trees+=cost; zd.treeRows.push({count,each,mat,lab,cost,needsCrane});
     });
     z.palmRows.forEach(r=>{
@@ -5453,6 +5492,7 @@ function plantingCalc(){
       const trunk=(db.perFt||180)*bth;
       const needsCrane=bth>=16; if(needsCrane) craneUnits+=count;
       const mat=trunk*0.65, lab=trunk*0.35, each=mat+lab, cost=count*each;
+      r._calcQty=count;
       parts.palms+=cost; zd.palmRows.push({count,each,mat,lab,cost,needsCrane});
     });
     parts.openMulch+=zd.openMulch;
