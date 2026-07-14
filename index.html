@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v347</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v350</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3553,6 +3553,23 @@ function plantPortraitPrompt(p,kind){
     `Photographed like a professional plant nursery catalogue: the whole plant filling the frame, natural daylight, shallow depth of field with a soft neutral background, `+
     `true-to-life foliage colour and leaf shape, accurate growth habit. Sharp, clean, realistic horticultural photography. No text, no watermarks, no people, no hands.`;
 }
+// ── R2 image storage: downscale to 512px JPEG, upload to the worker's R2 bucket, get back a light URL ──
+function _imgTo512(src){ return new Promise((res,rej)=>{ const img=new Image();
+  img.onload=()=>{ let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height; if(!w||!h){ rej(new Error("no dims")); return; }
+    const s=Math.min(1,512/Math.max(w,h)); w=Math.max(1,Math.round(w*s)); h=Math.max(1,Math.round(h*s));
+    const cv=document.createElement("canvas"); cv.width=w; cv.height=h; cv.getContext("2d").drawImage(img,0,0,w,h);
+    try{ res(cv.toDataURL("image/jpeg",0.82)); }catch(e){ rej(e); } };
+  img.onerror=()=>rej(new Error("image load failed")); img.src=src; }); }
+// Fetch a remote (fal) image as a blob first so the canvas isn't cross-origin tainted, then downscale.
+async function _fetchTo512(url){ if(/^data:/.test(url)) return _imgTo512(url);
+  const r=await fetch(url); const blob=await r.blob();
+  const durl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
+  return _imgTo512(durl); }
+async function _uploadImageR2(id,dataUrl){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
+  const key=_adminKey(); if(!key) return {ok:false,err:"No key"};
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveimage",key,id:(""+id).replace(/[^a-zA-Z0-9_\-]/g,""),image:dataUrl})});
+    const d=await r.json(); if(d&&d.ok&&d.url) return {ok:true,url:d.url}; return {ok:false,err:(d&&(d.error||d.detail))||"upload failed"}; }
+  catch(e){ return {ok:false,err:(e&&e.message)||"error"}; } }
 async function aiPlantImage(kind,pid){
   const p=plantDbFind(kind,pid); if(!p) return {ok:false};
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
@@ -3564,14 +3581,13 @@ async function aiPlantImage(kind,pid){
       body:JSON.stringify({type:"genimage",key,prompt,model:imgModel(),aspect:"1:1"})});
     const d=await r.json();
     if(!(d&&d.ok&&d.url)) return {ok:false,err:(d&&(d.detail||d.error))||"failed"};
-    // pull it in so it persists with the book
-    let dataUrl=d.url;
-    try{ const ir=await fetch(d.url); const blob=await ir.blob();
-      dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
-    }catch(e){}
+    // downscale to 512px, then host on R2 so the book stores just a light URL (not base64)
+    let small=null; try{ small=await _fetchTo512(d.url); }catch(e){}
+    let stored=small||d.url;   // fallbacks: downscaled base64, then the raw fal URL
+    if(small){ const up=await _uploadImageR2(kind+"_"+pid, small); if(up.ok) stored=up.url; }
     // keep whatever real photo existed so it can be restored
     if(p.img && !p.imgAI && !p.imgPrev) p.imgPrev=p.img;
-    p.img=dataUrl; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false;
+    p.img=stored; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false;
     plantBookSave();
     return {ok:true};
   }catch(e){ return {ok:false,err:(e&&e.message)||"error"}; }
@@ -3586,6 +3602,74 @@ async function aiPlantImageBtn(kind,pid){
   if(typeof renderPlantBook==="function") renderPlantBook();
   if(document.getElementById("pl-modal")) _plRender();
 }
+// ── Bulk AI plant images (whole book) + migrate old base64 AI images to R2 ──
+function _imgCostEach(){ const m=imgModel(); return m==="nano-2"?0.08:(m==="flux-klein"?0.014:0.03); }
+let _aiImgStop=false;
+function _aiImgRecost(){ const c=document.getElementById("aiimg-cost"); if(!c) return; const missing=_allPlantsFlat().filter(x=>!x.p.img).length; c.textContent="$"+(missing*_imgCostEach()).toFixed(2); }
+function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="aiimg-modal";
+  const all=_allPlantsFlat();
+  const missing=all.filter(x=>!x.p.img).length;
+  const inlineAI=all.filter(x=>x.p.imgAI && /^data:/.test(x.p.img||"")).length;
+  const cost=(missing*_imgCostEach()).toFixed(2);
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="font-size:1.05rem;font-weight:700;color:#6A4FA3;margin-bottom:.3rem">🖼 AI plant images</div>
+      <div style="font-size:.78rem;color:var(--tm);line-height:1.5">AI images are downscaled to 512px and stored on Cloudflare R2, so the book keeps only a light URL (never base64 in KV). Every image is an <b>illustration</b>, not a photo — each is marked ✨ AI in exports.</div>
+      <div style="display:flex;gap:.5rem;align-items:center;margin:.6rem 0 .3rem;flex-wrap:wrap">
+        <span style="font-size:.7rem;color:var(--tm)">Model</span>
+        <select id="aiimg-model" onchange="setImgModel(this.value);_aiImgRecost()" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
+          <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
+          <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
+          <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · ~$0.08</option>
+        </select>
+      </div>
+      <div style="font-size:.82rem;color:#3d6b2e;background:#F4F9F5;border:1px solid #cfe0d6;border-radius:8px;padding:.5rem .6rem;margin-bottom:.5rem">
+        <b>${missing.toLocaleString()}</b> plants have no image · est. <b id="aiimg-cost">$${cost}</b> to fill them all.
+        <div style="font-size:.7rem;color:var(--tm);margin-top:.2rem">Tip: run the free real-photo fetch first — this fills only what's still blank.</div>
+      </div>
+      <div id="aiimg-progress" style="font-size:.82rem;color:var(--tm);min-height:1.4rem;margin:.3rem 0"></div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button id="aiimg-fill" class="btn" onclick="fillMissingImagesAI()" style="flex:1;padding:.5rem;font-size:.82rem;background:#6A4FA3;color:#fff;border:none;font-weight:600" ${missing?"":"disabled"}>✨ Fill ${missing.toLocaleString()} missing</button>
+        ${inlineAI?`<button id="aiimg-mig" class="btn" onclick="migrateAiImagesToR2()" style="flex:1;padding:.5rem;font-size:.82rem;background:#E39A1B;color:#fff;border:none;font-weight:600">⇪ Move ${inlineAI.toLocaleString()} old AI images to R2</button>`:''}
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:.7rem"><button class="btn" onclick="_aiImgStop=true;document.getElementById('aiimg-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
+    </div>`;
+  document.body.appendChild(d);
+}
+async function fillMissingImagesAI(){
+  const todo=_allPlantsFlat().filter(x=>!x.p.img && (botName(x.p)||x.p.c||"").trim());
+  if(!todo.length){ alert("Every plant already has an image."); return; }
+  const cost=(todo.length*_imgCostEach()).toFixed(2);
+  if(!confirm(`Generate AI images for ${todo.length} plant${todo.length>1?"s":""} with no photo?\n\n~$${cost} · stored on R2 at 512px.\n\nThese are ILLUSTRATIONS, not photographs — review before client use. Any can be reverted.`)) return;
+  const prog=document.getElementById("aiimg-progress"); const fb=document.getElementById("aiimg-fill"); if(fb){ fb.disabled=true; }
+  _aiImgStop=false; let ok=0, fail=0;
+  for(let i=0;i<todo.length;i++){ if(_aiImgStop) break;
+    if(prog) prog.innerHTML=`Generating ${i+1} / ${todo.length}… <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
+    const r=await aiPlantImage(todo[i].kind, todo[i].p.id);
+    if(r.ok) ok++; else { fail++; if(r.err && /balance|locked|authoriz|FAL_KEY|No key|No worker/i.test(r.err)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">Stopped: ${r.err}</span>`; break; } }
+  }
+  plantBookSave();
+  if(prog) prog.innerHTML=`<span style="color:var(--gm)">✓ ${ok} added${fail?`, ${fail} failed`:""}. Publish the master book to save them for everyone.</span>`;
+  if(fb){ fb.disabled=false; }
+  if(typeof renderPlantBook==="function") renderPlantBook();
+}
+async function migrateAiImagesToR2(){
+  const todo=_allPlantsFlat().filter(x=>x.p.imgAI && /^data:/.test(x.p.img||""));
+  if(!todo.length){ alert("No inline (base64) AI images to move."); return; }
+  const prog=document.getElementById("aiimg-progress"); const mb=document.getElementById("aiimg-mig"); if(mb){ mb.disabled=true; }
+  _aiImgStop=false; let ok=0, fail=0;
+  for(let i=0;i<todo.length;i++){ if(_aiImgStop) break;
+    if(prog) prog.innerHTML=`Moving ${i+1} / ${todo.length}… <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
+    const x=todo[i];
+    try{ const small=await _imgTo512(x.p.img); const up=await _uploadImageR2(x.kind+"_"+x.p.id, small);
+      if(up.ok){ x.p.img=up.url; ok++; } else { fail++; if(up.err && /authoriz|No key|No worker|IMAGES/i.test(up.err)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">Stopped: ${up.err}</span>`; break; } } }
+    catch(e){ fail++; }
+  }
+  plantBookSave();
+  if(prog) prog.innerHTML=`<span style="color:var(--gm)">✓ ${ok} moved to R2${fail?`, ${fail} failed`:""}. Publish the master book to shrink it.</span>`;
+  if(mb){ mb.disabled=false; }
+  if(typeof renderPlantBook==="function") renderPlantBook();
+}
 function restorePlantPhoto(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return;
   if(p.imgPrev){ p.img=p.imgPrev; delete p.imgPrev; }
   else { p.img=""; }
@@ -3593,6 +3677,11 @@ function restorePlantPhoto(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retu
   if(typeof renderPlantBook==="function") renderPlantBook();
   if(document.getElementById("pl-modal")) _plRender();
 }
+// Mark/unmark any plant image as AI-generated (for images added manually, not by the app)
+function togglePlantAI(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; if(p.imgAI) delete p.imgAI; else p.imgAI=true; plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender(); }
+// AI markers shown on plant images in exports/reports
+function _aiBadgeCorner(){ return `<span title="AI-generated illustration, not a photograph" style="position:absolute;top:4px;right:4px;background:rgba(106,79,163,.94);color:#fff;border-radius:5px;padding:1px 5px;font-size:8px;font-weight:800;letter-spacing:.02em;line-height:1.3">✨ AI</span>`; }
+function _aiDot(){ return `<span title="AI-generated illustration, not a photograph" style="position:absolute;top:-4px;right:-4px;background:#6A4FA3;color:#fff;border-radius:50%;width:12px;height:12px;font-size:8px;line-height:12px;text-align:center;font-weight:800">✦</span>`; }
 function cyclePlantImage(kind,pid,dir){ const p=plantDbFind(kind,pid); if(!p||!p.imgAlts||p.imgAlts.length<2) return; p._imgIdx=(((p._imgIdx||0)+dir)%p.imgAlts.length+p.imgAlts.length)%p.imgAlts.length; const a=p.imgAlts[p._imgIdx]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; delete p.imgAI; plantBookSave(); _afterColorChange(kind,pid); }
 function _allPlantsFlat(){ const out=[]; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>out.push({kind:k,p})); }); return out; }
 // ── Find duplicates (same common + botanical name) ──
@@ -3865,7 +3954,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
       body+=`<div class="plr-grp">${KIND_LABEL[k]} <span style="color:#c3c3b8">(${list.length})</span></div><div class="plr-grid">`;
       list.forEach(r=>{ const p=r.p; const g=plantAnnualGal(p,r.kind,r.qty); if(p.imgAI) anyAI=true;
         body+=`<div class="plr-card">
-          ${showImg?(p.img?`<div style="position:relative"><img class="plr-img" src="${escAttr(p.img)}">${p.imgAI?`<span style="position:absolute;left:5px;bottom:5px;background:rgba(255,255,255,.92);color:#5b5b52;border:1px solid #d9d4c6;border-radius:4px;padding:1px 4px;font-size:7.5px;font-weight:700;letter-spacing:.03em">AI ILLUSTRATION</span>`:""}</div>`:`<div class="plr-noimg">${PLI.leaf.replace('<svg','<svg style="width:26px;height:26px;stroke:#b9c9b1;stroke-width:1.4;fill:none"')}</div>`):""}
+          ${showImg?(p.img?`<div style="position:relative"><img class="plr-img" src="${escAttr(p.img)}">${p.imgAI?_aiBadgeCorner():""}</div>`:`<div class="plr-noimg">${PLI.leaf.replace('<svg','<svg style="width:26px;height:26px;stroke:#b9c9b1;stroke-width:1.4;fill:none"')}</div>`):""}
           <div class="plr-body">
             <p class="plr-name">${escAttr(p.c||"")}</p>
             <p class="plr-bot">${escAttr(botName(p)||"")}</p>
@@ -4249,7 +4338,7 @@ function openFireReport(){ let d=document.getElementById("fire-modal"); if(d) d.
       </div>
       <div style="font-size:.7rem;color:var(--tm);margin:.3rem 0 .4rem">${d0.desc}</div>
       <table style="width:100%;border-collapse:collapse;font-size:.78rem">
-        ${g.map(r=>`<tr style="border-bottom:1px solid #F0ECE2"><td style="padding:.25rem 0;width:26px">${r.p.img?`<img src="${escAttr(r.p.img)}" style="width:22px;height:22px;object-fit:cover;border-radius:4px">`:''}</td><td style="padding:.25rem .4rem"><b>${r.p.c||''}</b> <i style="color:var(--tm)">${botName(r.p)||''}</i></td><td style="text-align:right;color:var(--tl);white-space:nowrap">${r.qty?r.qty+" ea":""}</td><td style="text-align:right;white-space:nowrap;padding-left:.5rem">${wuBadge(r.p.wu)}${r.p.fireResist?`<span style="font-size:.58rem;color:var(--tm);margin-left:.25rem">fire: ${r.p.fireResist}</span>`:''}</td></tr>`).join('')}
+        ${g.map(r=>`<tr style="border-bottom:1px solid #F0ECE2"><td style="padding:.25rem 0;width:26px">${r.p.img?`<span style="position:relative;display:inline-block"><img src="${escAttr(r.p.img)}" style="width:22px;height:22px;object-fit:cover;border-radius:4px">${r.p.imgAI?_aiDot():''}</span>`:''}</td><td style="padding:.25rem .4rem"><b>${r.p.c||''}</b> <i style="color:var(--tm)">${botName(r.p)||''}</i></td><td style="text-align:right;color:var(--tl);white-space:nowrap">${r.qty?r.qty+" ea":""}</td><td style="text-align:right;white-space:nowrap;padding-left:.5rem">${wuBadge(r.p.wu)}${r.p.fireResist?`<span style="font-size:.58rem;color:var(--tm);margin-left:.25rem">fire: ${r.p.fireResist}</span>`:''}</td></tr>`).join('')}
       </table>
     </div>`; };
   const unzoned=groups[""].length;
@@ -4285,11 +4374,10 @@ function hasDetails(p){ return !!(p&&(p.growthRate||p.dormancy||p.form||p.bloomS
 function needsDetails(p){ if(!p) return false; return DETAIL_FIELDS.some(f=>!p[f]); } // missing ANY field → re-fill
 async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
-  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","sunRange":"comma-separated list of ALL light conditions this plant tolerates, from: sun,sunpart,part,shade (most plants tolerate a range — e.g. \"sun,sunpart,part\")","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
+  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:6000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
     let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
     let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return; DETAIL_FIELDS.forEach(f=>{ if(o[f]!=null && o[f]!=="") p[f]=(""+o[f]).trim(); });
-      if(o.sunRange){ const cs=((""+o.sunRange).toLowerCase().match(/sunpart|shade|part|sun/g)||[]).filter((v,i,a)=>a.indexOf(v)===i).filter(c=>LIGHT_INFO[c]); cs.sort((a,b)=>LIGHT_ORDER.indexOf(a)-LIGHT_ORDER.indexOf(b)); if(cs.length) p.light=cs.join(","); }
       p.detFlag=true; p.detSrc="AI"; n++; }); return {ok:true,n};
   }catch(e){ return {err:(e&&e.message)||"error"}; }
 }
@@ -4811,6 +4899,7 @@ function renderPlantBook(){
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillImages()" title="Auto-fetch commercial-safe (CC0/CC BY) plant photos from iNaturalist for every plant missing one.">🖼 Fill missing images</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openFillDetails()" title="Use AI to fill form, growth rate, dormancy, fragrance, and flowering season.">✨ Fill plant details</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#FDF3E3;color:#8a6d1f;border:1px solid #E39A1B" onclick="openFillSun()" title="Re-ask AI for each plant's FULL sun tolerance range (most plants take a range, not one value)">☀️ Refresh sun ranges</button>
+          <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3" onclick="openAiImages()" title="Bulk-generate AI illustrations for plants with no photo (512px, stored on R2), and move any old base64 AI images to R2">🖼 AI images</button>
           <button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="addPlantByName('${PB_BOOK.kind}')" title="Type a name — AI finds the botanical name, water, sun, size, form, bloom, and a photo">+ Add ${PLANT_KIND_LABEL[PB_BOOK.kind].replace(/s$/,'').toLowerCase()}</button>
         </div>
       </div>
@@ -4907,7 +4996,8 @@ function renderPlantBookList(){
         ${p.imgAI?`<div style="font-size:.5rem;color:#6A4FA3;text-align:center;margin-top:.15rem;font-weight:800;letter-spacing:.03em">✨ AI IMAGE</div>`:''}
         <div style="display:flex;flex-direction:column;gap:.1rem;margin-top:.2rem;width:64px">
           <button class="btn" data-aiimg="${kind}:${p.id}" onclick="aiPlantImageBtn('${kind}','${p.id}')" style="font-size:.5rem;padding:.08rem;background:#EDE7F6;color:#6A4FA3;border:1px solid #6A4FA3;border-radius:4px;cursor:pointer" title="Generate an AI illustration of this plant (~$0.03). Not a photograph — verify it.">✨ AI image</button>
-          ${p.imgAI?`<button class="btn" onclick="restorePlantPhoto('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:#fff;border:1px solid var(--br);border-radius:4px;cursor:pointer" title="Remove the AI image and go back to the real photo">↺ real photo</button>`:''}
+          ${p.img?`<button class="btn" onclick="togglePlantAI('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:${p.imgAI?'#6A4FA3':'#fff'};color:${p.imgAI?'#fff':'#6A4FA3'};border:1px solid #6A4FA3;border-radius:4px;cursor:pointer" title="Mark/unmark this image as AI-generated so exports label it with an ✨ AI icon">${p.imgAI?'✓ marked AI':'mark as AI'}</button>`:''}
+          ${p.imgAI&&p.imgPrev?`<button class="btn" onclick="restorePlantPhoto('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:#fff;border:1px solid var(--br);border-radius:4px;cursor:pointer" title="Remove the AI image and go back to the real photo">↺ real photo</button>`:''}
           <a href="${_commonsSearchLink(p)}" target="_blank" rel="noopener" style="font-size:.5rem;color:var(--gm);text-decoration:underline;text-align:center" title="Browse commercial-safe photos on Wikimedia Commons">⧉ Commons</a>
           <button class="btn" onclick="pasteCommonsImage('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:#fff;border:1px solid var(--br);border-radius:4px;cursor:pointer" title="Paste a Wikimedia Commons image link">paste link</button>
         </div>
