@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v350</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v351</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3570,15 +3570,19 @@ async function _uploadImageR2(id,dataUrl){ const ep=(typeof AI_PROXY_URL!=="unde
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveimage",key,id:(""+id).replace(/[^a-zA-Z0-9_\-]/g,""),image:dataUrl})});
     const d=await r.json(); if(d&&d.ok&&d.url) return {ok:true,url:d.url}; return {ok:false,err:(d&&(d.error||d.detail))||"upload failed"}; }
   catch(e){ return {ok:false,err:(e&&e.message)||"error"}; } }
-async function aiPlantImage(kind,pid){
+async function aiPlantImage(kind,pid,opts){ opts=opts||{};
   const p=plantDbFind(kind,pid); if(!p) return {ok:false};
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   if(!key){ key=_adminKey(); if(!key) return {ok:false,err:"No key"}; }
-  const prompt=plantPortraitPrompt(p,kind);
+  let prompt=plantPortraitPrompt(p,kind);
+  const ref=opts.ref||null;
+  if(ref) prompt+=` Use the supplied photograph as the reference for this exact plant — reproduce its true foliage, flower colour and growth habit as a clean nursery-catalogue image on a soft neutral background.`;
+  if(opts.tweak && (""+opts.tweak).trim()) prompt+=` Additional direction: ${(""+opts.tweak).trim()}.`;
   try{
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"genimage",key,prompt,model:imgModel(),aspect:"1:1"})});
+    const genBody={type:"genimage",key,prompt,model:imgModel(),aspect:"1:1"};
+    if(ref) genBody.refs=[ref];
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(genBody)});
     const d=await r.json();
     if(!(d&&d.ok&&d.url)) return {ok:false,err:(d&&(d.detail||d.error))||"failed"};
     // downscale to 512px, then host on R2 so the book stores just a light URL (not base64)
@@ -3592,15 +3596,52 @@ async function aiPlantImage(kind,pid){
     return {ok:true};
   }catch(e){ return {ok:false,err:(e&&e.message)||"error"}; }
 }
-async function aiPlantImageBtn(kind,pid){
-  const p=plantDbFind(kind,pid); if(!p) return;
-  const nm=(p.c||botName(p)||"this plant");
-  if(!confirm(`Generate an AI image for ${nm}?\n\nThis is an ILLUSTRATION, not a photograph — the AI renders a plausible plant, and cultivar details can be wrong. Check it against the real plant before you put it in front of a client.\n\n~$0.03. Any existing photo can be restored.`)) return;
-  const el=document.querySelector(`[data-aiimg="${kind}:${pid}"]`); if(el){ el.textContent="…"; el.disabled=true; }
-  const r=await aiPlantImage(kind,pid);
-  if(!r.ok) alert("Couldn't generate: "+(r.err||"error"));
-  if(typeof renderPlantBook==="function") renderPlantBook();
-  if(document.getElementById("pl-modal")) _plRender();
+function aiPlantImageBtn(kind,pid){ openPlantAiImage(kind,pid); }
+// Per-plant AI image panel: uses book size/colour/form, plus optional free-text tweak and a reference photo (i2i, not stored)
+let _paimgRef=null;
+function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; _paimgRef=null;
+  const nm=(p.c||botName(p)||"this plant"); const cost=_imgCostEach().toFixed(3).replace(/0$/,"");
+  let d=document.getElementById("paimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="paimg-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:1.2rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+      <div style="font-size:1.02rem;font-weight:700;color:#6A4FA3">✨ AI image — ${escAttr(nm)}</div>
+      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .6rem;line-height:1.45">Uses this plant's size, bloom colour and form from the book. An illustration, not a photo — review before client use. Replaces the current image (revertable). ~$${cost}.</div>
+      <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap">
+        <span style="font-size:.7rem;color:var(--tm)">Model</span>
+        <select onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
+          <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
+          <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
+          <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · ~$0.08 · best with a reference photo</option>
+        </select>
+      </div>
+      <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Adjustments (optional)</div>
+      <input id="paimg-tweak" placeholder="e.g. make it 3 ft tall, white flowers, denser habit, silver foliage" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.6rem">
+      <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Reference photo (optional — guides the image, not saved)</div>
+      <label class="btn" style="display:block;text-align:center;padding:.5rem;font-size:.76rem;background:#F4F9F5;color:var(--gm);border:1px dashed var(--gm);cursor:pointer;margin-bottom:.4rem">📷 Upload a real photo to match<input type="file" accept="image/*" style="display:none" onchange="_paimgPick(this)"></label>
+      <div id="paimg-refpv" style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem"></div>
+      <div id="paimg-status" style="font-size:.74rem;color:var(--tm);min-height:1.1rem;margin:.2rem 0"></div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.4rem">
+        <button class="btn" onclick="_paimgRef=null;document.getElementById('paimg-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+        <button id="paimg-go" class="btn" onclick="_paimgGo('${kind}','${p.id}')" style="padding:.45rem 1.1rem;font-size:.82rem;background:#6A4FA3;color:#fff;border:none;font-weight:600">✨ Generate</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+}
+async function _paimgPick(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
+  try{ _paimgRef=await _downscaleImage(f,1024,0.85);
+    const pv=document.getElementById("paimg-refpv");
+    if(pv) pv.innerHTML=`<img src="${_paimgRef}" style="width:64px;height:64px;object-fit:cover;border-radius:7px;border:1px solid var(--br)"><span style="font-size:.66rem;color:var(--gm);font-weight:600">✓ reference set</span><button class="btn" onclick="_paimgRef=null;document.getElementById('paimg-refpv').innerHTML='';" style="font-size:.64rem;padding:.1rem .45rem;background:#fff;border:1px solid #B23F3C;color:#B23F3C;border-radius:5px;margin-left:auto">remove</button>`;
+  }catch(e){ alert("Couldn't read that photo."); } }
+async function _paimgGo(kind,pid){
+  const tweak=(document.getElementById("paimg-tweak")||{}).value||"";
+  const st=document.getElementById("paimg-status"), gb=document.getElementById("paimg-go");
+  const setSt=(t,c)=>{ if(st){ st.textContent=t; st.style.color=c||"var(--tm)"; } };
+  if(gb) gb.disabled=true; setSt("Generating… (10–20 sec)","#6A4FA3");
+  const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef});
+  if(r.ok){ setSt("✓ Done.","var(--gm)"); _paimgRef=null;
+    if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender();
+    setTimeout(()=>{ const m=document.getElementById("paimg-modal"); if(m) m.remove(); },600);
+  } else { setSt("Failed: "+(r.err||"error"),"#B23F3C"); if(gb) gb.disabled=false; }
 }
 // ── Bulk AI plant images (whole book) + migrate old base64 AI images to R2 ──
 function _imgCostEach(){ const m=imgModel(); return m==="nano-2"?0.08:(m==="flux-klein"?0.014:0.03); }
@@ -3642,13 +3683,20 @@ async function fillMissingImagesAI(){
   const cost=(todo.length*_imgCostEach()).toFixed(2);
   if(!confirm(`Generate AI images for ${todo.length} plant${todo.length>1?"s":""} with no photo?\n\n~$${cost} · stored on R2 at 512px.\n\nThese are ILLUSTRATIONS, not photographs — review before client use. Any can be reverted.`)) return;
   const prog=document.getElementById("aiimg-progress"); const fb=document.getElementById("aiimg-fill"); if(fb){ fb.disabled=true; }
-  _aiImgStop=false; let ok=0, fail=0;
-  for(let i=0;i<todo.length;i++){ if(_aiImgStop) break;
-    if(prog) prog.innerHTML=`Generating ${i+1} / ${todo.length}… <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
-    const r=await aiPlantImage(todo[i].kind, todo[i].p.id);
-    if(r.ok) ok++; else { fail++; if(r.err && /balance|locked|authoriz|FAL_KEY|No key|No worker/i.test(r.err)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">Stopped: ${r.err}</span>`; break; } }
+  const total=todo.length; const PARALLEL=Math.min(6,total);
+  _aiImgStop=false; let ok=0, fail=0, done=0, idx=0, stopMsg="";
+  async function _worker(){
+    while(true){ if(_aiImgStop) return; const i=idx++; if(i>=total) return;
+      const r=await aiPlantImage(todo[i].kind, todo[i].p.id);
+      done++;
+      if(r.ok) ok++; else { fail++; if(r.err && /balance|locked|authoriz|FAL_KEY|No key|No worker/i.test(r.err)){ stopMsg=r.err; _aiImgStop=true; return; } }
+      if(prog) prog.innerHTML=`Generating… ${done} / ${total} · <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
+    }
   }
+  const pool=[]; for(let w=0;w<PARALLEL;w++) pool.push(_worker());
+  await Promise.all(pool);
   plantBookSave();
+  if(stopMsg && prog){ prog.innerHTML=`<span style="color:#B23F3C">Stopped: ${stopMsg}</span>`; if(fb){ fb.disabled=false; } return; }
   if(prog) prog.innerHTML=`<span style="color:var(--gm)">✓ ${ok} added${fail?`, ${fail} failed`:""}. Publish the master book to save them for everyone.</span>`;
   if(fb){ fb.disabled=false; }
   if(typeof renderPlantBook==="function") renderPlantBook();
