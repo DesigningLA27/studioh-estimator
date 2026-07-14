@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v334</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v335</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -9614,9 +9614,9 @@ async function ptReopen(){
   if(!PT.pdfData && typeof CLOUD_BID_ID!=="undefined" && CLOUD_BID_ID){
     const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(ep){ let b=document.createElement("div"); b.id="cb-busy"; b.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10001;display:flex;align-items:center;justify-content:center"; b.innerHTML='<div style="background:#fff;border-radius:12px;padding:1rem 1.4rem;font-size:.9rem;color:#3d6b2e;font-weight:600">Loading plan PDF…</div>'; document.body.appendChild(b);
-      try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadpdf",id:CLOUD_BID_ID})}); const d=await r.json();
-        if(d&&d.found&&d.pdf){ let pf=d.pdf; if(typeof pf==="string" && pf.slice(0,5)==="data:" && pf.indexOf(",")>=0) pf=pf.slice(pf.indexOf(",")+1); PT.pdfData=pf; }
-      }catch(e){}
+      try{ const r=await fetch(ep+"?pdfget="+encodeURIComponent(CLOUD_BID_ID),{method:"GET"});
+        if(r.ok && (r.headers.get("Content-Type")||"").indexOf("pdf")>=0){ const buf=await r.arrayBuffer(); PT.pdfData=_ab2b64(buf); }
+      }catch(e){ console.error("pdf fetch:",e); }
       const bb=document.getElementById("cb-busy"); if(bb) bb.remove();
     }
   }
@@ -9997,8 +9997,10 @@ async function cloudSaveBid(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_P
         _done(); alert("Updated ✓\n"+name+"\n(Plan PDF unchanged — not re-uploaded.)");
         return;
       }
-      _busy("Uploading plan PDF ("+Math.round(pdfData.length/1024/1024)+"MB)…");
-      const pr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savepdf",key,id:d.id,pdf:pdfData})}); const pd=await pr.json();
+      _busy("Uploading plan PDF ("+Math.round(pdfData.length*0.75/1024/1024)+"MB)…");
+      // send RAW BYTES — base64 JSON blows past the worker's memory limit on big plans
+      const bytes=new Uint8Array(_b642ab(pdfData));
+      const pr=await fetch(ep+"?pdfup="+encodeURIComponent(d.id)+"&key="+encodeURIComponent(key),{method:"POST",headers:{"Content-Type":"application/pdf"},body:bytes}); const pd=await pr.json();
       _done();
       if(pd&&pd.ok){ CLOUD_PDF_SIG=sig; alert((wasUpdate?"Updated ✓\n":"Saved to server ✓\n")+name+"\nPlan PDF stored — opens on any device."); }
       else alert("Project saved ✓\nBut the plan PDF didn't upload"+(pd&&pd.error?(": "+pd.error):"")+".\nYour traced areas and costs are safe.");
@@ -10040,9 +10042,12 @@ async function cloudLoadBid(id){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI
     // pull the plan PDF back out of R2 if this project had one
     if(d.bid.trace && d.bid.trace.hasPdf && !d.bid.trace.pdf){
       _busy("Loading plan PDF…");
-      try{ const pr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadpdf",id})}); const pd=await pr.json();
-        if(pd&&pd.found&&pd.pdf){ let pf=pd.pdf; if(typeof pf==="string" && pf.slice(0,5)==="data:" && pf.indexOf(",")>=0) pf=pf.slice(pf.indexOf(",")+1); d.bid.trace.pdf=pf; CLOUD_PDF_SIG=_pdfSig(pf); }
-      }catch(e){}
+      try{ const pr=await fetch(ep+"?pdfget="+encodeURIComponent(id),{method:"GET"});
+        if(pr.ok && (pr.headers.get("Content-Type")||"").indexOf("pdf")>=0){
+          const buf=await pr.arrayBuffer(); const pf=_ab2b64(buf);
+          d.bid.trace.pdf=pf; CLOUD_PDF_SIG=_pdfSig(pf);
+        }
+      }catch(e){ console.error("pdf fetch:",e); }
     }
     _done();
     const m=document.getElementById("cb-modal"); if(m) m.remove();
