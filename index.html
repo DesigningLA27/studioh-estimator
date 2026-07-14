@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v330</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v331</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -9929,37 +9929,62 @@ function _bidPayload(){ return { v:1, app:"studioh-estimator", savedAt:new Date(
     S: JSON.parse(JSON.stringify(S)), plants: _bidPlants(),
     trace:(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length))?{polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null}:null }; }
 // ── Cloud bids (server) ──
-let CLOUD_BID_ID=null;
+let CLOUD_BID_ID=null; let CLOUD_BID_NAME=null;
+let CLOUD_PDF_SIG=null;   // fingerprint of the PDF already on the server for CLOUD_BID_ID
+function _pdfSig(b64){ if(!b64) return null; return b64.length+":"+b64.slice(0,64)+":"+b64.slice(-64); }
+async function _listCloudBids(ep){ try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"listbids"})}); const d=await r.json(); return (d&&d.bids)||[]; }catch(e){ return []; } }
 async function cloudSaveBid(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
-  const dflt=(S.pi&&S.pi.client)||"Project";
-  const name=prompt("Project name for this bid:", dflt); if(!name) return;
+  const dflt=CLOUD_BID_NAME||(S.pi&&S.pi.client)||"Project";
+  const name=(prompt("Project name for this bid:", dflt)||"").trim(); if(!name) return;
+
+  // Decide: update an existing project, or create a new one?
+  let targetId=CLOUD_BID_ID;
+  const existing=await _listCloudBids(ep);
+  const match=existing.find(b=>(b.name||"").trim().toLowerCase()===name.toLowerCase());
+  if(match && match.id!==CLOUD_BID_ID){
+    const upd=confirm('A project called "'+name+'" is already on the server (saved '+new Date(match.at).toLocaleString()+').\n\nOK = update it\nCancel = save as a NEW project');
+    targetId = upd ? match.id : null;
+    if(!upd) CLOUD_PDF_SIG=null;   // new project gets its own PDF
+  } else if(!match){
+    targetId = CLOUD_BID_ID || null;   // same session = update; otherwise new
+  }
+
   const bid=_bidPayload();
   // The traced PDF is the huge part (often 30-50MB). KV caps values at 25MB,
   // so the PDF goes to R2 blob storage separately and the bid keeps a flag.
   let pdfData=null;
   if(bid.trace && bid.trace.pdf){ pdfData=bid.trace.pdf; bid.trace.pdf=null; bid.trace.hasPdf=true; }
   const size=JSON.stringify(bid).length;
-  if(size>20*1024*1024){ alert("This project is still too large to save ("+Math.round(size/1024/1024)+"MB) even without the PDF. Tell me and I'll trim what's stored."); return; }
+  if(size>20*1024*1024){ alert("This project is still too large to save ("+Math.round(size/1024/1024)+"MB) even without the PDF."); return; }
+
   const _busy=(msg)=>{ let b=document.getElementById("cb-busy"); if(!b){ b=document.createElement("div"); b.id="cb-busy"; b.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10001;display:flex;align-items:center;justify-content:center"; b.innerHTML='<div style="background:#fff;border-radius:12px;padding:1rem 1.4rem;font-size:.9rem;color:#3d6b2e;font-weight:600"></div>'; document.body.appendChild(b); } b.firstChild.textContent=msg; };
   const _done=()=>{ const b=document.getElementById("cb-busy"); if(b) b.remove(); };
   try{
-    _busy("Saving project…");
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebid",key,id:CLOUD_BID_ID||undefined,name,addr:(S.pi&&S.pi.address)||"",bid})}); const d=await r.json();
+    _busy(targetId?"Updating project…":"Saving project…");
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebid",key,id:targetId||undefined,name,addr:(S.pi&&S.pi.address)||"",bid})}); const d=await r.json();
     if(!(d&&d.ok)){ _done();
       if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try again."); }
       else alert("Save failed: "+((d&&d.error)||"error"));
       return; }
-    CLOUD_BID_ID=d.id;
+    const wasUpdate=!!targetId;
+    CLOUD_BID_ID=d.id; CLOUD_BID_NAME=name;
+
     if(pdfData){
+      const sig=_pdfSig(pdfData);
+      if(wasUpdate && CLOUD_PDF_SIG && sig===CLOUD_PDF_SIG){
+        // same PDF already up there — don't re-upload 45MB
+        _done(); alert("Updated ✓\n"+name+"\n(Plan PDF unchanged — not re-uploaded.)");
+        return;
+      }
       _busy("Uploading plan PDF ("+Math.round(pdfData.length/1024/1024)+"MB)…");
       const pr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savepdf",key,id:d.id,pdf:pdfData})}); const pd=await pr.json();
       _done();
-      if(pd&&pd.ok) alert("Saved to server ✓\n"+name+"\nPlan PDF stored too — opens on any device.");
-      else alert("Project saved ✓\nBut the plan PDF didn't upload"+(pd&&pd.error?(": "+pd.error):"")+".\nYour traced areas and costs are safe; you'd re-attach the PDF to see the drawing.");
+      if(pd&&pd.ok){ CLOUD_PDF_SIG=sig; alert((wasUpdate?"Updated ✓\n":"Saved to server ✓\n")+name+"\nPlan PDF stored — opens on any device."); }
+      else alert("Project saved ✓\nBut the plan PDF didn't upload"+(pd&&pd.error?(": "+pd.error):"")+".\nYour traced areas and costs are safe.");
       return;
     }
-    _done(); alert("Saved to server ✓\n"+name);
+    _done(); alert((wasUpdate?"Updated ✓\n":"Saved to server ✓\n")+name);
   }catch(e){ _done(); alert("Save failed ("+((e&&e.message)||"error")+")."); }
 }
 async function cloudOpenBids(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
@@ -9979,7 +10004,7 @@ async function cloudOpenBids(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
         <div style="min-width:0"><div style="font-size:.86rem;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(b.name||"Project")}</div>
           <div style="font-size:.66rem;color:var(--tl);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${new Date(b.at).toLocaleString()}${b.addr?" · "+escAttr(b.addr):""}</div></div>
         <div style="display:flex;gap:.35rem;flex:none">
-          <button class="btn" onclick="cloudLoadBid('${b.id}')" style="padding:.25rem .7rem;font-size:.74rem;background:var(--gm);color:#fff;border:none">Open</button>
+          <button class="btn" onclick="CLOUD_BID_NAME=this.dataset.n;cloudLoadBid('${b.id}')" data-n="${escAttr(b.name||'')}" style="padding:.25rem .7rem;font-size:.74rem;background:var(--gm);color:#fff;border:none">Open</button>
           <button class="btn" onclick="cloudDeleteBid('${b.id}')" style="padding:.25rem .5rem;font-size:.74rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C">✕</button>
         </div></div>`).join('');
   }catch(e){ const box=document.getElementById("cb-list"); if(box) box.innerHTML=`<span style="color:#B23F3C">Couldn't load projects.</span>`; }
@@ -9991,12 +10016,12 @@ async function cloudLoadBid(id){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI
   try{ _busy("Opening project…");
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbid",id})}); const d=await r.json();
     if(!(d&&d.found&&d.bid)){ _done(); alert("Couldn't load that project."); return; }
-    CLOUD_BID_ID=id;
+    CLOUD_BID_ID=id; CLOUD_PDF_SIG=null;
     // pull the plan PDF back out of R2 if this project had one
     if(d.bid.trace && d.bid.trace.hasPdf && !d.bid.trace.pdf){
       _busy("Loading plan PDF…");
       try{ const pr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadpdf",id})}); const pd=await pr.json();
-        if(pd&&pd.found&&pd.pdf){ let pf=pd.pdf; if(typeof pf==="string" && pf.slice(0,5)==="data:" && pf.indexOf(",")>=0) pf=pf.slice(pf.indexOf(",")+1); d.bid.trace.pdf=pf; }
+        if(pd&&pd.found&&pd.pdf){ let pf=pd.pdf; if(typeof pf==="string" && pf.slice(0,5)==="data:" && pf.indexOf(",")>=0) pf=pf.slice(pf.indexOf(",")+1); d.bid.trace.pdf=pf; CLOUD_PDF_SIG=_pdfSig(pf); }
       }catch(e){}
     }
     _done();
