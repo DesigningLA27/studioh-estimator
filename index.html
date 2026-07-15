@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v359</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v362</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3443,7 +3443,7 @@ const PLANT_KIND_LABEL={shrub:"Shrubs",tree:"Trees",palm:"Palms",gc:"Groundcover
     PLANT_DB[k]=saved[k];
   });
 })();
-function plantBookSave(){ try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ /* local cache full (common on Safari) — harmless, the master book lives on the server */ } if(typeof renderPlantBook==="function") renderPlantBook(); }
+function plantBookSave(){ _imgNameIdx=null; try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ /* local cache full (common on Safari) — harmless, the master book lives on the server */ } if(typeof renderPlantBook==="function") renderPlantBook(); }
 function plantBookMerge(data, mode){ if(!data) return; PLANT_KINDS.forEach(k=>{ if(!Array.isArray(data[k])) return; const byId={}; (PLANT_DB[k]=PLANT_DB[k]||[]).forEach(p=>byId[p.id]=p);
   data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; } } else { PLANT_DB[k].push(JSON.parse(JSON.stringify(p))); byId[p.id]=PLANT_DB[k][PLANT_DB[k].length-1]; } }); }); }
 // ── Master plant book on Cloudflare (server = source of truth) ──
@@ -4661,6 +4661,12 @@ function pbBookAvail(m){ PB_BOOK.avail=m; renderPlantBook(); }
 // ── Plant List Book view ─────────────────────────────────────────
 const PLANT_IMG_PH = "data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#EEF3EA"/><path d="M41 60c0-18 9-33 24-37-2 20-11 33-24 37z" fill="#9DB389"/><path d="M41 60c0-13-7-24-18-27 1 15 8 24 18 27z" fill="#C2D0B2"/><line x1="41" y1="62" x2="41" y2="42" stroke="#7E9468" stroke-width="2.5" stroke-linecap="round"/></svg>');
 function pbImgErr(el){ el.onerror=null; el.src=PLANT_IMG_PH; }
+// Image resolver: a plant's own photo, or — if it has none — a same-name copy's photo
+// (handles duplicate records where only one copy carries the image).
+let _imgNameIdx=null;
+function _imgNameKey(p){ return ((p&&p.c||"")+"|"+(botName(p)||"")).toLowerCase().replace(/\s+/g," ").trim(); }
+function _buildImgNameIdx(){ _imgNameIdx={}; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>{ if(!p||!p.img) return; const key=_imgNameKey(p); if(key && key!=="|" && !_imgNameIdx[key]) _imgNameIdx[key]=p.img; }); }); }
+function plantImgOf(p){ if(!p) return ""; if(p.img) return p.img; if(!_imgNameIdx) _buildImgNameIdx(); const key=_imgNameKey(p); return (key && _imgNameIdx[key])||""; }
 function plantImgUpload(input,kind,id){ const f=input.files&&input.files[0]; if(!f)return; const rd=new FileReader(); rd.onload=e=>{ const im=new Image(); im.onload=()=>{ const max=640; let w=im.width,h=im.height; const s=Math.min(1,max/Math.max(w,h)); w=Math.max(1,Math.round(w*s)); h=Math.max(1,Math.round(h*s)); const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(im,0,0,w,h); let url; try{ url=cv.toDataURL('image/jpeg',0.82); }catch(_){ url=e.target.result; } const p=(PLANT_DB[kind]||[]).find(x=>x.id===id); if(p){ p.img=url; plantBookSave(); } }; im.onerror=()=>{ const p=(PLANT_DB[kind]||[]).find(x=>x.id===id); if(p){ p.img=e.target.result; plantBookSave(); } }; im.src=e.target.result; }; rd.readAsDataURL(f); }
 function pbBookKind(k){ PB_BOOK.kind=k; renderPlantBook(); }
 function pbBookToggleTag(t){ const i=PB_BOOK.tags.indexOf(t); if(i>=0)PB_BOOK.tags.splice(i,1); else PB_BOOK.tags.push(t); renderPlantBook(); }
@@ -5218,7 +5224,7 @@ function togglePlantFav(kind,id){ const k=_favKey(kind,id); if(FAVS.has(k)) FAVS
 function starBtn(kind,p){ const on=isFav(p,kind); return `<button class="btn" title="${on?'Favorite — click to unstar':'Mark as favorite'}" onclick="togglePlantFav('${kind}','${p.id}')" style="flex:none;width:28px;height:28px;padding:0;border-radius:6px;border:1px solid ${on?'#E3B341':'var(--br)'};background:${on?'#FCF4DC':'#fff'};color:${on?'#D99A00':'#bbb'};font-size:.95rem;cursor:pointer;line-height:1">${on?'★':'☆'}</button>`; }
 function infoIcon(text){ return `<button type="button" class="info-i" data-info="${escAttr(text)}" onclick="showInfoPop(event)" style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#2c2a26;color:#fff;border:none;font-size:10px;font-weight:700;cursor:pointer;vertical-align:middle;font-style:italic;font-family:Georgia,serif;line-height:1;padding:0">i</button>`; }
 function showInfoPop(ev){ ev.stopPropagation(); document.querySelectorAll(".info-pop").forEach(e=>e.remove()); const t=(ev.currentTarget&&ev.currentTarget.dataset.info)||""; const d=document.createElement("div"); d.className="info-pop"; d.textContent=t; const x=Math.min(ev.clientX, (window.innerWidth||800)-280); d.style.cssText="position:fixed;top:"+(ev.clientY+14)+"px;left:"+Math.max(8,x)+"px;max-width:260px;background:#2c2a26;color:#fff;font-size:.72rem;line-height:1.45;padding:.55rem .7rem;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);z-index:9999"; document.body.appendChild(d); setTimeout(()=>{ const close=()=>{ d.remove(); document.removeEventListener("click",close); }; document.addEventListener("click",close); },10); }
-function plantPhotoBtn(db){ if(!db) return ''; const img=db.img||''; const has=!!img;
+function plantPhotoBtn(db){ if(!db) return ''; const img=plantImgOf(db)||''; const has=!!img;
   const common=escAttr(db.c||''), bot=escAttr(botName(db));
   const inner = has
     ? `<img src="${escAttr(img)}" style="width:22px;height:22px;object-fit:cover;border-radius:4px;display:block" onerror="this.style.display='none';this.parentElement.innerHTML='▣'">`
@@ -5564,8 +5570,9 @@ function plantPricedInfo(kind,pid){ let nMin=null,nName=null; NURSERY_DB.nurseri
 function _plantRowsKey(kind){ return {shrub:"shrubRows",gc:"gcRows",tree:"treeRows",palm:"palmRows"}[kind]; }
 function plantsUsedInProject(kind){ const p=ensurePlanting(); const key=_plantRowsKey(kind); if(!key) return []; const seen=new Set(); const out=[]; (p.zones||[]).forEach(z=>{ (z[key]||[]).forEach(r=>{ if(r.pid&&!seen.has(r.pid)){ seen.add(r.pid); const pl=plantDbFind(kind,r.pid); if(pl) out.push(pl); } }); }); return out; }
 function _plantHit(kind,scope,p,info){ const priceBadge = info&&info.has ? `<span style="margin-left:.35rem;background:${info.nursery?'var(--gm)':'#EAF3EA'};color:${info.nursery?'#fff':'var(--gm)'};border:1px solid var(--gm);border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:700">${info.nursery?'✓ ':''}${info.label}</span>` : '';
-  return `<div class="plant-hit" style="padding:.4rem .6rem;cursor:pointer;font-size:.78rem;border-bottom:1px solid var(--br);${info&&info.nursery?'background:#F4F9F2':''}" onmousedown="event.preventDefault();pickPlant('${kind}',${scope},'${p.id}');var b=document.getElementById('plant-search-${kind}-${scope}');if(b)b.value='';document.getElementById('plant-results-${kind}-${scope}').style.display='none'">
-      <span style="font-weight:600">${p.c}</span> <span style="color:var(--tl);font-style:italic">${botName(p)}</span>${priceBadge}${p.spec?' · <span style="color:var(--gold)">specimen</span>':''}</div>`; }
+  const _img=plantImgOf(p); const thumb=`<img src="${escAttr(_img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:30px;height:30px;object-fit:cover;border-radius:5px;border:1px solid var(--br);background:#EEF3EA;flex:none">`;
+  return `<div class="plant-hit" style="display:flex;align-items:center;gap:.5rem;padding:.35rem .6rem;cursor:pointer;font-size:.78rem;border-bottom:1px solid var(--br);${info&&info.nursery?'background:#F4F9F2':''}" onmousedown="event.preventDefault();pickPlant('${kind}',${scope},'${p.id}');var b=document.getElementById('plant-search-${kind}-${scope}');if(b)b.value='';document.getElementById('plant-results-${kind}-${scope}').style.display='none'">
+      ${thumb}<div><span style="font-weight:600">${p.c}</span> <span style="color:var(--tl);font-style:italic">${botName(p)}</span>${priceBadge}${p.spec?' · <span style="color:var(--gold)">specimen</span>':''}</div></div>`; }
 function plantSearchInput(kind,scope){
   const inp=document.getElementById("plant-search-"+kind+"-"+scope);
   const box=document.getElementById("plant-results-"+kind+"-"+scope);
@@ -5727,11 +5734,11 @@ function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(
   entries.sort(sortFn);
   const dimsOf=(p,pk,sc)=>{ const d=[]; if(c.water&&c.water.length)d.push(`${_aiCheck(sc.checks.water)} water`); if(c.sun&&c.sun.length)d.push(`${_aiCheck(sc.checks.sun)} sun`); if(c.colors&&c.colors.length)d.push(`${_aiCheck(sc.checks.color)} color`); if(c.types&&c.types.length)d.push(`${_aiCheck(sc.checks.type)} type`); return d; };
   const pcol=pct=>pct>=85?"#2e7d32":pct>=60?"#8a7a2a":"#B23F3C";
-  const rowHtml=e=>{ const {pk,idx,p,sc}=e; const dims=dimsOf(p,pk,sc);
+  const rowHtml=e=>{ const {pk,idx,p,sc}=e; const dims=dimsOf(p,pk,sc); const _img=plantImgOf(p);
     const prio=[]; if(_aiState.prioFav&&isFav(p,pk.kind))prio.push(`<span style="background:#FCF4DC;color:#B8860B;border:1px solid #E3B341;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">★ prioritized</span>`); if(_aiState.prioCommon&&availOf(p)==="common")prio.push(`<span style="background:#2E7D3215;color:#2E7D32;border:1px solid #2E7D3255;border-radius:8px;padding:0 .3rem;font-size:.56rem;font-weight:700">common ↑</span>`);
     return `<div style="display:flex;gap:.6rem;align-items:center;padding:.45rem .3rem;border-bottom:1px solid var(--br)">
       <button onclick="_aiToggle(${idx})" style="flex:none;width:26px;height:26px;border-radius:6px;border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};background:${pk.sel?'var(--gm)':'#fff'};color:${pk.sel?'#fff':'#bbb'};font-size:.9rem;cursor:pointer">${pk.sel?'✓':'+'}</button>
-      <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" ${p.img?`data-img="${escAttr(p.img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p)||'')}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--br);flex:none;background:#EEF3EA${p.img?';cursor:zoom-in':''}">
+      <img src="${escAttr(_img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" ${_img?`data-img="${escAttr(_img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p)||'')}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--br);flex:none;background:#EEF3EA${_img?';cursor:zoom-in':''}">
       <div style="flex:1;min-width:0">
         <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.76rem">${botName(p)||''}</span></div>
         <div style="font-size:.66rem;color:var(--tm);display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.15rem;align-items:center">${wuBadge(p.wu)}${lightBadge(p)}${!lightSetOf(p).length?`<button onclick="aiLookupSun('${pk.kind}','${pk.pid}')" title="Ask AI, then set" style="border:none;background:#EDE7F6;color:#6A4FA3;border-radius:8px;padding:0 .35rem;font-size:.58rem;font-weight:700;cursor:pointer">✨ check sun</button>`:''}${bloomColorBadge(p)}${dsZoneBadge(p)}${fireAvoidFlag(p)?'<span title="High-fuel genus" style="color:#B23F3C;font-size:.58rem;font-weight:700">⚠fuel</span>':''}${availBadge(p)}${isFav(p,pk.kind)?'<span style="color:#D99A00">★</span>':''}${prio.join('')}</div>
@@ -5739,11 +5746,11 @@ function _aiRenderReview(){ const box=document.getElementById("ai-results"); if(
       </div>
       <div style="flex:none;text-align:right"><div style="font-size:.95rem;font-weight:800;color:${pcol(sc.pct)}">${sc.pct}%</div><div style="font-size:.54rem;color:var(--tl)">match</div></div>
     </div>`; };
-  const cardHtml=e=>{ const {pk,idx,p,sc}=e;
+  const cardHtml=e=>{ const {pk,idx,p,sc}=e; const _img=plantImgOf(p);
     return `<div style="border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};border-radius:9px;padding:.4rem;position:relative;background:#fff">
       <button onclick="_aiToggle(${idx})" style="position:absolute;top:.35rem;left:.35rem;width:24px;height:24px;border-radius:6px;border:1px solid ${pk.sel?'var(--gm)':'var(--br)'};background:${pk.sel?'var(--gm)':'#fff'};color:${pk.sel?'#fff':'#bbb'};font-size:.8rem;cursor:pointer;z-index:2">${pk.sel?'✓':'+'}</button>
       <span style="position:absolute;top:.35rem;right:.35rem;font-size:.66rem;font-weight:800;color:${pcol(sc.pct)};background:rgba(255,255,255,.9);border-radius:6px;padding:0 .3rem">${sc.pct}%</span>
-      <img src="${escAttr(p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" ${p.img?`data-img="${escAttr(p.img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p)||'')}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:100%;height:96px;object-fit:cover;border-radius:6px;background:#EEF3EA${p.img?';cursor:zoom-in':''}">
+      <img src="${escAttr(_img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" ${_img?`data-img="${escAttr(_img)}" data-name="${escAttr(p.c||'')}" data-bot="${escAttr(botName(p)||'')}" onmouseenter="showPlantPhoto(event)" onmouseleave="hidePlantPhoto()" onclick="showPlantPhoto(event)"`:''} style="width:100%;height:96px;object-fit:cover;border-radius:6px;background:#EEF3EA${_img?';cursor:zoom-in':''}">
       <div style="font-size:.74rem;font-weight:600;margin-top:.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.c||''}</div>
       <div style="font-size:.62rem;font-style:italic;color:var(--tm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${botName(p)||''}</div>
       <div style="display:flex;gap:.25rem;flex-wrap:wrap;margin-top:.28rem;align-items:center">${wuBadge(p.wu)}${lightBadge(p)}${bloomColorBadge(p)}${dsZoneBadge(p)}</div>
@@ -10332,21 +10339,25 @@ async function _ptCompressPdf(buf, dpi, busy){
   const doc=await lib.getDocument({data:new Uint8Array(buf.slice(0))}).promise; const n=doc.numPages;
   // detect the plan's scale from the ORIGINAL text now — the rasterized copy has no text layer
   let scale=null; try{ const pg1=await doc.getPage(1); const tc=await pg1.getTextContent(); scale=_ptParseScale(tc.items.map(i=>i.str).join(" ")); }catch(e){}
+  const MAXPX=5000; // cap the longest rendered side so a huge sheet can't spike memory (scale is preserved by page point size)
   let out=null;
   for(let i=1;i<=n;i++){
     if(busy){ const t=document.getElementById("_ptbusytxt"); if(t) t.textContent="Compressing plan… page "+i+" / "+n; }
     const pg=await doc.getPage(i); const vp1=pg.getViewport({scale:1}); const w=vp1.width, h=vp1.height; // points (1/72 in)
-    const vp=pg.getViewport({scale:dpi/72});
+    let rscale=dpi/72; const longest=Math.max(w,h)*rscale; if(longest>MAXPX) rscale*=MAXPX/longest;
+    const vp=pg.getViewport({scale:rscale});
     const cv=document.createElement("canvas"); cv.width=Math.max(1,Math.round(vp.width)); cv.height=Math.max(1,Math.round(vp.height));
     const ctx=cv.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
     await pg.render({canvasContext:ctx, viewport:vp}).promise;
-    const jpeg=cv.toDataURL("image/jpeg",0.82);
+    const jpeg=cv.toDataURL("image/jpeg",0.8);
     if(i===1){ out=new JsPDF({unit:"pt",format:[w,h],orientation:w>h?"landscape":"portrait"}); }
     else out.addPage([w,h], w>h?"landscape":"portrait");
     out.addImage(jpeg,"JPEG",0,0,w,h);
-    cv.width=cv.height=0; // free memory
+    cv.width=cv.height=0; try{ pg.cleanup(); }catch(e){} // free per-page memory
   }
-  return { buf: out.output("arraybuffer"), scale };
+  const ab=out.output("arraybuffer");
+  try{ doc.destroy(); }catch(e){}   // release the original (large) PDF from memory
+  return { buf: ab, scale };
 }
 async function ptLoadPdf(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
   let buf=await f.arrayBuffer();
@@ -10403,11 +10414,19 @@ function _ptParseScale(t){ if(!t) return null; t=t.replace(/\s+/g," ");
   m=t.match(/1\s*["″]?\s*=\s*(\d+)\s*'/); if(m){ const n=parseFloat(m[1]); if(n>0) return 1/n; }
   return null; }
 function ptClose(){ PT.open=false;
-  // MUST exit fullscreen first — removing the fullscreen element while still in
-  // fullscreen leaves the browser showing a black screen.
-  try{ if(document.fullscreenElement||document.webkitFullscreenElement){ const ex=document.exitFullscreen||document.webkitExitFullscreen; if(ex) { const p=ex.call(document); if(p&&p.catch) p.catch(()=>{}); } } }catch(e){}
-  const h=document.getElementById("pt-modal"); if(h) h.remove();
-  try{ document.body.style.overflow=""; }catch(e){}
+  // MUST fully exit fullscreen BEFORE removing the fullscreen element, or the browser
+  // is left showing a blank (white/black) screen. exitFullscreen() is async, so we wait
+  // for it to actually finish before pulling the modal out of the DOM.
+  const removeModal=()=>{ const h=document.getElementById("pt-modal"); if(h) h.remove(); try{ document.body.style.overflow=""; }catch(e){} };
+  let inFs=false; try{ inFs=!!(document.fullscreenElement||document.webkitFullscreenElement); }catch(e){}
+  if(inFs){
+    let done=false; const fin=()=>{ if(done) return; done=true;
+      try{ document.removeEventListener("fullscreenchange",fin); document.removeEventListener("webkitfullscreenchange",fin); }catch(e){}
+      removeModal(); };
+    try{ document.addEventListener("fullscreenchange",fin); document.addEventListener("webkitfullscreenchange",fin); }catch(e){}
+    try{ const ex=document.exitFullscreen||document.webkitExitFullscreen; if(ex){ const p=ex.call(document); if(p&&p.then) p.then(fin,fin); } }catch(e){}
+    setTimeout(fin, 500);   // safety net if no event/promise fires
+  } else { removeModal(); }
 }
 async function ptRenderPage(){ if(!PT.doc) return; const page=await PT.doc.getPage(PT.page);
   const vp=page.getViewport({scale:PT.scale}); PT.renderScale=PT.scale; PT.canvasW=vp.width; PT.canvasH=vp.height;
@@ -10883,6 +10902,7 @@ function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a save
 function _uniformTag(sources){ let L=null,P=null,T=null,okL=true,okP=true,okT=true; (sources||[]).forEach(s=>{ const l=((s.zone||s.loc)||"")+"",p=(s.phase||"")+"",t=(s.tags||"")+""; if(L===null)L=l;else if(L!==l)okL=false; if(P===null)P=p;else if(P!==p)okP=false; if(T===null)T=t;else if(T!==t)okT=false; }); return {loc:okL&&L?L:"",phase:okP&&P?P:"",tags:okT&&T?T:""}; }
 function _stampItem(it,tag){ if(!it||!tag) return; if(tag.loc) it.loc=tag.loc; if(tag.phase) it.phase=tag.phase; if(tag.tags) it.tags=tag.tags; }
 function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert("Trace at least one area, line, or tree first."); return; } if(!PT.ppf){ alert("Set the scale first so measurements convert to real dimensions."); return; }
+  try{ ptAutoSave(); }catch(e){}   // persist the trace before applying, so a hiccup can never lose it
   const areaSum={}, linSum={}, byType={}; PT.polys.forEach(p=>{ if(p.kind==="linear"){ linSum[p.mode]=(linSum[p.mode]||0)+(p.lf||0); } else { areaSum[p.mode]=(areaSum[p.mode]||0)+(p.sf||0); if(p.type){ byType[p.mode]=byType[p.mode]||{}; byType[p.mode][p.type]=(byType[p.mode][p.type]||0)+(p.sf||0); } } });
   const cmark={}; PT.trees.forEach(t=>{ const m=_ptMarkMode(t); if(m==="tree"){ cmark.tree=cmark.tree||{}; cmark.tree[t.size]=(cmark.tree[t.size]||0)+1; } else { cmark[m]=(cmark[m]||0)+1; } });
   const treeBy=cmark.tree||{}; const cN=(m)=>cmark[m]||0;
