@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v362</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v364</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3434,6 +3434,7 @@ const PLANT_KINDS=["shrub","tree","palm","gc"];
 const PLANT_KIND_LABEL={shrub:"Shrubs",tree:"Trees",palm:"Palms",gc:"Groundcover"};
 (function loadPlantBook(){
   let saved=null; try{ const s=localStorage.getItem("studioh_plantbook_v1"); if(s) saved=JSON.parse(s); }catch(e){}
+  try{ window._hadLocalBook=!!saved; }catch(e){}
   if(!saved) return;
   PLANT_KINDS.forEach(k=>{ if(!Array.isArray(saved[k])) return;
     const defById={}; (PLANT_DB_DEFAULTS[k]||[]).forEach(p=>defById[p.id]=p);
@@ -3449,8 +3450,14 @@ function plantBookMerge(data, mode){ if(!data) return; PLANT_KINDS.forEach(k=>{ 
 // ── Master plant book on Cloudflare (server = source of truth) ──
 let MASTER_META=null;
 async function masterBookLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
+  if(!silent && window._hadLocalBook){ if(!confirm("Pull the master book from the server?\n\nThis REPLACES your local plant book — including any edits you haven't published yet — with the server copy.\n\nIf you have unpublished work, click ☁ Publish master first.")) return false; }
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbook"})}); const d=await r.json();
-    if(d&&d.found&&d.book){ plantBookMerge(d.book,"overwrite"); MASTER_META=d.meta||null; plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof plantRefresh==="function"&&document.getElementById("planting-builder")) plantRefresh(); if(!silent){ const c=d.meta&&d.meta.counts?d.meta.counts:{}; alert("Master plant book loaded from server."+(d.meta?"\nLast published: "+new Date(d.meta.savedAt).toLocaleString():"")); } return true; }
+    if(d&&d.found&&d.book){
+      // Silent startup pull must NEVER clobber local edits (a stale KV read or a mid-bulk pull
+      // would otherwise wipe your work). Fill-only when you already have a local book; full
+      // overwrite only on a fresh install or when you click ☁ Pull master.
+      const mode=(silent && window._hadLocalBook)?"fill":"overwrite";
+      plantBookMerge(d.book,mode); MASTER_META=d.meta||null; plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof plantRefresh==="function"&&document.getElementById("planting-builder")) plantRefresh(); if(!silent){ const c=d.meta&&d.meta.counts?d.meta.counts:{}; alert("Master plant book loaded from server."+(d.meta?"\nLast published: "+new Date(d.meta.savedAt).toLocaleString():"")); } return true; }
     else { if(!silent) alert("No master book on the server yet. Publish one first."); return false; }
   }catch(e){ if(!silent) alert("Couldn't reach the server ("+((e&&e.message)||"error")+")."); return false; }
 }
@@ -3525,7 +3532,7 @@ async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&
   }catch(e){ if(!silent) alert("Couldn't reach the server."); }
 }
 setTimeout(()=>{ try{ configLoad(true); }catch(e){} }, 1200);
-function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="plantbook-data.json"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
+function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); const d=new Date(); const p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; a.href=url; a.download=`plantbook-data_${stamp}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
 function plantBookImport(input){ const f=input.files&&input.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=e=>{ try{ const data=JSON.parse(e.target.result); plantBookMerge(data,"overwrite"); plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof renderPlantingBuilder==="function") renderPlantingBuilder(); }catch(err){ alert("Import failed — that doesn't look like a plant-book file."); } input.value=""; }; rd.readAsText(f); }
 // ── Auto-fetch commercial-safe plant images (iNaturalist via worker) ──
 let _fillStop=false;
