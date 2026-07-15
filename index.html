@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v372</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v373</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3599,6 +3599,22 @@ async function _uploadImageR2(id,dataUrl){ const ep=(typeof AI_PROXY_URL!=="unde
 // Confirm an image URL actually loads before we trust it (so a broken R2 link never replaces a working image)
 function _imgLoads(url){ return new Promise(res=>{ if(!url){ res(false); return; } const im=new Image(); let done=false; const fin=v=>{ if(done) return; done=true; res(v); }; im.onload=()=>fin(im.naturalWidth>0); im.onerror=()=>fin(false); try{ im.src=url; }catch(e){ fin(false); } setTimeout(()=>fin(false),8000); }); }
 // One-click check: does R2 image storage actually work end-to-end (upload + serve)?
+// Scan every image link, find the broken ones, and (optionally) clear them so the plant can be re-imaged
+async function repairBrokenImages(){
+  const st=document.getElementById("aiimg-progress"); const setSt=(t,c)=>{ if(st){ st.innerHTML=t; st.style.color=c||"var(--tm)"; } };
+  const all=_allPlantsFlat().filter(x=>x.p.img && !/^data:/.test(x.p.img));   // embedded data: images always load — only test real links
+  if(!all.length){ setSt("No linked images to check.","var(--gm)"); return; }
+  setSt("Checking "+all.length.toLocaleString()+" image links…","#2c5f82");
+  const broken=[]; let done=0, idx=0; const PAR=8;
+  async function _w(){ while(true){ const i=idx++; if(i>=all.length) return; const x=all[i]; const good=await _imgLoads(x.p.img); if(!good) broken.push(x); done++; if(st&&done%20===0) setSt("Checking… "+done+"/"+all.length+" · "+broken.length+" broken","#2c5f82"); } }
+  const pool=[]; for(let w=0;w<PAR;w++) pool.push(_w()); await Promise.all(pool);
+  if(!broken.length){ setSt("✓ All "+all.length.toLocaleString()+" image links load fine — nothing broken.","var(--gm)"); return; }
+  if(confirm(broken.length+" image link(s) are broken (won't load — usually R2 not deployed yet).\n\nClear those dead links so each plant shows the 🖼 fetch-photo button and you can re-add an image? Working images and all other data stay untouched.\n\nTIP: if your R2 bucket simply isn't deployed yet, Cancel, deploy the worker, and these may come back on their own.")){
+    broken.forEach(x=>{ x.p.img=""; x.p.imgAlts=[]; delete x.p._imgIdx; x.p.imgFlag=false; delete x.p.imgAI; });
+    plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook();
+    setSt("Cleared "+broken.length+" broken links. Use 🖼 fetch photo (or regenerate), then ☁ Publish master.","var(--gm)");
+  } else { setSt(broken.length+" broken links found — left as-is so you can fix R2 first.","#B23F3C"); }
+}
 async function testR2Storage(){
   const st=document.getElementById("aiimg-progress"); const setSt=(t,c)=>{ if(st){ st.innerHTML=t; st.style.color=c||"var(--tm)"; } };
   setSt("Testing image storage…","#2c5f82");
@@ -3731,7 +3747,10 @@ function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.r
         <button id="aiimg-fill" class="btn" onclick="fillMissingImagesAI()" style="flex:1;padding:.5rem;font-size:.82rem;background:#6A4FA3;color:#fff;border:none;font-weight:600" ${missing?"":"disabled"}>✨ Fill ${missing.toLocaleString()} missing</button>
         ${inlineAI?`<button id="aiimg-mig" class="btn" onclick="migrateAiImagesToR2()" style="flex:1;padding:.5rem;font-size:.82rem;background:#E39A1B;color:#fff;border:none;font-weight:600">⇪ Move ${inlineAI.toLocaleString()} old AI images to R2</button>`:''}
       </div>
-      <div style="margin-top:.5rem"><button class="btn" onclick="testR2Storage()" style="width:100%;padding:.4rem;font-size:.76rem;background:#fff;color:#2c5f82;border:1px solid #2c5f82">🔧 Test image storage (R2) — is my Cloudflare setup working?</button></div>
+      <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap">
+        <button class="btn" onclick="testR2Storage()" style="flex:1;padding:.4rem;font-size:.74rem;background:#fff;color:#2c5f82;border:1px solid #2c5f82">🔧 Test image storage (R2)</button>
+        <button class="btn" onclick="repairBrokenImages()" style="flex:1;padding:.4rem;font-size:.74rem;background:#fff;color:#8a5a1f;border:1px solid #8a5a1f">🩺 Check / repair broken image links</button>
+      </div>
       <div style="display:flex;justify-content:flex-end;margin-top:.7rem"><button class="btn" onclick="_aiImgStop=true;document.getElementById('aiimg-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
     </div>`;
   document.body.appendChild(d);
