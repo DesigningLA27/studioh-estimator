@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v357</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v358</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -10323,8 +10323,44 @@ function ptToggleLabels(){ PT.hideLabels=!PT.hideLabels; ptRenderModal(); ptRend
 function _ptLoadLib(){ return new Promise((res,rej)=>{ if(window.pdfjsLib){res(window.pdfjsLib);return;} const s=document.createElement("script"); s.src=PT_PDFJS; s.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc=PT_PDFJS.replace("pdf.min.js","pdf.worker.min.js"); }catch(e){} res(window.pdfjsLib); }; s.onerror=()=>rej(new Error("Could not load the PDF engine — check your connection.")); document.head.appendChild(s); }); }
 function _ab2b64(buf){ const bytes=new Uint8Array(buf); let bin=""; const chunk=0x8000; for(let i=0;i<bytes.length;i+=chunk){ bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk)); } return btoa(bin); }
 function _b642ab(b64){ if(typeof b64==="string" && b64.indexOf(",")>=0 && b64.slice(0,5)==="data:") b64=b64.slice(b64.indexOf(",")+1); const bin=atob(b64); const len=bin.length; const bytes=new Uint8Array(len); for(let i=0;i<len;i++) bytes[i]=bin.charCodeAt(i); return bytes.buffer; }
+// ── PDF compression: rasterize each page to a target DPI, keep exact page dimensions (scale preserved) ──
+const PT_JSPDF="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+function _ptLoadJsPDF(){ return new Promise((res,rej)=>{ if(window.jspdf&&window.jspdf.jsPDF){ res(window.jspdf.jsPDF); return; } const s=document.createElement("script"); s.src=PT_JSPDF; s.onload=()=>{ if(window.jspdf&&window.jspdf.jsPDF) res(window.jspdf.jsPDF); else rej(new Error("Could not load the PDF writer.")); }; s.onerror=()=>rej(new Error("Could not load the PDF writer — check your connection.")); document.head.appendChild(s); }); }
+function _ptBusy(msg){ const b=document.createElement("div"); b.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10060;display:flex;align-items:center;justify-content:center"; b.innerHTML='<div style="background:#fff;border-radius:12px;padding:1rem 1.4rem;font-size:.9rem;color:#3d6b2e;font-weight:600" id="_ptbusytxt">'+msg+'</div>'; document.body.appendChild(b); return b; }
+async function _ptCompressPdf(buf, dpi, busy){
+  const lib=await _ptLoadLib(); const JsPDF=await _ptLoadJsPDF();
+  const doc=await lib.getDocument({data:new Uint8Array(buf.slice(0))}).promise; const n=doc.numPages;
+  // detect the plan's scale from the ORIGINAL text now — the rasterized copy has no text layer
+  let scale=null; try{ const pg1=await doc.getPage(1); const tc=await pg1.getTextContent(); scale=_ptParseScale(tc.items.map(i=>i.str).join(" ")); }catch(e){}
+  let out=null;
+  for(let i=1;i<=n;i++){
+    if(busy){ const t=document.getElementById("_ptbusytxt"); if(t) t.textContent="Compressing plan… page "+i+" / "+n; }
+    const pg=await doc.getPage(i); const vp1=pg.getViewport({scale:1}); const w=vp1.width, h=vp1.height; // points (1/72 in)
+    const vp=pg.getViewport({scale:dpi/72});
+    const cv=document.createElement("canvas"); cv.width=Math.max(1,Math.round(vp.width)); cv.height=Math.max(1,Math.round(vp.height));
+    const ctx=cv.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
+    await pg.render({canvasContext:ctx, viewport:vp}).promise;
+    const jpeg=cv.toDataURL("image/jpeg",0.82);
+    if(i===1){ out=new JsPDF({unit:"pt",format:[w,h],orientation:w>h?"landscape":"portrait"}); }
+    else out.addPage([w,h], w>h?"landscape":"portrait");
+    out.addImage(jpeg,"JPEG",0,0,w,h);
+    cv.width=cv.height=0; // free memory
+  }
+  return { buf: out.output("arraybuffer"), scale };
+}
 async function ptLoadPdf(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
-  const buf=await f.arrayBuffer(); await _ptOpenDocBuf(buf, false); }
+  let buf=await f.arrayBuffer();
+  const mb=buf.byteLength/1048576;
+  if(mb>5){
+    const ans=prompt(`This plan is ${mb.toFixed(0)} MB. Compress it for faster tracing?\n\nEnter a target DPI (150 recommended; higher = sharper but larger).\nThe sheet size and scale stay EXACTLY the same — only image detail is reduced.\n\nLeave blank or Cancel to keep the original.`,"150");
+    if(ans){ const dpi=Math.max(72,Math.min(400,parseInt(ans,10)||150)); const busy=_ptBusy("Compressing plan…");
+      try{ const r=await _ptCompressPdf(buf, dpi, busy);
+        if(r&&r.buf&&r.buf.byteLength<buf.byteLength){ const nmb=r.buf.byteLength/1048576; buf=r.buf; PT._preScale=r.scale||null; if(busy) busy.remove(); alert(`Compressed at ${dpi} DPI: ${mb.toFixed(0)} MB → ${nmb.toFixed(1)} MB.`); }
+        else { if(busy) busy.remove(); alert("Couldn't reduce it below the original — keeping the original file."); }
+      }catch(e){ if(busy) busy.remove(); alert("Compression failed — using the original.\n("+((e&&e.message)||"error")+")"); }
+    }
+  }
+  await _ptOpenDocBuf(buf, false); }
 // Reopen the trace already in memory (from the current session or a loaded project) — no file picker
 async function ptReopen(){
   if(typeof PT==="undefined"){ alert("Trace tool not ready."); return; }
@@ -10354,7 +10390,8 @@ async function _ptOpenDocBuf(buf, keepTrace){
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.detectedScale=null; PT.sheetIn=null;
   try{ const pg1=await PT.doc.getPage(1); const vp=pg1.getViewport({scale:1}); PT.sheetIn={w:vp.width/72,h:vp.height/72};
-    const tc=await pg1.getTextContent(); const txt=tc.items.map(i=>i.str).join(" "); PT.detectedScale=_ptParseScale(txt); }catch(e){}
+    const tc=await pg1.getTextContent(); const txt=tc.items.map(i=>i.str).join(" "); PT.detectedScale=_ptParseScale(txt)||PT._preScale||null; }catch(e){ PT.detectedScale=PT._preScale||null; }
+  PT._preScale=null;
   ptRenderModal(); await ptFitPage(); await ptRenderPage(); try{ refreshTraceButtons(); }catch(e){}
   if(!keepTrace && !PT.ppf) ptOpenScale();
   return true; }
