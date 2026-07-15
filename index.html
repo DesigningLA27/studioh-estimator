@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v373</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v376</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3436,17 +3436,28 @@ const PLANT_KIND_LABEL={shrub:"Shrubs",tree:"Trees",palm:"Palms",gc:"Groundcover
   let saved=null; try{ const s=localStorage.getItem("studioh_plantbook_v1"); if(s) saved=JSON.parse(s); }catch(e){}
   try{ window._hadLocalBook=!!saved; }catch(e){}
   if(!saved) return;
+  // ids saved under ANY type — so a default you reclassified isn't re-added to its original type
+  const allSavedIds={}; PLANT_KINDS.forEach(k=>{ (Array.isArray(saved[k])?saved[k]:[]).forEach(p=>{ if(p&&p.id) allSavedIds[p.id]=1; }); });
   PLANT_KINDS.forEach(k=>{ if(!Array.isArray(saved[k])) return;
     const defById={}; (PLANT_DB_DEFAULTS[k]||[]).forEach(p=>defById[p.id]=p);
     saved[k].forEach(p=>{ const d=defById[p.id]; if(d){ for(const f in d){ if(p[f]===undefined) p[f]=d[f]; } } });
-    const savedIds={}; saved[k].forEach(p=>savedIds[p.id]=1);
-    (PLANT_DB_DEFAULTS[k]||[]).forEach(d=>{ if(!savedIds[d.id]) saved[k].push(JSON.parse(JSON.stringify(d))); });
+    (PLANT_DB_DEFAULTS[k]||[]).forEach(d=>{ if(!allSavedIds[d.id]) saved[k].push(JSON.parse(JSON.stringify(d))); });
     PLANT_DB[k]=saved[k];
   });
 })();
 function plantBookSave(){ _imgNameIdx=null; try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ /* local cache full (common on Safari) — harmless, the master book lives on the server */ } if(typeof renderPlantBook==="function") renderPlantBook(); }
-function plantBookMerge(data, mode){ if(!data) return; PLANT_KINDS.forEach(k=>{ if(!Array.isArray(data[k])) return; const byId={}; (PLANT_DB[k]=PLANT_DB[k]||[]).forEach(p=>byId[p.id]=p);
-  data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; } } else { PLANT_DB[k].push(JSON.parse(JSON.stringify(p))); byId[p.id]=PLANT_DB[k][PLANT_DB[k].length-1]; } }); }); }
+function plantBookMerge(data, mode){ if(!data) return;
+  // ids present anywhere locally — so a plant you reclassified (moved to another type) is NOT re-added to its old type
+  const localIds={}; PLANT_KINDS.forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>{ if(p&&p.id) localIds[p.id]=1; }); });
+  PLANT_KINDS.forEach(k=>{ if(!Array.isArray(data[k])) return; const byId={}; (PLANT_DB[k]=PLANT_DB[k]||[]).forEach(p=>byId[p.id]=p);
+  data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; } }
+    else if(!localIds[p.id]){ PLANT_DB[k].push(JSON.parse(JSON.stringify(p))); byId[p.id]=PLANT_DB[k][PLANT_DB[k].length-1]; localIds[p.id]=1; } }); }); }
+// Reclassify a plant's type — move it between shrub/gc/tree/palm (its type-specific pricing & spacing fields switch with it)
+function changePlantKind(oldKind,id,newKind){ if(!newKind||oldKind===newKind) return;
+  const arr=PLANT_DB[oldKind]||[]; const i=arr.findIndex(p=>p.id===id); if(i<0) return; const p=arr[i];
+  arr.splice(i,1); PLANT_DB[newKind]=PLANT_DB[newKind]||[]; PLANT_DB[newKind].push(p);
+  plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook();
+  const m=document.getElementById("plant-modal"); if(m){ try{ m.remove(); }catch(e){} } }
 // ── Master plant book on Cloudflare (server = source of truth) ──
 let MASTER_META=null;
 async function masterBookLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
@@ -4502,17 +4513,37 @@ function hasDetails(p){ return !!(p&&(p.growthRate||p.dormancy||p.form||p.bloomS
 function needsDetails(p){ if(!p) return false; return DETAIL_FIELDS.some(f=>!p[f]); } // missing ANY field → re-fill
 async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
-  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)","sunset":"Sunset Western Garden Book climate zones where this plant thrives, compact range for CA/Southwest, e.g. 8-24 or 12-24 H1 H2","price1g":"typical Southern California nursery price in whole US dollars for a 1-GALLON container (number only, e.g. 12) — SHRUBS ONLY else blank","price5g":"5-GALLON price, number only, shrubs only","price15g":"15-GALLON price, number only, shrubs only"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
-  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:6000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
+  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","wu":"WUCOLS water-use category for Southern California — exactly one of VL, L, M, H","tags":"2 to 5 lowercase tags separated by commas, chosen ONLY from: drought-tolerant, california-native, evergreen, deciduous, succulent, ornamental-grass, groundcover, vine, perennial, pollinator, deer-resistant, fire-resistant, fragrant, flowering, screening, hedge, edible, coastal, shade-tolerant, full-sun, fast-growing, slow-growing, accent, mass-planting","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)","sunset":"Sunset Western Garden Book climate zones where this plant thrives, compact range for CA/Southwest, e.g. 8-24 or 12-24 H1 H2","price1g":"typical Southern California nursery price in whole US dollars for a SHRUB 1-gallon (number only, e.g. 12) else blank","price5g":"SHRUB 5-gallon price (number only) else blank","price15g":"15-gallon price for a SHRUB or small TREE (number only) else blank","priceFlat":"GROUNDCOVER price per FLAT (number only) else blank","price24box":"TREE 24-inch box price (number only) else blank","price36box":"TREE 36-inch box price else blank","price48box":"TREE 48-inch box price else blank","price60box":"TREE 60-inch box price else blank","price72box":"TREE 72-inch box price else blank","pricePerFt":"PALM price per foot of brown trunk (number only) else blank"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:8000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
     let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
     let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return; DETAIL_FIELDS.forEach(f=>{ if(o[f]!=null && o[f]!=="") p[f]=(""+o[f]).trim(); });
-      // estimated container prices — SHRUBS ONLY, and only fill sizes that are still blank (never overwrite a set/nursery price)
-      if(it.kind==="shrub"){ p.price=p.price||{}; [["1g",o.price1g],["5g",o.price5g],["15g",o.price15g]].forEach(([sz,v])=>{ const num=parseFloat((""+(v==null?"":v)).replace(/[^0-9.]/g,"")); if(num>0 && (p.price[sz]==null||p.price[sz]==="")){ p.price[sz]=Math.round(num); p.priceFlag=true; } }); }
+      // estimated prices per TYPE — only fill sizes still blank (never overwrite a set/nursery price)
+      p.price=p.price||{};
+      const _setP=(sz,v)=>{ const num=parseFloat((""+(v==null?"":v)).replace(/[^0-9.]/g,"")); if(num>0 && (p.price[sz]==null||p.price[sz]==="")){ p.price[sz]=Math.round(num); p.priceFlag=true; } };
+      if(it.kind==="shrub"){ _setP("1g",o.price1g); _setP("5g",o.price5g); _setP("15g",o.price15g); }
+      else if(it.kind==="gc"){ _setP("flat",o.priceFlat); }
+      else if(it.kind==="tree"){ _setP("15g",o.price15g); _setP("24",o.price24box); _setP("36",o.price36box); _setP("48",o.price48box); _setP("60",o.price60box); _setP("72",o.price72box); }
+      else if(it.kind==="palm"){ const num=parseFloat((""+(o.pricePerFt==null?"":o.pricePerFt)).replace(/[^0-9.]/g,"")); if(num>0 && (p.perFt==null||p.perFt==="")){ p.perFt=Math.round(num); p.priceFlag=true; } }
+      // WUCOLS water use
+      if(o.wu && /^(VL|L|M|H)$/i.test((""+o.wu).trim())) p.wu=(""+o.wu).trim().toUpperCase();
+      // tags (merge, don't duplicate or overwrite)
+      if(o.tags){ p.tags=p.tags||[]; const cur=new Set(p.tags.map(t=>(""+t).toLowerCase())); (""+o.tags).split(/[,;]+/).map(t=>t.trim().toLowerCase().replace(/\s+/g,"-")).filter(t=>t && /^[a-z0-9\-]+$/.test(t)).forEach(t=>{ if(!cur.has(t)){ p.tags.push(t); cur.add(t); if(typeof PLANT_TAG_VOCAB!=="undefined" && PLANT_TAG_VOCAB.indexOf(t)<0) PLANT_TAG_VOCAB.push(t); } }); }
       p.detFlag=true; p.detSrc="AI"; n++; }); return {ok:true,n};
   }catch(e){ return {err:(e&&e.message)||"error"}; }
 }
-function fetchOnePlantDetails(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const name=(botName(p)||p.c||"").trim(); if(!name){ alert("No botanical name."); return; }
+function fetchOnePlantDetails(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const name=(botName(p)||p.c||"").trim(); if(!name){ alert("Enter a common or botanical name first."); return; }
   fetchDetailsBatch([{kind,pid,name}]).then(res=>{ if(res.ok){ plantBookSave(); _afterColorChange(kind,pid); } else alert(res.noproxy?"No worker connected.":"Couldn't fetch details."); }); }
+// Quiet auto-fill: when a new/incomplete plant gets a name, fetch its overview details + Sunset zones + estimated prices in the background
+const _autoFilling={};
+async function _autoFillPlant(kind,id){ const key=kind+":"+id; if(_autoFilling[key]) return; const p=plantDbFind(kind,id); if(!p) return;
+  const name=(botName(p)||p.c||"").trim(); if(!name) return; if(typeof needsDetails==="function" && !needsDetails(p)) return;
+  _autoFilling[key]=true;
+  try{
+    await fetchDetailsBatch([{kind,pid:id,name}]);                                            // overview + Sunset + WUCOLS + tags + prices
+    try{ const p2=plantDbFind(kind,id); if(p2 && (typeof lightSetOf!=="function" || !lightSetOf(p2).length)) await fetchSunBatch([{kind,pid:id,name}]); }catch(e){}  // sun range (dedicated tool)
+    try{ const p3=plantDbFind(kind,id); if(p3 && !p3.img && typeof fetchPlantImage==="function") await fetchPlantImage(kind,id,["cc0","cc-by","cc-by-sa"]); }catch(e){}   // commercial-safe photo
+    plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook();
+  }catch(e){} finally{ delete _autoFilling[key]; } }
 function setDetail(kind,id,field,val){ const p=plantDbFind(kind,id); if(!p) return; p[field]=val; p.detFlag=false; p.detSrc="user"; plantBookSave(); }
 let _detStop=false;
 function openFillDetails(){ let d=document.getElementById("filldet-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="filldet-modal";
@@ -4689,7 +4720,10 @@ function setPlantField(kind,id,field,val){ const p=(PLANT_DB[kind]||[]).find(x=>
   if(["w","h","basal","oc","pf","perFt"].indexOf(field)>=0){ p[field]= (val===""? undefined : +val); if(field==="basal") p.basal=Math.max(0,Math.min(1,(+val||0)/100)); }
   else p[field]=val;
   if(field==="bloomColor"){ const c=BLOOM_COLOR_MAP[val]; p.bloomHex = (c && (""+c.hex).indexOf("gradient")<0 && val!=="none" && val!=="")? c.hex : ""; }
-  plantBookSave(); }
+  plantBookSave();
+  // auto-fill overview + Sunset + estimated prices when a name is set on a plant that still needs them
+  if((field==="b" || (field==="c" && !(""+(p.b||"")).trim())) && (""+val).trim()){ try{ _autoFillPlant(kind,id); }catch(e){} }
+}
 function togglePlantTag(kind,id,tag){ const p=(PLANT_DB[kind]||[]).find(x=>x.id===id); if(!p)return; p.tags=p.tags||[]; const i=p.tags.indexOf(tag); if(i>=0)p.tags.splice(i,1); else p.tags.push(tag); plantBookSave(); }
 function addPlantTag(kind,id,tag){ tag=(tag||"").trim().toLowerCase().replace(/\s+/g,"-"); if(!tag)return; const p=(PLANT_DB[kind]||[]).find(x=>x.id===id); if(!p)return; p.tags=p.tags||[]; if(p.tags.indexOf(tag)<0){ p.tags.push(tag); if(PLANT_TAG_VOCAB.indexOf(tag)<0)PLANT_TAG_VOCAB.push(tag); } plantBookSave(); }
 function plantBookResetItem(kind,id){ const d=(PLANT_DB_DEFAULTS[kind]||[]).find(p=>p.id===id); const idx=(PLANT_DB[kind]||[]).findIndex(p=>p.id===id); if(d&&idx>=0){ PLANT_DB[kind][idx]=JSON.parse(JSON.stringify(d)); plantBookSave(); } }
@@ -5157,6 +5191,7 @@ function renderPlantBookList(){
           <button class="btn" onclick="pasteCommonsImage('${kind}','${p.id}')" style="font-size:.5rem;padding:.05rem;background:#fff;border:1px solid var(--br);border-radius:4px;cursor:pointer" title="Paste a Wikimedia Commons image link">paste link</button>
         </div>
         </div>        <div style="flex:1;min-width:180px">${fld("Common name",inp(p.c,`setPlantField('${kind}','${p.id}','c',this.value)`))}</div>
+        <div style="flex:.6;min-width:112px">${fld("Type",`<select class="inp" style="font-size:.78rem;padding:.3rem .4rem" onchange="changePlantKind('${kind}','${p.id}',this.value)" title="Reclassify this plant — moves it and switches its pricing/spacing fields (e.g. groundcover flats → shrub 1g/5g/15g)">${[["shrub","Shrub"],["gc","Groundcover"],["tree","Tree"],["palm","Palm"]].map(([v,l])=>`<option value="${v}" ${kind===v?'selected':''}>${l}</option>`).join('')}</select>`)}</div>
         <div style="flex:1.4;min-width:200px">${fld("Botanical name",`<input class="inp" value="${escAttr(p.b||'')}" style="font-size:.78rem;font-style:italic;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','b',this.value)">`)}</div>
         <div style="flex:.9;min-width:130px">${fld("Variety / cultivar",`<input class="inp" value="${escAttr(p.cv||'')}" placeholder="e.g. Hot Lips" style="font-size:.78rem;padding:.3rem .4rem" onchange="setPlantField('${kind}','${p.id}','cv',this.value)">`)}</div>
         <div style="display:flex;gap:.3rem;align-items:flex-end">
