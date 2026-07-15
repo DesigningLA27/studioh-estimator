@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v364</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v366</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3577,6 +3577,24 @@ async function _uploadImageR2(id,dataUrl){ const ep=(typeof AI_PROXY_URL!=="unde
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveimage",key,id:(""+id).replace(/[^a-zA-Z0-9_\-]/g,""),image:dataUrl})});
     const d=await r.json(); if(d&&d.ok&&d.url) return {ok:true,url:d.url}; return {ok:false,err:(d&&(d.error||d.detail))||"upload failed"}; }
   catch(e){ return {ok:false,err:(e&&e.message)||"error"}; } }
+// Confirm an image URL actually loads before we trust it (so a broken R2 link never replaces a working image)
+function _imgLoads(url){ return new Promise(res=>{ if(!url){ res(false); return; } const im=new Image(); let done=false; const fin=v=>{ if(done) return; done=true; res(v); }; im.onload=()=>fin(im.naturalWidth>0); im.onerror=()=>fin(false); try{ im.src=url; }catch(e){ fin(false); } setTimeout(()=>fin(false),8000); }); }
+// One-click check: does R2 image storage actually work end-to-end (upload + serve)?
+async function testR2Storage(){
+  const st=document.getElementById("aiimg-progress"); const setSt=(t,c)=>{ if(st){ st.innerHTML=t; st.style.color=c||"var(--tm)"; } };
+  setSt("Testing image storage…","#2c5f82");
+  const testPng="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const up=await _uploadImageR2("selftest_"+Date.now().toString(36), testPng);
+  if(!up.ok){
+    if(/IMAGES|bucket/i.test(up.err||"")) setSt("⚠ No R2 bucket bound. In Cloudflare: create a bucket named <b>studioh-images</b>, bind it to the <b>studioh-ai</b> worker as <b>IMAGES</b>, then deploy.","#B23F3C");
+    else if(/authoriz|key/i.test(up.err||"")) setSt("⚠ Admin key problem: "+(up.err||""),"#B23F3C");
+    else setSt("⚠ Upload failed: "+(up.err||"error")+" — deploy the latest worker.js.","#B23F3C");
+    return;
+  }
+  const loads=await _imgLoads(up.url);
+  if(loads) setSt("✓ R2 image storage is working — links upload AND load. Your existing AI-image links should resolve now (reload the book).","var(--gm)");
+  else setSt("⚠ Upload worked but the link won't load — the image is saved to R2 but the worker isn't serving it. Deploy the <b>latest worker.js</b> (it has the image-serving route) to the studioh-ai worker. Once deployed, your broken AI images come back — no regeneration.","#B23F3C");
+}
 async function aiPlantImage(kind,pid,opts){ opts=opts||{};
   const p=plantDbFind(kind,pid); if(!p) return {ok:false};
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
@@ -3595,7 +3613,7 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
     // downscale to 512px, then host on R2 so the book stores just a light URL (not base64)
     let small=null; try{ small=await _fetchTo512(d.url); }catch(e){}
     let stored=small||d.url;   // fallbacks: downscaled base64, then the raw fal URL
-    if(small){ const up=await _uploadImageR2(kind+"_"+pid+"_"+Date.now().toString(36), small); if(up.ok) stored=up.url; }
+    if(small){ const up=await _uploadImageR2(kind+"_"+pid+"_"+Date.now().toString(36), small); if(up.ok && await _imgLoads(up.url)) stored=up.url; /* else keep the embedded 512px image so it always shows */ }
     // keep whatever real photo existed so it can be restored
     if(p.img && !p.imgAI && !p.imgPrev) p.imgPrev=p.img;
     p.img=stored; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false;
@@ -3681,6 +3699,7 @@ function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.r
         <button id="aiimg-fill" class="btn" onclick="fillMissingImagesAI()" style="flex:1;padding:.5rem;font-size:.82rem;background:#6A4FA3;color:#fff;border:none;font-weight:600" ${missing?"":"disabled"}>✨ Fill ${missing.toLocaleString()} missing</button>
         ${inlineAI?`<button id="aiimg-mig" class="btn" onclick="migrateAiImagesToR2()" style="flex:1;padding:.5rem;font-size:.82rem;background:#E39A1B;color:#fff;border:none;font-weight:600">⇪ Move ${inlineAI.toLocaleString()} old AI images to R2</button>`:''}
       </div>
+      <div style="margin-top:.5rem"><button class="btn" onclick="testR2Storage()" style="width:100%;padding:.4rem;font-size:.76rem;background:#fff;color:#2c5f82;border:1px solid #2c5f82">🔧 Test image storage (R2) — is my Cloudflare setup working?</button></div>
       <div style="display:flex;justify-content:flex-end;margin-top:.7rem"><button class="btn" onclick="_aiImgStop=true;document.getElementById('aiimg-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
     </div>`;
   document.body.appendChild(d);
@@ -3718,7 +3737,9 @@ async function migrateAiImagesToR2(){
     if(prog) prog.innerHTML=`Moving ${i+1} / ${todo.length}… <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
     const x=todo[i];
     try{ const small=await _imgTo512(x.p.img); const up=await _uploadImageR2(x.kind+"_"+x.p.id+"_"+Date.now().toString(36), small);
-      if(up.ok){ x.p.img=up.url; ok++; } else { fail++; if(up.err && /authoriz|No key|No worker|IMAGES/i.test(up.err)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">Stopped: ${up.err}</span>`; break; } } }
+      if(up.ok && await _imgLoads(up.url)){ x.p.img=up.url; ok++; }   // only replace the embedded image once the R2 link is confirmed working
+      else if(up.ok){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">Stopped: R2 saved but the image link isn't loading — check the studioh-images bucket + IMAGES binding + deploy the latest worker. No images were changed.</span>`; break; }
+      else { fail++; if(up.err && /authoriz|No key|No worker|IMAGES/i.test(up.err)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">Stopped: ${up.err}</span>`; break; } } }
     catch(e){ fail++; }
   }
   plantBookSave();
