@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v351</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v357</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3588,7 +3588,7 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
     // downscale to 512px, then host on R2 so the book stores just a light URL (not base64)
     let small=null; try{ small=await _fetchTo512(d.url); }catch(e){}
     let stored=small||d.url;   // fallbacks: downscaled base64, then the raw fal URL
-    if(small){ const up=await _uploadImageR2(kind+"_"+pid, small); if(up.ok) stored=up.url; }
+    if(small){ const up=await _uploadImageR2(kind+"_"+pid+"_"+Date.now().toString(36), small); if(up.ok) stored=up.url; }
     // keep whatever real photo existed so it can be restored
     if(p.img && !p.imgAI && !p.imgPrev) p.imgPrev=p.img;
     p.img=stored; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false;
@@ -3617,6 +3617,7 @@ function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retur
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Adjustments (optional)</div>
       <input id="paimg-tweak" placeholder="e.g. make it 3 ft tall, white flowers, denser habit, silver foliage" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.6rem">
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Reference photo (optional — guides the image, not saved)</div>
+      <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(((botName(p)||"")+" "+(p.c||"")+" plant").trim())}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:.4rem;margin-bottom:.4rem;font-size:.74rem;background:#EAF2FB;color:#1f4e79;border:1px solid #b9d3ef;border-radius:8px;text-decoration:none;font-weight:600">🔍 Find a good photo on Google Images ↗</a>
       <label class="btn" style="display:block;text-align:center;padding:.5rem;font-size:.76rem;background:#F4F9F5;color:var(--gm);border:1px dashed var(--gm);cursor:pointer;margin-bottom:.4rem">📷 Upload a real photo to match<input type="file" accept="image/*" style="display:none" onchange="_paimgPick(this)"></label>
       <div id="paimg-refpv" style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem"></div>
       <div id="paimg-status" style="font-size:.74rem;color:var(--tm);min-height:1.1rem;margin:.2rem 0"></div>
@@ -3709,7 +3710,7 @@ async function migrateAiImagesToR2(){
   for(let i=0;i<todo.length;i++){ if(_aiImgStop) break;
     if(prog) prog.innerHTML=`Moving ${i+1} / ${todo.length}… <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
     const x=todo[i];
-    try{ const small=await _imgTo512(x.p.img); const up=await _uploadImageR2(x.kind+"_"+x.p.id, small);
+    try{ const small=await _imgTo512(x.p.img); const up=await _uploadImageR2(x.kind+"_"+x.p.id+"_"+Date.now().toString(36), small);
       if(up.ok){ x.p.img=up.url; ok++; } else { fail++; if(up.err && /authoriz|No key|No worker|IMAGES/i.test(up.err)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">Stopped: ${up.err}</span>`; break; } } }
     catch(e){ fail++; }
   }
@@ -4529,11 +4530,22 @@ async function fillMissingDetails(){ const prog=document.getElementById("filldet
 }
 function _commonsSearchLink(p){ const q=(botName(p)||p.c||""); return `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(q)}&title=Special:MediaSearch&type=image`; }
 async function pasteCommonsImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
-  const url=prompt("Paste a Wikimedia Commons image link\n(from commons.wikimedia.org — these are commercial-safe):"); if(!url) return;
-  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"verifyimage",url:url.trim()})}); const d=await r.json();
-    if(d&&d.ok&&d.image){ p.img=d.image; p.imgLic=d.license||"cc-by"; p.imgAttr=d.attribution||""; p.imgFlag=false; p.imgConf="high"; p.imgSrc="Wikimedia"; p.imgAlts=[{image:d.image,license:d.license,licenseLabel:d.licenseLabel,attribution:d.attribution,confidence:"high",flag:false,source:"Wikimedia"}]; p._imgIdx=0; plantBookSave(); _afterColorChange(kind,pid); }
-    else alert(d&&d.error?d.error:"Couldn't verify that image. Use a Wikimedia Commons link."); }
-  catch(e){ alert("Couldn't verify that image ("+((e&&e.message)||"error")+")."); }
+  const url=prompt("Paste an image link:\n\n• A Wikimedia Commons page link (…/wiki/File:…) is verified as commercial-safe.\n• Any other direct image URL (right-click image → Copy Image Address) is saved to your R2 and marked ⚠ verify license."); if(!url) return;
+  const u=url.trim();
+  try{
+    // 1) Any Wikimedia Commons link (File: page or direct upload URL) → verify for proper license + attribution
+    if(/commons\.wikimedia\.org|upload\.wikimedia\.org\/wikipedia\/commons/i.test(u)){
+      const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"verifyimage",url:u})}); const d=await r.json();
+      if(d&&d.ok&&d.image){ p.img=d.image; p.imgLic=d.license||"cc-by"; p.imgAttr=d.attribution||""; p.imgFlag=false; p.imgConf="high"; p.imgSrc="Wikimedia"; p.imgAlts=[{image:d.image,license:d.license,licenseLabel:d.licenseLabel,attribution:d.attribution,confidence:"high",flag:false,source:"Wikimedia"}]; p._imgIdx=0; delete p.imgAI; plantBookSave(); _afterColorChange(kind,pid); return; }
+      // if verify fails, fall through and try to self-host the link directly
+    }
+    // 2) Any direct image URL → worker fetches it server-side and stores on R2
+    const key=_adminKey(); if(!key) return;
+    const r2=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"fetchimage",key,url:u,id:kind+"_"+pid+"_"+Date.now().toString(36)})});
+    const d2=await r2.json();
+    if(d2&&d2.ok&&d2.url){ p.img=d2.url; p.imgLic=""; p.imgAttr=""; p.imgFlag=true; p.imgConf=""; p.imgSrc="pasted"; p.imgAlts=[]; delete p._imgIdx; delete p.imgAI; plantBookSave(); _afterColorChange(kind,pid); }
+    else alert(d2&&d2.error?d2.error:"Couldn't add that image. Try the direct image address (right-click → Copy Image Address).");
+  }catch(e){ alert("Couldn't add that image ("+((e&&e.message)||"error")+")."); }
 }
 // ---- CSV master-plant importer ----
 function csvParse(text){ const rows=[]; let row=[],cur="",q=false; text=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
@@ -4604,6 +4616,13 @@ function addVariety(kind,id){ const arr=PLANT_DB[kind]||[]; const idx=arr.findIn
 function duplicatePlant(kind,id){ const arr=PLANT_DB[kind]||[]; const idx=arr.findIndex(p=>p.id===id); if(idx<0)return; const src=arr[idx]; const copy=JSON.parse(JSON.stringify(src)); copy.id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7); copy.c=(src.c||"Plant")+" (copy)"; copy.tags=Array.isArray(src.tags)?src.tags.slice():[]; arr.splice(idx+1,0,copy); plantBookSave(); }
 function addCustomPlant(kind){ const id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7); const base={shrub:{w:3,h:3,wu:"L",basal:0.8},tree:{w:25,h:30,wu:"L"},palm:{perFt:200,h:25,wu:"L"},gc:{oc:12,pf:36,wu:"L",habit:"spreader"}}[kind]||{}; (PLANT_DB[kind]=PLANT_DB[kind]||[]).push(Object.assign({id,c:"New "+(PLANT_KIND_LABEL[kind]||"plant").replace(/s$/,""),b:"",cls:"common",sunset:"",usda:"",bloom:"",color:"",tags:[]},base)); plantBookSave(); }
 function delCustomPlant(kind,id){ if(id.indexOf("cust_")!==0)return; PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(p=>p.id!==id); plantBookSave(); }
+// Delete ANY plant from the book (duplicates, mistakes). Standard plants return on the next master pull unless the master book is republished.
+function delPlantBookItem(kind,id){ const p=plantDbFind(kind,id); if(!p) return;
+  const nm=(p.c||botName(p)||"this plant"); const isCustom=(""+id).indexOf("cust_")===0;
+  if(!confirm(`Delete "${nm}" from the plant book?`+(isCustom?"":"\n\nThis is a standard plant — it will reappear next time the master book loads unless you Publish the master book after deleting.")+"\n\nThis can't be undone here.")) return;
+  PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(x=>x.id!==id); plantBookSave();
+  if(typeof renderPlantBook==="function") renderPlantBook();
+}
 async function addPlantByName(kind){ const name=(prompt("Enter the plant name (common or botanical) — AI will find the rest:")||"").trim(); if(!name) return;
   const id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7);
   const base={shrub:{w:3,h:3,wu:"L",basal:0.8},tree:{w:25,h:30,wu:"L"},palm:{perFt:200,h:25,wu:"L"},gc:{oc:12,pf:36,wu:"L",habit:"spreader"}}[kind]||{};
@@ -5056,7 +5075,7 @@ function renderPlantBookList(){
           <button class="btn" style="padding:.25rem .55rem;font-size:.68rem;background:var(--gm);color:#fff;border:1px solid var(--gm)" onclick="addVariety('${kind}','${p.id}')" title="Add another variety of this same species — copies it with the genus kept, ready for a new cultivar name and size">+ Variety</button>
           <button class="btn" style="padding:.25rem .55rem;font-size:.68rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="duplicatePlant('${kind}','${p.id}')" title="Duplicate as a new variety — clone this plant, then rename it (e.g. add the cultivar) and adjust its size">⧉ Duplicate</button>
           <button class="btn" style="padding:.25rem .55rem;font-size:.68rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="plantBookResetItem('${kind}','${p.id}')" title="Reset to default">↺</button>
-          ${custom?`<button class="btn" style="padding:.25rem .55rem;font-size:.68rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3" onclick="delCustomPlant('${kind}','${p.id}')">🗑</button>`:''}
+          <button class="btn" style="padding:.25rem .55rem;font-size:.68rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3" onclick="delPlantBookItem('${kind}','${p.id}')" title="Delete this plant from the book (e.g. a duplicate)">🗑</button>
         </div>
       </div>
       <div style="display:flex;gap:.7rem;flex-wrap:wrap;align-items:flex-start;margin-bottom:.5rem">
@@ -5354,6 +5373,34 @@ function expandAllZones(v){ const p=ensurePlanting(); p.zones.forEach(z=>z._open
 function setZoneGroupBy(v){ const p=ensurePlanting(); p._groupBy=v; plantRefresh(); }
 function setZoneSortBy(v){ const p=ensurePlanting(); p._sortBy=v; plantRefresh(); }
 function delZone(zi){ const p=ensurePlanting(); if(p.zones.length<=1) return; p.zones.splice(zi,1); plantRefresh(); }
+function _zonePlantCount(z){ return (z?((z.shrubRows||[]).length+(z.gcRows||[]).length+(z.treeRows||[]).length+(z.palmRows||[]).length):0); }
+// Duplicate all plants in a zone into another zone (or a new copy)
+function dupZonePlants(zi){ const p=ensurePlanting(); const z=p.zones[zi]; if(!z) return;
+  const nR=_zonePlantCount(z); if(!nR){ alert("This zone has no plants to duplicate."); return; }
+  const others=p.zones.map((zz,i)=>({zz,i})).filter(o=>o.i!==zi);
+  let targetIdx=-1;
+  if(others.length){
+    const list=others.map((o,k)=>`${k+1}. ${o.zz.name||("Zone "+(o.i+1))}`).join("\n");
+    const ans=prompt(`Duplicate the ${nR} plant${nR===1?'':'s'} in "${z.name||'Zone'}" to:\n\n0 = a NEW zone (copy)\n${list}`,"0");
+    if(ans==null) return; const n=parseInt(ans,10); if(isNaN(n)) return;
+    if(n===0) targetIdx=-1; else { const o=others[n-1]; if(!o){ alert("There's no zone "+n+"."); return; } targetIdx=o.i; }
+  }
+  let tz;
+  if(targetIdx<0){ tz=newZone((z.name||"Zone")+" copy"); tz._open=true; tz.areaSF=z.areaSF; tz.shrubDensity=z.shrubDensity; tz.gcDensity=z.gcDensity; tz.mulchPct=z.mulchPct; if(z.location) tz.location=z.location; if(z.phase) tz.phase=z.phase; p.zones.push(tz); }
+  else tz=p.zones[targetIdx];
+  const clone=arr=>(arr||[]).map(r=>JSON.parse(JSON.stringify(r)));
+  tz.shrubRows=(tz.shrubRows||[]).concat(clone(z.shrubRows));
+  tz.gcRows=(tz.gcRows||[]).concat(clone(z.gcRows));
+  tz.treeRows=(tz.treeRows||[]).concat(clone(z.treeRows));
+  tz.palmRows=(tz.palmRows||[]).concat(clone(z.palmRows));
+  tz._touched=true; S.cats.planting.on=true; plantRefresh();
+}
+// Remove every plant from a zone (keeps the zone + its settings)
+function clearZonePlants(zi){ const p=ensurePlanting(); const z=p.zones[zi]; if(!z) return;
+  const nR=_zonePlantCount(z); if(!nR){ alert("This zone has no plants."); return; }
+  if(!confirm(`Delete all ${nR} plant${nR===1?'':'s'} from "${z.name||'Zone'}"?\n\nThe zone and its settings stay. This can't be undone.`)) return;
+  z.shrubRows=[]; z.gcRows=[]; z.treeRows=[]; z.palmRows=[]; plantRefresh();
+}
 function setZoneName(zi,v){ const p=ensurePlanting(); if(p.zones[zi]) p.zones[zi].name=(v==null?"":(""+v).slice(0,40)); refreshCatTotals("planting"); }
 const PLANT_AREA_DEFAULTS=["Front yard","Back yard","Side yard","Courtyard","Entry / Motor court","Pool area","Residence","Parkway","Whole site"];
 function plantAreaOptions(){ const p=ensurePlanting(); const custom=(p.areaOptions||[]); const seen=new Set(); const out=[]; PLANT_AREA_DEFAULTS.concat(custom).forEach(a=>{ const k=(a||"").toLowerCase(); if(a&&!seen.has(k)){ seen.add(k); out.push(a); } }); return out; }
@@ -6083,6 +6130,9 @@ function renderPlantingBuilder(){
     const gdStep=stp(HB(`stepZoneDensity(${zi},'gc',-1)`),HB(`stepZoneDensity(${zi},'gc',1)`),`<input type="number" class="no-spin" value="${+z.gcDensity||0}" style="width:40px" onchange="setZoneDensity(${zi},'gc',this.value)">`);
     const muStep=stp(HB(`stepZoneMulch(${zi},-1)`),HB(`stepZoneMulch(${zi},1)`),`<input type="number" class="no-spin" value="${z.mulchPct==null?90:z.mulchPct}" style="width:40px" onchange="setZoneMulch(${zi},this.value)">`);
     const delBtn=p.zones.length>1?lblCol("&nbsp;",`<button class="btn" style="min-height:36px;padding:0 .5rem;font-size:.7rem;color:#B23F3C;background:transparent;border:1px solid #E0C4C3" onclick="delZone(${zi})">✕ zone</button>`):'';
+    const _znR=_zonePlantCount(z);
+    const dupBtn=_znR?lblCol("&nbsp;",`<button class="btn" style="min-height:36px;padding:0 .5rem;font-size:.7rem;color:var(--gm);background:#fff;border:1px solid var(--gm)" onclick="dupZonePlants(${zi})" title="Copy all plants in this zone to another zone or a new one">⧉ duplicate plants</button>`):'';
+    const clrBtn=_znR?lblCol("&nbsp;",`<button class="btn" style="min-height:36px;padding:0 .5rem;font-size:.7rem;color:#B23F3C;background:transparent;border:1px solid #E0C4C3" onclick="clearZonePlants(${zi})" title="Remove every plant from this zone">🗑 all plants</button>`):'';
     const locOpts=plantAreaOptions(); const locSel=`<select class="inp" style="width:130px;font-size:.8rem" onchange="setZoneLocation(${zi},this.value)"><option value="—" ${!z.location?'selected':''}>— area —</option>${locOpts.map(a=>`<option ${((z.location||"").toLowerCase()===a.toLowerCase())?'selected':''}>${a}</option>`).join('')}<option value="__add">+ Add new area…</option></select>`;
     const phaseOpts=["Phase 1","Phase 2","Phase 3","Phase 4","Future"]; const phaseSel=`<select class="inp" style="width:100px;font-size:.8rem" onchange="setZonePhase(${zi},this.value)"><option value="—" ${!z.phase?'selected':''}>— phase —</option>${phaseOpts.map(a=>`<option ${z.phase===a?'selected':''}>${a}</option>`).join('')}</select>`;
     const header=`<div style="display:flex;gap:.45rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:.55rem">
@@ -6090,7 +6140,7 @@ function renderPlantingBuilder(){
       ${lblCol("Area / location",locSel)}
       ${lblCol("Phase",phaseSel)}
       ${resetBtn}
-      <div style="margin-left:auto">${delBtn}</div>
+      <div style="margin-left:auto;display:flex;gap:.4rem;align-items:flex-end;flex-wrap:wrap">${dupBtn}${clrBtn}${delBtn}</div>
     </div>
     <div style="display:flex;gap:.45rem;align-items:flex-end;flex-wrap:nowrap;overflow-x:auto;margin-bottom:.6rem;padding-bottom:.15rem">
       ${lblCol("Area (SF)",areaStep)}
@@ -10635,7 +10685,13 @@ function _bidPlants(){ const out={shrub:[],gc:[],tree:[],palm:[]};
   }); return out; }
 function _bidPayload(){ return { v:1, app:"studioh-estimator", savedAt:new Date().toISOString(),
     S: JSON.parse(JSON.stringify(S)), plants: _bidPlants(),
+    measured:(typeof measured==="object"?JSON.parse(JSON.stringify(measured)):null),
+    planTrace:(typeof window!=="undefined"&&window._planTrace)?window._planTrace:null,
     trace:(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length))?{polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null}:null }; }
+// Recompute traced area totals from the polygons (for older bids saved without `measured`)
+function _measuredFromTrace(){ if(typeof PT==="undefined"||!PT.ppf) return null;
+  const a={}; PT.polys.forEach(p=>{ if(p.kind!=="linear") a[p.mode]=(a[p.mode]||0)+(p.sf||0); }); const R=(k)=>Math.round(a[k]||0);
+  return {planting:R("planting")+R("turf"),paving:R("paving"),lot:R("lot"),building:R("building"),driveway:R("driveway"),demo:R("demo"),exclusion:R("exclude")}; }
 // ── Cloud bids (server) ──
 let CLOUD_BID_ID=null; let CLOUD_BID_NAME=null;
 let CLOUD_PDF_SIG=null;   // fingerprint of the PDF already on the server for CLOUD_BID_ID
@@ -10764,6 +10820,10 @@ function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a save
   if(bid.plants){ try{ ["shrub","gc","tree","palm"].forEach(kind=>{ PLANT_DB[kind]=PLANT_DB[kind]||[]; (bid.plants[kind]||[]).forEach(pl=>{ if(pl&&pl.id){ const i=PLANT_DB[kind].findIndex(x=>x.id===pl.id); if(i>=0) PLANT_DB[kind][i]=JSON.parse(JSON.stringify(pl)); else PLANT_DB[kind].push(JSON.parse(JSON.stringify(pl))); } }); }); if(typeof plantBookSave==="function") plantBookSave(); }catch(e){} }
   const src=bid.S; Object.keys(src).forEach(k=>{ try{ S[k]=src[k]; }catch(e){} });
   if(bid.trace&&typeof PT!=="undefined"){ PT.polys=bid.trace.polys||[]; PT.trees=bid.trace.trees||[]; if(bid.trace.ppf!=null) PT.ppf=bid.trace.ppf; if(bid.trace.subtype) PT.subtype=bid.trace.subtype; if(bid.trace.pdf) PT.pdfData=bid.trace.pdf; }
+  // restore traced measurements (they live outside S) so the area budget + summary reflect them WITHOUT opening the plan
+  try{ if(typeof measured==="object"){ let mv=bid.measured; if(!mv && bid.trace && ((bid.trace.polys&&bid.trace.polys.length)||(bid.trace.trees&&bid.trace.trees.length))) mv=_measuredFromTrace();
+      if(mv){ Object.keys(measured).forEach(k=>{ measured[k]=0; }); Object.keys(mv).forEach(k=>{ if(k in measured) measured[k]=+mv[k]||0; }); } } }catch(e){}
+  if(bid.planTrace){ try{ window._planTrace=bid.planTrace; }catch(e){} }
   try{ refreshTraceButtons(); }catch(e){}
   // reflect site dimensions back into the input fields
   const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
@@ -10776,7 +10836,7 @@ function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a save
   try{ if(typeof plantRefresh==="function") plantRefresh(); }catch(e){}
   const hasTrace = bid.trace && (( bid.trace.polys&&bid.trace.polys.length)||(bid.trace.trees&&bid.trace.trees.length));
   const when = bid.savedAt?" — saved "+new Date(bid.savedAt).toLocaleString():"";
-  if(hasTrace && bid.trace.pdf){ if(confirm("Bid loaded"+when+".\n\nThis project includes a traced plan. Open it now?")){ try{ ptRestoreTrace(bid.trace); }catch(e){} } }
+  if(hasTrace){ alert("Bid loaded"+when+".\n\nAll traced areas and measurements are applied. The plan stays closed — click ✎ Edit trace to view or change it."); }
   else { alert("Bid loaded"+when+"."); }
 }
 function _uniformTag(sources){ let L=null,P=null,T=null,okL=true,okP=true,okT=true; (sources||[]).forEach(s=>{ const l=((s.zone||s.loc)||"")+"",p=(s.phase||"")+"",t=(s.tags||"")+""; if(L===null)L=l;else if(L!==l)okL=false; if(P===null)P=p;else if(P!==p)okP=false; if(T===null)T=t;else if(T!==t)okT=false; }); return {loc:okL&&L?L:"",phase:okP&&P?P:"",tags:okT&&T?T:""}; }
