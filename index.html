@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v370</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v372</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3560,6 +3560,25 @@ function plantPortraitPrompt(p,kind){
     `Photographed like a professional plant nursery catalogue: the whole plant filling the frame, natural daylight, shallow depth of field with a soft neutral background, `+
     `true-to-life foliage colour and leaf shape, accurate growth habit. Sharp, clean, realistic horticultural photography. No text, no watermarks, no people, no hands.`;
 }
+// Natural-setting prompt: the plant growing in the ground, in scale, in a real landscape (default style)
+function plantSettingPrompt(p,kind){
+  const bot=(botName(p)||"").trim(), com=(p.c||"").trim();
+  const bits=[];
+  if(p.w||p.h) bits.push(`mature size roughly ${p.w||"?"} ft wide by ${p.h||"?"} ft tall`);
+  const bc=bloomColorOf(p); if(bc&&BLOOM_COLOR_MAP[bc]) bits.push(`${BLOOM_COLOR_MAP[bc].lab.toLowerCase()} flowers`);
+  if(p.bloomSeason) bits.push(`blooming in ${p.bloomSeason.toLowerCase()}`);
+  if(p.form) bits.push(`${p.form.toLowerCase()} habit`);
+  if(p.dormancy) bits.push(p.dormancy.toLowerCase());
+  const kindTxt={shrub:"shrub",gc:"groundcover plant",tree:"tree",palm:"palm"}[kind]||"plant";
+  return `Photorealistic wide landscape photograph of ${bot||com} ${kindTxt}${com&&bot?` (common name: ${com})`:""} growing in the ground in a naturalistic Southern California garden, ${bits.join(", ")}. `+
+    `Planted in decomposed granite with a couple of boulders and a few low companion plants nearby for scale, shown in its true natural growth habit (spreading / mounding as it grows in the landscape), in correct real-world proportion to its surroundings. `+
+    `Warm natural daylight, realistic environmental garden context with soft depth of field, professional landscape photography. `+
+    `NOT a potted nursery specimen, NOT filling the frame, NOT a plain studio background. True-to-life foliage colour and growth habit. No text, no watermarks, no people, no hands.`;
+}
+const IMG_STYLE_KEY="studioh_imgstyle_v1";
+function imgStyle(){ try{ return localStorage.getItem(IMG_STYLE_KEY)||"natural"; }catch(e){ return "natural"; } }
+function setImgStyle(v){ try{ localStorage.setItem(IMG_STYLE_KEY,v); }catch(e){} }
+function _plantImgPrompt(p,kind,style){ return ((style||imgStyle())==="catalogue") ? plantPortraitPrompt(p,kind) : plantSettingPrompt(p,kind); }
 // ── R2 image storage: downscale to 512px JPEG, upload to the worker's R2 bucket, get back a light URL ──
 function _imgTo512(src){ return new Promise((res,rej)=>{ const img=new Image();
   img.onload=()=>{ let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height; if(!w||!h){ rej(new Error("no dims")); return; }
@@ -3600,7 +3619,7 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   if(!key){ key=_adminKey(); if(!key) return {ok:false,err:"No key"}; }
-  let prompt=plantPortraitPrompt(p,kind);
+  let prompt=_plantImgPrompt(p,kind,opts.style);
   const ref=opts.ref||null;
   if(ref) prompt+=` Use the supplied photograph as the reference for this exact plant — reproduce its true foliage, flower colour and growth habit as a clean nursery-catalogue image on a soft neutral background.`;
   if(opts.tweak && (""+opts.tweak).trim()) prompt+=` Additional direction: ${(""+opts.tweak).trim()}.`;
@@ -3639,6 +3658,13 @@ function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retur
           <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · ~$0.08 · best with a reference photo</option>
         </select>
       </div>
+      <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.55rem;flex-wrap:wrap">
+        <span style="font-size:.7rem;color:var(--tm)">Style</span>
+        <select id="paimg-style" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
+          <option value="natural" ${imgStyle()==="natural"?"selected":""}>Natural setting — in a landscape, in scale</option>
+          <option value="catalogue" ${imgStyle()==="catalogue"?"selected":""}>Catalogue portrait — single plant, plain background</option>
+        </select>
+      </div>
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Adjustments (optional)</div>
       <input id="paimg-tweak" placeholder="e.g. make it 3 ft tall, white flowers, denser habit, silver foliage" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.6rem">
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Reference photo (optional — guides the image, not saved)</div>
@@ -3660,10 +3686,11 @@ async function _paimgPick(input){ const f=input&&input.files&&input.files[0]; if
   }catch(e){ alert("Couldn't read that photo."); } }
 async function _paimgGo(kind,pid){
   const tweak=(document.getElementById("paimg-tweak")||{}).value||"";
+  const style=(document.getElementById("paimg-style")||{}).value||imgStyle(); setImgStyle(style);
   const st=document.getElementById("paimg-status"), gb=document.getElementById("paimg-go");
   const setSt=(t,c)=>{ if(st){ st.textContent=t; st.style.color=c||"var(--tm)"; } };
   if(gb) gb.disabled=true; setSt("Generating… (10–20 sec)","#6A4FA3");
-  const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef});
+  const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef, style});
   if(r.ok){ setSt("✓ Done.","var(--gm)"); _paimgRef=null;
     if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender();
     setTimeout(()=>{ const m=document.getElementById("paimg-modal"); if(m) m.remove(); },600);
@@ -3688,6 +3715,11 @@ function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.r
           <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
           <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
           <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · ~$0.08</option>
+        </select>
+        <span style="font-size:.7rem;color:var(--tm)">Style</span>
+        <select id="aiimg-style" onchange="setImgStyle(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
+          <option value="natural" ${imgStyle()==="natural"?"selected":""}>Natural setting — in a landscape</option>
+          <option value="catalogue" ${imgStyle()==="catalogue"?"selected":""}>Catalogue portrait</option>
         </select>
       </div>
       <div style="font-size:.82rem;color:#3d6b2e;background:#F4F9F5;border:1px solid #cfe0d6;border-radius:8px;padding:.5rem .6rem;margin-bottom:.5rem">
@@ -3831,7 +3863,7 @@ async function fillMissingImages(){ const licSel=(document.querySelector('input[
 }
 function fetchOnePlantImage(kind,pid){ const licenses=["cc0","cc-by","cc-by-sa"]; fetchPlantImage(kind,pid,licenses).then(res=>{ plantBookSave(); if(res.ok){ _afterColorChange(kind,pid); } else { alert(res.noproxy?"No worker connected.":res.notfound?"No commercial-safe photo found for this plant.":"Image lookup failed."); } }); }
 // ── AI plant details (form, growth rate, dormancy, fragrance, bloom season) ──
-const DETAIL_FIELDS=["form","growthRate","dormancy","fragrance","bloomSeason","native","toxic","deerResist","fireResist","rootAggr","invasive","dsZone"];
+const DETAIL_FIELDS=["form","growthRate","dormancy","fragrance","bloomSeason","native","toxic","deerResist","fireResist","rootAggr","invasive","dsZone","sunset"];
 const SUN_FILL_FIELD="light";
 const DETAIL_LABELS={form:"Form",growthRate:"Growth rate",dormancy:"Dormancy",fragrance:"Fragrance",bloomSeason:"Flowering season",native:"CA native",toxic:"Toxicity",deerResist:"Deer resistant",fireResist:"Fire-resistant",rootAggr:"Root aggressiveness",invasive:"Invasive in CA",dsZone:"Defensible-space zone"};
 // Defensible space (CA Fire Safe / Zone 0 ember-resistant zone)
@@ -4451,10 +4483,12 @@ function hasDetails(p){ return !!(p&&(p.growthRate||p.dormancy||p.form||p.bloomS
 function needsDetails(p){ if(!p) return false; return DETAIL_FIELDS.some(f=>!p[f]); } // missing ANY field → re-fill
 async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
-  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
+  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)","sunset":"Sunset Western Garden Book climate zones where this plant thrives, compact range for CA/Southwest, e.g. 8-24 or 12-24 H1 H2","price1g":"typical Southern California nursery price in whole US dollars for a 1-GALLON container (number only, e.g. 12) — SHRUBS ONLY else blank","price5g":"5-GALLON price, number only, shrubs only","price15g":"15-GALLON price, number only, shrubs only"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:6000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
     let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
     let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return; DETAIL_FIELDS.forEach(f=>{ if(o[f]!=null && o[f]!=="") p[f]=(""+o[f]).trim(); });
+      // estimated container prices — SHRUBS ONLY, and only fill sizes that are still blank (never overwrite a set/nursery price)
+      if(it.kind==="shrub"){ p.price=p.price||{}; [["1g",o.price1g],["5g",o.price5g],["15g",o.price15g]].forEach(([sz,v])=>{ const num=parseFloat((""+(v==null?"":v)).replace(/[^0-9.]/g,"")); if(num>0 && (p.price[sz]==null||p.price[sz]==="")){ p.price[sz]=Math.round(num); p.priceFlag=true; } }); }
       p.detFlag=true; p.detSrc="AI"; n++; }); return {ok:true,n};
   }catch(e){ return {err:(e&&e.message)||"error"}; }
 }
@@ -4467,7 +4501,7 @@ function openFillDetails(){ let d=document.getElementById("filldet-modal"); if(d
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
       <div style="font-size:1.05rem;font-weight:700;color:#6A4FA3;margin-bottom:.3rem">✨ Fill plant details</div>
-      <div style="font-size:.78rem;color:var(--tm);line-height:1.5">Uses AI to fill <b>form, growth rate, dormancy (evergreen/deciduous), fragrance, and flowering season</b> for the <b>${miss}</b> plants missing them. Values are <b>flagged ⚠ AI</b> so you can review them (Details filter → ⚠ AI). Runs in batches; a big book takes a few minutes.</div>
+      <div style="font-size:.78rem;color:var(--tm);line-height:1.5">Uses AI to fill <b>form, growth rate, dormancy, fragrance, flowering season, Sunset climate zones</b>, and (shrubs only) <b>estimated 1g/5g/15g prices</b> for the <b>${miss}</b> plants missing details. Estimated prices only fill sizes left blank — they never overwrite a price you set, and a nursery price always wins. All values are <b>flagged ⚠ AI</b> for review. Runs in batches; a big book takes a few minutes.</div>
       <div id="filldet-progress" style="font-size:.82rem;color:var(--tm);min-height:1.4rem;margin-top:.7rem"></div>
       <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
         <button class="btn" onclick="_detStop=true;document.getElementById('filldet-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
