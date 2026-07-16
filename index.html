@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v378</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v380</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3607,6 +3607,14 @@ async function _uploadImageR2(id,dataUrl){ const ep=(typeof AI_PROXY_URL!=="unde
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveimage",key,id:(""+id).replace(/[^a-zA-Z0-9_\-]/g,""),image:dataUrl})});
     const d=await r.json(); if(d&&d.ok&&d.url) return {ok:true,url:d.url}; return {ok:false,err:(d&&(d.error||d.detail))||"upload failed"}; }
   catch(e){ return {ok:false,err:(e&&e.message)||"error"}; } }
+// Health-gate: confirm R2 can BOTH store and serve an image before we ever spend money generating one.
+// Caches only a success — a failure re-checks next time (so it works the moment you fix the setup).
+let _r2ok=false;
+async function _ensureR2(){ if(_r2ok) return true;
+  const testPng="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  try{ const up=await _uploadImageR2("healthcheck_"+Date.now().toString(36), testPng); if(up.ok && await _imgLoads(up.url)){ _r2ok=true; } }catch(e){}
+  return _r2ok; }
+const R2_DOWN_MSG="Image storage isn't working, so a new image can't be saved and would vanish on reload. Open the Plant Book → 🖼 AI images → 🔧 Test image storage (R2) and follow the fix (create the studioh-images bucket, bind it as IMAGES, deploy the latest worker). Nothing was generated or charged.";
 // Confirm an image URL actually loads before we trust it (so a broken R2 link never replaces a working image)
 function _imgLoads(url){ return new Promise(res=>{ if(!url){ res(false); return; } const im=new Image(); let done=false; const fin=v=>{ if(done) return; done=true; res(v); }; im.onload=()=>fin(im.naturalWidth>0); im.onerror=()=>fin(false); try{ im.src=url; }catch(e){ fin(false); } setTimeout(()=>fin(false),8000); }); }
 // One-click check: does R2 image storage actually work end-to-end (upload + serve)?
@@ -3646,6 +3654,7 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   if(!key){ key=_adminKey(); if(!key) return {ok:false,err:"No key"}; }
+  if(!(await _ensureR2())) return {ok:false, err:R2_DOWN_MSG};   // never generate an image that can't be durably saved
   let prompt=_plantImgPrompt(p,kind,opts.style);
   const ref=opts.ref||null;
   if(ref) prompt+=` Use the supplied photograph as the reference for this exact plant — reproduce its true foliage, flower colour and growth habit as a clean nursery-catalogue image on a soft neutral background.`;
@@ -3778,7 +3787,7 @@ async function fillMissingImagesAI(){
     while(true){ if(_aiImgStop) return; const i=idx++; if(i>=total) return;
       const r=await aiPlantImage(todo[i].kind, todo[i].p.id);
       done++;
-      if(r.ok) ok++; else { fail++; if(r.err && /balance|locked|authoriz|FAL_KEY|No key|No worker/i.test(r.err)){ stopMsg=r.err; _aiImgStop=true; return; } }
+      if(r.ok) ok++; else { fail++; if(r.err && /balance|locked|authoriz|FAL_KEY|No key|No worker|Image storage/i.test(r.err)){ stopMsg=r.err; _aiImgStop=true; return; } }
       if(prog) prog.innerHTML=`Generating… ${done} / ${total} · <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
     }
   }
@@ -4195,7 +4204,7 @@ async function aiFillProjectImages(){
   for(let i=0;i<need.length;i++){
     if(btn) btn.textContent=`Generating ${i+1}/${need.length}…`;
     const r=await aiPlantImage(need[i].kind,need[i].pid);
-    if(r.ok) ok++; else if(r.err && /balance|locked/i.test(r.err)){ alert("fal.ai: "+r.err); break; }
+    if(r.ok) ok++; else if(r.err && /balance|locked|Image storage/i.test(r.err)){ alert(r.err); break; }
     _plRender();
   }
   if(btn){ btn.textContent="✨ AI images for missing"; btn.disabled=false; }
@@ -11055,10 +11064,7 @@ function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a save
   try{ renderProSummary(); }catch(e){}
   try{ renderAreaBudget(); }catch(e){}
   try{ if(typeof plantRefresh==="function") plantRefresh(); }catch(e){}
-  const hasTrace = bid.trace && (( bid.trace.polys&&bid.trace.polys.length)||(bid.trace.trees&&bid.trace.trees.length));
-  const when = bid.savedAt?" — saved "+new Date(bid.savedAt).toLocaleString():"";
-  if(hasTrace){ alert("Bid loaded"+when+".\n\nAll traced areas and measurements are applied. The plan stays closed — click ✎ Edit trace to view or change it."); }
-  else { alert("Bid loaded"+when+"."); }
+  // loaded silently — no confirmation box; the project just opens
 }
 function _uniformTag(sources){ let L=null,P=null,T=null,okL=true,okP=true,okT=true; (sources||[]).forEach(s=>{ const l=((s.zone||s.loc)||"")+"",p=(s.phase||"")+"",t=(s.tags||"")+""; if(L===null)L=l;else if(L!==l)okL=false; if(P===null)P=p;else if(P!==p)okP=false; if(T===null)T=t;else if(T!==t)okT=false; }); return {loc:okL&&L?L:"",phase:okP&&P?P:"",tags:okT&&T?T:""}; }
 function _stampItem(it,tag){ if(!it||!tag) return; if(tag.loc) it.loc=tag.loc; if(tag.phase) it.phase=tag.phase; if(tag.tags) it.tags=tag.tags; }
