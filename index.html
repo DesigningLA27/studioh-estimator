@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v376</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v378</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -4511,11 +4511,22 @@ function printFireReport(){ const body=document.getElementById("fire-report-body
 }
 function hasDetails(p){ return !!(p&&(p.growthRate||p.dormancy||p.form||p.bloomSeason)); }
 function needsDetails(p){ if(!p) return false; return DETAIL_FIELDS.some(f=>!p[f]); } // missing ANY field → re-fill
+// Recover complete {...} objects from a JSON array string even if it was truncated mid-array
+function _salvageJsonObjects(s){ const out=[]; let depth=0,start=-1,inStr=false,esc=false;
+  for(let i=0;i<s.length;i++){ const ch=s[i];
+    if(inStr){ if(esc)esc=false; else if(ch==='\\')esc=true; else if(ch==='"')inStr=false; continue; }
+    if(ch==='"'){ inStr=true; continue; }
+    if(ch==='{'){ if(depth===0) start=i; depth++; }
+    else if(ch==='}'){ if(depth>0)depth--; if(depth===0&&start>=0){ try{ out.push(JSON.parse(s.slice(start,i+1))); }catch(e){} start=-1; } } }
+  return out; }
 async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
   const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","wu":"WUCOLS water-use category for Southern California — exactly one of VL, L, M, H","tags":"2 to 5 lowercase tags separated by commas, chosen ONLY from: drought-tolerant, california-native, evergreen, deciduous, succulent, ornamental-grass, groundcover, vine, perennial, pollinator, deer-resistant, fire-resistant, fragrant, flowering, screening, hedge, edible, coastal, shade-tolerant, full-sun, fast-growing, slow-growing, accent, mass-planting","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)","sunset":"Sunset Western Garden Book climate zones where this plant thrives, compact range for CA/Southwest, e.g. 8-24 or 12-24 H1 H2","price1g":"typical Southern California nursery price in whole US dollars for a SHRUB 1-gallon (number only, e.g. 12) else blank","price5g":"SHRUB 5-gallon price (number only) else blank","price15g":"15-gallon price for a SHRUB or small TREE (number only) else blank","priceFlat":"GROUNDCOVER price per FLAT (number only) else blank","price24box":"TREE 24-inch box price (number only) else blank","price36box":"TREE 36-inch box price else blank","price48box":"TREE 48-inch box price else blank","price60box":"TREE 60-inch box price else blank","price72box":"TREE 72-inch box price else blank","pricePerFt":"PALM price per foot of brown trunk (number only) else blank"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:8000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
-    let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
+    let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["); if(a<0) return {err:"bad json"};
+    let arr=null; const b=t.lastIndexOf("]"); if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+    if(!arr){ arr=_salvageJsonObjects(t.slice(a)); }   // truncated response → recover the complete objects that did come through
+    if(!arr||!arr.length) return {err:"parse"};
     let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return; DETAIL_FIELDS.forEach(f=>{ if(o[f]!=null && o[f]!=="") p[f]=(""+o[f]).trim(); });
       // estimated prices per TYPE — only fill sizes still blank (never overwrite a set/nursery price)
       p.price=p.price||{};
@@ -4565,7 +4576,10 @@ async function fetchSunBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
   const prompt=`For each landscape plant below, list ALL light conditions it TOLERATES in Southern California. Most plants tolerate a range, not one condition.\nCodes: sun (full sun), sunpart (sun to part shade), part (part shade), shade (full shade).\nOutput ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose:\n[{"i":1,"sun":"sun,sunpart,part"}]\nExample: a plant that takes everything but full shade = "sun,sunpart,part". A true shade plant = "part,shade". Use "" only if genuinely unknown.\nPlants:\n${list}`;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:3000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
-    let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["),b=t.lastIndexOf("]"); if(a<0||b<0) return {err:"bad json"}; let arr; try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){ return {err:"parse"}; }
+    let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["); if(a<0) return {err:"bad json"};
+    let arr=null; const b=t.lastIndexOf("]"); if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+    if(!arr){ arr=_salvageJsonObjects(t.slice(a)); }   // truncated response → recover the complete objects that did come through
+    if(!arr||!arr.length) return {err:"parse"};
     let n=0; arr.forEach(o=>{ const idx=(o.i||0)-1; const it=items[idx]; if(!it) return; const p=plantDbFind(it.kind,it.pid); if(!p) return;
       const cs=((""+(o.sun||"")).toLowerCase().match(/sunpart|shade|part|sun/g)||[]).filter((v,i,a2)=>a2.indexOf(v)===i).filter(c=>LIGHT_INFO[c]);
       cs.sort((x,y)=>LIGHT_ORDER.indexOf(x)-LIGHT_ORDER.indexOf(y));
@@ -4621,7 +4635,7 @@ async function fillSunRanges(){ const prog=document.getElementById("fillsun-prog
 }
 async function fillMissingDetails(){ const prog=document.getElementById("filldet-progress"); const sb=document.getElementById("filldet-start"); if(sb){ sb.textContent="Working…"; sb.disabled=true; }
   const todo=_allPlantsFlat().filter(x=>needsDetails(x.p)).map(x=>({kind:x.kind,pid:x.p.id,name:(botName(x.p)||x.p.c||"").trim()})).filter(x=>x.name);
-  _detStop=false; let done=0,ok=0; const BATCH=20, PARALLEL=5;
+  _detStop=false; let done=0,ok=0; const BATCH=8, PARALLEL=5;   // smaller batches so the richer field set can't overflow the token limit
   const t0=Date.now();
   for(let i=0;i<todo.length;i+=BATCH*PARALLEL){ if(_detStop) break;
     const group=[]; for(let j=0;j<PARALLEL;j++){ const chunk=todo.slice(i+j*BATCH, i+(j+1)*BATCH); if(chunk.length) group.push(chunk); }
@@ -5144,7 +5158,7 @@ function renderPlantBookList(){
     if(PB_BOOK.detstate==="has" && !hasDetails(p)) return false;
     if(PB_BOOK.detstate==="missing" && hasDetails(p)) return false;
     if(PB_BOOK.detstate==="ai" && !p.detFlag) return false;
-    if(PB_BOOK.colors.length){ const bc=bloomColorOf(p); if(!bc||PB_BOOK.colors.indexOf(bc)<0) return false; }
+    if(PB_BOOK.colors.length){ const bcs=bloomColorsOf(p); if(!bcs.length || !bcs.some(c=>PB_BOOK.colors.indexOf(c)>=0)) return false; }
     if(PB_BOOK.seasons.length){ const bs=(p.bloomSeason||"").toLowerCase(); const hit=PB_BOOK.seasons.some(s=> bs.indexOf(s.toLowerCase())>=0 || bs.indexOf("year")>=0 ); if(!hit) return false; }
     if(PB_BOOK.dszone!=="all"){ const z=dsZoneOf(p); if(PB_BOOK.dszone==="safe"){ if(!z||z==="avoid") return false; } else if(z!==PB_BOOK.dszone) return false; }
     if(PB_BOOK.dorm!=="all"){ const dm=(p.dormancy||"").toLowerCase(); if(PB_BOOK.dorm==="evergreen"&&dm.indexOf("evergreen")<0) return false; if(PB_BOOK.dorm==="deciduous"&&(dm.indexOf("deciduous")<0||dm.indexOf("semi")>=0)) return false; if(PB_BOOK.dorm==="semi"&&dm.indexOf("semi")<0) return false; }
@@ -5312,17 +5326,29 @@ const BLOOM_COLOR_MAP={}; BLOOM_COLORS.forEach(c=>{ BLOOM_COLOR_MAP[c.k]=c; });
 function _deriveBloomColor(p){ const bl=(p.bloom||"").trim(); if(!bl||bl==="—") return ""; const t=(p.color||"").toLowerCase(); if(!t||t.indexOf("foliage")>=0) return "";
   const words=[["magenta","magenta"],["lavender","lavender"],["purple","purple"],["violet","purple"],["blue","blue"],["scarlet","red"],["red","red"],["orange","orange"],["apricot","orange"],["gold","yellow"],["yellow","yellow"],["pink","pink"],["rose","pink"],["white","white"],["cream","cream"],["bronze","bronze"]];
   for(const wk of words){ if(t.indexOf(wk[0])>=0) return wk[1]; } return ""; }
-function bloomColorOf(p){ if(!p) return ""; if(p.bloomColor) return p.bloomColor; return _deriveBloomColor(p); }
+function bloomColorsOf(p){ if(!p) return []; if(Array.isArray(p.bloomColors)&&p.bloomColors.length) return p.bloomColors.filter(Boolean); if(p.bloomColor) return [p.bloomColor]; const d=_deriveBloomColor(p); return d?[d]:[]; }
+function bloomColorOf(p){ const a=bloomColorsOf(p); return a[0]||""; }   // primary colour (back-compat for single-colour consumers)
+function togglePlantBloomColor(kind,id,key){ const p=plantDbFind(kind,id); if(!p) return; let arr=bloomColorsOf(p).slice();
+  if(key==="none"){ arr = arr.indexOf("none")>=0 ? [] : ["none"]; }
+  else { arr=arr.filter(x=>x!=="none"); const i=arr.indexOf(key); if(i>=0) arr.splice(i,1); else arr.push(key); }
+  p.bloomColors=arr; p.bloomColor=arr[0]||"";
+  const c=BLOOM_COLOR_MAP[p.bloomColor]; p.bloomHex=(c&&(""+c.hex).indexOf("gradient")<0&&p.bloomColor&&p.bloomColor!=="none")?c.hex:"";
+  plantBookSave(); }
+function clearPlantBloomColors(kind,id){ const p=plantDbFind(kind,id); if(!p) return; p.bloomColors=[]; p.bloomColor=""; p.bloomHex=""; plantBookSave(); }
 function colorDot(k,sz){ const c=BLOOM_COLOR_MAP[k]; if(!c) return ""; const s=sz||14; return `<span title="${c.lab}" style="display:inline-block;width:${s}px;height:${s}px;border-radius:50%;background:${c.hex};border:1px solid rgba(0,0,0,.25);vertical-align:middle"></span>`; }
 function colorDotHex(hex,sz,title){ const s=sz||14; return `<span title="${escAttr(title||hex||'')}" style="display:inline-block;width:${s}px;height:${s}px;border-radius:50%;background:${hex||'#ccc'};border:1px solid rgba(0,0,0,.25);vertical-align:middle"></span>`; }
 function _hex2rgb(h){ h=(""+(h||"")).replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); const n=parseInt(h||"888888",16); return [(n>>16)&255,(n>>8)&255,n&255]; }
 function nearestBloomColor(hex){ const t=_hex2rgb(hex); let best="",bd=1e12; BLOOM_COLORS.forEach(c=>{ if(c.k==="multi"||c.k==="none"||(""+c.hex).indexOf("gradient")>=0) return; const r=_hex2rgb(c.hex); const d=(r[0]-t[0])**2+(r[1]-t[1])**2+(r[2]-t[2])**2; if(d<bd){ bd=d; best=c.k; } }); return best; }
 function bloomHexOf(p){ if(!p) return ""; if(p.bloomHex) return p.bloomHex; const k=bloomColorOf(p); const c=BLOOM_COLOR_MAP[k]; if(c && (""+c.hex).indexOf("gradient")<0 && k!=="none") return c.hex; return ""; }
-function bloomColorBadge(p){ const k=bloomColorOf(p); if(!k) return ""; const lab=BLOOM_COLOR_MAP[k]?BLOOM_COLOR_MAP[k].lab:""; if(k==="none") return `<span style="display:inline-flex;align-items:center;gap:.2rem;font-size:.62rem;color:var(--tl);font-weight:600">no bloom</span>`; const hex=bloomHexOf(p)||"#ccc"; return `<span style="display:inline-flex;align-items:center;gap:.2rem;font-size:.62rem;color:var(--tm);font-weight:600">${colorDotHex(hex,11,lab)} ${lab}</span>`; }
+function bloomColorBadge(p){ const arr=bloomColorsOf(p); if(!arr.length) return ""; if(arr.length===1&&arr[0]==="none") return `<span style="display:inline-flex;align-items:center;gap:.2rem;font-size:.62rem;color:var(--tl);font-weight:600">no bloom</span>`;
+  const cols=arr.filter(k=>k!=="none"); if(!cols.length) return "";
+  const dots=cols.map((k,i)=>{ let hex=(BLOOM_COLOR_MAP[k]&&(""+BLOOM_COLOR_MAP[k].hex).indexOf("gradient")<0)?BLOOM_COLOR_MAP[k].hex:""; if(!hex) hex=(i===0?(bloomHexOf(p)||"#ccc"):"#ccc"); return colorDotHex(hex,11,BLOOM_COLOR_MAP[k]?BLOOM_COLOR_MAP[k].lab:k); }).join("");
+  const lab=cols.map(k=>BLOOM_COLOR_MAP[k]?BLOOM_COLOR_MAP[k].lab:k).join(", ");
+  return `<span style="display:inline-flex;align-items:center;gap:.2rem;font-size:.62rem;color:var(--tm);font-weight:600">${dots} ${lab}</span>`; }
 function _afterColorChange(kind,pid){ if(document.getElementById("plant-modal")) openPlantModal(pid); if(document.getElementById("plantbook-list")) renderPlantBookList(); if(typeof plantRefresh==="function"&&document.getElementById("planting-builder")) plantRefresh(); }
-function setPlantBloomHex(kind,pid,hex){ const p=plantDbFind(kind,pid); if(!p||!hex) return; p.bloomHex=hex; p.bloomColor=nearestBloomColor(hex); plantBookSave(); _afterColorChange(kind,pid); }
+function setPlantBloomHex(kind,pid,hex){ const p=plantDbFind(kind,pid); if(!p||!hex) return; p.bloomHex=hex; const k=nearestBloomColor(hex); let arr=bloomColorsOf(p).filter(x=>x!=="none"); if(k&&arr.indexOf(k)<0) arr.push(k); p.bloomColors=arr; p.bloomColor=arr[0]||k; plantBookSave(); _afterColorChange(kind,pid); }
 function openEyedropper(kind,pid){ if(window.EyeDropper){ try{ const ed=new EyeDropper(); ed.open().then(res=>{ if(res&&res.sRGBHex) setPlantBloomHex(kind,pid,res.sRGBHex); }).catch(()=>{}); }catch(e){ alert("Couldn't open the eyedropper."); } } else { alert("The on-screen eyedropper needs Chrome or Edge.\n\nUpload/paste the plant photo, then use the color wheel to match its bloom — or use Chrome to click-sample any pixel on screen."); } }
-function colorPicker(kind,pid,cur,after){ const re=after||""; return `<div style="display:flex;gap:.22rem;flex-wrap:wrap;align-items:center">${BLOOM_COLORS.map(c=>{ const on=cur===c.k; return `<button class="btn" title="${c.lab}" onclick="setPlantField('${kind}','${pid}','bloomColor','${c.k}');${re}" style="width:19px;height:19px;padding:0;border-radius:50%;background:${c.hex};border:2px solid ${on?'var(--gm)':'rgba(0,0,0,.18)'};cursor:pointer;${on?'box-shadow:0 0 0 2px #fff inset':''}"></button>`; }).join('')}${cur?`<button class="btn" title="clear" onclick="setPlantField('${kind}','${pid}','bloomColor','');${re}" style="font-size:.58rem;padding:.05rem .3rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3;border-radius:9px;margin-left:.15rem">clear</button>`:''}</div>`; }
+function colorPicker(kind,pid,cur,after){ const re=after||""; const sel=bloomColorsOf(plantDbFind(kind,pid)); return `<div style="display:flex;gap:.22rem;flex-wrap:wrap;align-items:center" title="Pick one or more — many plants come in several colours">${BLOOM_COLORS.map(c=>{ const on=sel.indexOf(c.k)>=0; return `<button class="btn" title="${c.lab}" onclick="togglePlantBloomColor('${kind}','${pid}','${c.k}');${re}" style="width:19px;height:19px;padding:0;border-radius:50%;background:${c.hex};border:2px solid ${on?'var(--gm)':'rgba(0,0,0,.18)'};cursor:pointer;${on?'box-shadow:0 0 0 2px #fff inset':''}"></button>`; }).join('')}${sel.length?`<button class="btn" title="clear all" onclick="clearPlantBloomColors('${kind}','${pid}');${re}" style="font-size:.58rem;padding:.05rem .3rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3;border-radius:9px;margin-left:.15rem">clear</button>`:''}</div>`; }
 function _lookLink(q,label){ return `<a href="https://www.google.com/search?q=${encodeURIComponent(q)}" target="_blank" rel="noopener" style="font-size:.62rem;color:var(--gm);text-decoration:underline;white-space:nowrap;margin-left:.15rem">${label} ↗</a>`; }
 function _lookLinkImg(q,label){ return `<a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}" target="_blank" rel="noopener" style="font-size:.62rem;color:var(--gm);text-decoration:underline;white-space:nowrap;margin-left:.15rem">${label} ↗</a>`; }
 function lightLookup(p){ return _lookLink((botName(p)||p.c||"")+" sun exposure full sun part shade","look up"); }
@@ -5735,7 +5761,7 @@ function _aiPlantTypes(p,kind){ const s=new Set(); const tags=(p.tags||[]).map(t
 function _aiScore(p,kind,c){ const checks={}; let hit=0,tot=0; c=c||{};
   if(c.water&&c.water.length){ const ok=c.water.indexOf(p.wu)>=0; checks.water=ok?"exact":"no"; tot++; if(ok)hit++; }
   if(c.sun&&c.sun.length){ const set=lightSetOf(p); tot++; if(!set.length) checks.sun="unknown"; else { const ok=set.some(l=>c.sun.indexOf(l)>=0); checks.sun=ok?"exact":"no"; if(ok)hit++; } }
-  if(c.colors&&c.colors.length){ const col=bloomColorOf(p); tot++; if(!col) checks.color="unknown"; else { const ok=c.colors.indexOf(col)>=0; checks.color=ok?"exact":"no"; if(ok)hit++; } }
+  if(c.colors&&c.colors.length){ const cols=bloomColorsOf(p); tot++; if(!cols.length) checks.color="unknown"; else { const ok=cols.some(x=>c.colors.indexOf(x)>=0); checks.color=ok?"exact":"no"; if(ok)hit++; } }
   if(c.types&&c.types.length){ const ts=_aiPlantTypes(p,kind); tot++; if(ts.size===0) checks.type="unknown"; else { const ok=c.types.some(x=>ts.has(x)); checks.type=ok?"exact":"no"; if(ok)hit++; } }
   return { pct: tot>0?Math.round(hit/tot*100):100, checks }; }
 function _aiCandLine(kind,p){ const types=[..._aiPlantTypes(p,kind)].join("/"); return `${p.id} | ${p.c||''} | ${botName(p)||''} | ${p.wu||'?'} | ${(lightSetOf(p).join('+'))||'?'} | ${bloomColorOf(p)||'?'} | ${availOf(p)} | ${isFav(p,kind)?'fav':'-'} | fireZone:${dsZoneOf(p)||'?'} | ${types}`; }
