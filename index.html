@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v381</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v383</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3473,12 +3473,16 @@ async function masterBookLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefine
   }catch(e){ if(!silent) alert("Couldn't reach the server ("+((e&&e.message)||"error")+")."); return false; }
 }
 function _adminKey(){ let k=""; try{ k=localStorage.getItem("studioh_admin_key")||""; }catch(e){} if(!k){ k=prompt("Enter the Studio H admin key to publish the master book:")||""; if(k){ try{ localStorage.setItem("studioh_admin_key",k); }catch(e){} } } return k; }
+function _toast(msg,col){ try{ let t=document.getElementById("_toast"); if(t) t.remove(); t=document.createElement("div"); t.id="_toast";
+  t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100000;background:"+(col||"#3d6b2e")+";color:#fff;padding:.6rem 1.05rem;border-radius:10px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.3);opacity:0;transition:opacity .2s";
+  t.textContent=msg; document.body.appendChild(t); requestAnimationFrame(()=>{ t.style.opacity="1"; });
+  setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>{ if(t) t.remove(); },250); }, 1400); }catch(e){} }
 async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   const total=PLANT_KINDS.reduce((s,k)=>s+((PLANT_DB[k]||[]).length),0);
-  if(!confirm("Publish your current plant book ("+total+" plants) as the Studio H master?\nThis replaces the master everyone pulls from.")) return;
+  _toast("Publishing…","#6A4FA3");
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H"})}); const d=await r.json();
-    if(d&&d.ok){ alert("Published to master ✓ ("+total+" plants)"); }
+    if(d&&d.ok){ _toast("Published to master ✓ ("+total+" plants)"); }
     else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try Publish again."); }
     else { alert("Publish failed: "+((d&&d.error)||"error")); }
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
@@ -3589,7 +3593,11 @@ function plantSettingPrompt(p,kind){
 const IMG_STYLE_KEY="studioh_imgstyle_v1";
 function imgStyle(){ try{ return localStorage.getItem(IMG_STYLE_KEY)||"natural"; }catch(e){ return "natural"; } }
 function setImgStyle(v){ try{ localStorage.setItem(IMG_STYLE_KEY,v); }catch(e){} }
-function _plantImgPrompt(p,kind,style){ return ((style||imgStyle())==="catalogue") ? plantPortraitPrompt(p,kind) : plantSettingPrompt(p,kind); }
+function _plantImgPrompt(p,kind,style,heightFt){ let base=((style||imgStyle())==="catalogue") ? plantPortraitPrompt(p,kind) : plantSettingPrompt(p,kind);
+  const h=+heightFt||0;
+  if(h>0){ const sz=h<8?"small":(h<20?"medium-sized":"large"); const kt=kind==="tree"?"tree":(kind==="palm"?"palm":"plant");
+    base+=` CRITICAL SCALE: this ${kt} is about ${h} feet tall — render it at that TRUE height, tall and prominent, filling most of the vertical frame, with a 6-foot-tall adult person standing beside it for unmistakable scale. It is a ${sz} ${kt}; do NOT shrink it or render it as a small shrub.`; }
+  return base; }
 // ── R2 image storage: downscale to 512px JPEG, upload to the worker's R2 bucket, get back a light URL ──
 function _imgTo512(src){ return new Promise((res,rej)=>{ const img=new Image();
   img.onload=()=>{ let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height; if(!w||!h){ rej(new Error("no dims")); return; }
@@ -3655,7 +3663,7 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   if(!key){ key=_adminKey(); if(!key) return {ok:false,err:"No key"}; }
   if(!(await _ensureR2())) return {ok:false, err:R2_DOWN_MSG};   // never generate an image that can't be durably saved
-  let prompt=_plantImgPrompt(p,kind,opts.style);
+  let prompt=_plantImgPrompt(p,kind,opts.style,opts.heightFt);
   const ref=opts.ref||null;
   if(ref) prompt+=` Use the supplied photograph as the reference for this exact plant — reproduce its true foliage, flower colour and growth habit as a clean nursery-catalogue image on a soft neutral background.`;
   if(opts.tweak && (""+opts.tweak).trim()) prompt+=` Additional direction: ${(""+opts.tweak).trim()}.`;
@@ -3701,8 +3709,13 @@ function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retur
           <option value="catalogue" ${imgStyle()==="catalogue"?"selected":""}>Catalogue portrait — single plant, plain background</option>
         </select>
       </div>
+      <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.55rem;flex-wrap:wrap">
+        <span style="font-size:.7rem;color:var(--tm)">Show at height</span>
+        <input id="paimg-height" type="number" value="${p.h||''}" placeholder="ft" style="width:56px;padding:.25rem .35rem;border:1px solid var(--br);border-radius:6px;font-size:.78rem;text-align:right"><span style="font-size:.7rem;color:var(--tm)">ft tall</span>
+        <span style="font-size:.62rem;color:var(--tl)">adds a person for scale so trees don't come out tiny</span>
+      </div>
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Adjustments (optional)</div>
-      <input id="paimg-tweak" placeholder="e.g. make it 3 ft tall, white flowers, denser habit, silver foliage" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.6rem">
+      <input id="paimg-tweak" placeholder="e.g. white flowers, denser habit, silver foliage" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.6rem">
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Reference photo (optional — guides the image, not saved)</div>
       <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(((botName(p)||"")+" "+(p.c||"")+" plant").trim())}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:.4rem;margin-bottom:.4rem;font-size:.74rem;background:#EAF2FB;color:#1f4e79;border:1px solid #b9d3ef;border-radius:8px;text-decoration:none;font-weight:600">🔍 Find a good photo on Google Images ↗</a>
       <label class="btn" style="display:block;text-align:center;padding:.5rem;font-size:.76rem;background:#F4F9F5;color:var(--gm);border:1px dashed var(--gm);cursor:pointer;margin-bottom:.4rem">📷 Upload a real photo to match<input type="file" accept="image/*" style="display:none" onchange="_paimgPick(this)"></label>
@@ -3722,11 +3735,12 @@ async function _paimgPick(input){ const f=input&&input.files&&input.files[0]; if
   }catch(e){ alert("Couldn't read that photo."); } }
 async function _paimgGo(kind,pid){
   const tweak=(document.getElementById("paimg-tweak")||{}).value||"";
+  const heightFt=parseFloat((document.getElementById("paimg-height")||{}).value)||0;
   const style=(document.getElementById("paimg-style")||{}).value||imgStyle(); setImgStyle(style);
   const st=document.getElementById("paimg-status"), gb=document.getElementById("paimg-go");
   const setSt=(t,c)=>{ if(st){ st.textContent=t; st.style.color=c||"var(--tm)"; } };
   if(gb) gb.disabled=true; setSt("Generating… (10–20 sec)","#6A4FA3");
-  const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef, style});
+  const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef, style, heightFt});
   if(r.ok){ setSt("✓ Done.","var(--gm)"); _paimgRef=null;
     if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender();
     setTimeout(()=>{ const m=document.getElementById("paimg-modal"); if(m) m.remove(); },600);
@@ -3785,7 +3799,8 @@ async function fillMissingImagesAI(){
   _aiImgStop=false; let ok=0, fail=0, done=0, idx=0, stopMsg="";
   async function _worker(){
     while(true){ if(_aiImgStop) return; const i=idx++; if(i>=total) return;
-      const r=await aiPlantImage(todo[i].kind, todo[i].p.id);
+      const _tk=todo[i].kind, _tp=todo[i].p; const _hf=(_tk==="tree"||_tk==="palm")?(+_tp.h||0):0;
+      const r=await aiPlantImage(_tk, _tp.id, {heightFt:_hf});
       done++;
       if(r.ok) ok++; else { fail++; if(r.err && /balance|locked|authoriz|FAL_KEY|No key|No worker|Image storage/i.test(r.err)){ stopMsg=r.err; _aiImgStop=true; return; } }
       if(prog) prog.innerHTML=`Generating… ${done} / ${total} · <b>${ok}</b> done${fail?` · ${fail} failed`:""}`;
