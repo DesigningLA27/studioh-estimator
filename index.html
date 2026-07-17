@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v389</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v391</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3604,6 +3604,12 @@ function plantSettingPrompt(p,kind){
 const IMG_STYLE_KEY="studioh_imgstyle_v1";
 function imgStyle(){ try{ return localStorage.getItem(IMG_STYLE_KEY)||"natural"; }catch(e){ return "natural"; } }
 function setImgStyle(v){ try{ localStorage.setItem(IMG_STYLE_KEY,v); }catch(e){} }
+// Two-view composite: full plant + a flower/leaf close-up in one image
+function plantTwoViewPrompt(p,kind){ const bot=(botName(p)||"").trim(), com=(p.c||"").trim();
+  const cols=(typeof bloomColorsOf==="function"?bloomColorsOf(p):[]).filter(k=>k&&k!=="none").map(k=>(BLOOM_COLOR_MAP[k]?BLOOM_COLOR_MAP[k].lab.toLowerCase():"")).filter(Boolean).join(" / ");
+  const detail = cols?`its ${cols} flowers in bloom`:"its foliage and leaf detail";
+  const kt={shrub:"shrub",gc:"groundcover plant",tree:"tree",palm:"palm"}[kind]||"plant";
+  return `A single photorealistic plant-reference image made of TWO panels side by side with a thin clean divider. LEFT panel (about two-thirds of the width): the FULL ${bot||com} ${kt}${com&&bot?` (common name: ${com})`:""} growing naturally at true scale in a Southern California garden, correct habit and proportion. RIGHT panel (about one-third): a crisp macro CLOSE-UP of ${detail}. Match the lighting, colour and season across both panels, warm natural daylight, professional plant-catalogue composition, sharp and true to life. No text, no watermarks, no people, no hands.`; }
 function _plantImgPrompt(p,kind,style,heightFt){ let base=((style||imgStyle())==="catalogue") ? plantPortraitPrompt(p,kind) : plantSettingPrompt(p,kind);
   const h=+heightFt||0;
   if(h>0){ const sz=h<8?"small":(h<20?"medium-sized":"large"); const kt=kind==="tree"?"tree":(kind==="palm"?"palm":"plant");
@@ -3674,13 +3680,19 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   if(!key){ key=_adminKey(); if(!key) return {ok:false,err:"No key"}; }
   if(!(await _ensureR2())) return {ok:false, err:R2_DOWN_MSG};   // never generate an image that can't be durably saved
-  let prompt=_plantImgPrompt(p,kind,opts.style,opts.heightFt);
-  const ref=opts.ref||null;
-  if(ref) prompt+=` Use the supplied photograph as the reference for this exact plant — reproduce its true foliage, flower colour and growth habit as a clean nursery-catalogue image on a soft neutral background.`;
+  const ref=opts.ref||null; const ref2=opts.ref2||null; let prompt;
+  if(opts.twoView){
+    prompt=plantTwoViewPrompt(p,kind);
+    if(ref) prompt+=` Use reference image 1 for the full-plant panel.`;
+    if(ref2) prompt+=` Use reference image 2 for the flower / leaf close-up panel.`;
+  } else {
+    prompt=_plantImgPrompt(p,kind,opts.style,opts.heightFt);
+    if(ref) prompt+=` Use the supplied photograph as the reference for this exact plant — reproduce its true foliage, flower colour and growth habit as a clean nursery-catalogue image on a soft neutral background.`;
+  }
   if(opts.tweak && (""+opts.tweak).trim()) prompt+=` Additional direction: ${(""+opts.tweak).trim()}.`;
   try{
-    const genBody={type:"genimage",key,prompt,model:imgModel(),aspect:"1:1"};
-    if(ref) genBody.refs=[ref];
+    const genBody={type:"genimage",key,prompt,model:imgModel(),aspect:opts.twoView?"3:2":"1:1"};
+    const refs=[]; if(ref) refs.push(ref); if(ref2) refs.push(ref2); if(refs.length) genBody.refs=refs;
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(genBody)});
     const d=await r.json();
     if(!(d&&d.ok&&d.url)) return {ok:false,err:(d&&(d.detail||d.error))||"failed"};
@@ -3697,8 +3709,8 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
 }
 function aiPlantImageBtn(kind,pid){ openPlantAiImage(kind,pid); }
 // Per-plant AI image panel: uses book size/colour/form, plus optional free-text tweak and a reference photo (i2i, not stored)
-let _paimgRef=null;
-function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; _paimgRef=null;
+let _paimgRef=null, _paimgRef2=null;
+function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; _paimgRef=null; _paimgRef2=null;
   const nm=(p.c||botName(p)||"this plant"); const cost=_imgCostEach().toFixed(3).replace(/0$/,"");
   let d=document.getElementById("paimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="paimg-modal";
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:1rem";
@@ -3727,13 +3739,18 @@ function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retur
       </div>
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Adjustments (optional)</div>
       <input id="paimg-tweak" placeholder="e.g. white flowers, denser habit, silver foliage" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.6rem">
-      <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Reference photo (optional — guides the image, not saved)</div>
+      <label style="display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--gm);font-weight:600;margin-bottom:.4rem"><input type="checkbox" id="paimg-twoview" onchange="var s2=document.getElementById('paimg-slot2'); if(s2) s2.style.display=this.checked?'block':'none';"> Two-view image — full plant + flower/leaf close-up</label>
+      <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.2rem">Reference photos (optional — guide the image, not saved)</div>
       <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(((botName(p)||"")+" "+(p.c||"")+" plant").trim())}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:.4rem;margin-bottom:.4rem;font-size:.74rem;background:#EAF2FB;color:#1f4e79;border:1px solid #b9d3ef;border-radius:8px;text-decoration:none;font-weight:600">🔍 Find a good photo on Google Images ↗</a>
-      <label class="btn" style="display:block;text-align:center;padding:.5rem;font-size:.76rem;background:#F4F9F5;color:var(--gm);border:1px dashed var(--gm);cursor:pointer;margin-bottom:.4rem">📷 Upload a real photo to match<input type="file" accept="image/*" style="display:none" onchange="_paimgPick(this)"></label>
+      <label class="btn" style="display:block;text-align:center;padding:.5rem;font-size:.76rem;background:#F4F9F5;color:var(--gm);border:1px dashed var(--gm);cursor:pointer;margin-bottom:.3rem">📷 Image 1 — full plant<input type="file" accept="image/*" style="display:none" onchange="_paimgPick(this)"></label>
       <div id="paimg-refpv" style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem"></div>
+      <div id="paimg-slot2" style="display:none">
+        <label class="btn" style="display:block;text-align:center;padding:.5rem;font-size:.76rem;background:#F7F5FB;color:#6A4FA3;border:1px dashed #6A4FA3;cursor:pointer;margin-bottom:.3rem">🌸 Image 2 — flower / leaf close-up<input type="file" accept="image/*" style="display:none" onchange="_paimgPick2(this)"></label>
+        <div id="paimg-refpv2" style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem"></div>
+      </div>
       <div id="paimg-status" style="font-size:.74rem;color:var(--tm);min-height:1.1rem;margin:.2rem 0"></div>
       <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.4rem">
-        <button class="btn" onclick="_paimgRef=null;document.getElementById('paimg-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+        <button class="btn" onclick="_paimgRef=null;_paimgRef2=null;document.getElementById('paimg-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
         <button id="paimg-go" class="btn" onclick="_paimgGo('${kind}','${p.id}')" style="padding:.45rem 1.1rem;font-size:.82rem;background:#6A4FA3;color:#fff;border:none;font-weight:600">✨ Generate</button>
       </div>
     </div>`;
@@ -3744,15 +3761,21 @@ async function _paimgPick(input){ const f=input&&input.files&&input.files[0]; if
     const pv=document.getElementById("paimg-refpv");
     if(pv) pv.innerHTML=`<img src="${_paimgRef}" style="width:64px;height:64px;object-fit:cover;border-radius:7px;border:1px solid var(--br)"><span style="font-size:.66rem;color:var(--gm);font-weight:600">✓ reference set</span><button class="btn" onclick="_paimgRef=null;document.getElementById('paimg-refpv').innerHTML='';" style="font-size:.64rem;padding:.1rem .45rem;background:#fff;border:1px solid #B23F3C;color:#B23F3C;border-radius:5px;margin-left:auto">remove</button>`;
   }catch(e){ alert("Couldn't read that photo."); } }
+async function _paimgPick2(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
+  try{ _paimgRef2=await _downscaleImage(f,1024,0.85);
+    const pv=document.getElementById("paimg-refpv2");
+    if(pv) pv.innerHTML=`<img src="${_paimgRef2}" style="width:64px;height:64px;object-fit:cover;border-radius:7px;border:1px solid var(--br)"><span style="font-size:.66rem;color:#6A4FA3;font-weight:600">✓ close-up set</span><button class="btn" onclick="_paimgRef2=null;document.getElementById('paimg-refpv2').innerHTML='';" style="font-size:.64rem;padding:.1rem .45rem;background:#fff;border:1px solid #B23F3C;color:#B23F3C;border-radius:5px;margin-left:auto">remove</button>`;
+  }catch(e){ alert("Couldn't read that photo."); } }
 async function _paimgGo(kind,pid){
   const tweak=(document.getElementById("paimg-tweak")||{}).value||"";
   const heightFt=parseFloat((document.getElementById("paimg-height")||{}).value)||0;
+  const twoView=!!((document.getElementById("paimg-twoview")||{}).checked) || !!_paimgRef2;
   const style=(document.getElementById("paimg-style")||{}).value||imgStyle(); setImgStyle(style);
   const st=document.getElementById("paimg-status"), gb=document.getElementById("paimg-go");
   const setSt=(t,c)=>{ if(st){ st.textContent=t; st.style.color=c||"var(--tm)"; } };
   if(gb) gb.disabled=true; setSt("Generating… (10–20 sec)","#6A4FA3");
-  const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef, style, heightFt});
-  if(r.ok){ setSt("✓ Done.","var(--gm)"); _paimgRef=null;
+  const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef, ref2:_paimgRef2, twoView, style, heightFt});
+  if(r.ok){ setSt("✓ Done.","var(--gm)"); _paimgRef=null; _paimgRef2=null;
     if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender();
     setTimeout(()=>{ const m=document.getElementById("paimg-modal"); if(m) m.remove(); },600);
   } else { setSt("Failed: "+(r.err||"error"),"#B23F3C"); if(gb) gb.disabled=false; }
@@ -4335,6 +4358,20 @@ PLANTING MIX (percentages are share of planted area — respect these proportion
 ${trees?`Trees: ${trees}\n`:""}${palms?`Palms: ${palms}\n`:""}${shrubs?`Shrubs: ${shrubs}\n`:""}${gc?`Groundcover: ${gc}\n`:""}
 Plant in naturalistic drifts and repeating masses, not evenly scattered. Mediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, wide establishing shot, high detail --ar 3:2 --style raw`;
 }
+// Midjourney-tuned prompt — short, evocative, comma-style (MJ hates long structured prose, botanical names & percentages)
+function _midjourneyPrompt(z, stage){
+  const {rows}=_zoneMix(z); if(!rows.length) return null;
+  const P=ensurePlanting(); const ctx=((P._siteNotes&&P._siteNotes[z.id])||"").trim();
+  const city=(S.pi&&S.pi.city)||"Southern California";
+  const names=rows.slice().sort((a,b)=>b.pct-a.pct).map(r=>(r.p.c||botName(r.p)||"").trim()).filter(Boolean);
+  const seen=new Set(); const top=[]; names.forEach(n=>{ const k=n.toLowerCase(); if(!seen.has(k)&&top.length<10){ seen.add(k); top.push(n); } });
+  const plantList=top.join(", ");
+  const grown = stage!=="install";
+  const state = grown
+    ? "mature and fully grown in, lush continuous coverage, plants massed and touching with no bare soil"
+    : "freshly installed young nursery plants in clean bark mulch with natural spacing";
+  return `${grown?"lush established":"newly planted"} Mediterranean drought-tolerant hillside garden in ${city}, ${plantList}, planted in naturalistic drifts and repeating masses on a slope, ${state}, decomposed granite and granite boulders${ctx?", "+ctx:""}, warm golden-hour light, professional landscape architecture photography, ultra-realistic, highly detailed, shallow depth of field --ar 3:2 --style raw --v 6`;
+}
 function copyRenderPrompt(){ const z=_zonePick(); if(!z) return; _renderPromptModal(z); }
 // Phone photos are 5-12MB. Sending that as base64 through the worker kills the request
 // ("network connection lost"), so downscale to a sane size first — the models don't need more.
@@ -4476,9 +4513,10 @@ function _rpCopy(zid, stage){
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
   P._siteNotes=P._siteNotes||{};
   const ta=document.getElementById("rp-notes"); if(ta) P._siteNotes[z.id]=ta.value||"";
-  const p=_renderPrompt(z, stage);
+  const p=_midjourneyPrompt(z, stage);
   if(!p){ alert("Add quantities to this zone's plants first."); return; }
-  const done=()=>alert((stage==="install"?"At-installation":"Grown-in")+" prompt copied.\n\nPaste into Midjourney, then use ＋ Add rendering to bring the image back in.");
+  const hasPhoto=!!((P._sitePhoto&&P._sitePhoto[z.id])||"");
+  const done=()=>alert((stage==="install"?"At-installation":"Grown-in")+" Midjourney prompt copied.\n\nPaste into Midjourney."+(hasPhoto?"\n\nFor your slope: drag your site photo into the Midjourney prompt bar first, then paste this text and add  --iw 2  so it keeps your terrain.":"")+"\n\nThen use ＋ Add rendering to bring the image back in.");
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(p).then(done,()=>{ prompt("Copy this prompt:",p); }); }
   else prompt("Copy this prompt:",p);
 }
