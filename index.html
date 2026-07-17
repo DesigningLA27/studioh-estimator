@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v397</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v398</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3627,6 +3627,12 @@ async function _fetchTo512(url){ if(/^data:/.test(url)) return _imgTo512(url);
   const r=await fetch(url); const blob=await r.blob();
   const durl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
   return _imgTo512(durl); }
+// Store a render permanently: have the worker fetch the (temporary) fal URL server-side into R2 and return a durable link
+async function _uploadUrlToR2(id,url){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
+  const key=_adminKey(); if(!key) return {ok:false,err:"No key"};
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"fetchimage",key,url,id:(""+id).replace(/[^a-zA-Z0-9_\-]/g,"")})});
+    const d=await r.json(); if(d&&d.ok&&d.url) return {ok:true,url:d.url}; return {ok:false,err:(d&&(d.error||d.detail))||"failed"}; }
+  catch(e){ return {ok:false,err:(e&&e.message)||"error"}; } }
 async function _uploadImageR2(id,dataUrl){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
   const key=_adminKey(); if(!key) return {ok:false,err:"No key"};
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveimage",key,id:(""+id).replace(/[^a-zA-Z0-9_\-]/g,""),image:dataUrl})});
@@ -4511,12 +4517,12 @@ async function _rpGenerate(zid, stage){
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const d=await r.json();
     if(d&&d.ok&&d.url){
-      // pull the image into the app so it saves with the project (fal URLs expire)
-      setSt("Downloading image…","#6A4FA3");
+      // re-host the render so it saves with the project (fal URLs expire) — R2 first, base64 fallback
+      setSt("Saving image…","#6A4FA3");
       let dataUrl=d.url;
-      try{ const ir=await fetch(d.url); const blob=await ir.blob();
-        dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
-      }catch(e){ /* fall back to the remote URL */ }
+      const _up=await _uploadUrlToR2("render_"+z.id+"_"+stage+"_"+Date.now().toString(36), d.url);
+      if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
+      else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
       const _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
       if(!_zoneRenderAdd(z.id,dataUrl,_cap)){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       setSt("✓ Added to the report.","var(--gm)");
@@ -4579,11 +4585,11 @@ async function _rpCustomGenerate(zid){
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const d=await r.json();
     if(d&&d.ok&&d.url){
-      setSt("Downloading image…","#8a5cc4");
-      let dataUrl=d.url;
-      try{ const ir=await fetch(d.url); const blob=await ir.blob();
-        dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
-      }catch(e){}
+      setSt("Saving image…","#8a5cc4");
+      let dataUrl=d.url;   // temporary fal URL — must be re-hosted or it expires
+      const _up=await _uploadUrlToR2("render_"+z.id+"_"+Date.now().toString(36), d.url);
+      if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
+      else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
       const shortNames=names.map(n=>n.replace(/\s*\(.*\)\s*/,"").trim()).filter(Boolean);
       const cap="Grouping — "+shortNames.slice(0,4).join(", ")+(shortNames.length>4?" +"+(shortNames.length-4):"");
       if(!_zoneRenderAdd(z.id,dataUrl,cap)){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
