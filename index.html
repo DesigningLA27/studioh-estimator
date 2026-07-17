@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v387</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v388</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3983,6 +3983,11 @@ function plantEstablishedGal(p,kind){
   const deficit=(kind==="tree"||kind==="palm")?0.25:(kind==="gc"?0.7:0.55);
   return Math.round(eto*pf*areaSF*0.62*deficit); }
 function plantRealGal(p,kind,qty,year){ qty=+qty||0; if(!qty) return 0; return plantEstablishedGal(p,kind)*_estabMult(kind,year)*qty; }
+// total real-world project water for a given year-after-planting (respects the report's zone selection)
+function _projectWaterYear(year){ const P=S.planting; const zones=(P&&P.zones)||[]; let g=0;
+  zones.forEach(z=>{ if(typeof _plZoneIncluded==="function" && !_plZoneIncluded(z)) return;
+    [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; g+=plantRealGal(p,kind,rowQty(r),year); }); }); });
+  return g; }
 // MWELO compliance budget (unchanged formula) — only shown when the MWELO box is checked.
 function plantMweloGal(p,kind,qty){ qty=+qty||0; if(!qty) return 0;
   const eto=WC("eto")||51, pf=plantFactor(p);
@@ -4168,6 +4173,13 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
     <div class="plr-kpi"><b>${Math.round(totGal).toLocaleString()}</b><span>${_plMwelo?'Gal/yr · MWELO':'Gal/yr · yr '+_plWaterYear}</span></div>
     <div class="plr-kpi"><b>$${Math.round(cost).toLocaleString()}</b><span>Water / year</span></div>
   </div>`;
+  const waterYearTbl=(showWater&&totGal>0&&!_plMwelo)?`<div style="margin-top:16px;break-inside:avoid">
+      <div class="plr-grp">Water use by year — establishment to mature</div>
+      <table class="plr-tbl"><tr><th>Year after planting</th><th style="text-align:right">Gallons / yr</th><th style="text-align:right">Est. cost / yr</th></tr>
+      ${[1,2,3,5,10].map(y=>{ const g=_projectWaterYear(y); return `<tr${y===_plWaterYear?' style="font-weight:700;background:#F4F9F5"':''}><td>${y===10?'Year 10 · established':'Year '+y+(y===1?' · just planted':'')}</td><td style="text-align:right">${Math.round(g).toLocaleString()}</td><td style="text-align:right">$${Math.round(waterCostFor(g)).toLocaleString()}</td></tr>`; }).join('')}
+      </table>
+      <div style="font-size:9px;color:#8a8a80;margin-top:5px">New plantings need extra water to establish, then taper to the mature figure — trees settle slowest, groundcover fastest. Realistic estimates for planning, not a guarantee.</div>
+    </div>`:"";
   const waterTbl=showWater&&totGal>0?`<div style="margin-top:18px;break-inside:avoid">
       <div class="plr-grp">${_plMwelo?'MWELO compliance water budget':'Real-world water use — year '+_plWaterYear+(_plWaterYear>=10?' (established)':' after planting')}</div>
       <table class="plr-tbl">
@@ -4190,6 +4202,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
     </div>
     ${kpis}
     ${body}
+    ${waterYearTbl}
     ${waterTbl}
     <div class="plr-foot">
       Plant sizes are mature estimates and vary with site conditions, exposure, and maintenance. Water use is calculated by the WUCOLS/MWELO method and is an <b>estimate</b> — actual use depends on soil, microclimate, irrigation design, and controller scheduling.
