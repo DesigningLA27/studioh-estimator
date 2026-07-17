@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v391</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v394</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -4366,11 +4366,15 @@ function _midjourneyPrompt(z, stage){
   const names=rows.slice().sort((a,b)=>b.pct-a.pct).map(r=>(r.p.c||botName(r.p)||"").trim()).filter(Boolean);
   const seen=new Set(); const top=[]; names.forEach(n=>{ const k=n.toLowerCase(); if(!seen.has(k)&&top.length<10){ seen.add(k); top.push(n); } });
   const plantList=top.join(", ");
+  // dominant bloom colours across the palette, weighted by coverage — MJ follows colour far better than species
+  const colCount={}; rows.forEach(r=>{ (typeof bloomColorsOf==="function"?bloomColorsOf(r.p):[]).forEach(k=>{ if(k&&k!=="none"){ const lab=BLOOM_COLOR_MAP[k]?BLOOM_COLOR_MAP[k].lab.toLowerCase():k; colCount[lab]=(colCount[lab]||0)+(r.pct||1); } }); });
+  const colors=Object.keys(colCount).sort((a,b)=>colCount[b]-colCount[a]).slice(0,4);
+  const colorTxt = colors.length ? `${colors.join(", ")} flower colour palette, ` : "";
   const grown = stage!=="install";
   const state = grown
     ? "mature and fully grown in, lush continuous coverage, plants massed and touching with no bare soil"
     : "freshly installed young nursery plants in clean bark mulch with natural spacing";
-  return `${grown?"lush established":"newly planted"} Mediterranean drought-tolerant hillside garden in ${city}, ${plantList}, planted in naturalistic drifts and repeating masses on a slope, ${state}, decomposed granite and granite boulders${ctx?", "+ctx:""}, warm golden-hour light, professional landscape architecture photography, ultra-realistic, highly detailed, shallow depth of field --ar 3:2 --style raw --v 6`;
+  return `${grown?"lush established":"newly planted"} Mediterranean drought-tolerant hillside garden in ${city}, ${colorTxt}featuring ${plantList}, planted in naturalistic drifts and repeating masses on a slope, ${state}, decomposed granite and granite boulders${ctx?", "+ctx:""}, warm golden-hour light, professional landscape architecture photography, ultra-realistic, highly detailed, shallow depth of field --ar 3:2 --style raw --v 6`;
 }
 function copyRenderPrompt(){ const z=_zonePick(); if(!z) return; _renderPromptModal(z); }
 // Phone photos are 5-12MB. Sending that as base64 through the worker kills the request
@@ -4516,7 +4520,7 @@ function _rpCopy(zid, stage){
   const p=_midjourneyPrompt(z, stage);
   if(!p){ alert("Add quantities to this zone's plants first."); return; }
   const hasPhoto=!!((P._sitePhoto&&P._sitePhoto[z.id])||"");
-  const done=()=>alert((stage==="install"?"At-installation":"Grown-in")+" Midjourney prompt copied.\n\nPaste into Midjourney."+(hasPhoto?"\n\nFor your slope: drag your site photo into the Midjourney prompt bar first, then paste this text and add  --iw 2  so it keeps your terrain.":"")+"\n\nThen use ＋ Add rendering to bring the image back in.");
+  const done=()=>alert((stage==="install"?"At-installation":"Grown-in")+" Midjourney prompt copied.\n\nPaste it into Midjourney to get a beautiful concept image, then use ＋ Add rendering to bring it back in."+(hasPhoto?"\n\nNote: Midjourney can't keep your exact slope — it only borrows the look. To render onto your REAL site, use the ✨ Generate buttons here instead (they use your site photo directly).":""));
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(p).then(done,()=>{ prompt("Copy this prompt:",p); }); }
   else prompt("Copy this prompt:",p);
 }
@@ -4534,9 +4538,8 @@ async function _rpCustomGenerate(zid){
   const key=_adminKey(); if(!key) return;
   const names=picks.map(v=>{ const i=v.indexOf(":"); const kind=v.slice(0,i), pid=v.slice(i+1); const p=plantDbFind(kind,pid); if(!p) return null; return (p.c||"")+(botName(p)?" ("+botName(p)+")":""); }).filter(Boolean);
   const city=(S.pi&&S.pi.city)||"Southern California";
-  let ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
-  const photoTxt = ref ? "USE THE SUPPLIED PHOTOGRAPH AS THE SITE — keep the existing terrain, slope, grade, structures, hardscape and camera viewpoint EXACTLY; replace only the planting areas. " : "";
-  const prompt=`Photorealistic landscape architecture rendering in ${city}. ${photoTxt}${scene}\n\nFeature these plants, arranged naturalistically in drifts and masses (not evenly scattered): ${names.join(", ")}.\nMediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, high detail.`;
+  const ref=null;   // custom grouping = ONLY the selected plants together — never render onto the site photo
+  const prompt=`Photorealistic landscape architecture rendering in ${city}. ${scene}\n\nShow ONLY these plants grouped together, arranged naturalistically in drifts and masses (not evenly scattered): ${names.join(", ")}. Do not add other plant species.\nMediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, high detail.`;
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating with Nano Banana… (10–30 sec)","#8a5cc4");
   try{
