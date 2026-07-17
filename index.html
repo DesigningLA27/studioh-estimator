@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v388</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v389</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -6081,7 +6081,7 @@ function plantingCalc(){
     });
     z.gcRows.forEach(r=>{
       const db=plantDbFind("gc",r.pid)||{oc:12,pf:36,wu:"L"};
-      const ocIn=(r.ocIn>0)?r.ocIn:db.oc; const perFlat=(r.pf>0)?r.pf:db.pf; const ocFt=ocIn/12; const app=Math.max(0.05,ocFt*ocFt);
+      const ocIn=(r.ocIn>0)?r.ocIn:(+db.oc>0?+db.oc:12); const perFlat=(r.pf>0)?r.pf:(+db.pf>0?+db.pf:36); const ocFt=ocIn/12; const app=Math.max(0.05,ocFt*ocFt);
       const subSF=gcCov*(+r.pct||0)/100; const plants=Math.ceil(subSF/app); const flats=Math.ceil(plants/Math.max(1,perFlat));
       const realFlat=bestPlantCost("gc",r.pid,"flat"); const matCost=flats*(realFlat?realFlat.price:flatUC), install=subSF*instUC, cost=matCost+install;
       const galEa=gcGalYr(app,db.wu), costEa=galEa*cpg, gal=gcGalYr(subSF,db.wu), galCost=gal*cpg;
@@ -6098,7 +6098,8 @@ function plantingCalc(){
       const needsCrane=!!r.spec || ["48","60","72","84"].indexOf(r.sz)>=0;
       if(needsCrane) craneUnits+=count;
       r._calcQty=count;
-      parts.trees+=cost; zd.treeRows.push({count,each,mat,lab,cost,needsCrane});
+      const galEa=plantEstablishedGal(db,"tree"), costEa=galEa*cpg, gal=count*galEa, galCost=gal*cpg;
+      parts.trees+=cost; zd.treeRows.push({count,each,mat,lab,cost,needsCrane,galEa,costEa,gal,galCost});
     });
     z.palmRows.forEach(r=>{
       const db=plantDbFind("palm",r.pid)||{perFt:180};
@@ -6107,7 +6108,8 @@ function plantingCalc(){
       const needsCrane=bth>=16; if(needsCrane) craneUnits+=count;
       const mat=trunk*0.65, lab=trunk*0.35, each=mat+lab, cost=count*each;
       r._calcQty=count;
-      parts.palms+=cost; zd.palmRows.push({count,each,mat,lab,cost,needsCrane});
+      const galEa=plantEstablishedGal(db,"palm"), costEa=galEa*cpg, gal=count*galEa, galCost=gal*cpg;
+      parts.palms+=cost; zd.palmRows.push({count,each,mat,lab,cost,needsCrane,galEa,costEa,gal,galCost});
     });
     parts.openMulch+=zd.openMulch;
     zd.cost = zd.shrubRows.reduce((s,x)=>s+(x.cost||0),0) + zd.gcRows.reduce((s,x)=>s+(x.cost||0),0) + zd.treeRows.reduce((s,x)=>s+(x.cost||0),0) + zd.palmRows.reduce((s,x)=>s+(x.cost||0),0) + (zd.openMulch||0);
@@ -6330,12 +6332,12 @@ function renderPlantingBuilder(){
       ${specToggle}
       <div style="display:flex;justify-content:center">${sizeCtrl}</div>
       <div style="display:flex;justify-content:center">${stp(HB(`stepTreeN(${zi},${i},-1)`),HB(`stepTreeN(${zi},${i},1)`),`<input type="number" class="no-spin" value="${r.n}" style="width:34px" onchange="setTreeRow(${zi},${i},'n',this.value)">`)}</div>
-      <span></span>
+      <div style="text-align:right;font-size:.66rem;color:var(--tm);line-height:1.35">~${money(d.costEa||0)}/yr<br>~${Math.round(d.galEa||0).toLocaleString()} gal</div>
       ${priceCell(`${money(d.each||0)}/ea`, money(d.cost))}
       ${delBtn(`delTreeRow(${zi},${i})`)}
     </div>${r.spec?'':sourcingStrip("tree",zi,i,r)}`;
   };
-  const treeHdr=`<div style="display:grid;grid-template-columns:${TRPM_COLS};gap:.3rem;font-size:.58rem;color:var(--tl);text-transform:uppercase;letter-spacing:.02em;padding-bottom:.2rem"><span>Species · water</span><span></span><span style="text-align:center">Size</span><span style="text-align:center">Qty</span><span></span><span style="text-align:right">Cost</span><span></span></div>`;
+  const treeHdr=`<div style="display:grid;grid-template-columns:${TRPM_COLS};gap:.3rem;font-size:.58rem;color:var(--tl);text-transform:uppercase;letter-spacing:.02em;padding-bottom:.2rem"><span>Species · water</span><span></span><span style="text-align:center">Size</span><span style="text-align:center">Qty</span><span style="text-align:right">per plant/yr</span><span style="text-align:right">Cost</span><span></span></div>`;
   // ---- palm row ----
   const palmRow=(zi,r,i,d)=>{
     const db=plantDbFind("palm",r.pid)||{c:r.pid,b:"",perFt:180,h:25,wu:"L"};
@@ -6345,12 +6347,12 @@ function renderPlantingBuilder(){
       <span></span>
       <div style="display:flex;justify-content:center">${stp(HB(`stepPalm(${zi},${i},'bth',-1,0)`),HB(`stepPalm(${zi},${i},'bth',1,0)`),`<input type="number" class="no-spin" value="${r.bth}" style="width:38px" onchange="setPalmRow(${zi},${i},'bth',this.value)">`)}</div>
       <div style="display:flex;justify-content:center">${stp(HB(`stepPalm(${zi},${i},'n',-1,0)`),HB(`stepPalm(${zi},${i},'n',1,0)`),`<input type="number" class="no-spin" value="${r.n}" style="width:34px" onchange="setPalmRow(${zi},${i},'n',this.value)">`)}</div>
-      <span></span>
+      <div style="text-align:right;font-size:.66rem;color:var(--tm);line-height:1.35">~${money(d.costEa||0)}/yr<br>~${Math.round(d.galEa||0).toLocaleString()} gal</div>
       ${priceCell(`${money(d.each||0)}/ea`, money(d.cost))}
       ${delBtn(`delPalmRow(${zi},${i})`)}
     </div>${sourcingStrip("palm",zi,i,r)}`;
   };
-  const palmHdr=`<div style="display:grid;grid-template-columns:${TRPM_COLS};gap:.3rem;font-size:.58rem;color:var(--tl);text-transform:uppercase;letter-spacing:.02em;padding-bottom:.2rem"><span>Species · water</span><span></span><span style="text-align:center">BTH (ft)</span><span style="text-align:center">Qty</span><span></span><span style="text-align:right">Cost</span><span></span></div>`;
+  const palmHdr=`<div style="display:grid;grid-template-columns:${TRPM_COLS};gap:.3rem;font-size:.58rem;color:var(--tl);text-transform:uppercase;letter-spacing:.02em;padding-bottom:.2rem"><span>Species · water</span><span></span><span style="text-align:center">BTH (ft)</span><span style="text-align:center">Qty</span><span style="text-align:right">per plant/yr</span><span style="text-align:right">Cost</span><span></span></div>`;
 
   // ---- a zone card ----
   const robox=(label,val)=>`<div><div class="li-ctrl-label" style="justify-content:center;text-align:center">${label}</div><div style="min-height:36px;display:flex;align-items:center;justify-content:center;border:1px solid var(--br);border-radius:7px;background:#FBF8F2;font-weight:600;font-size:.8rem;min-width:62px;padding:0 .4rem;box-sizing:border-box">${val}</div></div>`;
