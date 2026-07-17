@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v385</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v387</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3482,7 +3482,8 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
   const total=PLANT_KINDS.reduce((s,k)=>s+((PLANT_DB[k]||[]).length),0);
   _toast("Publishing…","#6A4FA3");
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H"})}); const d=await r.json();
-    if(d&&d.ok){ _toast("Published to master ✓ ("+total+" plants)"); }
+    if(d&&d.ok){ try{ await _saveConfigSilent(); }catch(e){}   // also save favorites, prefs & pricing to the server
+      _toast("Published to master ✓ ("+total+" plants)"); }
     else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try Publish again."); }
     else { alert("Publish failed: "+((d&&d.error)||"error")); }
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
@@ -3522,7 +3523,7 @@ async function restoreBackup(key){ const ep=(typeof AI_PROXY_URL!=="undefined"&&
 setTimeout(()=>{ try{ masterBookLoad(true); }catch(e){} }, 800);
 setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
-const SHARED_CFG_KEYS=["studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1"];
+const SHARED_CFG_KEYS=["studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -3533,11 +3534,21 @@ async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
     else alert("Publish failed: "+((d&&d.error)||"error"));
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
 }
+// Silently save the config bundle (favorites, image prefs, pricing) to Cloudflare — used by Publish master
+async function _saveConfigSilent(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return; let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} if(!key) return;
+  const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
+  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json(); try{ if(d&&d.ok&&cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} return d&&d.ok; }catch(e){ return false; } }
 async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})}); const d=await r.json();
     if(d&&d.found&&d.config&&d.config.data){ const serverStamp=d.config.savedAt||""; let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
       if(serverStamp && serverStamp===applied && silent) return; // already applied
-      Object.keys(d.config.data).forEach(k=>{ try{ localStorage.setItem(k,d.config.data[k]); }catch(e){} });
+      Object.keys(d.config.data).forEach(k=>{ try{
+        if(k==="studioh_favs_v1"){ // favorites: UNION server + local so neither device loses a star
+          let srv=[]; try{ srv=JSON.parse(d.config.data[k]||"[]"); }catch(e){} let loc=[]; try{ loc=JSON.parse(localStorage.getItem(k)||"[]"); }catch(e){}
+          const uni=Array.from(new Set([].concat(Array.isArray(loc)?loc:[], Array.isArray(srv)?srv:[])));
+          localStorage.setItem(k, JSON.stringify(uni));
+        } else { localStorage.setItem(k,d.config.data[k]); }
+      }catch(e){} });
       try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
       if(silent){ // avoid reload loop: only reload once per session
         let did=""; try{ did=sessionStorage.getItem("studioh_cfg_reloaded")||""; }catch(e){}
@@ -3954,14 +3965,34 @@ function plantCanopySF(p,kind){
   if(w>0) return Math.PI*Math.pow(w/2,2);
   return kind==="tree"?200:(kind==="palm"?80:16);
 }
-function plantAnnualGal(p,kind,qty){
-  qty=+qty||0; if(!qty) return 0;
-  if(p&&p.wuOverride>0) return p.wuOverride*qty;              // manual override: gal/plant/yr
+// ── Water model ──────────────────────────────────────────────
+// REAL-WORLD (default): established supplemental water × an establishment curve (year 1→10).
+// MWELO (optional, behind a checkbox): the CA compliance budget — full ET ÷ irrigation efficiency.
+let _plWaterYear=10;   // report shows water for this year-since-planting (10 = mature/established)
+let _plMwelo=false;    // when true, show the MWELO compliance budget instead of real-world
+// Establishment curve: multiplier of the ESTABLISHED figure, by kind and years since planting (1..10).
+function _estabMult(kind,year){ year=Math.max(1,Math.min(10,Math.round(+year||10)));
+  const curves={ tree:[3.0,2.2,1.6,1.3,1.1,1.0,1.0,1.0,1.0,1.0], palm:[2.4,1.8,1.4,1.2,1.05,1.0,1.0,1.0,1.0,1.0], shrub:[2.2,1.4,1.1,1.0,1.0,1.0,1.0,1.0,1.0,1.0], gc:[1.8,1.2,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0] };
+  const c=curves[kind]||curves.shrub; return c[year-1]; }
+// Established real-world supplemental water for ONE plant (gal/plant/yr).
+function plantEstablishedGal(p,kind){
+  if(p&&p.wuOverride>0) return +p.wuOverride;                          // manual override always wins
+  if(p&&p.waterEst>0 && p.waterConf!=="low") return +p.waterEst;       // confident AI estimate
+  // fallback: WUCOLS ET demand with a deficit factor (established plants, esp. deep-rooted trees, run below full ET)
+  const eto=WC("eto")||51, pf=plantFactor(p), areaSF=plantCanopySF(p,kind);
+  const deficit=(kind==="tree"||kind==="palm")?0.25:(kind==="gc"?0.7:0.55);
+  return Math.round(eto*pf*areaSF*0.62*deficit); }
+function plantRealGal(p,kind,qty,year){ qty=+qty||0; if(!qty) return 0; return plantEstablishedGal(p,kind)*_estabMult(kind,year)*qty; }
+// MWELO compliance budget (unchanged formula) — only shown when the MWELO box is checked.
+function plantMweloGal(p,kind,qty){ qty=+qty||0; if(!qty) return 0;
   const eto=WC("eto")||51, pf=plantFactor(p);
   const ie=(WC("method")==="spray")?(WC("ieSpray")||0.75):(WC("ieDrip")||0.81);
   const areaSF=plantCanopySF(p,kind)*qty;
-  return (eto*pf*areaSF*0.62)/Math.max(0.3,ie);
-}
+  return (eto*pf*areaSF*0.62)/Math.max(0.3,ie); }
+// The number reports use: real-world at the selected year, or MWELO when toggled.
+function plantAnnualGal(p,kind,qty){ return _plMwelo ? plantMweloGal(p,kind,qty) : plantRealGal(p,kind,qty,_plWaterYear); }
+function setPlWaterYear(v){ _plWaterYear=Math.max(1,Math.min(10,Math.round(+v||10))); if(document.getElementById("pl-modal")) _plRender(); }
+function togglePlMwelo(on){ _plMwelo=!!on; if(document.getElementById("pl-modal")) _plRender(); }
 function galToHCF(g){ return g/748; }
 function waterCostFor(gal){ return galToHCF(gal)*(WC("rate")||0); }
 function setPlantWuOverride(kind,id,v){ const p=plantDbFind(kind,id); if(!p) return; const n=+v||0; if(n>0) p.wuOverride=n; else delete p.wuOverride; plantBookSave(); if(document.getElementById("pl-modal")) _plRender(); }
@@ -4134,11 +4165,11 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
   const kpis=`<div class="plr-sum">
     <div class="plr-kpi"><b>${totQty.toLocaleString()}</b><span>Plants</span></div>
     <div class="plr-kpi"><b>${allSpecies.size}</b><span>Species</span></div>
-    <div class="plr-kpi"><b>${Math.round(totGal).toLocaleString()}</b><span>Gal / year</span></div>
+    <div class="plr-kpi"><b>${Math.round(totGal).toLocaleString()}</b><span>${_plMwelo?'Gal/yr · MWELO':'Gal/yr · yr '+_plWaterYear}</span></div>
     <div class="plr-kpi"><b>$${Math.round(cost).toLocaleString()}</b><span>Water / year</span></div>
   </div>`;
   const waterTbl=showWater&&totGal>0?`<div style="margin-top:18px;break-inside:avoid">
-      <div class="plr-grp">Estimated water use</div>
+      <div class="plr-grp">${_plMwelo?'MWELO compliance water budget':'Real-world water use — year '+_plWaterYear+(_plWaterYear>=10?' (established)':' after planting')}</div>
       <table class="plr-tbl">
         <tr><th>Item</th><th style="text-align:right">Value</th></tr>
         <tr><td>Reference evapotranspiration (ETo)</td><td style="text-align:right">${WC("eto")} in/yr</td></tr>
@@ -4147,7 +4178,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
         <tr><td>Total annual water</td><td style="text-align:right">${Math.round(totGal).toLocaleString()} gal (${Math.round(galToHCF(totGal)).toLocaleString()} HCF)</td></tr>
         <tr class="tot"><td>Estimated annual water cost</td><td style="text-align:right">$${Math.round(cost).toLocaleString()}</td></tr>
       </table>
-      <div style="font-size:9px;color:#8a8a80;margin-top:5px">WUCOLS / MWELO method: gal = ETo × plant factor × canopy area × 0.62 ÷ irrigation efficiency. Estimate only.</div>
+      <div style="font-size:9px;color:#8a8a80;margin-top:5px">${_plMwelo?"MWELO / WUCOLS compliance budget: gal = ETo × plant factor × canopy area × 0.62 ÷ irrigation efficiency. This is the water-budget / permit figure and runs well above real-world established use.":"Real-world supplemental irrigation for established Southern California plants, scaled to year "+_plWaterYear+" after planting (young plants use more while establishing; deep-rooted trees settle to very little). Per-plant estimates — verify against your final irrigation design."}</div>
     </div>`:"";
   return `<div class="plr-wrap">
     <div class="plr-hd">
@@ -4182,6 +4213,8 @@ function openPlantListReport(){ try{ plantRefresh(); }catch(e){}   // ensure der
     </div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.5rem;padding:.5rem .6rem;background:#F4F9F5;border:1px solid #cfe0d6;border-radius:8px">
       <span style="font-size:.66rem;font-weight:700;color:#2c5f82;text-transform:uppercase">Water</span>
+      <label style="font-size:.7rem;color:var(--tm)">Year <select onchange="setPlWaterYear(this.value)" style="font-size:.72rem;padding:.15rem .2rem;border:1px solid var(--br);border-radius:5px" ${_plMwelo?'disabled':''}>${[1,2,3,4,5,6,7,8,9,10].map(y=>`<option value="${y}" ${_plWaterYear===y?'selected':''}>${y===10?'10 (mature)':(y===1?'1 (planting)':y)}</option>`).join('')}</select> after planting</label>
+      <label style="font-size:.7rem;color:${_plMwelo?'#B23F3C':'var(--tm)'};font-weight:${_plMwelo?'700':'400'}"><input type="checkbox" ${_plMwelo?'checked':''} onchange="togglePlMwelo(this.checked)"> MWELO budget</label>
       <label style="font-size:.7rem;color:var(--tm)">ETo <input type="number" value="${WC("eto")}" step="1" oninput="setWaterCfg('eto',this.value)" style="width:48px;padding:.12rem .25rem;border:1px solid var(--br);border-radius:5px;font-size:.72rem;text-align:right"> in/yr</label>
       <label style="font-size:.7rem;color:var(--tm)">$/HCF <input type="number" value="${(+WC("rate")).toFixed(2)}" step="0.25" oninput="setWaterCfg('rate',this.value)" style="width:56px;padding:.12rem .25rem;border:1px solid var(--br);border-radius:5px;font-size:.72rem;text-align:right"></label>
       <select onchange="setWaterCfg('method',this.value)" style="font-size:.72rem;padding:.15rem .25rem;border:1px solid var(--br);border-radius:5px">
@@ -4545,7 +4578,7 @@ function _salvageJsonObjects(s){ const out=[]; let depth=0,start=-1,inStr=false,
   return out; }
 async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
-  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","wu":"WUCOLS water-use category for Southern California — exactly one of VL, L, M, H","tags":"2 to 5 lowercase tags separated by commas, chosen ONLY from: drought-tolerant, california-native, evergreen, deciduous, succulent, ornamental-grass, groundcover, vine, perennial, pollinator, deer-resistant, fire-resistant, fragrant, flowering, screening, hedge, edible, coastal, shade-tolerant, full-sun, fast-growing, slow-growing, accent, mass-planting","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)","sunset":"Sunset Western Garden Book climate zones where this plant thrives, compact range for CA/Southwest, e.g. 8-24 or 12-24 H1 H2","price1g":"typical Southern California nursery price in whole US dollars for a SHRUB 1-gallon (number only, e.g. 12) else blank","price5g":"SHRUB 5-gallon price (number only) else blank","price15g":"15-gallon price for a SHRUB or small TREE (number only) else blank","priceFlat":"GROUNDCOVER price per FLAT (number only) else blank","price24box":"TREE 24-inch box price (number only) else blank","price36box":"TREE 36-inch box price else blank","price48box":"TREE 48-inch box price else blank","price60box":"TREE 60-inch box price else blank","price72box":"TREE 72-inch box price else blank","pricePerFt":"PALM price per foot of brown trunk (number only) else blank"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
+  const prompt=`For each landscape plant below, give horticultural facts for Southern California gardens. Output ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose, no markdown:\n[{"i":1,"form":"e.g. Rounded / Upright / Mounding / Spreading / Vase / Weeping (1-2 words)","growthRate":"Slow|Moderate|Fast","dormancy":"Evergreen|Deciduous|Semi-deciduous","fragrance":"None|Mild|Pleasant|Strong","bloomSeason":"comma list from Spring,Summer,Fall,Winter or Year-round","native":"Yes|No (California native)","toxic":"None|Mild|Moderate|Severe (ingestion severity per ASPCA/human tox; Mild=GI upset like lavender/sage, Severe=can be fatal like oleander/sago/foxglove)","deerResist":"Yes|Some|No","fireResist":"Yes|Moderate|No (fire-resistant / defensible space)","rootAggr":"Low|Moderate|High (root aggressiveness near hardscape)","invasive":"Yes|No (invasive in California)","wu":"WUCOLS water-use category for Southern California — exactly one of VL, L, M, H","tags":"2 to 5 lowercase tags separated by commas, chosen ONLY from: drought-tolerant, california-native, evergreen, deciduous, succulent, ornamental-grass, groundcover, vine, perennial, pollinator, deer-resistant, fire-resistant, fragrant, flowering, screening, hedge, edible, coastal, shade-tolerant, full-sun, fast-growing, slow-growing, accent, mass-planting","waterGalYr":"realistic ESTABLISHED annual supplemental irrigation for ONE mature plant of this species in Southern California, gallons per year, deep infrequent watering — established drought-tolerant natives are very LOW (e.g. mature western redbud tree ~150-250, a 5-gal Salvia ~40-80, a groundcover plant ~10-25). Number only","waterConf":"high|med|low confidence in the waterGalYr figure","dsZone":"0|1|2|avoid — California defensible-space zone this plant is APPROPRIATE for nearest a structure in a wildfire hazard zone. 0 = safe within 0-5ft ember zone (only very low succulents/groundcovers with no dead fuel); 1 = 5-30ft (low, well-irrigated, fire-resistant); 2 = 30-100ft (spaced shrubs, natives OK); avoid = high-fuel/flammable (juniper, pampas/fountain grass, eucalyptus, woody unmaintained rosemary/sage, large aloe with dead leaves)","sunset":"Sunset Western Garden Book climate zones where this plant thrives, compact range for CA/Southwest, e.g. 8-24 or 12-24 H1 H2","price1g":"typical Southern California nursery price in whole US dollars for a SHRUB 1-gallon (number only, e.g. 12) else blank","price5g":"SHRUB 5-gallon price (number only) else blank","price15g":"15-gallon price for a SHRUB or small TREE (number only) else blank","priceFlat":"GROUNDCOVER price per FLAT (number only) else blank","price24box":"TREE 24-inch box price (number only) else blank","price36box":"TREE 36-inch box price else blank","price48box":"TREE 48-inch box price else blank","price60box":"TREE 60-inch box price else blank","price72box":"TREE 72-inch box price else blank","pricePerFt":"PALM price per foot of brown trunk (number only) else blank"}]\nUse "" for any field you are unsure of. Plants:\n${list}`;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:8000,system:"You are a horticultural database. Output only minified JSON, no other text.",messages:[{role:"user",content:prompt}]})}); const data=await r.json();
     let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||""); const a=t.indexOf("["); if(a<0) return {err:"bad json"};
     let arr=null; const b=t.lastIndexOf("]"); if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
@@ -4561,6 +4594,8 @@ async function fetchDetailsBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefi
       else if(it.kind==="palm"){ const num=parseFloat((""+(o.pricePerFt==null?"":o.pricePerFt)).replace(/[^0-9.]/g,"")); if(num>0 && (p.perFt==null||p.perFt==="")){ p.perFt=Math.round(num); p.priceFlag=true; } }
       // WUCOLS water use
       if(o.wu && /^(VL|L|M|H)$/i.test((""+o.wu).trim())) p.wu=(""+o.wu).trim().toUpperCase();
+      // real-world established annual water (gal/plant/yr) + confidence
+      if(o.waterGalYr!=null && o.waterGalYr!==""){ const wn=parseFloat((""+o.waterGalYr).replace(/[^0-9.]/g,"")); if(wn>0){ p.waterEst=Math.round(wn); p.waterConf=(""+(o.waterConf||"")).toLowerCase().trim(); p.waterFlag=true; } }
       // tags (merge, don't duplicate or overwrite)
       if(o.tags){ p.tags=p.tags||[]; const cur=new Set(p.tags.map(t=>(""+t).toLowerCase())); (""+o.tags).split(/[,;]+/).map(t=>t.trim().toLowerCase().replace(/\s+/g,"-")).filter(t=>t && /^[a-z0-9\-]+$/.test(t)).forEach(t=>{ if(!cur.has(t)){ p.tags.push(t); cur.add(t); if(typeof PLANT_TAG_VOCAB!=="undefined" && PLANT_TAG_VOCAB.indexOf(t)<0) PLANT_TAG_VOCAB.push(t); } }); }
       p.detFlag=true; p.detSrc="AI"; n++; }); return {ok:true,n};
