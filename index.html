@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v399</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v400</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -4087,6 +4087,12 @@ function _plStyle(){ return `
   .plr-tbl th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#8a8a80;border-bottom:1px solid #d9d4c6;padding:4px 6px 4px 0}
   .plr-tbl td{padding:4px 6px 4px 0;border-bottom:1px solid #f0ece2}
   .plr-tbl tr.tot td{font-weight:800;border-top:1.5px solid #3d6b2e;border-bottom:none;color:#3d6b2e}
+  .plr-safe{margin:12px 0 2px;border:1px solid #e2ded2;border-radius:9px;padding:9px 11px;background:#fcfbf8;break-inside:avoid}
+  .plr-safe-h{font-size:9.5px;font-weight:800;color:#8a8a80;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+  .plr-safe-ok{font-size:11px;color:#3d6b2e;font-weight:600}
+  .plr-safe-row{font-size:10.5px;color:#4a4a44;margin-bottom:3px;line-height:1.5}
+  .plr-safe-tag{display:inline-block;font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#fff;border-radius:4px;padding:1px 5px;margin-right:5px}
+  .plr-safe-n{font-size:9px;color:#8a8a80;margin-top:7px;line-height:1.55}
   .plr-foot{font-size:9px;color:#8a8a80;border-top:1px solid #e2ded2;padding-top:8px;margin-top:16px;line-height:1.6}
   @media print{ .plr-card,.plr-zone,.plr-render{page-break-inside:avoid} .plr-sum{page-break-inside:avoid} .plr-rm,.plr-zact{display:none} }
 `; }
@@ -4134,6 +4140,28 @@ function _plChips(p,kind,qty){
   out+= bloomTxt ? _plIco(PLI.flower, bloomTxt, "#8a6d1f", "plr-wide") : blank("plr-wide");
   return out;
 }
+// ── Pet & child safety — surfaces the `toxic` rating already stored on each plant ──
+// Ingestion severity only, and deliberately framed so a Mild rating (lavender, sage) doesn't
+// read like a hazard. Plants with no rating on file are counted, not silently dropped.
+const TOX_LEVELS=[{key:"severe",lab:"Severe",col:"#B23F3C"},{key:"moderate",lab:"Moderate",col:"#D98324"},{key:"mild",lab:"Mild",col:"#8a6d1f"}];
+function _plSafetyHTML(){
+  const P=S.planting; const zones=(P&&P.zones)||[];
+  const seen={}; const buckets={severe:[],moderate:[],mild:[]}; let total=0, unrated=0;
+  zones.forEach(z=>{ if(!_plZoneIncluded(z)) return;
+    [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{
+      (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return;
+        const k=kind+":"+p.id; if(seen[k]) return; seen[k]=1; total++;
+        const t=(p.toxic||"").trim().toLowerCase();
+        if(buckets[t]) buckets[t].push(p); else if(t!=="none") unrated++; }); }); });
+  if(!total) return "";
+  const rows=TOX_LEVELS.map(L=>{ const g=buckets[L.key]; if(!g.length) return "";
+    const names=g.map(p=>escAttr(p.c||botName(p)||"")).filter(Boolean).join(", ");
+    return `<div class="plr-safe-row"><span class="plr-safe-tag" style="background:${L.col}">${L.lab}</span>${names}</div>`; }).join("");
+  const body = rows || `<div class="plr-safe-ok">No plant in this palette is rated toxic if eaten.${unrated?` <span style="color:#8a8a80;font-weight:400">(${unrated} without a rating on file.)</span>`:""}</div>`;
+  return `<div class="plr-safe"><div class="plr-safe-h">🐾 Pet &amp; child safety</div>${body}
+    <div class="plr-safe-n">Severity refers to <b>eating</b> the plant, drawn from general horticultural and ASPCA references. A mild rating is common among everyday garden plants and is not a reason to avoid them — it's here so you can choose placement near play areas and pet runs.${rows&&unrated?` ${unrated} plant${unrated>1?"s have":" has"} no rating on file.`:""} If a child or pet eats any plant, treat it as a medical or veterinary question.</div>
+  </div>`;
+}
 // ── Zone selector for the plant list report (null = all zones included) ──
 let _plZoneSel=null;
 function _plZonesWithPlants(){ const P=S.planting; const zones=(P&&P.zones)||[]; return zones.filter(z=>["shrubRows","gcRows","treeRows","palmRows"].some(k=>(z[k]||[]).length)); }
@@ -4171,7 +4199,7 @@ function _plZoneChecksHTML(){ const zs=_plZonesWithPlants(); if(zs.length<2) ret
   const chips=zs.map(z=>`<label style="font-size:.7rem;color:var(--tm);display:flex;align-items:center;gap:.25rem;white-space:nowrap"><input type="checkbox" ${_plZoneIncluded(z)?"checked":""} onchange="togglePlZone('${z.id}',this.checked)"> ${escAttr(z.name||"Zone")}</label>`).join("");
   return `<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.4rem;padding:.4rem .6rem;background:#F4F9F5;border:1px solid #cfe0d6;border-radius:8px"><span style="font-size:.66rem;font-weight:700;color:#3d6b2e;text-transform:uppercase">Zones</span>${chips}</div>`; }
 function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P&&P.zones)||[];
-  const showImg=opts.images!==false, showQty=opts.qty!==false, showWater=opts.water!==false;
+  const showImg=opts.images!==false, showQty=opts.qty!==false, showWater=opts.water!==false, showSafe=opts.safety!==false;
   const KIND_LABEL={shrub:"Shrubs",gc:"Groundcover & Grasses",tree:"Trees",palm:"Palms"};
   const KIND_ORDER=["tree","palm","shrub","gc"];
   let body=""; let totGal=0, totQty=0; const allSpecies=new Set(); let anyAI=false;
@@ -4263,6 +4291,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
       <div class="plr-t3">Studio H · ${new Date().toLocaleDateString()}</div>
     </div>
     ${kpis}
+    ${showSafe?_plSafetyHTML():""}
     ${body}
     ${waterYearTbl}
     ${waterTbl}
@@ -4283,6 +4312,7 @@ function openPlantListReport(){ try{ plantRefresh(); }catch(e){}   // ensure der
         <label style="font-size:.72rem;color:var(--tm);display:flex;align-items:center;gap:.25rem"><input type="checkbox" id="pl-img" checked onchange="_plRender()"> Images</label>
         <label style="font-size:.72rem;color:var(--tm);display:flex;align-items:center;gap:.25rem"><input type="checkbox" id="pl-qty" checked onchange="_plRender()"> Qty</label>
         <label style="font-size:.72rem;color:var(--tm);display:flex;align-items:center;gap:.25rem"><input type="checkbox" id="pl-wtr" checked onchange="_plRender()"> Water</label>
+        <label style="font-size:.72rem;color:var(--tm);display:flex;align-items:center;gap:.25rem" title="Lists any plant rated toxic if eaten — for placement near play areas and pet runs"><input type="checkbox" id="pl-safe" checked onchange="_plRender()"> Safety</label>
         <button class="btn" onclick="document.getElementById('pl-modal').remove()" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
       </div>
     </div>
@@ -4337,12 +4367,14 @@ function _plRender(){ const b=document.getElementById("pl-body"); if(!b) return;
   const images=(document.getElementById("pl-img")||{}).checked!==false;
   const qty=(document.getElementById("pl-qty")||{}).checked!==false;
   const water=(document.getElementById("pl-wtr")||{}).checked!==false;
-  b.innerHTML=_plantListHTML({images,qty,water}); }
+  const safety=(document.getElementById("pl-safe")||{}).checked!==false;
+  b.innerHTML=_plantListHTML({images,qty,water,safety}); }
 function printPlantList(){ const images=(document.getElementById("pl-img")||{}).checked!==false;
   const qty=(document.getElementById("pl-qty")||{}).checked!==false;
   const water=(document.getElementById("pl-wtr")||{}).checked!==false;
+  const safety=(document.getElementById("pl-safe")||{}).checked!==false;
   const w=window.open("","_blank"); if(!w){ alert("Allow pop-ups to print."); return; }
-  w.document.write(`<html><head><title>Planting Palette</title><style>@page{margin:13mm}body{margin:0;padding:0}${_plStyle()}</style></head><body>${_plantListHTML({images,qty,water})}</body></html>`);
+  w.document.write(`<html><head><title>Planting Palette</title><style>@page{margin:13mm}body{margin:0;padding:0}${_plStyle()}</style></head><body>${_plantListHTML({images,qty,water,safety})}</body></html>`);
   w.document.close(); setTimeout(()=>{ try{ w.print(); }catch(e){} }, 800);
 }
 // ── AI rendering: build the prompt from the real plant list; you generate in Midjourney and drop it back in ──
