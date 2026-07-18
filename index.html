@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v400</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v401</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -4162,6 +4162,36 @@ function _plSafetyHTML(){
     <div class="plr-safe-n">Severity refers to <b>eating</b> the plant, drawn from general horticultural and ASPCA references. A mild rating is common among everyday garden plants and is not a reason to avoid them — it's here so you can choose placement near play areas and pet runs.${rows&&unrated?` ${unrated} plant${unrated>1?"s have":" has"} no rating on file.`:""} If a child or pet eats any plant, treat it as a medical or veterinary question.</div>
   </div>`;
 }
+// ── Suggested establishment watering ──
+// Volumes come straight from the existing water model (plantEstablishedGal × _estabMult), so this
+// can never drift from the gallons quoted elsewhere in the report. Spread over a warm-season
+// irrigation window rather than all 52 weeks — averaging across a wet winter understates what a
+// new plant actually needs in its first summer, which is exactly when plants get lost.
+const ESTAB_KIND_LABEL={tree:"Trees",palm:"Palms",shrub:"Shrubs",gc:"Groundcover & grasses"};
+const ESTAB_WEEKS=32;   // ~Apr–Nov SoCal irrigation season; stated in the note so it's checkable
+function _plEstabHTML(){
+  if(_plMwelo) return "";                       // establishment curve is real-world only, not a MWELO budget
+  const P=S.planting; const zones=(P&&P.zones)||[];
+  const agg={};
+  zones.forEach(z=>{ if(!_plZoneIncluded(z)) return;
+    [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([rk,kind])=>{
+      (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return;
+        const q=rowQty(r); if(!q) return;
+        const a=agg[kind]||(agg[kind]={qty:0,gal:0});
+        a.qty+=q; a.gal+=plantEstablishedGal(p,kind)*q; }); }); });
+  const kinds=["tree","palm","shrub","gc"].filter(k=>agg[k]&&agg[k].qty>0);
+  if(!kinds.length) return "";
+  const fmt=v=>v>=10?Math.round(v).toLocaleString():(Math.round(v*10)/10);
+  const rows=kinds.map(k=>{
+    const per=agg[k].gal/agg[k].qty;            // established gal per plant per year
+    const cells=[1,2,3,10].map(y=>`<td style="text-align:right">${fmt(per*_estabMult(k,y)/ESTAB_WEEKS)}</td>`).join("");
+    return `<tr><td>${ESTAB_KIND_LABEL[k]} <span style="color:#b0b0a6">(${agg[k].qty})</span></td>${cells}</tr>`; }).join("");
+  return `<div style="margin-top:16px;break-inside:avoid">
+    <div class="plr-grp">Suggested establishment watering — gallons per plant per week</div>
+    <table class="plr-tbl"><tr><th>Plant type</th><th style="text-align:right">Year 1</th><th style="text-align:right">Year 2</th><th style="text-align:right">Year 3</th><th style="text-align:right">Established</th></tr>${rows}</table>
+    <div style="font-size:9px;color:#8a8a80;margin-top:5px"><b>Suggested starting point</b>, averaged across the plants in this palette and derived from the same water model as the figures above. Assumes roughly a ${ESTAB_WEEKS}-week irrigation season (about April–November) with little or no watering during winter rain. Water <b>deeply and infrequently</b> rather than a little every day — the aim is to pull roots down, and shallow daily watering is the most common reason new plantings fail. Adjust to your soil, exposure, and the weather; this is not a substitute for the schedule your installer sets on the controller.</div>
+  </div>`;
+}
 // ── Zone selector for the plant list report (null = all zones included) ──
 let _plZoneSel=null;
 function _plZonesWithPlants(){ const P=S.planting; const zones=(P&&P.zones)||[]; return zones.filter(z=>["shrubRows","gcRows","treeRows","palmRows"].some(k=>(z[k]||[]).length)); }
@@ -4294,6 +4324,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
     ${showSafe?_plSafetyHTML():""}
     ${body}
     ${waterYearTbl}
+    ${showWater?_plEstabHTML():""}
     ${waterTbl}
     <div class="plr-foot">
       Plant sizes are mature estimates and vary with site conditions, exposure, and maintenance. Water use is calculated by the WUCOLS/MWELO method and is an <b>estimate</b> — actual use depends on soil, microclimate, irrigation design, and controller scheduling.
