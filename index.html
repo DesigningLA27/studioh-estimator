@@ -4139,14 +4139,32 @@ let _plZoneSel=null;
 function _plZonesWithPlants(){ const P=S.planting; const zones=(P&&P.zones)||[]; return zones.filter(z=>["shrubRows","gcRows","treeRows","palmRows"].some(k=>(z[k]||[]).length)); }
 function _plZoneIncluded(z){ return !_plZoneSel || _plZoneSel.has(z.id); }
 function togglePlZone(zid,on){ const all=_plZonesWithPlants().map(z=>z.id); if(!_plZoneSel) _plZoneSel=new Set(all); if(on) _plZoneSel.add(zid); else _plZoneSel.delete(zid); if(_plZoneSel.size>=all.length) _plZoneSel=null; _plRender(); }
-// ── Zone renderings: up to 4 per zone, stored as a list [{url,cap}] (migrates old {install,mature}) ──
+// ── Zone renderings: up to 4 per zone, stored as a list [{url,cap,kind,names}] (migrates old {install,mature}) ──
+// `names` records which plants a render depicts, so its caption can always be rebuilt from data
+// instead of trusting a stored string — older builds baked the raw AI prompt into `cap`, and that
+// text then showed up verbatim in the client report.
 function _zoneRenders(zid){ const P=ensurePlanting(); P._renders=P._renders||{}; let r=P._renders[zid];
   if(!Array.isArray(r)){ const arr=[];
-    if(r&&r.install) arr.push({url:r.install,cap:"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only."});
-    if(r&&r.mature) arr.push({url:r.mature,cap:"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only."});
+    if(r&&r.install) arr.push({url:r.install,kind:"install",cap:"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only."});
+    if(r&&r.mature) arr.push({url:r.mature,kind:"mature",cap:"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only."});
     r=arr; P._renders[zid]=r; }
   return r; }
-function _zoneRenderAdd(zid,url,cap){ const r=_zoneRenders(zid); if(r.length>=4) return false; r.push({url,cap:cap||"Concept rendering, illustrative only."}); return true; }
+function _zoneRenderAdd(zid,url,cap,meta){ const r=_zoneRenders(zid); if(r.length>=4) return false;
+  const rec={url,cap:cap||"Concept rendering, illustrative only."};
+  if(meta&&meta.kind) rec.kind=meta.kind;
+  if(meta&&meta.names&&meta.names.length) rec.names=meta.names.slice(0,24);
+  r.push(rec); return true; }
+// Grouping captions are DERIVED from the stored plant names, never read back from `cap`.
+// The regex also catches legacy renders saved by older builds, so prompt text stops showing
+// even in projects saved before names were recorded.
+function _renderCap(rr){ if(!rr) return "";
+  const isGroup = rr.kind==="group" || /^Custom grouping —/.test(rr.cap||"");
+  if(isGroup){ const n=(rr.names||[]).filter(Boolean);
+    return n.length ? "Grouping — "+n.slice(0,4).join(", ")+(n.length>4?" +"+(n.length-4):"")
+                    : "Grouping — concept rendering, illustrative only."; }
+  return rr.cap||"Concept rendering, illustrative only."; }
+// Common names of every distinct plant in a zone — recorded on stage/uploaded renders.
+function _zoneNames(z){ return z?_zonePlantsAll(z).map(x=>(x.p&&x.p.c)||"").filter(Boolean):[]; }
 function openRenderForZone(zid){ const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z); }
 function _zonePlantsAll(z){ const out=[]; const seen={}; [["treeRows","tree"],["palmRows","palm"],["shrubRows","shrub"],["gcRows","gc"]].forEach(([rk,kind])=>{ (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const k=kind+":"+p.id; if(seen[k]) return; seen[k]=1; out.push({kind,p}); }); }); return out; }
 function _plZoneChecksHTML(){ const zs=_plZonesWithPlants(); if(zs.length<2) return "";
@@ -4181,7 +4199,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
     // Rendering slots — up to 4 per zone: 1 large, then 2–3 smaller in a half/half grid
     const _rlist=_zoneRenders(z.id);
     if(_rlist.length){
-      const rcard=(rr,idx)=>`<div class="plr-render" style="position:relative"><img src="${escAttr(rr.url)}"><button class="plr-rm" onclick="removeZoneRender('${z.id}',${idx})" title="Remove rendering">×</button><div class="cap">${escAttr(rr.cap||"")}</div></div>`;
+      const rcard=(rr,idx)=>`<div class="plr-render" style="position:relative"><img src="${escAttr(rr.url)}"><button class="plr-rm" onclick="removeZoneRender('${z.id}',${idx})" title="Remove rendering">×</button><div class="cap">${escAttr(_renderCap(rr))}</div></div>`;
       body+=`<div style="margin:12px 0 4px">`;
       body+=rcard(_rlist[0],0);
       const rest=_rlist.slice(1);
@@ -4539,7 +4557,7 @@ async function _rpGenerate(zid, stage){
       if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
       else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
       const _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
-      if(!_zoneRenderAdd(z.id,dataUrl,_cap)){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
+      if(!_zoneRenderAdd(z.id,dataUrl,_cap,{kind:stage,names:_zoneNames(z)})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       setSt("✓ Added to the report.","var(--gm)");
       _plRender();
       if(typeof _toast==="function") _toast("✓ Rendering added");
@@ -4607,7 +4625,7 @@ async function _rpCustomGenerate(zid){
       else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
       const shortNames=names.map(n=>n.replace(/\s*\(.*\)\s*/,"").trim()).filter(Boolean);
       const cap="Grouping — "+shortNames.slice(0,4).join(", ")+(shortNames.length>4?" +"+(shortNames.length-4):"");
-      if(!_zoneRenderAdd(z.id,dataUrl,cap)){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
+      if(!_zoneRenderAdd(z.id,dataUrl,cap,{kind:"group",names:shortNames})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       setSt("✓ Added to the report.","var(--gm)");
       _plRender();
       if(typeof _toast==="function") _toast("✓ Rendering added");
@@ -4624,7 +4642,7 @@ function addZoneRender(input){ const f=input&&input.files&&input.files[0]; if(in
   const stage=confirm('Which rendering is this?\n\nOK = "Grown in (5 yr)"\nCancel = "At installation"') ? "mature" : "install";
   const cap=stage==="mature"?"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.":"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.";
   const rd=new FileReader();
-  rd.onload=()=>{ _zoneRenderAdd(z.id,rd.result,cap); _plRender(); };
+  rd.onload=()=>{ _zoneRenderAdd(z.id,rd.result,cap,{kind:stage,names:_zoneNames(z)}); _plRender(); };
   rd.readAsDataURL(f);
 }
 function removeZoneRender(zid,idx){ const r=_zoneRenders(zid); if(idx>=0&&idx<r.length){ r.splice(idx,1); _plRender(); } }
