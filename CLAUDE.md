@@ -22,8 +22,10 @@ Live: designingla27.github.io/studioh-estimator · Repo: github.com/designingla2
 5. **Grep the live file before claiming a feature doesn't exist.**
 
 ## Deliverables per version
-- TWO files every version: `index.html` + `Cost_Estimator_vXXX.html` (underscores, no spaces)
-- Bump version number in both
+- ONE shipped file: `index.html` — this is what gets pushed to GitHub each version.
+- Bump the version number in `index.html`.
+- Backup every version: copy `index.html` to `versions/Cost_Estimator_vXXX.html` (underscores, no spaces).
+- `versions/` is gitignored — backups stay local, never pushed to GitHub.
 
 ## Validation before shipping
 1. Python-extract each `<script>` block
