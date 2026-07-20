@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v403</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v404</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3446,11 +3446,22 @@ const PLANT_KIND_LABEL={shrub:"Shrubs",tree:"Trees",palm:"Palms",gc:"Groundcover
   });
 })();
 function plantBookSave(){ _imgNameIdx=null; try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ /* local cache full (common on Safari) — harmless, the master book lives on the server */ } if(typeof renderPlantBook==="function") renderPlantBook(); }
+const IMG_FIELDS=["img","imgAI","imgSrc","imgPrev","imgLic","imgAttr","imgFlag","_imgMod"];
 function plantBookMerge(data, mode){ if(!data) return;
   // ids present anywhere locally — so a plant you reclassified (moved to another type) is NOT re-added to its old type
   const localIds={}; PLANT_KINDS.forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>{ if(p&&p.id) localIds[p.id]=1; }); });
   PLANT_KINDS.forEach(k=>{ if(!Array.isArray(data[k])) return; const byId={}; (PLANT_DB[k]=PLANT_DB[k]||[]).forEach(p=>byId[p.id]=p);
-  data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; } }
+  data[k].forEach(p=>{ const cur=byId[p.id]; if(cur){ for(const f in p){ if(IMG_FIELDS.indexOf(f)>=0) continue; if(mode==="overwrite") cur[f]=p[f]; else if(cur[f]===undefined||cur[f]===null||cur[f]==="") cur[f]=p[f]; }
+      // Image auto-sync: newest image wins so a published image shows up on every device with no "Pull master".
+      let takeSrv;
+      if(mode==="overwrite") takeSrv=true;
+      else if(!p.img) takeSrv=false;                 // server has no image — never wipe a local one
+      else { const sm=+p._imgMod||0, lm=+cur._imgMod||0;
+        if(sm!==lm) takeSrv=sm>lm;                    // whichever image is newer (protects an unpublished local image)
+        else if(!cur.img) takeSrv=true;               // local blank, server has one
+        else takeSrv=!!(p.imgAI && (!cur.imgAI || true)); // legacy (no timestamps): the published server image wins
+      }
+      if(takeSrv) IMG_FIELDS.forEach(f=>cur[f]=p[f]); }
     else if(!localIds[p.id]){ PLANT_DB[k].push(JSON.parse(JSON.stringify(p))); byId[p.id]=PLANT_DB[k][PLANT_DB[k].length-1]; localIds[p.id]=1; } }); }); }
 // Reclassify a plant's type — move it between shrub/gc/tree/palm (its type-specific pricing & spacing fields switch with it)
 function changePlantKind(oldKind,id,newKind){ if(!newKind||oldKind===newKind) return;
@@ -3716,7 +3727,7 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
     if(small){ const up=await _uploadImageR2(kind+"_"+pid+"_"+Date.now().toString(36), small); if(up.ok && await _imgLoads(up.url)) stored=up.url; /* else keep the embedded 512px image so it always shows */ }
     // keep whatever real photo existed so it can be restored
     if(p.img && !p.imgAI && !p.imgPrev) p.imgPrev=p.img;
-    p.img=stored; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false;
+    p.img=stored; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false; p._imgMod=Date.now();
     plantBookSave();
     return {ok:true};
   }catch(e){ return {ok:false,err:(e&&e.message)||"error"}; }
