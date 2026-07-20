@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v402</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v403</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3480,6 +3480,14 @@ function _toast(msg,col){ try{ let t=document.getElementById("_toast"); if(t) t.
 async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   const total=PLANT_KINDS.reduce((s,k)=>s+((PLANT_DB[k]||[]).length),0);
+  // Safety: publishing overwrites the server. If this device is behind, warn before it wipes
+  // AI images that live on the server but not in the local book (the cross-device data-loss trap).
+  try{ const sr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbook"})}); const sd=await sr.json();
+    if(sd&&sd.found&&sd.book){ const localHas={}; PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>{ if(p&&p.id&&p.img) localHas[p.id]=1; }));
+      const lost=[]; PLANT_KINDS.forEach(k=>(sd.book[k]||[]).forEach(p=>{ if(p&&p.imgAI&&p.img&&!localHas[p.id]) lost.push(p.c||p.id); }));
+      if(lost.length){ if(!confirm("⚠ This publish will DELETE "+lost.length+" AI image(s) that are on the server but missing from this device:\n\n"+lost.slice(0,12).join(", ")+(lost.length>12?", …":"")+"\n\nThis usually means this device is out of date. Safer: click Cancel, then ☁ Pull master first.\n\nPublish anyway?")){ _toast("Publish cancelled — pull master first","#B23F3C"); return; } }
+    }
+  }catch(e){}
   _toast("Publishing…","#6A4FA3");
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H"})}); const d=await r.json();
     if(d&&d.ok){ try{ await _saveConfigSilent(); }catch(e){}   // also save favorites, prefs & pricing to the server
