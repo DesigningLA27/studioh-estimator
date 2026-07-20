@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v405</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v406</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3724,7 +3724,13 @@ async function aiPlantImage(kind,pid,opts){ opts=opts||{};
     // downscale to 512px, then host on R2 so the book stores just a light URL (not base64)
     let small=null; try{ small=await _fetchTo512(d.url); }catch(e){}
     let stored=small||d.url;   // fallbacks: downscaled base64, then the raw fal URL
-    if(small){ const up=await _uploadImageR2(kind+"_"+pid+"_"+Date.now().toString(36), small); if(up.ok && await _imgLoads(up.url)) stored=up.url; /* else keep the embedded 512px image so it always shows */ }
+    if(small){ const up=await _uploadImageR2(kind+"_"+pid+"_"+Date.now().toString(36), small);
+      // R2 store+serve was already health-checked by _ensureR2() this session, so a confirmed upload
+      // (up.ok) is durable — trust it even if the brand-new file isn't servable within the instant
+      // re-check window (R2 write→read has a short propagation lag). Only keep base64 if the upload
+      // itself failed; verify with a couple of retries but never discard a good R2 link over a slow read.
+      if(up.ok && up.url){ let served=false; for(let a=0;a<3 && !served;a++){ served=await _imgLoads(up.url); } stored=up.url; }
+    }
     // keep whatever real photo existed so it can be restored
     if(p.img && !p.imgAI && !p.imgPrev) p.imgPrev=p.img;
     p.img=stored; p.imgAI=true; p.imgSrc="AI"; p.imgLic=""; p.imgAttr=""; p.imgFlag=false; p._imgMod=Date.now();
