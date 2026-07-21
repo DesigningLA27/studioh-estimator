@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v407</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v408</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -3445,7 +3445,7 @@ const PLANT_KIND_LABEL={shrub:"Shrubs",tree:"Trees",palm:"Palms",gc:"Groundcover
     PLANT_DB[k]=saved[k];
   });
 })();
-function plantBookSave(){ _imgNameIdx=null; try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ /* local cache full (common on Safari) — harmless, the master book lives on the server */ } if(typeof renderPlantBook==="function") renderPlantBook(); }
+function plantBookSave(){ _imgNameIdx=null; try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ /* local cache full (common on Safari) — harmless, the master book lives on the server */ } if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof _scheduleAutoPublish==="function") _scheduleAutoPublish(); }
 const IMG_FIELDS=["img","imgAI","imgSrc","imgPrev","imgLic","imgAttr","imgFlag","_imgMod"];
 function plantBookMerge(data, mode){ if(!data) return;
   // ids present anywhere locally — so a plant you reclassified (moved to another type) is NOT re-added to its old type
@@ -3506,6 +3506,31 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
     else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try Publish again."); }
     else { alert("Publish failed: "+((d&&d.error)||"error")); }
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
+}
+// ── Auto-publish: silent background save to the server ──
+// Triggers: (1) right after an AI image is generated, (2) 5 minutes after the last plant-book change.
+// Never prompts. Skips (does NOT clobber) if this device is behind the server, keeping the v403 safety.
+let _autoPubTimer=null, _autoPubBusy=false;
+function _scheduleAutoPublish(){ try{ if(_autoPubTimer) clearTimeout(_autoPubTimer); _autoPubTimer=setTimeout(()=>{ _autoPubTimer=null; _autoPublish("idle"); }, 5*60*1000); }catch(e){} }
+async function _autoPublish(reason){
+  if(_autoPubBusy) return;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key) return;   // no stored admin key → never prompt during a silent autosave
+  if(_autoPubTimer){ clearTimeout(_autoPubTimer); _autoPubTimer=null; }
+  _autoPubBusy=true;
+  try{
+    // Stale-device guard: if publishing now would delete AI images that exist on the server but not
+    // locally, SKIP the autosave and warn — never silently clobber the server.
+    const sr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbook"})}); const sd=await sr.json();
+    if(sd&&sd.found&&sd.book){ const localHas={}; PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>{ if(p&&p.id&&p.img) localHas[p.id]=1; }));
+      let lost=0; PLANT_KINDS.forEach(k=>(sd.book[k]||[]).forEach(p=>{ if(p&&p.imgAI&&p.img&&!localHas[p.id]) lost++; }));
+      if(lost){ _toast("Auto-save skipped — this device is behind ("+lost+" server image"+(lost>1?"s":"")+" missing). Click ☁ Pull master.","#B23F3C"); _autoPubBusy=false; return; }
+    }
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (auto)"})}); const d=await r.json();
+    if(d&&d.ok) _toast("Auto-saved to server ✓","#6A4FA3");
+  }catch(e){}
+  _autoPubBusy=false;
 }
 // pull master on startup (server wins), non-blocking
 // ── Master book backups (auto-saved on every publish) ──
@@ -3724,8 +3749,8 @@ async function _composeTwoView(fullUrl, closeUrl){
 // Macro close-up prompt for the right panel
 function plantCloseupPrompt(p,kind){ const bot=(botName(p)||"").trim(), com=(p.c||"").trim();
   const cols=(typeof bloomColorsOf==="function"?bloomColorsOf(p):[]).filter(k=>k&&k!=="none").map(k=>(BLOOM_COLOR_MAP[k]?BLOOM_COLOR_MAP[k].lab.toLowerCase():"")).filter(Boolean).join(" / ");
-  const detail=cols?`its ${cols} flowers in bloom`:"its foliage and leaf detail";
-  return `A crisp photorealistic macro CLOSE-UP illustration of ${detail} of the ${bot||com} plant, filling the frame, sharp true-to-life detail, warm natural daylight, professional plant-catalogue quality. No text, no watermarks, no people, no hands.`; }
+  const subject=cols?`a single ${cols} flower / bloom cluster`:"a single leaf and stem detail";
+  return `An EXTREME macro close-up illustration of ${subject} of the ${bot||com} plant, filling the ENTIRE frame edge to edge, petals/stamens (or leaf veins) in razor-sharp focus with a softly blurred background. This is a TIGHT botanical flower close-up ONLY — NOT the whole plant, NOT a shrub, NOT a garden or landscape. Warm natural daylight, professional plant-catalogue quality, true-to-life colour. No text, no watermarks, no people, no hands.`; }
 
 async function aiPlantImage(kind,pid,opts){ opts=opts||{};
   const p=plantDbFind(kind,pid); if(!p) return {ok:false};
@@ -3839,8 +3864,9 @@ async function _paimgGo(kind,pid){
   const setSt=(t,c)=>{ if(st){ st.textContent=t; st.style.color=c||"var(--tm)"; } };
   if(gb) gb.disabled=true; setSt("Generating… (10–20 sec)","#6A4FA3");
   const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef, ref2:_paimgRef2, twoView, style, heightFt});
-  if(r.ok){ setSt("✓ Done.","var(--gm)"); _paimgRef=null; _paimgRef2=null;
+  if(r.ok){ setSt("✓ Done — saving…","var(--gm)"); _paimgRef=null; _paimgRef2=null;
     if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender();
+    if(typeof _autoPublish==="function") _autoPublish("image");   // auto-save the new image to the server
     setTimeout(()=>{ const m=document.getElementById("paimg-modal"); if(m) m.remove(); },600);
   } else { setSt("Failed: "+(r.err||"error"),"#B23F3C"); if(gb) gb.disabled=false; }
 }
