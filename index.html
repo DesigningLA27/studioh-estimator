@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v424</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v425</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -11072,11 +11072,12 @@ async function ptSatZoom(delta){ if(!PT.satBase) return; const sb=PT.satBase; co
   PT.satBase=nb; PT.doc=_ptImageDoc(img,nb.w,nb.h);
   try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ ptUpdateInfo(); }catch(e){}
 }
-// Fetch a high-res satellite base by stitching a grid of Static Maps tiles at a higher zoom, covering
-// the same ground as one image at `baseZoom` — `grid`× sharper. Returns a canvas + its projection sb.
-async function _fetchSatStitched(center, baseZoom, grid, scale){
+// Fetch a high-res satellite base by stitching a grid×grid set of Static Maps tiles at `tileZoom`
+// into one canvas. tileZoom≈21 is the real imagery-detail ceiling; grid controls coverage. The total
+// canvas is kept under iOS Safari's ~16 MP (4096²) limit. Returns a canvas + its projection sb.
+async function _fetchSatStitched(center, tileZoom, grid, scale){
   const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw", size=640; const tilePx=size*scale;
-  const tileZoom=baseZoom+Math.round(Math.log2(grid));   // grid tiles per side == +log2(grid) zoom levels
+  while(tilePx*grid>4000 && grid>1) grid--;   // stay under the iOS canvas cap
   const mpp=156543.03392*Math.cos(center.lat*Math.PI/180)/Math.pow(2,tileZoom)/scale;   // metres per stitched pixel
   const tileGroundM=tilePx*mpp, half=(grid-1)/2, cosLat=Math.cos(center.lat*Math.PI/180);
   const cv=document.createElement("canvas"); cv.width=tilePx*grid; cv.height=tilePx*grid; const ctx=cv.getContext("2d");
@@ -11094,10 +11095,10 @@ async function ptOpenSatellite(keepTrace){
   let ctr=null; try{ if(typeof map!=="undefined"&&map&&map.getCenter){ const c=map.getCenter(); if(c) ctr={lat:c.lat(),lng:c.lng()}; } }catch(e){}
   if(keepTrace && PT.satBase) ctr=PT.satBase.center;
   if(!ctr || (Math.abs(ctr.lat)<0.02&&Math.abs(ctr.lng)<0.02)){ _toast("Enter the property address first so the map centers on it.","#B23F3C"); return; }
-  const baseZoom=(keepTrace&&PT.satBase&&PT.satBase.baseZoom)||19, grid=2, scale=2;   // grid=2 → ~2× sharper than one tile
-  _toast("Loading high-res satellite…","#6A4FA3");
-  let stit; try{ stit=await _fetchSatStitched(ctr, baseZoom, grid, scale); }catch(e){ _toast("Couldn't load the satellite image — check the connection.","#B23F3C"); return; }
-  const sb=stit.sb; sb.baseZoom=baseZoom;
+  const tileZoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||21, grid=3, scale=2;   // zoom 21 = max real detail; 3×3 tiles
+  _toast("Loading high-res satellite (a few tiles)…","#6A4FA3");
+  let stit; try{ stit=await _fetchSatStitched(ctr, tileZoom, grid, scale); }catch(e){ _toast("Couldn't load the satellite image — check the connection.","#B23F3C"); return; }
+  const sb=stit.sb;
   const mpp=156543.03392*Math.cos(ctr.lat*Math.PI/180)/Math.pow(2,sb.zoom)/scale;   // metres per stitched pixel
   const ppf=1/(mpp*3.28084);   // pixels per foot (real-world scale)
   PT.doc=_ptImageDoc(stit.canvas,sb.w,sb.h); PT.pdfData=null; PT.satBase=sb;
