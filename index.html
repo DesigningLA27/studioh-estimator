@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v419</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v420</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -11050,11 +11050,31 @@ function _ptImageDoc(img,w,h){ return { numPages:1,
     render:(o)=>({ promise:new Promise(res=>{ try{ o.canvasContext.drawImage(img,0,0,o.viewport.width,o.viewport.height); }catch(e){} res(); }) }),
     getTextContent:()=>Promise.resolve({items:[]})
   }) }; }
+// Web-Mercator helpers so we can reproject the trace when the satellite zoom changes (keeps every
+// drawn zone aligned to the ground as the base image re-frames).
+function _mercWorld(lat,lng){ const x=(lng+180)/360*256; const s=Math.max(-0.9999,Math.min(0.9999,Math.sin(lat*Math.PI/180))); const y=(0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*256; return {x,y}; }
+function _mercInv(x,y){ const lng=x/256*360-180; const n=Math.PI-2*Math.PI*y/256; const lat=Math.atan(Math.sinh(n))*180/Math.PI; return {lat,lng}; }
+function _satPxToLatLng(px,py,sb){ const wc=_mercWorld(sb.center.lat,sb.center.lng); const f=Math.pow(2,sb.zoom)*sb.scale; return _mercInv((px-sb.w/2)/f+wc.x,(py-sb.h/2)/f+wc.y); }
+function _satLatLngToPx(lat,lng,sb){ const wp=_mercWorld(lat,lng), wc=_mercWorld(sb.center.lat,sb.center.lng); const f=Math.pow(2,sb.zoom)*sb.scale; return {x:(wp.x-wc.x)*f+sb.w/2, y:(wp.y-wc.y)*f+sb.h/2}; }
+async function ptSatZoom(delta){ if(!PT.satBase) return; const sb=PT.satBase; const nz=Math.max(16,Math.min(21,sb.zoom+delta)); if(nz===sb.zoom) return;
+  const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw"; const size=640;
+  const url=`https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center=${sb.center.lat.toFixed(6)},${sb.center.lng.toFixed(6)}&zoom=${nz}&size=${size}x${size}&scale=${sb.scale}&key=${KEY}`;
+  let img; try{ img=await _loadImgEl(url); }catch(e){ _toast("Couldn't reframe.","#B23F3C"); return; }
+  const nb={center:sb.center, zoom:nz, scale:sb.scale, w:img.naturalWidth||sb.w, h:img.naturalHeight||sb.h, url};
+  const reproj=pt=>{ const ll=_satPxToLatLng(pt.x,pt.y,sb); return _satLatLngToPx(ll.lat,ll.lng,nb); };
+  const mpp=156543.03392*Math.cos(sb.center.lat*Math.PI/180)/Math.pow(2,nz)/sb.scale; PT.ppf=1/(mpp*3.28084);
+  PT.polys.forEach(p=>{ p.pts=p.pts.map(reproj);
+    if(p.kind==="linear"){ let L=0; for(let i=1;i<p.pts.length;i++) L+=Math.hypot(p.pts[i].x-p.pts[i-1].x,p.pts[i].y-p.pts[i-1].y); p.lf=L/PT.ppf; }
+    else p.sf=_ptPolySF(p.pts); });
+  PT.trees.forEach(t=>{ const np=reproj({x:t.x,y:t.y}); t.x=np.x; t.y=np.y; });
+  PT.satBase=nb; PT.doc=_ptImageDoc(img,nb.w,nb.h);
+  try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ ptUpdateInfo(); }catch(e){}
+}
 async function ptOpenSatellite(keepTrace){
   let ctr=null; try{ if(typeof map!=="undefined"&&map&&map.getCenter){ const c=map.getCenter(); if(c) ctr={lat:c.lat(),lng:c.lng()}; } }catch(e){}
   if(keepTrace && PT.satBase) ctr=PT.satBase.center;
   if(!ctr || (Math.abs(ctr.lat)<0.02&&Math.abs(ctr.lng)<0.02)){ _toast("Enter the property address first so the map centers on it.","#B23F3C"); return; }
-  const zoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||20, scale=2, size=640;
+  const zoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||19, scale=2, size=640;
   const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw";
   const url=`https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center=${ctr.lat.toFixed(6)},${ctr.lng.toFixed(6)}&zoom=${zoom}&size=${size}x${size}&scale=${scale}&key=${KEY}`;
   _toast("Loading satellite…","#6A4FA3");
@@ -11068,8 +11088,14 @@ async function ptOpenSatellite(keepTrace){
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.detectedScale=null; PT.sheetIn=null;
   ptRenderModal(); try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ refreshTraceButtons(); }catch(e){}
-  _toast("Satellite loaded — scale set automatically. Trace away.","#2f5b23");
+  _ptAddSatZoomBtns();
+  _toast("Satellite loaded — scale set automatically. Use ⊕/⊖ to reframe. Trace away.","#2f5b23");
 }
+function _ptAddSatZoomBtns(){ const host=document.getElementById("pt-modal"); if(!host) return; let z=document.getElementById("pt-satzoom"); if(z) z.remove();
+  z=document.createElement("div"); z.id="pt-satzoom"; z.style.cssText="position:fixed;top:64px;left:14px;z-index:100050;display:flex;flex-direction:column;gap:5px";
+  const mk=(t,d,tip)=>`<button onclick="ptSatZoom(${d})" title="${tip}" style="width:36px;height:36px;border-radius:9px;border:none;background:rgba(20,28,18,.82);color:#fff;font-size:20px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.35)">${t}</button>`;
+  z.innerHTML=mk("＋",1,"Zoom in (more detail, less area)")+mk("－",-1,"Zoom out (fit the whole lot)");
+  host.appendChild(z); }
 function ptHasTrace(){ return (typeof PT!=="undefined") && !!PT.pdfData; }
 function refreshTraceButtons(){ /* button is always visible now; ptReopen explains if there is nothing to open */ }
 async function _ptOpenDocBuf(buf, keepTrace){
