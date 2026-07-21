@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v409</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v410</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -11259,61 +11259,86 @@ let CLOUD_BID_ID=null; let CLOUD_BID_NAME=null;
 let CLOUD_PDF_SIG=null;   // fingerprint of the PDF already on the server for CLOUD_BID_ID
 function _pdfSig(b64){ if(!b64) return null; return b64.length+":"+b64.slice(0,64)+":"+b64.slice(-64); }
 async function _listCloudBids(ep){ try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"listbids"})}); const d=await r.json(); return (d&&d.bids)||[]; }catch(e){ return []; } }
-async function cloudSaveBid(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
-  const key=_adminKey(); if(!key) return;
-  const dflt=CLOUD_BID_NAME||(S.pi&&S.pi.client)||"Project";
-  const name=(prompt("Project name for this bid:", dflt)||"").trim(); if(!name) return;
-
-  // Decide: update an existing project, or create a new one?
-  let targetId=CLOUD_BID_ID;
-  const existing=await _listCloudBids(ep);
+// Save project to server. Uses an IN-PAGE modal for the name + update/new choice — never native
+// prompt()/confirm(), which Firefox silently suppresses once "prevent additional dialogs" is ticked
+// (that was the "Save to server does nothing" bug).
+let _csbName="", _csbMatch=null;
+function cloudSaveBid(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ _toast("No worker connected.","#B23F3C"); return; }
+  const dflt=CLOUD_BID_NAME||(S.pi&&S.pi.client)||"Project"; _csbMatch=null;
+  let d=document.getElementById("csb-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="csb-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10050;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div id="csb-inner" style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="font-size:1.05rem;font-weight:700;color:var(--gm);margin-bottom:.5rem">☁ Save project to server</div>
+    <div style="font-size:.78rem;color:var(--tm);margin-bottom:.35rem">Project name</div>
+    <input id="csb-name" value="${escAttr(dflt)}" style="width:100%;padding:.5rem .6rem;border:1px solid var(--br);border-radius:8px;font-size:.9rem;margin-bottom:.8rem">
+    <div id="csb-msg" style="font-size:.75rem;color:#B23F3C;margin-bottom:.5rem;min-height:1em"></div>
+    <div style="display:flex;justify-content:flex-end;gap:.5rem">
+      <button class="btn" onclick="var m=document.getElementById('csb-modal'); if(m) m.remove();" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Cancel</button>
+      <button class="btn" id="csb-save" onclick="_cloudSaveBidName()" style="padding:.45rem 1.1rem;font-size:.82rem;background:var(--gm);color:#fff;border:none;font-weight:600">Save</button>
+    </div>
+  </div>`;
+  document.body.appendChild(d);
+  const inp=document.getElementById("csb-name"); if(inp){ try{ inp.focus(); inp.select(); }catch(e){} inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); _cloudSaveBidName(); } }); }
+}
+async function _cloudSaveBidName(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  const name=((document.getElementById("csb-name")||{}).value||"").trim();
+  if(!name){ const m=document.getElementById("csb-msg"); if(m) m.textContent="Please enter a name."; return; }
+  _csbName=name;
+  const btn=document.getElementById("csb-save"); if(btn){ btn.disabled=true; btn.textContent="Checking…"; }
+  let existing=[]; try{ existing=await _listCloudBids(ep); }catch(e){}
   const match=existing.find(b=>(b.name||"").trim().toLowerCase()===name.toLowerCase());
   if(match && match.id!==CLOUD_BID_ID){
-    const upd=confirm('A project called "'+name+'" is already on the server (saved '+new Date(match.at).toLocaleString()+').\n\nOK = update it\nCancel = save as a NEW project');
-    targetId = upd ? match.id : null;
-    if(!upd) CLOUD_PDF_SIG=null;   // new project gets its own PDF
-  } else if(!match){
-    targetId = CLOUD_BID_ID || null;   // same session = update; otherwise new
+    _csbMatch=match; const inner=document.getElementById("csb-inner");
+    if(inner) inner.innerHTML=`
+      <div style="font-size:1.05rem;font-weight:700;color:var(--gm);margin-bottom:.5rem">Already on the server</div>
+      <div style="font-size:.82rem;color:var(--tm);margin-bottom:1rem">A project called <b>${escAttr(name)}</b> already exists (saved ${escAttr(new Date(match.at).toLocaleString())}).</div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;flex-wrap:wrap">
+        <button class="btn" onclick="var m=document.getElementById('csb-modal'); if(m) m.remove();" style="padding:.45rem .8rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Cancel</button>
+        <button class="btn" onclick="_cloudSaveBidChoose(false)" style="padding:.45rem .8rem;font-size:.8rem;background:#fff;border:1px solid var(--gm);color:var(--gm)">Save as NEW</button>
+        <button class="btn" onclick="_cloudSaveBidChoose(true)" style="padding:.45rem 1rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">Update it</button>
+      </div>`;
+    return;
   }
-
+  _cloudSaveBidRun(name, CLOUD_BID_ID||null);
+}
+function _cloudSaveBidChoose(update){ _cloudSaveBidRun(_csbName, update?(_csbMatch&&_csbMatch.id):null); }
+async function _cloudSaveBidRun(name, targetId){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  const key=_adminKey(); if(!key) return;
+  const m=document.getElementById("csb-modal"); if(m) m.remove();
+  if(!targetId) CLOUD_PDF_SIG=null;   // a new project gets its own PDF
   const bid=_bidPayload();
   // The traced PDF is the huge part (often 30-50MB). KV caps values at 25MB,
   // so the PDF goes to R2 blob storage separately and the bid keeps a flag.
   let pdfData=null;
   if(bid.trace && bid.trace.pdf){ pdfData=bid.trace.pdf; bid.trace.pdf=null; bid.trace.hasPdf=true; }
   const size=JSON.stringify(bid).length;
-  if(size>20*1024*1024){ alert("This project is still too large to save ("+Math.round(size/1024/1024)+"MB) even without the PDF."); return; }
-
-  const _busy=(msg)=>{ let b=document.getElementById("cb-busy"); if(!b){ b=document.createElement("div"); b.id="cb-busy"; b.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10001;display:flex;align-items:center;justify-content:center"; b.innerHTML='<div style="background:#fff;border-radius:12px;padding:1rem 1.4rem;font-size:.9rem;color:#3d6b2e;font-weight:600"></div>'; document.body.appendChild(b); } b.firstChild.textContent=msg; };
+  if(size>20*1024*1024){ _toast("Too large to save ("+Math.round(size/1024/1024)+"MB) even without the PDF.","#B23F3C"); return; }
+  const _busy=(msg)=>{ let b=document.getElementById("cb-busy"); if(!b){ b=document.createElement("div"); b.id="cb-busy"; b.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10060;display:flex;align-items:center;justify-content:center"; b.innerHTML='<div style="background:#fff;border-radius:12px;padding:1rem 1.4rem;font-size:.9rem;color:#3d6b2e;font-weight:600"></div>'; document.body.appendChild(b); } b.firstChild.textContent=msg; };
   const _done=()=>{ const b=document.getElementById("cb-busy"); if(b) b.remove(); };
   try{
     _busy(targetId?"Updating project…":"Saving project…");
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebid",key,id:targetId||undefined,name,addr:(S.pi&&S.pi.address)||"",bid})}); const d=await r.json();
     if(!(d&&d.ok)){ _done();
-      if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try again."); }
-      else alert("Save failed: "+((d&&d.error)||"error"));
+      if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} _toast("Wrong admin key — cleared it. Try Save again.","#B23F3C"); }
+      else _toast("Save failed: "+((d&&d.error)||"error"),"#B23F3C");
       return; }
     const wasUpdate=!!targetId;
     CLOUD_BID_ID=d.id; CLOUD_BID_NAME=name;
-
     if(pdfData){
       const sig=_pdfSig(pdfData);
-      if(wasUpdate && CLOUD_PDF_SIG && sig===CLOUD_PDF_SIG){
-        // same PDF already up there — don't re-upload 45MB
-        _done(); alert("Updated ✓\n"+name+"\n(Plan PDF unchanged — not re-uploaded.)");
-        return;
-      }
+      if(wasUpdate && CLOUD_PDF_SIG && sig===CLOUD_PDF_SIG){ _done(); _toast("Updated ✓ — "+name+" (plan PDF unchanged)"); return; }
       _busy("Uploading plan PDF ("+Math.round(pdfData.length*0.75/1024/1024)+"MB)…");
       // send RAW BYTES — base64 JSON blows past the worker's memory limit on big plans
       const bytes=new Uint8Array(_b642ab(pdfData));
       const pr=await fetch(ep+"?pdfup="+encodeURIComponent(d.id)+"&key="+encodeURIComponent(key),{method:"POST",headers:{"Content-Type":"application/pdf"},body:bytes}); const pd=await pr.json();
       _done();
-      if(pd&&pd.ok){ CLOUD_PDF_SIG=sig; alert((wasUpdate?"Updated ✓\n":"Saved to server ✓\n")+name+"\nPlan PDF stored — opens on any device."); }
-      else alert("Project saved ✓\nBut the plan PDF didn't upload"+(pd&&pd.error?(": "+pd.error):"")+".\nYour traced areas and costs are safe.");
+      if(pd&&pd.ok){ CLOUD_PDF_SIG=sig; _toast((wasUpdate?"Updated ✓ — ":"Saved to server ✓ — ")+name+" (plan PDF stored)"); }
+      else _toast("Project saved ✓ — but the plan PDF didn't upload"+(pd&&pd.error?(": "+pd.error):"")+". Areas & costs are safe.","#B8860B");
       return;
     }
-    _done(); alert((wasUpdate?"Updated ✓\n":"Saved to server ✓\n")+name);
-  }catch(e){ _done(); alert("Save failed ("+((e&&e.message)||"error")+")."); }
+    _done(); _toast((wasUpdate?"Updated ✓ — ":"Saved to server ✓ — ")+name);
+  }catch(e){ _done(); _toast("Save failed ("+((e&&e.message)||"error")+").","#B23F3C"); }
 }
 async function cloudOpenBids(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   let d=document.getElementById("cb-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="cb-modal";
