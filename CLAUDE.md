@@ -58,3 +58,4 @@ All AI-dependent features (narratives, plan review, PDF symbol counting) land in
 - Client portal (sandbox only, never source of truth; margin/markup ALWAYS hidden client-side)
 - Per-user accounts + per-user plant favorites (separate from shared master book)
 - Shareable client report URLs
+- **Per-user plant-report image framing** (zoom/pan). Currently stored globally on the shared plant-book record (`imgZoom`/`imgPanX`/`imgPanY`), so one user's adjustment would change the image for all users. Once user profiles exist, move this to per-user (or per-project) so reframing is scoped to that user and never affects the shared book.
