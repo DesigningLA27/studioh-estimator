@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v423</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v424</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -11072,19 +11072,35 @@ async function ptSatZoom(delta){ if(!PT.satBase) return; const sb=PT.satBase; co
   PT.satBase=nb; PT.doc=_ptImageDoc(img,nb.w,nb.h);
   try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ ptUpdateInfo(); }catch(e){}
 }
+// Fetch a high-res satellite base by stitching a grid of Static Maps tiles at a higher zoom, covering
+// the same ground as one image at `baseZoom` — `grid`× sharper. Returns a canvas + its projection sb.
+async function _fetchSatStitched(center, baseZoom, grid, scale){
+  const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw", size=640; const tilePx=size*scale;
+  const tileZoom=baseZoom+Math.round(Math.log2(grid));   // grid tiles per side == +log2(grid) zoom levels
+  const mpp=156543.03392*Math.cos(center.lat*Math.PI/180)/Math.pow(2,tileZoom)/scale;   // metres per stitched pixel
+  const tileGroundM=tilePx*mpp, half=(grid-1)/2, cosLat=Math.cos(center.lat*Math.PI/180);
+  const cv=document.createElement("canvas"); cv.width=tilePx*grid; cv.height=tilePx*grid; const ctx=cv.getContext("2d");
+  const jobs=[];
+  for(let j=0;j<grid;j++) for(let i=0;i<grid;i++){
+    const dxM=(i-half)*tileGroundM, dyM=(j-half)*tileGroundM;
+    const c={lat:center.lat-dyM/111320, lng:center.lng+dxM/(111320*cosLat)};
+    const url=`https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center=${c.lat.toFixed(6)},${c.lng.toFixed(6)}&zoom=${tileZoom}&size=${size}x${size}&scale=${scale}&key=${KEY}`;
+    jobs.push(_loadImgEl(url).then(im=>{ try{ ctx.drawImage(im,i*tilePx,j*tilePx,tilePx,tilePx); }catch(e){} }).catch(()=>{}));
+  }
+  await Promise.all(jobs);
+  return {canvas:cv, sb:{center:{lat:center.lat,lng:center.lng}, zoom:tileZoom, scale, w:cv.width, h:cv.height}};
+}
 async function ptOpenSatellite(keepTrace){
   let ctr=null; try{ if(typeof map!=="undefined"&&map&&map.getCenter){ const c=map.getCenter(); if(c) ctr={lat:c.lat(),lng:c.lng()}; } }catch(e){}
   if(keepTrace && PT.satBase) ctr=PT.satBase.center;
   if(!ctr || (Math.abs(ctr.lat)<0.02&&Math.abs(ctr.lng)<0.02)){ _toast("Enter the property address first so the map centers on it.","#B23F3C"); return; }
-  const zoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||19, scale=2, size=640;
-  const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw";
-  const url=`https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center=${ctr.lat.toFixed(6)},${ctr.lng.toFixed(6)}&zoom=${zoom}&size=${size}x${size}&scale=${scale}&key=${KEY}`;
-  _toast("Loading satellite…","#6A4FA3");
-  let img; try{ img=await _loadImgEl(url); }catch(e){ _toast("Couldn't load the satellite image — check the connection.","#B23F3C"); return; }
-  const w=img.naturalWidth||size*scale, h=img.naturalHeight||size*scale;
-  const mpp=156543.03392*Math.cos(ctr.lat*Math.PI/180)/Math.pow(2,zoom)/scale;   // metres per image pixel
+  const baseZoom=(keepTrace&&PT.satBase&&PT.satBase.baseZoom)||19, grid=2, scale=2;   // grid=2 → ~2× sharper than one tile
+  _toast("Loading high-res satellite…","#6A4FA3");
+  let stit; try{ stit=await _fetchSatStitched(ctr, baseZoom, grid, scale); }catch(e){ _toast("Couldn't load the satellite image — check the connection.","#B23F3C"); return; }
+  const sb=stit.sb; sb.baseZoom=baseZoom;
+  const mpp=156543.03392*Math.cos(ctr.lat*Math.PI/180)/Math.pow(2,sb.zoom)/scale;   // metres per stitched pixel
   const ppf=1/(mpp*3.28084);   // pixels per foot (real-world scale)
-  PT.doc=_ptImageDoc(img,w,h); PT.pdfData=null; PT.satBase={url,w,h,center:{lat:ctr.lat,lng:ctr.lng},zoom,scale};
+  PT.doc=_ptImageDoc(stit.canvas,sb.w,sb.h); PT.pdfData=null; PT.satBase=sb;
   PT.numPages=1; PT.page=1; PT.ppf=ppf;
   if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.subtype={};
     // Drop in the county-parcel boundary as the property line (Lot mode = outline only), reprojected
@@ -11095,14 +11111,8 @@ async function ptOpenSatellite(keepTrace){
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.detectedScale=null; PT.sheetIn=null;
   ptRenderModal(); try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ refreshTraceButtons(); }catch(e){}
-  _ptAddSatZoomBtns();
-  _toast("Satellite loaded — scale set automatically. Use ⊕/⊖ to reframe. Trace away.","#2f5b23");
+  _toast("Satellite loaded (hi-res). Scale set automatically — trace away.","#2f5b23");
 }
-function _ptAddSatZoomBtns(){ const host=document.getElementById("pt-modal"); if(!host) return; let z=document.getElementById("pt-satzoom"); if(z) z.remove();
-  z=document.createElement("div"); z.id="pt-satzoom"; z.style.cssText="position:fixed;top:64px;left:14px;z-index:100050;display:flex;flex-direction:column;gap:5px";
-  const mk=(t,d,tip)=>`<button onclick="ptSatZoom(${d})" title="${tip}" style="width:36px;height:36px;border-radius:9px;border:none;background:rgba(20,28,18,.82);color:#fff;font-size:20px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.35)">${t}</button>`;
-  z.innerHTML=mk("＋",1,"Zoom in (more detail, less area)")+mk("－",-1,"Zoom out (fit the whole lot)");
-  host.appendChild(z); }
 function ptHasTrace(){ return (typeof PT!=="undefined") && !!PT.pdfData; }
 function refreshTraceButtons(){ /* button is always visible now; ptReopen explains if there is nothing to open */ }
 async function _ptOpenDocBuf(buf, keepTrace){
