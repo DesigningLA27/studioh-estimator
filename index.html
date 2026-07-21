@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v416</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v417</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -4197,7 +4197,7 @@ function _plStyle(){ return `
   .plr-safe-tag{display:inline-block;font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#fff;border-radius:4px;padding:1px 5px;margin-right:5px}
   .plr-safe-n{font-size:9px;color:#8a8a80;margin-top:7px;line-height:1.55}
   .plr-foot{font-size:9px;color:#8a8a80;border-top:1px solid #e2ded2;padding-top:8px;margin-top:16px;line-height:1.6}
-  @media print{ .plr-card,.plr-zone,.plr-render{page-break-inside:avoid} .plr-sum{page-break-inside:avoid} .plr-rm,.plr-zact,.plr-adjbtn{display:none!important} }
+  @media print{ .plr-card,.plr-zone,.plr-render{page-break-inside:avoid} .plr-sum{page-break-inside:avoid} .plr-rm,.plr-zact,.plr-adjbtn,.plr-rm-hideprint{display:none!important} }
 `; }
 // ── monoline icons (inline SVG, print-safe) ──
 const PLI={
@@ -4567,12 +4567,11 @@ async function _renderPdfPageCanvas(b64,pageNum,scale){ const lib=await _ptLoadL
 function _planFigurePolys(){ if(typeof PT==="undefined"||!PT.polys) return []; return PT.polys.filter(p=>p&&p.kind!=="linear"&&p.pts&&p.pts.length>=3&&(p.mode==="planting"||p.zone)); }
 function _zoneKeyOf(p){ return p.zone||p.name||(typeof _ptLabel==="function"?_ptLabel(p.mode):p.mode)||"Zone"; }
 async function genPlantingPlan(){ const btn=document.getElementById("pl-plan-btn");
-  const polys=_planFigurePolys();
-  if(!polys.length){ _toast("No traced planting zones found — trace zones on the plan (assign a Zone) first.","#B23F3C"); return; }
+  const hasPdf=(typeof PT!=="undefined")&&!!PT.pdfData;
   if(btn){ btn.disabled=true; btn.textContent="Building…"; }
   try{
-    if((typeof PT!=="undefined")&&PT.pdfData){ await _genPlantingPlanPDF(polys); }
-    else { _toast("Satellite-base plan is the next step — trace a PDF plan to use this now.","#B8860B"); }
+    if(hasPdf){ const polys=_planFigurePolys(); if(!polys.length) _toast("No traced zones found on the plan (assign a Zone in the trace edit popup).","#B23F3C"); else await _genPlantingPlanPDF(polys); }
+    else { await _genPlantingPlanSat(); }
   }catch(e){ _toast("Couldn't build the plan: "+((e&&e.message)||"error"),"#B23F3C"); }
   if(btn){ btn.disabled=false; btn.textContent="⊞ Zones plan"; }
 }
@@ -4605,10 +4604,31 @@ async function _genPlantingPlanPDF(polys){
   const P=ensurePlanting(); P._zonePlan={url, at:Date.now(), legend:keys.map(k=>({name:k,c:styleFor[k].c}))};
   _plRender(); _toast("Planting-zones plan added ✓");
 }
+// Satellite takeoff: no PDF — draw the map-traced areas onto a Google Static satellite image. Google
+// renders the filled polygons server-side (via encoded-polyline path params) and auto-fits the view,
+// so there's no CORS/projection work. Labels come from the legend (type + area) below the image.
+const SAT_MODE_LABELS={lot:"Lot",limit:"Limit of work",building:"Building",demo:"Demo",driveway:"Driveway",planting:"Planting",paving:"Paving / hardscape",exclusion:"Existing (excluded)",turf:"Turf"};
+function _encPoly(pts){ let lastLat=0,lastLng=0,out=""; const enc=v=>{ v=v<0?~(v<<1):(v<<1); let s=""; while(v>=0x20){ s+=String.fromCharCode((0x20|(v&0x1f))+63); v>>=5; } s+=String.fromCharCode(v+63); return s; };
+  pts.forEach(p=>{ const lat=Math.round(p.lat*1e5), lng=Math.round(p.lng*1e5); out+=enc(lat-lastLat)+enc(lng-lastLng); lastLat=lat; lastLng=lng; }); return out; }
+async function _genPlantingPlanSat(){
+  const mp=window._multiPolys||{}; const items=[]; const legend=[];
+  Object.keys(mp).forEach(mode=>{ const arr=mp[mode]||[]; const polys=arr.filter(p=>p&&!p._subtract&&p.getPath&&p.getPath().getLength()>=3); if(!polys.length) return;
+    const col=TRACE_COLORS[mode]||{stroke:"#888888",fill:"#888888"};
+    polys.forEach(poly=>{ const pts=poly.getPath().getArray().map(ll=>({lat:ll.lat(),lng:ll.lng()})); items.push({pts,col}); });
+    legend.push({name:(SAT_MODE_LABELS[mode]||mode), c:col.stroke, sf:Math.round((typeof measured!=="undefined"&&measured[mode])||0)}); });
+  if(!items.length){ _toast("No traced areas on the satellite map yet — trace some zones first.","#B23F3C"); return; }
+  const hex=h=>(h||"#888888").replace("#",""); const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw";
+  const paths=items.map(it=>"path="+encodeURIComponent(`fillcolor:0x${hex(it.col.fill)}59|color:0x${hex(it.col.stroke)}ff|weight:2|enc:${_encPoly(it.pts)}`));
+  const url="https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&size=640x640&scale=2&"+paths.join("&")+"&key="+KEY;
+  if(url.length>8000){ _toast("Too many/large zones for one satellite image — trace fewer or simpler shapes.","#B8860B"); return; }
+  const P=ensurePlanting(); P._zonePlan={url, at:Date.now(), legend, sat:true};
+  _plRender(); _toast("Satellite takeoff added ✓");
+}
 function _plZonePlanHTML(){ const P=S.planting; const zp=P&&P._zonePlan; if(!zp||!zp.url) return "";
-  const legend=(zp.legend||[]).map(l=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#444;margin-right:12px;white-space:nowrap"><span style="width:11px;height:11px;border-radius:2px;background:${l.c};display:inline-block"></span>${escAttr(l.name)}</span>`).join("");
+  const legend=(zp.legend||[]).map(l=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#444;margin-right:12px;white-space:nowrap"><span style="width:11px;height:11px;border-radius:2px;background:${l.c};display:inline-block"></span>${escAttr(l.name)}${l.sf?` · ${(+l.sf).toLocaleString()} SF`:""}</span>`).join("");
+  const title=zp.sat?"Site takeoff — satellite":"Planting zones plan";
   return `<div class="plr-plan" style="margin-bottom:18px;break-inside:avoid">
-    <div class="plr-grp">Planting zones plan</div>
+    <div class="plr-grp" style="display:flex;align-items:center;gap:8px">${title}<a href="${zp.url}" download="site-takeoff.png" target="_blank" rel="noopener" class="plr-rm-hideprint" style="font-size:9px;font-weight:600;color:#6A4FA3;text-decoration:none;border:1px solid #6A4FA3;border-radius:4px;padding:1px 6px">⤓ download</a></div>
     <div style="position:relative"><img src="${zp.url}" style="width:100%;display:block;border:1px solid #e2ded2;border-radius:8px">
       <button class="plr-rm" onclick="removeZonePlan()" title="Remove plan">✕</button></div>
     ${legend?`<div style="margin-top:7px;line-height:1.9">${legend}</div>`:""}
