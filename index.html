@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v417</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v418</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -4617,18 +4617,31 @@ async function _genPlantingPlanSat(){
     polys.forEach(poly=>{ const pts=poly.getPath().getArray().map(ll=>({lat:ll.lat(),lng:ll.lng()})); items.push({pts,col}); });
     legend.push({name:(SAT_MODE_LABELS[mode]||mode), c:col.stroke, sf:Math.round((typeof measured!=="undefined"&&measured[mode])||0)}); });
   if(!items.length){ _toast("No traced areas on the satellite map yet — trace some zones first.","#B23F3C"); return; }
-  const hex=h=>(h||"#888888").replace("#",""); const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw";
+  const hex=h=>(h||"#888888").replace("#","");
   const paths=items.map(it=>"path="+encodeURIComponent(`fillcolor:0x${hex(it.col.fill)}59|color:0x${hex(it.col.stroke)}ff|weight:2|enc:${_encPoly(it.pts)}`));
-  const url="https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&size=640x640&scale=2&"+paths.join("&")+"&key="+KEY;
-  if(url.length>8000){ _toast("Too many/large zones for one satellite image — trace fewer or simpler shapes.","#B8860B"); return; }
-  const P=ensurePlanting(); P._zonePlan={url, at:Date.now(), legend, sat:true};
-  _plRender(); _toast("Satellite takeoff added ✓");
+  // Tight framing: fit an explicit center+zoom to the traced bounds (auto-fit zoomed way out).
+  let mnLa=90,mxLa=-90,mnLn=180,mxLn=-180;
+  items.forEach(it=>it.pts.forEach(p=>{ if(p.lat<mnLa)mnLa=p.lat; if(p.lat>mxLa)mxLa=p.lat; if(p.lng<mnLn)mnLn=p.lng; if(p.lng>mxLn)mxLn=p.lng; }));
+  const dLa=(mxLa-mnLa)||0.0004, dLn=(mxLn-mnLn)||0.0004, pad=0.18;
+  const ne={lat:mxLa+dLa*pad,lng:mxLn+dLn*pad}, sw={lat:mnLa-dLa*pad,lng:mnLn-dLn*pad};
+  const center={lat:(ne.lat+sw.lat)/2,lng:(ne.lng+sw.lng)/2};
+  const sat={center,zoom:_fitZoom(ne,sw,600,600),paths,legend};
+  _renderSatPlan(sat);
 }
+function _fitZoom(ne,sw,wPx,hPx){ const WD=256,ZMAX=20; const latRad=lat=>{ const s=Math.sin(lat*Math.PI/180); const r=Math.log((1+s)/(1-s))/2; return Math.max(Math.min(r,Math.PI),-Math.PI)/2; };
+  const z=(mp,wp,fr)=>Math.floor(Math.log(mp/wp/Math.max(fr,1e-9))/Math.LN2);
+  const latF=(latRad(ne.lat)-latRad(sw.lat))/Math.PI; let lngD=ne.lng-sw.lng; if(lngD<0)lngD+=360; const lngF=lngD/360;
+  return Math.max(1,Math.min(z(hPx,WD,latF),z(wPx,WD,lngF),ZMAX)); }
+function _satPlanUrl(sat){ const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw";
+  return `https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&size=640x640&scale=2&center=${sat.center.lat.toFixed(6)},${sat.center.lng.toFixed(6)}&zoom=${sat.zoom}&${sat.paths.join("&")}&key=${KEY}`; }
+function _renderSatPlan(sat){ const url=_satPlanUrl(sat); if(url.length>8000){ _toast("Too many/large zones for one satellite image — trace fewer or simpler shapes.","#B8860B"); return; }
+  const P=ensurePlanting(); P._zonePlan={url, at:Date.now(), legend:sat.legend, sat:true, satParams:sat}; _plRender(); _toast("Satellite takeoff added ✓"); }
+function adjustZonePlanZoom(d){ const zp=S.planting&&S.planting._zonePlan; if(!zp||!zp.satParams) return; zp.satParams.zoom=Math.max(1,Math.min(21,(zp.satParams.zoom||18)+d)); zp.url=_satPlanUrl(zp.satParams); _plRender(); }
 function _plZonePlanHTML(){ const P=S.planting; const zp=P&&P._zonePlan; if(!zp||!zp.url) return "";
   const legend=(zp.legend||[]).map(l=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#444;margin-right:12px;white-space:nowrap"><span style="width:11px;height:11px;border-radius:2px;background:${l.c};display:inline-block"></span>${escAttr(l.name)}${l.sf?` · ${(+l.sf).toLocaleString()} SF`:""}</span>`).join("");
   const title=zp.sat?"Site takeoff — satellite":"Planting zones plan";
   return `<div class="plr-plan" style="margin-bottom:18px;break-inside:avoid">
-    <div class="plr-grp" style="display:flex;align-items:center;gap:8px">${title}<a href="${zp.url}" download="site-takeoff.png" target="_blank" rel="noopener" class="plr-rm-hideprint" style="font-size:9px;font-weight:600;color:#6A4FA3;text-decoration:none;border:1px solid #6A4FA3;border-radius:4px;padding:1px 6px">⤓ download</a></div>
+    <div class="plr-grp" style="display:flex;align-items:center;gap:8px">${title}${zp.sat?`<span class="plr-rm-hideprint" style="display:inline-flex;gap:3px"><button onclick="adjustZonePlanZoom(1)" title="Zoom in" style="width:22px;height:20px;border:1px solid #6A4FA3;background:#fff;color:#6A4FA3;border-radius:4px;font-size:13px;font-weight:700;cursor:pointer;padding:0">＋</button><button onclick="adjustZonePlanZoom(-1)" title="Zoom out" style="width:22px;height:20px;border:1px solid #6A4FA3;background:#fff;color:#6A4FA3;border-radius:4px;font-size:13px;font-weight:700;cursor:pointer;padding:0">－</button></span>`:""}<a href="${zp.url}" download="site-takeoff.png" target="_blank" rel="noopener" class="plr-rm-hideprint" style="font-size:9px;font-weight:600;color:#6A4FA3;text-decoration:none;border:1px solid #6A4FA3;border-radius:4px;padding:1px 6px">⤓ download</a></div>
     <div style="position:relative"><img src="${zp.url}" style="width:100%;display:block;border:1px solid #e2ded2;border-radius:8px">
       <button class="plr-rm" onclick="removeZonePlan()" title="Remove plan">✕</button></div>
     ${legend?`<div style="margin-top:7px;line-height:1.9">${legend}</div>`:""}
