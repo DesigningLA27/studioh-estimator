@@ -211,7 +211,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 <body>
 
 <div id="header">
-  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v418</span></div>
+  <div class="logo">Studio H <span>·</span> Cost Estimator <span style="font-size:.7rem;font-weight:700;letter-spacing:.02em;background:#3d6b2e;color:#fff;border-radius:8px;padding:.1rem .45rem;margin-left:.35rem">v419</span></div>
   <div class="tabs">
     <button class="tab on"  data-view="client">Client View</button>
     <button class="tab"     data-view="pro">Pro / In-House</button>
@@ -545,7 +545,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
     <div id="map-wrap" style="position:relative;margin-bottom:.75rem">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
         <span style="font-size:.72rem;color:var(--tm)">Trace from the satellite map below, or overlay a to-scale plan PDF to trace exact areas.</span>
-        <label class="btn" style="padding:.35rem .8rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;cursor:pointer" title="Import a to-scale PDF plan (concept or CDs), calibrate the scale, and trace planting / hardscape / pool areas straight into the estimate.">⊞ Trace from PDF plan<input type="file" accept="application/pdf,.pdf" style="display:none" onchange="ptLoadPdf(this)"></label><label class="btn" style="padding:.32rem .75rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer;margin-left:.4rem" title="Open a saved trace or bid file that already has the plan embedded — no need to load the PDF first.">📁 Open saved (.json)<input type="file" accept="application/json,.json" style="display:none" onchange="ptLoadSaved(this)"></label><button class="btn pt-edit-btn" style="padding:.32rem .75rem;font-size:.78rem;background:#2E8B9E;color:#fff;border:none;cursor:pointer;margin-left:.4rem;align-items:center" onclick="ptReopen()" title="Reopen the plan you already have loaded and edit the trace">✎ Edit trace</button>
+        <button class="btn" style="padding:.35rem .8rem;font-size:.8rem;background:#2E8B9E;color:#fff;border:none;cursor:pointer" title="Trace directly on the property's satellite image — the full pencil tracer (all modes: planting, firepit, shade, trees…), scale set automatically. Enter the address first." onclick="ptOpenSatellite()">🛰 Trace on satellite</button><label class="btn" style="padding:.35rem .8rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;cursor:pointer;margin-left:.4rem" title="Import a to-scale PDF plan (concept or CDs), calibrate the scale, and trace planting / hardscape / pool areas straight into the estimate.">⊞ Trace from PDF plan<input type="file" accept="application/pdf,.pdf" style="display:none" onchange="ptLoadPdf(this)"></label><label class="btn" style="padding:.32rem .75rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer;margin-left:.4rem" title="Open a saved trace or bid file that already has the plan embedded — no need to load the PDF first.">📁 Open saved (.json)<input type="file" accept="application/json,.json" style="display:none" onchange="ptLoadSaved(this)"></label><button class="btn pt-edit-btn" style="padding:.32rem .75rem;font-size:.78rem;background:#2E8B9E;color:#fff;border:none;cursor:pointer;margin-left:.4rem;align-items:center" onclick="ptReopen()" title="Reopen the plan you already have loaded and edit the trace">✎ Edit trace</button>
       </div>
       <div id="site-map" style="width:100%;height:420px;border-radius:8px;border:1px solid var(--br);overflow:hidden;background:#e8e0d5"></div>
       <!-- Drawing toolbar -->
@@ -11025,6 +11025,7 @@ async function ptLoadPdf(input){ const f=input&&input.files&&input.files[0]; if(
 // Reopen the trace already in memory (from the current session or a loaded project) — no file picker
 async function ptReopen(){
   if(typeof PT==="undefined"){ alert("Trace tool not ready."); return; }
+  if(!PT.pdfData && PT.satBase){ await ptOpenSatellite(true); return; }   // satellite trace — reopen on the same image
   // Not in memory? If this project came from the server, fetch its plan PDF from R2.
   if(!PT.pdfData && typeof CLOUD_BID_ID!=="undefined" && CLOUD_BID_ID){
     const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
@@ -11038,6 +11039,36 @@ async function ptReopen(){
   if(!PT.pdfData){ alert("No plan is loaded.\n\nUse \u229E Trace from PDF plan to open the PDF — your existing traced areas will still be there."); return; }
   try{ const ok=await _ptOpenDocBuf(_b642ab(PT.pdfData), true); if(!ok) alert("Couldn't reopen the plan."); }
   catch(e){ alert("Couldn't reopen the plan ("+((e&&e.message)||"error")+")."); }
+}
+// ── Trace on the satellite image: reuse the ENTIRE PDF tracer (full-screen, pencil, all modes,
+// per-zone name/phase, live estimate) with a Google satellite image as the base "page". A tiny
+// pdf.js shim makes the image look like a 1-page plan, so no other PT code changes. Real-world scale
+// (ppf) is computed from the satellite zoom + latitude — no manual calibration needed. ──
+function _ptImageDoc(img,w,h){ return { numPages:1,
+  getPage:()=>Promise.resolve({
+    getViewport:(o)=>{ const s=(o&&o.scale)||1; return {width:w*s,height:h*s,scale:s}; },
+    render:(o)=>({ promise:new Promise(res=>{ try{ o.canvasContext.drawImage(img,0,0,o.viewport.width,o.viewport.height); }catch(e){} res(); }) }),
+    getTextContent:()=>Promise.resolve({items:[]})
+  }) }; }
+async function ptOpenSatellite(keepTrace){
+  let ctr=null; try{ if(typeof map!=="undefined"&&map&&map.getCenter){ const c=map.getCenter(); if(c) ctr={lat:c.lat(),lng:c.lng()}; } }catch(e){}
+  if(keepTrace && PT.satBase) ctr=PT.satBase.center;
+  if(!ctr || (Math.abs(ctr.lat)<0.02&&Math.abs(ctr.lng)<0.02)){ _toast("Enter the property address first so the map centers on it.","#B23F3C"); return; }
+  const zoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||20, scale=2, size=640;
+  const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw";
+  const url=`https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center=${ctr.lat.toFixed(6)},${ctr.lng.toFixed(6)}&zoom=${zoom}&size=${size}x${size}&scale=${scale}&key=${KEY}`;
+  _toast("Loading satellite…","#6A4FA3");
+  let img; try{ img=await _loadImgEl(url); }catch(e){ _toast("Couldn't load the satellite image — check the connection.","#B23F3C"); return; }
+  const w=img.naturalWidth||size*scale, h=img.naturalHeight||size*scale;
+  const mpp=156543.03392*Math.cos(ctr.lat*Math.PI/180)/Math.pow(2,zoom)/scale;   // metres per image pixel
+  const ppf=1/(mpp*3.28084);   // pixels per foot (real-world scale)
+  PT.doc=_ptImageDoc(img,w,h); PT.pdfData=null; PT.satBase={url,w,h,center:{lat:ctr.lat,lng:ctr.lng},zoom,scale};
+  PT.numPages=1; PT.page=1; PT.ppf=ppf;
+  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.subtype={}; }
+  PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
+  PT.detectedScale=null; PT.sheetIn=null;
+  ptRenderModal(); try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ refreshTraceButtons(); }catch(e){}
+  _toast("Satellite loaded — scale set automatically. Trace away.","#2f5b23");
 }
 function ptHasTrace(){ return (typeof PT!=="undefined") && !!PT.pdfData; }
 function refreshTraceButtons(){ /* button is always visible now; ptReopen explains if there is nothing to open */ }
