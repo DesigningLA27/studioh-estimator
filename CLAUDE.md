@@ -26,6 +26,7 @@ Live: designingla27.github.io/studioh-estimator · Repo: github.com/designingla2
 - Bump the version number in `index.html`.
 - Backup every version: copy `index.html` to `versions/Cost_Estimator_vXXX.html` (underscores, no spaces).
 - `versions/` is gitignored — backups stay local, never pushed to GitHub.
+- **Auto-push every version.** Standing authorization: after validation passes, commit `index.html` and push to `origin/main` without asking. Commit message = the version's one-line change + `(vXXX)`. Never leave a finished version sitting unpushed.
 
 ## Validation before shipping
 1. Python-extract each `<script>` block
