@@ -591,7 +591,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
 <div id="header">
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v485</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v486</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="seg">
@@ -1479,7 +1479,6 @@ const CATS=[
     {n:"Glass Pool Fence",             u:"LF",q:0, lo:150,hi:380},
     {n:"Cable Railing",                u:"LF",q:0, lo:75, hi:185},
    ]},
-  {id:"pool", name:"Pool / Spa", desc:"Builder — shell, edges, coping, finish, spa, equipment, structural & utilities", lo:0,hi:0, maxA:1500, defA:0, builder:"pool", items:[]},
   {id:"water", name:"Water Features", desc:"Builder — basin, fountain wall, spillways, veneer, pump, filtration & utilities", lo:0,hi:0, maxA:2000, defA:0, builder:"water",
    items:[
     {n:"Prefab Fountain — Standard", u:"EA",q:0, lo:1500, hi:4000,  std:2500, role:"prefab", tier:0},
@@ -1548,7 +1547,7 @@ const CATS=[
     {n:"Concrete Stepper Pad",         u:"EA",q:0, lo:45,  hi:180,  std:90},
     {n:"Site Furniture — Allowance (per piece)", u:"EA",q:0, lo:200, hi:3000, std:800},
    ]},
-  {id:"pool", name:"Swimming Pool", desc:"Gunite pool — shell, finish, coping, equipment, spa & safety", lo:0,hi:0, maxA:2500, defA:0,
+  {id:"pool", name:"Pool / Spa", desc:"Builder — shell, finish, coping, equipment, spa & safety", lo:0,hi:0, maxA:2500, defA:0, builder:"pool",
    items:[
     {n:"Excavation & Haul-off",                 u:"SF",q:0, lo:9,  hi:20,  role:"exc"},
     {n:"Gunite / Shotcrete Shell",              u:"SF",q:0, lo:18, hi:34,  role:"shell"},
@@ -1834,6 +1833,27 @@ const CSI_MAP = {
 function applyCsiRefs(cats,map){ if(!Array.isArray(cats))return; cats.forEach(cat=>{ if(!cat||!Array.isArray(cat.items))return; cat.items.forEach(it=>{ if((it.csiRef==null||it.csiRef==="") && map[it.id]) it.csiRef=map[it.id]; }); }); }
 applyCsiRefs(CATS, CSI_MAP);
 let PB = pbLoad() || pbClone(CATS);
+// One-time: collapse duplicate category ids left by an earlier seed. Two categories both used
+// id:"pool" ("Pool / Spa" builder + "Swimming Pool" items), so mergeDefaults' PB.find() matched
+// the first one every time and pushed the pool item list into the wrong category — both then
+// rendered 37 items. Keeps the first entry and folds in any items it is missing (matched by name),
+// so contractor price edits survive. Runs before mergeDefaults so the merge sees clean data.
+(function dedupePbCats(){
+  try{ if(localStorage.getItem("studioh_catdedupe_v1")) return; }catch(e){}
+  const byId={}, out=[]; let changed=false;
+  PB.forEach(c=>{
+    if(!c || !c.id) return;
+    const prev=byId[c.id];
+    if(prev){
+      if(!Array.isArray(prev.items)) prev.items=[];
+      (c.items||[]).forEach(it=>{ if(!prev.items.some(k=>k.n===it.n)) prev.items.push(pbClone(it)); });
+      if(!prev.builder && c.builder) prev.builder=c.builder;
+      changed=true;
+    } else { byId[c.id]=c; out.push(c); }
+  });
+  if(changed){ PB.length=0; out.forEach(c=>PB.push(c)); pbSave(); }
+  try{ localStorage.setItem("studioh_catdedupe_v1","1"); }catch(e){}
+})();
 // Merge in any new default categories/fields that a saved book predates
 (function mergeDefaults(){
   CATS.forEach(dc=>{
