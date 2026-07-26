@@ -342,6 +342,16 @@ table.pbk td{vertical-align:top}
 .pbx-disc h4{font-size:12.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--tx)}
 .pbx-disc .hint{margin-left:auto;font-size:12px;color:var(--tl)}
 .pbx-cat{border-radius:16px;overflow:hidden;padding:0}
+.pbx-grp{background:var(--surface2);border:1px solid var(--br);border-radius:18px;margin-bottom:14px;overflow:hidden}
+.pbx-grp-h{display:flex;align-items:center;gap:12px;width:100%;padding:14px 18px;background:none;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer;user-select:none}
+.pbx-grp-h:hover{background:color-mix(in srgb,var(--gm) 6%,transparent)}
+.pbx-grp-h:focus-visible{outline:2px solid var(--gm);outline-offset:-3px}
+.pbx-grp-h .seq{font-size:11px;font-weight:800;color:var(--gm);background:var(--brand-soft);border-radius:6px;padding:3px 7px;font-variant-numeric:tabular-nums;flex:none}
+.pbx-grp-h .gnm{font-size:13px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--tx)}
+.pbx-grp-h .gmeta{font-size:12px;color:var(--tl);font-variant-numeric:tabular-nums}
+.pbx-grp-h .gchev{margin-left:auto;color:var(--tl);font-size:11px;flex:none}
+.pbx-grp-b{padding:0 10px 4px}
+.pbx-grp-b .pbx-card{margin-bottom:10px}
 .pbx-cat-h{display:flex;align-items:center;gap:11px;padding:13px 16px}
 .pbx-cat-h .nm{font-size:15px;font-weight:800;color:var(--tx)}
 .pbx-cat-h .ct,.pbx-cat-h .tiers{font-size:11.5px;color:var(--tl)}
@@ -591,7 +601,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
 <div id="header">
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v488</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v489</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="seg">
@@ -1957,7 +1967,20 @@ function pbToggleRates(){ PB_COLLAPSED['_ratetables'] = (PB_COLLAPSED['_ratetabl
 let PB_ROWOPEN={};
 function _pbRowKey(ci,idx){ const it=(PB[ci]&&PB[ci].items[idx])||{}; return it.id||(ci+':'+idx); }
 function pbToggleItemRow(ci,idx){ const k=_pbRowKey(ci,idx); PB_ROWOPEN[k]=!PB_ROWOPEN[k]; renderPriceBook(); }
-function pbCollapseAll(val){ PB.forEach(c=>{ PB_COLLAPSED[c.id]=!!val; }); pbCollapsedSave(); renderPriceBook(); }
+function pbCollapseAll(val){ PB.forEach(c=>{ PB_COLLAPSED[c.id]=!!val; }); PB_GROUPS.forEach(g=>{ PB_COLLAPSED['_g_'+g.id]=!!val; }); pbCollapsedSave(); renderPriceBook(); }
+// ── PRICE BOOK GROUPS ────────────────────────────────────────
+// The Price Book's top level is four groups following the order work happens on site.
+// Every section keeps its own card and builder — grouping is presentation only, so no
+// category id, item id or saved price changes. Sections are listed by id; a category
+// missing from every group (a custom one a contractor added) falls into a catch-all
+// group rendered last, so nothing can be hidden by being absent here.
+const PB_GROUPS=[
+  {id:"prep", seq:"01", name:"Site Prep",  blurb:"Clear, grade, drain",              secs:["sitework","drainage"]},
+  {id:"hard", seq:"02", name:"Hardscape",  blurb:"Paving, walls & structures",       secs:["paving","walls","woodMetal"]},
+  {id:"soft", seq:"03", name:"Softscape",  blurb:"Planting, irrigation & lighting",  secs:["planting","irrigation","lighting"]},
+  {id:"amen", seq:"04", name:"Amenities",  blurb:"Pool, water, fire, kitchen & shade",secs:["pool","water","firepit","kitchen","pergola","amenities"]},
+];
+function pbToggleGroup(gid){ PB_COLLAPSED['_g_'+gid]=!PB_COLLAPSED['_g_'+gid]; pbCollapsedSave(); renderPriceBook(); }
 
 // ── GLOBAL COST SETTINGS (labor rate + default margin) ───────
 let GSET = (function(){ try{ const s=localStorage.getItem("studioh_settings_v1"); if(s) return JSON.parse(s); }catch(e){} return null; })() || {laborRate:95, margin:20};
@@ -9525,7 +9548,7 @@ function renderPriceBook(){
   cbar.style.cssText="display:flex;gap:.5rem;margin-bottom:.8rem;align-items:center";
   cbar.innerHTML=`<span style="font-size:.74rem;color:var(--tl);margin-right:.2rem">Sections</span><button class="btn btn-o" style="font-size:.74rem" onclick="pbCollapseAll(true)">Collapse all</button><button class="btn btn-o" style="font-size:.74rem" onclick="pbCollapseAll(false)">Expand all</button>`;
   host.appendChild(cbar);
-  PB.forEach((cat,ci)=>{
+  const _renderCat=(cat,ci,_mount)=>{
     const color=catColor(cat.id);
     const tiers=SEC_TIERS[cat.id]||["Low","Standard","High"];
     const collapsed=!!PB_COLLAPSED[cat.id];
@@ -9650,7 +9673,40 @@ function renderPriceBook(){
       <div style="padding:8px 16px 16px"><button class="btn btn-o" style="font-size:.78rem" onclick="pbAddItem(${ci})">+ Add line item</button>${cat.id==='pergola'?lkBlock:''}</div>
       `}
     `;
-    host.appendChild(card);
+    _mount.appendChild(card);
+  };
+
+  // Render groups in sequence; each group mounts its own section cards.
+  const _inGroup={};
+  PB_GROUPS.forEach(g=>g.secs.forEach(sid=>{ _inGroup[sid]=1; }));
+  const _groups=PB_GROUPS.map(g=>({
+    g, idxs: g.secs.map(sid=>PB.findIndex(c=>c&&c.id===sid)).filter(i=>i>=0)
+  }));
+  const _orphans=PB.map((c,i)=>i).filter(i=>PB[i]&&!_inGroup[PB[i].id]);
+  if(_orphans.length) _groups.push({g:{id:"other",seq:"—",name:"Other Sections",blurb:"Not assigned to a group"}, idxs:_orphans});
+
+  _groups.forEach(({g,idxs})=>{
+    if(!idxs.length) return;
+    const gcol=!!PB_COLLAPSED['_g_'+g.id];
+    const items=idxs.reduce((a,i)=>a+((PB[i].items||[]).length),0);
+    const wrap=document.createElement("div");
+    wrap.className="pbx-grp";
+    const head=document.createElement("button");
+    head.type="button";
+    head.className="pbx-grp-h";
+    head.setAttribute("aria-expanded", String(!gcol));
+    head.onclick=()=>pbToggleGroup(g.id);
+    head.innerHTML=`<span class="seq">${g.seq}</span><span class="gnm">${g.name}</span>`
+      +`<span class="gmeta">${idxs.length} section${idxs.length>1?'s':''} · ${items} items · ${g.blurb}</span>`
+      +`<span class="gchev">${gcol?'▸':'▾'}</span>`;
+    wrap.appendChild(head);
+    if(!gcol){
+      const body=document.createElement("div");
+      body.className="pbx-grp-b";
+      idxs.forEach(ci=>_renderCat(PB[ci],ci,body));
+      wrap.appendChild(body);
+    }
+    host.appendChild(wrap);
   });
 }
 
