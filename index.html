@@ -507,7 +507,7 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 .pro-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:13px;margin:0 0 1.2rem}
 .pro-cards .ptile{gap:8px}
 .kbrace{display:flex;gap:2px;font-size:9.5px;color:var(--tl);letter-spacing:.08em;text-transform:uppercase;font-weight:800;margin-top:3px}
-.kbrace span{text-align:center;padding-top:2px;border-top:1px solid var(--br);min-width:0}
+.kbrace span{text-align:center;padding-top:2px;border-top:1px solid var(--br);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .kbrace span.none{border-top:0}
 .ktbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:2px}
 .ktbl td{padding:5px 0;border-bottom:1px solid var(--brl);font-variant-numeric:tabular-nums}
@@ -759,7 +759,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
 <div id="header">
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v499</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v500</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="seg">
@@ -10493,8 +10493,10 @@ function _proCardData(){
     });
   });
   allowRows.sort((a,b)=>b.amt-a.amt);
-  // Site composition. Footprint from whichever mode the client calculator used.
-  const fp=Math.max(0, lot-land);
+  // Site composition. Footprint is the part of the lot that is not landscape — but only
+  // once a landscape area exists. With land unset, lot-land would report the whole lot as
+  // building footprint, which is wrong and looks alarming.
+  const fp = land>0 ? Math.max(0, lot-land) : 0;
   const hard=secArea("paving")+secArea("walls");
   const soft=secArea("planting")||plant;
   const watr=secArea("pool")+secArea("water");
@@ -10577,17 +10579,20 @@ function _renderProCharts(d, sf){
   const parts=[{nm:"Home footprint",v:d.fp,c:"var(--kn)"},{nm:"Hardscape",v:d.hard,c:"var(--k2)"},
                {nm:"Planting",v:d.soft,c:"var(--k3)"},{nm:"Pool / water",v:d.watr,c:"var(--k4)"},
                {nm:"Unassigned",v:d.unassigned,c:null}].filter(p=>p.v>0);
-  const site = d.lot>0
+  const fpPct=d.lot?d.fp/d.lot*100:0;
+  const site = (d.lot>0 && d.land>0)
     ? `<div class="kstack" style="height:40px">${parts.map(p=>{const w=p.v/d.lot*100;
         return `<span class="${p.c?"":"hatch"}" style="width:${w}%;${p.c?`background:${p.c}`:""}" title="${_esc(p.nm)} — ${Math.round(p.v).toLocaleString()} sf">${w>10?Math.round(p.v).toLocaleString():""}</span>`;}).join("")}</div>
-       <div class="kbrace"><span class="none" style="width:${d.lot?d.fp/d.lot*100:0}%">Built</span><span style="width:${d.lot?100-(d.fp/d.lot*100):100}%">Landscape ${Math.round(d.land).toLocaleString()} sf</span></div>
+       <div class="kbrace">${fpPct>=12?`<span class="none" style="width:${fpPct}%">Built</span>`:`<span class="none" style="width:${fpPct}%"></span>`}<span style="width:${100-fpPct}%">${100-fpPct>=22?`Landscape ${Math.round(d.land).toLocaleString()} sf`:""}</span></div>
        <div class="kleg">${parts.map(p=>`<div><i style="${p.c?`background:${p.c}`:"background:var(--brl);border:1px dashed var(--tl)"}"></i>${_esc(p.nm)} · ${Math.round(p.v).toLocaleString()} sf</div>`).join("")}</div>
        <div class="kflag ${d.over?"warn":"good"}">
          ${d.over
            ? `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.6v4M8 11.2v.1"/></svg><span><b>Over-allocated</b> — ${Math.round(d.alloc).toLocaleString()} sf assigned into ${Math.round(d.land).toLocaleString()} sf of landscape</span>`
            : `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.4 6.6,11.5 12.5,4.8"/></svg><span>${Math.round(d.alloc).toLocaleString()} of ${Math.round(d.land).toLocaleString()} sf allocated · <b>${Math.round(d.unassigned).toLocaleString()} sf unassigned</b></span>`}
        </div>`
-    : `<span class="ptile-sub">Set a lot size to see the site breakdown</span>`;
+    : `<span class="ptile-sub">${d.lot>0
+          ? "Set a landscape area in the Site Area Budget to see the breakdown"
+          : "Set a lot size to see the site breakdown"}</span>`;
 
   const aPct=d.sub>0?Math.round(d.allow/d.sub*100):0;
   const allow = d.allow>0
