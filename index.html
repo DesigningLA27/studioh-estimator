@@ -782,7 +782,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
 <div id="header">
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v503</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v504</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="seg">
@@ -13031,6 +13031,56 @@ function _measuredFromTrace(){ if(typeof PT==="undefined"||!PT.ppf) return null;
   const a={}; PT.polys.forEach(p=>{ if(p.kind!=="linear") a[p.mode]=(a[p.mode]||0)+(p.sf||0); }); const R=(k)=>Math.round(a[k]||0);
   return {planting:R("planting")+R("turf"),paving:R("paving"),lot:R("lot"),building:R("building"),driveway:R("driveway"),demo:R("demo"),exclusion:R("exclude")}; }
 // ── Cloud bids (server) ──
+// ── PROJECT AUTOSAVE ─────────────────────────────────────────
+// Only ever updates a project that has already been saved once (CLOUD_BID_ID set) —
+// it never invents a name or creates a project silently. The traced plan PDF is
+// excluded: it lives in R2 separately, is the huge part of a bid, and if it has changed
+// we leave the whole save to the manual path rather than write a stale reference.
+let _bidFpBase=null,_bidSaveTimer=null,_bidSaveBusy=false;
+function _bidFp(){
+  try{
+    const b=_bidPayload();
+    b.savedAt=null;                                   // always differs; not a real change
+    if(b.trace) b.trace=Object.assign({},b.trace,{pdf:null});
+    const s=JSON.stringify(b);
+    let h=0x811c9dc5;
+    for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193); }
+    return s.length+"."+(h>>>0);
+  }catch(e){ return null; }
+}
+function _bidMarkSaved(){ _bidFpBase=_bidFp(); }
+function _bidDirty(){ if(!_bidFpBase) return false; const f=_bidFp(); return !!f && f!==_bidFpBase; }
+function _bidSchedule(){
+  if(_bidSaveTimer) clearTimeout(_bidSaveTimer);
+  _bidSaveTimer=setTimeout(()=>{ _bidSaveTimer=null; _bidAutoSave(); }, 60*1000);
+}
+async function _bidAutoSave(){
+  if(_bidSaveBusy) return;
+  if(!CLOUD_BID_ID || !CLOUD_BID_NAME) return;        // never autosave an unsaved project
+  if(!_bidDirty()) return;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key) return;
+  const bid=_bidPayload();
+  // A changed plan PDF needs the R2 upload path — leave that to a manual save.
+  if(bid.trace && bid.trace.pdf){
+    const sig=(typeof _pdfSig==="function")?_pdfSig(bid.trace.pdf):null;
+    if(!CLOUD_PDF_SIG || sig!==CLOUD_PDF_SIG) return;
+    bid.trace.pdf=null; bid.trace.hasPdf=true;
+  }
+  const size=JSON.stringify(bid).length;
+  if(size>20*1024*1024) return;
+  _bidSaveBusy=true;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"savebid",key,id:CLOUD_BID_ID,name:CLOUD_BID_NAME,addr:(S.pi&&S.pi.address)||"",bid})});
+    const d=await r.json();
+    if(d&&d.ok){ _bidMarkSaved(); _toast("Project saved ✓","#4C7B3D"); }
+  }catch(e){}
+  _bidSaveBusy=false;
+}
+setInterval(()=>{ if(CLOUD_BID_ID && _bidDirty()) _bidSchedule(); }, 30*1000);
+document.addEventListener("visibilitychange",()=>{ if(document.hidden) _bidAutoSave(); });
 let CLOUD_BID_ID=null; let CLOUD_BID_NAME=null;
 let CLOUD_PDF_SIG=null;   // fingerprint of the PDF already on the server for CLOUD_BID_ID
 function _pdfSig(b64){ if(!b64) return null; return b64.length+":"+b64.slice(0,64)+":"+b64.slice(-64); }
@@ -13101,6 +13151,7 @@ async function _cloudSaveBidRun(name, targetId){
       return; }
     const wasUpdate=!!targetId;
     CLOUD_BID_ID=d.id; CLOUD_BID_NAME=name; try{_refreshProjectName();}catch(e){}
+    try{ _bidMarkSaved(); }catch(e){}
     if(pdfData){
       const sig=_pdfSig(pdfData);
       if(wasUpdate && CLOUD_PDF_SIG && sig===CLOUD_PDF_SIG){ _done(); _toast("Updated ✓ — "+name+" (plan PDF unchanged)"); return; }
@@ -13159,6 +13210,7 @@ async function cloudLoadBid(id){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbid",id})}); const d=await r.json();
     if(!(d&&d.found&&d.bid)){ _done(); alert("Couldn't load that project."); return; }
     CLOUD_BID_ID=id; CLOUD_PDF_SIG=null; try{_refreshProjectName();}catch(e){}
+    try{ setTimeout(()=>{ try{ _bidMarkSaved(); }catch(e){} }, 800); }catch(e){}  // baseline after restore settles
     // pull the plan PDF back out of R2 if this project had one
     if(d.bid.trace && d.bid.trace.hasPdf && !d.bid.trace.pdf){
       _busy("Loading plan PDF…");
