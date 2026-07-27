@@ -353,6 +353,19 @@ table.pbk td{vertical-align:top}
 .pbx-grp-b{padding:0 10px 4px}
 .pbx-sublbl{display:flex;align-items:center;gap:9px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--tl);padding:12px 6px 6px}
 .pbx-sublbl::after{content:"";flex:1;height:1px;background:var(--br)}
+/* Pro estimator groups — same four categories as the Price Book */
+.pro-grp{background:var(--surface2);border:1px solid var(--br);border-radius:16px;margin-bottom:14px;overflow:hidden}
+.pro-grp-h{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;user-select:none}
+.pro-grp-h:hover{background:color-mix(in srgb,var(--gm) 6%,transparent)}
+.pro-grp-h .seq{font-size:11px;font-weight:800;color:var(--gm);background:var(--brand-soft);border-radius:6px;padding:3px 7px;font-variant-numeric:tabular-nums;flex:none}
+.pro-grp-h .gnm{font-size:12.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--tx)}
+.pro-grp-h .gsub{font-size:11.5px;color:var(--tl);font-variant-numeric:tabular-nums}
+.pro-grp-h .gamt{margin-left:auto;font-size:14.5px;font-weight:800;color:var(--gm);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.pro-grp-h .gchev{color:var(--gm);font-size:17px;line-height:1;flex:none}
+.pro-grp-b{padding:0 10px 6px}
+.pro-sublbl{display:flex;align-items:center;gap:9px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--tl);padding:12px 6px 4px}
+.pro-sublbl::after{content:"";flex:1;height:1px;background:var(--br)}
+.pro-grp-b .section-wrap{margin-bottom:9px}
 .pbx-grp-b .pbx-card{margin-bottom:10px}
 .pbx-cat-h{display:flex;align-items:center;gap:11px;padding:13px 16px}
 .pbx-cat-h .nm{font-size:15px;font-weight:800;color:var(--tx)}
@@ -603,7 +616,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
 <div id="header">
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v494</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v495</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="seg">
@@ -2413,12 +2426,13 @@ function renderTotal(){
   if(elLo>0) bd+=`<div>Elements: ${fmt(elLo*_mm)} – ${fmt(elHi*_mm)}</div>`;
   if((+GSET.marketAdj||0)!==0) bd+=`<div style="opacity:.8">Incl. ${(+GSET.marketAdj>0?'+':'')}${+GSET.marketAdj}% market adjustment</div>`;
   document.getElementById("total-breakdown").innerHTML=bd;
+  try{ refreshProGroupTotals(); }catch(e){}
 }
 
 // ── PRO: BUILD CAT ACCORDIONS ────────────────────────────────
 function buildProCats(){
   const cont=document.getElementById("pro-cats");cont.innerHTML="";
-  PB.forEach((cat,ci)=>{
+  const _renderProCat=(cat,ci,cont)=>{
     const cs=S.cats[cat.id];const color=catColor(cat.id);
     const bodyId="pro-body-"+cat.id;
     const tiers=SEC_TIERS[cat.id]||["Low","Standard","High"];
@@ -2485,8 +2499,76 @@ function buildProCats(){
     else if(cat.builder==="pool"){ renderPoolBuilder(); }
     else if(cat.builder==="planting"){ renderPlantingBuilder(); }
     else { renderProCatRows(cat.id); }
+  };
+
+  // Same four groups as the Price Book, sub-categories included. Each group carries its own
+  // subtotal so it reads as a bid package. A section in no group falls into a catch-all last.
+  const _inGrp={}; PB_GROUPS.forEach(g=>g.secs.forEach(id=>{_inGrp[id]=1;}));
+  const _plan=PB_GROUPS.map(g=>({g, idxs:g.secs.map(id=>PB.findIndex(c=>c&&c.id===id)).filter(i=>i>=0)}));
+  const _orph=PB.map((c,i)=>i).filter(i=>PB[i]&&!_inGrp[PB[i].id]);
+  if(_orph.length) _plan.push({g:{id:"other",seq:"—",name:"Other Sections",blurb:""}, idxs:_orph});
+
+  _plan.forEach(({g,idxs})=>{
+    if(!idxs.length) return;
+    const gcol=!!PRO_GRP_COLLAPSED[g.id];
+    const wrap=document.createElement("div");
+    wrap.className="pro-grp";
+    wrap.id="pro-grp-"+g.id;
+    wrap.innerHTML=`
+      <div class="pro-grp-h" onclick="toggleProGroup('${g.id}')">
+        <span class="seq">${g.seq}</span>
+        <span class="gnm">${g.name}</span>
+        <span class="gsub" id="progrp-meta-${g.id}"></span>
+        <span class="gamt" id="progrp-amt-${g.id}"></span>
+        <span class="gchev">${gcol?'▸':'▾'}</span>
+      </div>
+      <div class="pro-grp-b" id="pro-grp-b-${g.id}"${gcol?' style="display:none"':''}></div>`;
+    cont.appendChild(wrap);
+    const body=wrap.querySelector(".pro-grp-b");
+    if(g.subs){
+      const inSub={};
+      g.subs.forEach(sub=>{
+        const sIdx=sub.secs.map(id=>PB.findIndex(c=>c&&c.id===id)).filter(i=>i>=0);
+        sub.secs.forEach(x=>{inSub[x]=1;});
+        if(!sIdx.length) return;
+        const lbl=document.createElement("div"); lbl.className="pro-sublbl"; lbl.textContent=sub.nm;
+        body.appendChild(lbl);
+        sIdx.forEach(ci=>_renderProCat(PB[ci],ci,body));
+      });
+      idxs.filter(ci=>!inSub[PB[ci].id]).forEach(ci=>_renderProCat(PB[ci],ci,body));
+    } else {
+      idxs.forEach(ci=>_renderProCat(PB[ci],ci,body));
+    }
   });
   PB.forEach(c=>refreshCatTotals(c.id));
+  refreshProGroupTotals();
+}
+// Group collapse state for the Pro estimator (persisted alongside the price book's).
+let PRO_GRP_COLLAPSED=(function(){ try{ const s=localStorage.getItem("studioh_pro_grp_v1"); if(s) return JSON.parse(s); }catch(e){} return {}; })();
+function toggleProGroup(gid){
+  PRO_GRP_COLLAPSED[gid]=!PRO_GRP_COLLAPSED[gid];
+  try{ localStorage.setItem("studioh_pro_grp_v1", JSON.stringify(PRO_GRP_COLLAPSED)); }catch(e){}
+  const b=document.getElementById("pro-grp-b-"+gid);
+  const w=document.getElementById("pro-grp-"+gid);
+  if(b) b.style.display=PRO_GRP_COLLAPSED[gid]?"none":"";
+  if(w){ const c=w.querySelector(".gchev"); if(c) c.textContent=PRO_GRP_COLLAPSED[gid]?'▸':'▾'; }
+}
+// Group subtotal = sum of its active sections. Shown in both Client and Pro; margin and
+// markup stay hidden client-side exactly as before — this is a scope subtotal, not a price.
+function refreshProGroupTotals(){
+  PB_GROUPS.concat([{id:"other",secs:[]}]).forEach(g=>{
+    const amtEl=document.getElementById("progrp-amt-"+g.id);
+    const metaEl=document.getElementById("progrp-meta-"+g.id);
+    if(!amtEl && !metaEl) return;
+    let sum=0, on=0, tot=0;
+    (g.secs||[]).forEach(id=>{
+      const cs=S.cats[id]; if(!cs) return;
+      tot++;
+      if(cs.on){ on++; sum+=catSubtotal(id); }
+    });
+    if(amtEl) amtEl.textContent = sum>0 ? fmtN(sum) : "";
+    if(metaEl) metaEl.textContent = tot ? `${on} of ${tot} on` : "";
+  });
 }
 const AREA_DEFAULTS=["Front yard","Back yard","Side yard","Courtyard","Entry / Motor court","Pool area","Residence","Parkway","Whole site"];
 const PHASE_OPTS=["Phase 1","Phase 2","Phase 3","Phase 4","Future"];
