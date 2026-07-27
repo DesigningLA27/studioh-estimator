@@ -112,23 +112,18 @@
 /* ── Plant Book: compact rows that expand to the editor ── */
 .pb-list{background:var(--card);border:1px solid var(--br);border-radius:14px;overflow:hidden}
 .pb-item+.pb-item{border-top:1px solid var(--brl)}
-/* Type column dropped — the tab above already states the kind. Growth, bloom colours
-   and attributes fall away in that order as the pane narrows, rather than the row
-   scrolling sideways: in a table you scan, a horizontal scrollbar hides the very
-   columns you are comparing. */
-.pb-row{display:grid;grid-template-columns:24px 46px minmax(150px,1fr) 1px 84px 100px 82px 1px 58px 1px 118px 30px;align-items:center;column-gap:12px;padding:10px 14px;cursor:pointer;transition:background .1s}
-@media(max-width:1180px){
-  .pb-row{grid-template-columns:24px 46px minmax(140px,1fr) 1px 84px 100px 1px 58px 1px 118px 30px}
-  .pb-row .pb-st.g{display:none}
-}
-@media(max-width:1000px){
-  .pb-row{grid-template-columns:24px 46px minmax(130px,1fr) 1px 84px 100px 1px 118px 30px}
-  .pb-row .pb-colors{display:none}
-}
-@media(max-width:860px){
-  .pb-row{grid-template-columns:24px 46px minmax(120px,1fr) 1px 84px 100px 30px}
-  .pb-row .pb-attrs{display:none}
-}
+/* Row layout is driven by the MEASURED width of the work pane, not the window —
+   the rail can be pinned or collapsed and the summary panel open or closed, so the
+   same window width can leave very different room. _pbFit() sets these classes.
+   Water and sun stay: they drive nearly every plant decision. Growth rate lives in
+   the row drawer. */
+.pb-row{display:grid;grid-template-columns:24px 46px minmax(150px,1fr) 1px 84px 100px 1px 58px 1px 118px 30px;align-items:center;column-gap:12px;padding:10px 14px;cursor:pointer;transition:background .1s}
+.pb-row .pb-st.g{display:none}
+body.pb-narrow .pb-row{grid-template-columns:24px 46px minmax(140px,1fr) 1px 84px 100px 1px 118px 30px}
+body.pb-narrow .pb-row .pb-colors,body.pb-narrow .pb-row .pb-vd.v3{display:none}
+body.pb-tight .pb-row{grid-template-columns:24px 44px minmax(120px,1fr) 1px 80px 96px 30px}
+body.pb-tight .pb-row .pb-colors,body.pb-tight .pb-row .pb-attrs,
+body.pb-tight .pb-row .pb-vd.v2,body.pb-tight .pb-row .pb-vd.v3{display:none}
 .pb-row:hover,.pb-row.open{background:var(--surface2)}
 .pb-vd{width:1px;height:26px;background:var(--br);align-self:center;justify-self:center}
 .pb-star{border:none;background:none;cursor:pointer;font-size:15px;justify-self:center;line-height:1;padding:0}
@@ -699,10 +694,10 @@ body.sp-on .tb-sp{background:var(--brand-soft);color:var(--gm);border-color:var(
 #sumpanel{position:fixed;width:var(--sp);z-index:80;background:var(--card);
   display:none;flex-direction:column;transition:transform .2s cubic-bezier(.4,0,.2,1)}
 body.sp-on #sumpanel{display:flex}
-body.sp-on.lib-view #sumpanel{display:none}
-body.sp-on.lib-view{padding-right:var(--gap)}
-body.sp-on.lib-view #topbar{right:var(--gap)}
-body.lib-view #sp-open,body.lib-view .tb-sp{display:none}
+body.sp-on.lib-hide-panel #sumpanel{display:none}
+body.sp-on.lib-hide-panel{padding-right:var(--gap)}
+body.sp-on.lib-hide-panel #topbar{right:var(--gap)}
+body.lib-hide-panel #sp-open,body.lib-hide-panel .tb-sp{display:none}
 
 .sp-h{display:flex;align-items:center;gap:9px;padding:13px 14px;border-bottom:1px solid var(--br);flex:none}
 .sp-t{font-size:12.5px;font-weight:800;color:var(--tx);letter-spacing:-.01em}
@@ -1149,7 +1144,7 @@ body.sp-on .tb-sp:hover{background:var(--brand-soft);color:var(--gm);border-colo
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v526</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v527</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -2772,6 +2767,7 @@ document.querySelectorAll(".tab").forEach(btn=>{
     document.getElementById("view-"+S.view).classList.add("active");
     // Library views get the full pane — the cost cards are meaningless there.
     document.body.classList.toggle("lib-view", S.view!=="client" && S.view!=="pro");
+    try{ _pbFit(); }catch(e){}
     if(S.view==="arch") renderArch();
     if(S.view==="pro") updateProBar();
     if(S.view==="pricebook") renderPriceBook();
@@ -7160,13 +7156,13 @@ function _pbRow(p,kind){
   return `<button class="pb-star" title="${on?'Unstar':'Favorite'}" style="color:${on?'var(--gold)':'var(--tl)'}" onclick="event.stopPropagation();togglePlantFav('${kind}','${p.id}')">${on?'★':'☆'}</button>`
     +thumb
     +`<div class="pb-nm"><b>${escAttr(p.c||'Unnamed')}</b><i>${escAttr(botName(p))}</i></div>`
-    +`<span class="pb-vd"></span>`
+    +`<span class="pb-vd v1"></span>`
     +`<span class="pb-st"><svg class="w" viewBox="0 0 24 24">${PB_ICO.water}</svg>${WU_INFO[p.wu]?WU_INFO[p.wu].lab:'—'}</span>`
     +`<span class="pb-st"><svg class="s" viewBox="0 0 24 24">${PB_ICO.sun}</svg>${_pbSunLbl(p)}</span>`
     +`<span class="pb-st g"><svg class="g" viewBox="0 0 24 24">${PB_ICO.growth}</svg>${escAttr(p.growthRate||'—')}</span>`
-    +`<span class="pb-vd"></span>`
+    +`<span class="pb-vd v2"></span>`
     +`<span class="pb-colors">${cols}</span>`
-    +`<span class="pb-vd"></span>`
+    +`<span class="pb-vd v3"></span>`
     +`<span class="pb-attrs">${_pbAttrs(p)}</span>`
     +`<button class="pb-exp" onclick="event.stopPropagation();togglePlantRow('${p.id}')"><svg viewBox="0 0 24 24">${PB_ICO.chev}</svg></button>`;
 }
@@ -11067,6 +11063,7 @@ function toggleRailPin(){
   const on=!document.body.classList.contains("rail-pin");
   document.body.classList.toggle("rail-pin",on);
   try{ localStorage.setItem("studioh_railpin_v1", on?"1":"0"); }catch(e){}
+  try{ _pbFit(); }catch(e){}
 }
 (function(){
   let v=null; try{ v=localStorage.getItem("studioh_railpin_v1"); }catch(e){}
@@ -11077,11 +11074,38 @@ function toggleRailPin(){
   }
   if(v==="1") document.body.classList.add("rail-pin");
 })();
+// Fit logic for the Plant Book. Measures the pane, not the window: the rail is 60
+// or 236 and the panel 0 or 312, so identical window widths leave very different
+// room. Thresholds are the row's true minimums, found by binary search rather than
+// by adding up column values — 793px for the full row, 601px narrow, 513px tight.
+const _PB_FULL=800, _PB_NARROW=610, _PB_PANEL=332;
+function _pbFit(){
+  const b=document.body, v=document.querySelector(".view.active");
+  if(!v) return;
+  if(b.classList.contains("lib-view")){
+    // What the pane would measure with the panel shown, so the test does not flip
+    // back and forth as hiding the panel widens the pane that justified hiding it.
+    const shown=b.classList.contains("sp-on") && !b.classList.contains("lib-hide-panel");
+    const withPanel = shown ? v.clientWidth : v.clientWidth - _PB_PANEL;
+    b.classList.toggle("lib-hide-panel", withPanel < _PB_NARROW);
+  } else {
+    b.classList.remove("lib-hide-panel");
+  }
+  requestAnimationFrame(()=>{
+    const w=v.clientWidth;
+    b.classList.toggle("pb-narrow", w < _PB_FULL);
+    b.classList.toggle("pb-tight",  w < _PB_NARROW);
+  });
+}
+window.addEventListener("resize",()=>{ try{ _pbFit(); }catch(e){} });
+window.addEventListener("load",()=>{ try{ _pbFit(); }catch(e){} });
 function toggleSumPanel(){
   const on=!document.body.classList.contains("sp-on");
   document.body.classList.toggle("sp-on",on);
   try{ localStorage.setItem("studioh_sp_v1", on?"1":"0"); }catch(e){}
+  document.body.classList.toggle("sp-user-off",!on);
   if(on){ try{ renderProSummary(); }catch(e){} }
+  try{ _pbFit(); }catch(e){}
 }
 (function(){ let v="1"; try{ v=localStorage.getItem("studioh_sp_v1")||"1"; }catch(e){}
   if(v==="1") document.body.classList.add("sp-on"); })();
