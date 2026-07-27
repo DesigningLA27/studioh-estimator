@@ -339,7 +339,10 @@ table.pbk td{vertical-align:top}
    Reset to defaults wipes every contractor price, so it lives behind the menu
    rather than sitting at equal weight beside routine actions. */
 .pbt-title{display:flex;flex-direction:column;gap:2px;margin-right:auto}
-.pbt-meta{font-size:11.5px;color:var(--tl);font-variant-numeric:tabular-nums}
+.pbt-meta{font-size:11.5px;color:var(--tl);font-variant-numeric:tabular-nums;display:flex;gap:6px;flex-wrap:wrap}
+.pb-sync{font-weight:700}
+.pb-sync.ok{color:var(--gm)}
+.pb-sync.dirty{color:var(--gold)}
 .pbt-acts{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .pbt-seg{display:inline-flex;border:1px solid var(--br);border-radius:10px;overflow:hidden;background:var(--card)}
 .pbt-seg button{display:inline-flex;align-items:center;gap:6px;border:0;background:none;font:inherit;
@@ -779,7 +782,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
 <div id="header">
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v502</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v503</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="seg">
@@ -1446,7 +1449,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
   <div class="pbx-card pbx-pad pbx-toolbar">
     <div class="pbt-title">
       <h2>Price Book</h2>
-      <span class="pbt-meta" id="pb-meta"></span>
+      <span class="pbt-meta"><span id="pb-meta"></span><span id="pb-sync" class="pb-sync"></span></span>
     </div>
     <div class="pbt-acts">
       <div class="pbt-seg">
@@ -4596,7 +4599,7 @@ async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
   const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json();
-    if(d&&d.ok) alert("Pricing published to master ✓");
+    if(d&&d.ok){ try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} _cfgMarkSynced(); alert("Pricing published to master ✓"); }
     else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try again."); }
     else alert("Publish failed: "+((d&&d.error)||"error"));
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
@@ -4605,10 +4608,87 @@ async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
 async function _saveConfigSilent(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return; let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} if(!key) return;
   const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json(); try{ if(d&&d.ok&&cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} return d&&d.ok; }catch(e){ return false; } }
+// ── CONFIG SYNC ──────────────────────────────────────────────
+// The price-book bundle (SHARED_CFG_KEYS) lives on the server, cached in localStorage.
+// Startup pulls; edits push back on idle. A fingerprint tells us whether this device has
+// changes the server has not seen, so a pull can never silently discard local price edits
+// and a push can never silently clobber a newer server copy.
+// Hash every character. Sampling was tried and silently missed same-length edits
+// (800 -> 807), which is exactly the case this has to catch. A full FNV-1a pass over a
+// few hundred KB is a couple of milliseconds and only runs on a 30s timer.
+function _cfgFp(){
+  let n=0,h=0x811c9dc5;
+  SHARED_CFG_KEYS.slice().sort().forEach(k=>{
+    let v=null; try{ v=localStorage.getItem(k); }catch(e){}
+    if(v==null) return;
+    const s=k+":"+v; n+=s.length;
+    for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193); }
+  });
+  return n+"."+(h>>>0);
+}
+function _cfgSyncedFp(){ try{ return localStorage.getItem("studioh_cfg_fp")||""; }catch(e){ return ""; } }
+function _cfgMarkSynced(){ try{ localStorage.setItem("studioh_cfg_fp",_cfgFp()); }catch(e){} }
+function _cfgDirty(){ const s=_cfgSyncedFp(); return s ? _cfgFp()!==s : false; }
+let _cfgPushTimer=null,_cfgPushBusy=false;
+function _cfgSchedulePush(){
+  if(_cfgPushTimer) clearTimeout(_cfgPushTimer);
+  _cfgPushTimer=setTimeout(()=>{ _cfgPushTimer=null; _cfgAutoPush(); }, 90*1000);
+}
+// Push this device's config up. Aborts if the server moved since we last applied it —
+// that means another device published and a blind push would erase their work.
+async function _cfgAutoPush(){
+  if(_cfgPushBusy) return;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key) return;               // no admin key → never push silently
+  if(!_cfgDirty()) return;
+  _cfgPushBusy=true;
+  try{
+    let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
+    const sr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})});
+    const sd=await sr.json();
+    const srvStamp=(sd&&sd.found&&sd.config&&sd.config.savedAt)||"";
+    if(srvStamp && applied && srvStamp!==applied){
+      _toast("Pricing not auto-saved — another device published newer pricing. Use ☁ Pull pricing first.","#B23F3C");
+      _cfgPushBusy=false; return;
+    }
+    const cfg={ savedAt:new Date().toISOString(), data:{} };
+    SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})});
+    const d=await r.json();
+    if(d&&d.ok){
+      try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
+      _cfgMarkSynced();
+      _toast("Pricing synced ✓","#4C7B3D");
+    }
+  }catch(e){}
+  _cfgPushBusy=false;
+}
+// Sync state, shown in the Price Book header so a device is never silently out of step.
+function _renderPbSync(){
+  const el=document.getElementById("pb-sync"); if(!el) return;
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!_cfgSyncedFp()){ el.className="pb-sync"; el.textContent=""; return; }
+  if(_cfgDirty()){
+    el.className="pb-sync dirty";
+    el.textContent = key ? "· unsynced changes — saving shortly" : "· unsynced changes on this device";
+  } else {
+    el.className="pb-sync ok";
+    el.textContent="· in sync";
+  }
+}
+// Watch for local edits without having to touch all 16 save paths.
+setInterval(()=>{ _renderPbSync(); if(_cfgDirty()) _cfgSchedulePush(); }, 30*1000);
+document.addEventListener("visibilitychange",()=>{ if(document.hidden && _cfgDirty()) _cfgAutoPush(); });
 async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})}); const d=await r.json();
     if(d&&d.found&&d.config&&d.config.data){ const serverStamp=d.config.savedAt||""; let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
-      if(serverStamp && serverStamp===applied && silent) return; // already applied
+      if(serverStamp && serverStamp===applied && silent){ if(!_cfgSyncedFp()) _cfgMarkSynced(); return; } // already applied
+      // Never let a silent pull discard price edits this device has not pushed yet.
+      if(silent && _cfgDirty()){
+        _toast("This device has unsynced pricing. Newer pricing is on the server — publish or pull from the Price Book.","#9B7B3A");
+        return;
+      }
       Object.keys(d.config.data).forEach(k=>{ try{
         if(k==="studioh_favs_v1"){ // favorites: UNION server + local so neither device loses a star
           let srv=[]; try{ srv=JSON.parse(d.config.data[k]||"[]"); }catch(e){} let loc=[]; try{ loc=JSON.parse(localStorage.getItem(k)||"[]"); }catch(e){}
@@ -4617,6 +4697,7 @@ async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&
         } else { localStorage.setItem(k,d.config.data[k]); }
       }catch(e){} });
       try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
+      _cfgMarkSynced();
       if(silent){ // avoid reload loop: only reload once per session
         let did=""; try{ did=sessionStorage.getItem("studioh_cfg_reloaded")||""; }catch(e){}
         if(did!==serverStamp){ try{ sessionStorage.setItem("studioh_cfg_reloaded",serverStamp); }catch(e){} location.reload(); }
@@ -9805,6 +9886,7 @@ function renderPriceBook(){
     const secs=PB.length, items=PB.reduce((a,c)=>a+((c.items||[]).length),0);
     meta.textContent=`${secs} sections · ${items.toLocaleString()} line items`;
   }
+  _renderPbSync();
   const MODE = GSET.pbMode==="contractor" ? "contractor" : "concept";
   // Settings card: lens toggle + global cost settings (merged)
   const setCard=document.createElement("div");
