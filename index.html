@@ -619,6 +619,18 @@ body.rail-pin #header .sb-lbl{height:auto;padding:2px 10px 5px}
 #rail-pin:hover{background:var(--surface2);color:var(--tx);border-color:var(--br)}
 body.rail-pin #rail-pin{color:var(--gm);background:var(--brand-soft);border-color:var(--gm)}
 /* Dark rail, as in the mockup — light text on the sidebar colour. */
+/* ── RESIZE HANDLES ───────────────────────────────────────────
+   Both side panes are drag-resizable, clamped so neither can be dragged to a
+   width where its content breaks. Widths persist. */
+.grip{position:fixed;top:var(--gap);bottom:var(--gap);width:9px;z-index:95;cursor:col-resize;display:none}
+.grip::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:3px;height:34px;border-radius:2px;background:var(--tl);opacity:0;transition:opacity .15s}
+.grip:hover::after,.grip.drag::after{opacity:.75}
+body.rail-pin #rail-grip{display:block;left:calc(var(--railx) + var(--gap) - 4px)}
+body.sp-on #sp-grip{display:block;right:calc(var(--sp) + var(--gap) - 4px)}
+body.resizing{cursor:col-resize;user-select:none}
+body.resizing *{pointer-events:none}
+body.resizing .grip{pointer-events:auto}
 #header{position:fixed;background:var(--sidebar);border-color:transparent}
 #header .sb-name b{color:#fff}
 #header .sb-name small{color:rgba(255,255,255,.55)}
@@ -1060,7 +1072,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v517</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v518</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -1084,6 +1096,8 @@ textarea.pf-box::placeholder{color:var(--tl)}
      The cards used to sit in a strip above the work area, where they ate ~400px
      and scrolled away the moment you started pricing. Pinned here they stay
      visible while you work, in both the Client and Pro lens. -->
+<div id="rail-grip" class="grip noprint" title="Drag to resize"></div>
+<div id="sp-grip" class="grip noprint" title="Drag to resize"></div>
 <div id="topbar" class="noprint">
   <div class="tb-t">
     <b id="tb-project">Untitled project</b>
@@ -10936,6 +10950,44 @@ function toggleCard(id,on){
 // visible at the top of the view, so defaulting off would look like they vanished.
 // Sidebar pin. Defaults to pinned on touch (no hover) and on wide screens; collapsed
 // on a narrow pointer device where the width actually costs something.
+// Drag-resize for the rail and the summary panel. Clamped: below the minimums the
+// nav labels and the cards stop fitting, above the maximums the work area suffers.
+const _RAIL_MIN=180,_RAIL_MAX=360,_SP_MIN=250,_SP_MAX=520;
+function _setPaneVar(name,px,key){
+  document.documentElement.style.setProperty(name,px+"px");
+  try{ localStorage.setItem(key,String(px)); }catch(e){}
+}
+(function(){
+  try{
+    const r=parseInt(localStorage.getItem("studioh_railw_v1")||"",10);
+    if(r>=_RAIL_MIN&&r<=_RAIL_MAX) document.documentElement.style.setProperty("--railx",r+"px");
+    const w=parseInt(localStorage.getItem("studioh_spw_v1")||"",10);
+    if(w>=_SP_MIN&&w<=_SP_MAX) document.documentElement.style.setProperty("--sp",w+"px");
+  }catch(e){}
+})();
+function _initGrip(id,opts){
+  const g=document.getElementById(id); if(!g) return;
+  g.addEventListener("pointerdown",e=>{
+    e.preventDefault(); g.setPointerCapture(e.pointerId);
+    g.classList.add("drag"); document.body.classList.add("resizing");
+    const move=ev=>{
+      const px=Math.round(opts.from(ev.clientX));
+      _setPaneVar(opts.varName, Math.max(opts.min,Math.min(opts.max,px)), opts.key);
+    };
+    const up=()=>{
+      g.classList.remove("drag"); document.body.classList.remove("resizing");
+      g.removeEventListener("pointermove",move); g.removeEventListener("pointerup",up);
+      try{ renderProSummary(); }catch(e){}
+    };
+    g.addEventListener("pointermove",move); g.addEventListener("pointerup",up);
+  });
+}
+window.addEventListener("load",()=>{
+  _initGrip("rail-grip",{varName:"--railx",key:"studioh_railw_v1",min:_RAIL_MIN,max:_RAIL_MAX,
+    from:x=>x-10});
+  _initGrip("sp-grip",{varName:"--sp",key:"studioh_spw_v1",min:_SP_MIN,max:_SP_MAX,
+    from:x=>window.innerWidth-x-10});
+});
 function toggleRailPin(){
   const on=!document.body.classList.contains("rail-pin");
   document.body.classList.toggle("rail-pin",on);
@@ -10944,8 +10996,9 @@ function toggleRailPin(){
 (function(){
   let v=null; try{ v=localStorage.getItem("studioh_railpin_v1"); }catch(e){}
   if(v===null){
-    const touch=window.matchMedia&&window.matchMedia("(hover: none)").matches;
-    v=(touch||window.innerWidth>=1500)?"1":"0";
+    // 13" iPad is 1024 wide in portrait, 1366 landscape — expanded from there up.
+    // Below that the width is worth more than the labels.
+    v=(window.innerWidth>=1024)?"1":"0";
   }
   if(v==="1") document.body.classList.add("rail-pin");
 })();
