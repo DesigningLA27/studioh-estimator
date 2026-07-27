@@ -505,6 +505,26 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 .kflag.warn{background:color-mix(in srgb,var(--gold) 14%,transparent);color:var(--gold)}
 .kflag svg{width:14px;height:14px;flex:none;margin-top:1px}
 .pro-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:13px;margin:0 0 1.2rem}
+.pro-cards:empty{display:none}
+/* Card picker — core cards are listed but locked on. */
+.cards-bar{display:flex;justify-content:flex-end;margin:0 0 9px}
+.cards-wrap{position:relative}
+.cards-btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--br);background:var(--card);
+  color:var(--tm);font:inherit;font-size:12px;font-weight:700;padding:7px 12px;border-radius:9px;cursor:pointer}
+.cards-btn:hover{background:var(--surface2);color:var(--tx);border-color:var(--gm)}
+.cards-btn:focus-visible{outline:2px solid var(--gm);outline-offset:2px}
+.cards-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8}
+.cards-menu{position:absolute;right:0;top:calc(100% + 6px);min-width:242px;background:var(--card);
+  border:1px solid var(--br);border-radius:12px;padding:6px;display:none;z-index:70;
+  box-shadow:0 4px 10px rgba(28,43,22,.06),0 18px 38px -22px rgba(28,43,22,.4)}
+.cards-menu.open{display:block}
+.cards-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12.5px}
+.cards-row:hover{background:var(--surface2)}
+.cards-row input{accent-color:var(--gm);width:15px;height:15px;flex:none}
+.cards-row span{flex:1}
+.cards-row em{font-style:normal;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--tl)}
+.cards-row.locked{cursor:default;opacity:.8}
+.cards-row.need span{color:var(--tl)}
 .pro-cards .ptile{gap:8px}
 .kbrace{display:flex;gap:2px;font-size:9.5px;color:var(--tl);letter-spacing:.08em;text-transform:uppercase;font-weight:800;margin-top:3px}
 .kbrace span{text-align:center;padding-top:2px;border-top:1px solid var(--br);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -759,7 +779,7 @@ textarea.pf-box::placeholder{color:var(--tl)}
 <div id="header">
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v500</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v501</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="seg">
@@ -1005,6 +1025,15 @@ textarea.pf-box::placeholder{color:var(--tl)}
   </div>
 
   <!-- Summary tiles -->
+  <div class="cards-bar noprint">
+    <div class="cards-wrap">
+      <button type="button" class="cards-btn" id="cards-btn" onclick="cardsMenuToggle(event)" aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="15" width="7" height="5" rx="1.5"/><rect x="14" y="15" width="7" height="5" rx="1.5"/></svg>
+        Cards
+      </button>
+      <div class="cards-menu" id="cards-menu"></div>
+    </div>
+  </div>
   <div id="pro-tiles" class="pro-tiles"></div>
   <div id="pro-cards" class="pro-cards"></div>
 
@@ -10466,6 +10495,85 @@ function toggleProTotal(){
   try{ localStorage.setItem("studioh_tot_open_v1", PRO_TOT_OPEN?"1":"0"); }catch(e){}
   renderProSummary();
 }
+// ── OPTIONAL SUMMARY CARDS ───────────────────────────────────
+// Card registry. `core` cards cannot be switched off; `row` picks which strip they
+// render into. Planting cards reuse the plant report's own water model (plantAnnualGal /
+// waterCostFor), so a card never invents a second way to compute the same number.
+const PRO_CARDS=[
+  {id:"total",   nm:"Project total",        row:1, core:true},
+  {id:"psf",     nm:"Cost per SF",          row:1},
+  {id:"top3",    nm:"Top 3 costs",          row:1},
+  {id:"ready",   nm:"Scope readiness",      row:1},
+  {id:"palette", nm:"Plant palette",        row:1, needs:"planting"},
+  {id:"dist",    nm:"Cost distribution",    row:2},
+  {id:"site",    nm:"Site composition",     row:2},
+  {id:"allow",   nm:"Allowance exposure",   row:2},
+  {id:"water",   nm:"Water use & cost",     row:2, needs:"planting"},
+  {id:"wucols",  nm:"WUCOLS water mix",     row:2, needs:"planting"},
+];
+const PRO_CARDS_DEFAULT={total:1,psf:1,top3:1,ready:1,dist:1,site:1,allow:1};
+let PRO_CARDS_ON=(function(){
+  try{ const s=localStorage.getItem("studioh_cards_v1"); if(s) return JSON.parse(s); }catch(e){}
+  return Object.assign({},PRO_CARDS_DEFAULT);
+})();
+function cardOn(id){ const c=PRO_CARDS.find(x=>x.id===id); return !!(c&&c.core) || !!PRO_CARDS_ON[id]; }
+function toggleCard(id,on){
+  const c=PRO_CARDS.find(x=>x.id===id); if(!c||c.core) return;
+  PRO_CARDS_ON[id]=!!on;
+  try{ localStorage.setItem("studioh_cards_v1", JSON.stringify(PRO_CARDS_ON)); }catch(e){}
+  renderProSummary();
+}
+function cardsMenuToggle(ev){
+  if(ev) ev.stopPropagation();
+  const m=document.getElementById("cards-menu"); if(!m) return;
+  const open=m.classList.toggle("open");
+  const b=document.getElementById("cards-btn"); if(b) b.setAttribute("aria-expanded",String(open));
+  if(open) renderCardsMenu();
+}
+function cardsMenuClose(){
+  const m=document.getElementById("cards-menu"); if(m) m.classList.remove("open");
+  const b=document.getElementById("cards-btn"); if(b) b.setAttribute("aria-expanded","false");
+}
+document.addEventListener("click",e=>{ if(!e.target.closest(".cards-wrap")) cardsMenuClose(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") cardsMenuClose(); });
+function renderCardsMenu(){
+  const m=document.getElementById("cards-menu"); if(!m) return;
+  const t=_plantTally();
+  m.innerHTML=PRO_CARDS.map(c=>{
+    const need = c.needs==="planting" && t.qty===0;
+    return `<label class="cards-row${c.core?" locked":""}${need?" need":""}">
+      <input type="checkbox" ${cardOn(c.id)?"checked":""} ${c.core?"disabled":""}
+        onchange="toggleCard('${c.id}',this.checked)">
+      <span>${c.nm}</span>
+      ${c.core?'<em>always on</em>':(need?'<em>needs plants</em>':'')}
+    </label>`;
+  }).join("");
+}
+// Planting tally — quantities, species, water and WUCOLS mix, straight from the
+// plant zones using the same helpers the plant report uses.
+function _plantTally(){
+  const out={qty:0,species:0,byKind:{tree:0,palm:0,shrub:0,gc:0},gal:0,cost:0,wu:{VL:0,L:0,M:0,H:0},wuKnown:0};
+  try{
+    const P=S.planting, zones=(P&&P.zones)||[];
+    const seen=new Set();
+    zones.forEach(z=>{
+      [["treeRows","tree"],["palmRows","palm"],["shrubRows","shrub"],["gcRows","gc"]].forEach(([rk,kind])=>{
+        (z[rk]||[]).forEach(r=>{
+          const p=plantDbFind(kind,r.pid); if(!p) return;
+          const q=rowQty(r); if(!q) return;
+          out.qty+=q; out.byKind[kind]=(out.byKind[kind]||0)+q;
+          seen.add(kind+":"+p.id);
+          out.gal+=plantAnnualGal(p,kind,q);
+          const w=p.wu||p.w2||null;
+          if(w&&out.wu[w]!==undefined){ out.wu[w]+=q; out.wuKnown+=q; }
+        });
+      });
+    });
+    out.species=seen.size;
+    out.cost=waterCostFor(out.gal);
+  }catch(e){}
+  return out;
+}
 // Every figure below is derived from live state — nothing is a placeholder.
 function _proCardData(){
   const lot=+S.proLotSize||+S.lotSize||0;
@@ -10514,7 +10622,9 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
   const LO=30, HI=140, B1=45, B2=90;
   const pin=Math.max(0,Math.min(100,((psf-LO)/(HI-LO))*100));
 
-  el.innerHTML=`
+  const t=_plantTally();
+  const parts1=[];
+  if(cardOn("total")) parts1.push(`
     <div class="ptile ptile-total">
       <span class="ptile-lbl">Project total</span>
       <span class="ptile-big">${d.grand>0?fmtN(d.grand):"$0"}</span>
@@ -10526,8 +10636,8 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
         <div><span>Markup (${S.markup}%)</span><span>${fmtN(d.mu)}</span></div>
         <div class="tt"><span>Client total</span><span>${fmtN(d.grand)}</span></div>
       </div>`:''}
-    </div>
-
+    </div>`);
+  if(cardOn("psf")) parts1.push(`
     <div class="ptile">
       <span class="ptile-lbl">Cost per SF</span>
       <span class="ptile-k">${psf>0?"$"+psf.toFixed(0):"$0"}<small>/sf</small></span>
@@ -10537,8 +10647,8 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
         ${psf>0?`<div class="pin" style="left:${pin}%"></div>`:''}
       </div>
       <div class="kmlbl"><span>$${LO}</span><span>typical $${B1}–$${B2}</span><span>$${HI}</span></div>
-    </div>
-
+    </div>`);
+  if(cardOn("top3")) parts1.push(`
     <div class="ptile">
       <span class="ptile-lbl">Top 3 costs</span>
       ${d.top3.length?`<div class="krank">${d.top3.map((s,i)=>`
@@ -10549,8 +10659,8 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
           <span class="track"><span class="fill" style="width:${(s.amt/d.top3[0].amt)*100}%;background:var(--k${(i%4)+1})"></span></span>
         </div>`).join("")}</div>`
       :`<span class="ptile-sub">Nothing priced yet</span>`}
-    </div>
-
+    </div>`);
+  if(cardOn("ready")) parts1.push(`
     <div class="ptile">
       <span class="ptile-lbl">Scope readiness</span>
       <span class="ptile-k">${d.active}<small>/ ${d.total} on</small></span>
@@ -10561,13 +10671,30 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.4 6.6,11.5 12.5,4.8"/></svg>
         <span>Every active section has priced work</span>
       </div>`}
-    </div>`;
+    </div>`);
+  if(cardOn("palette")) parts1.push(`
+    <div class="ptile">
+      <span class="ptile-lbl">Plant palette</span>
+      <span class="ptile-k">${t.qty.toLocaleString()}<small>plants</small></span>
+      <span class="ptile-sub">${t.species} species${t.byKind.tree?` · ${t.byKind.tree} tree${t.byKind.tree===1?"":"s"}`:""}</span>
+      ${t.qty?`<div class="kstack" style="height:16px">
+        ${[["tree","var(--k3)"],["palm","var(--k4)"],["shrub","var(--k1)"],["gc","var(--k2)"]]
+          .filter(([k])=>t.byKind[k]>0)
+          .map(([k,c])=>`<span style="width:${t.byKind[k]/t.qty*100}%;background:${c}" title="${k} — ${t.byKind[k]}"></span>`).join("")}
+      </div>
+      <div class="kleg">${[["tree","Trees","var(--k3)"],["palm","Palms","var(--k4)"],["shrub","Shrubs","var(--k1)"],["gc","Ground / grasses","var(--k2)"]]
+        .filter(([k])=>t.byKind[k]>0)
+        .map(([k,l,c])=>`<div><i style="background:${c}"></i>${l} · ${t.byKind[k]}</div>`).join("")}</div>`
+      :`<span class="ptile-sub">No plants placed yet</span>`}
+    </div>`);
+  el.innerHTML=parts1.join("");
 
-  _renderProCharts(d, sf);
+  _renderProCharts(d, sf, t);
 }
 function _esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 // Second row: cost distribution, site composition, allowance exposure.
-function _renderProCharts(d, sf){
+function _renderProCharts(d, sf, t){
+  t=t||_plantTally();
   const host=document.getElementById("pro-cards"); if(!host) return;
   const gTot=d.groups.reduce((a,g)=>a+g.amt,0);
   const dist = gTot>0
@@ -10605,10 +10732,35 @@ function _renderProCharts(d, sf){
        <table class="ktbl">${d.allowRows.slice(0,4).map(r=>`<tr><td>${_esc(r.n)}</td><td>${fmtN(r.amt)}</td></tr>`).join("")}</table>`
     : `<span class="ptile-sub">No allowance lines in the active scope</span>`;
 
-  host.innerHTML=`
-    <div class="ptile"><span class="ptile-lbl">Cost distribution</span>${dist}</div>
-    <div class="ptile"><span class="ptile-lbl">Site composition</span>${site}</div>
-    <div class="ptile"><span class="ptile-lbl">Allowance exposure</span>${allow}</div>`;
+  // Water use — reuses plantAnnualGal / waterCostFor so this never becomes a
+  // second, divergent water model. Honours the report's MWELO vs real-world mode.
+  const mwelo=(typeof _plMwelo!=="undefined")&&_plMwelo;
+  const water = t.qty>0
+    ? `<span class="ptile-k">${Math.round(t.gal).toLocaleString()}<small>gal/yr</small></span>
+       <span class="ptile-sub">${mwelo?"MWELO compliance budget":"Real-world established use"}${t.cost>0?` · about ${fmtN(t.cost)} a year`:""}</span>
+       <div class="kmlbl"><span>ETo ${_esc(String(WC("eto")))} in/yr</span><span>${t.qty.toLocaleString()} plants</span></div>
+       <div class="kflag good" style="margin-top:2px">
+         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2s4 4.3 4 7a4 4 0 0 1-8 0c0-2.7 4-7 4-7Z"/></svg>
+         <span>WUCOLS method · ${mwelo?"permit budget, runs above real use":"verify against the final irrigation design"}</span>
+       </div>`
+    : `<span class="ptile-sub">Place plants to see water use</span>`;
+
+  const WU=[["VL","Very low","var(--k3)"],["L","Low","var(--k4)"],["M","Moderate","var(--k1)"],["H","High","var(--k2)"]];
+  const wucols = t.wuKnown>0
+    ? `<div class="kstack" style="height:26px">${WU.filter(([k])=>t.wu[k]>0).map(([k,l,c])=>{
+         const p=t.wu[k]/t.wuKnown*100;
+         return `<span style="width:${p}%;background:${c}" title="${l} — ${t.wu[k]} plants">${p>13?Math.round(p)+"%":""}</span>`;}).join("")}</div>
+       <div class="kleg">${WU.filter(([k])=>t.wu[k]>0).map(([k,l,c])=>`<div><i style="background:${c}"></i>${l} · ${t.wu[k]}</div>`).join("")}</div>
+       <span class="ptile-sub">${t.wuKnown.toLocaleString()} of ${t.qty.toLocaleString()} plants carry a WUCOLS rating</span>`
+    : `<span class="ptile-sub">${t.qty?"No WUCOLS ratings on the placed plants yet":"Place plants to see the water mix"}</span>`;
+
+  const blocks=[];
+  if(cardOn("dist"))   blocks.push(`<div class="ptile"><span class="ptile-lbl">Cost distribution</span>${dist}</div>`);
+  if(cardOn("site"))   blocks.push(`<div class="ptile"><span class="ptile-lbl">Site composition</span>${site}</div>`);
+  if(cardOn("allow"))  blocks.push(`<div class="ptile"><span class="ptile-lbl">Allowance exposure</span>${allow}</div>`);
+  if(cardOn("water"))  blocks.push(`<div class="ptile"><span class="ptile-lbl">Water use &amp; cost</span>${water}</div>`);
+  if(cardOn("wucols")) blocks.push(`<div class="ptile"><span class="ptile-lbl">WUCOLS water mix</span>${wucols}</div>`);
+  host.innerHTML=blocks.join("");
 }
 
 // ── ARCH VIEW ────────────────────────────────────────────────
