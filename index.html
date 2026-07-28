@@ -1338,7 +1338,7 @@ body.lb-open{overflow:hidden}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v542</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v543</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5130,9 +5130,37 @@ function _sampleQty(u,area){
     default:    return 1;                     // LS and anything unrecognised
   }
 }
+// Guard: a project with sections switched on, or one that has been saved to the
+// cloud, is real work — say so plainly before the sample lands on top of it.
+function _projectHasWork(){
+  try{
+    if(S._sample) return false;
+    if(typeof CLOUD_BID_ID!=="undefined" && CLOUD_BID_ID) return true;
+    return Object.keys(S.cats).some(k=>S.cats[k].on);
+  }catch(e){ return false; }
+}
 function loadSampleProject(){
-  if(!confirm("Load the sample project?\n\nIt replaces whatever is open right now — save your current work first if you need it.")) return;
+  const msg=_projectHasWork()
+    ? "You have a project open with work in it.\n\nLoading the sample replaces it — save yours first if you need it.\n\nLoad the sample anyway?"
+    : "Load the sample project?";
+  if(!confirm(msg)) return;
+  _buildSampleProject();
+}
+function resetSampleProject(){
+  if(!confirm("Reload the sample from scratch?\n\nAnything you changed in it is lost.")) return;
+  _buildSampleProject();
+}
+function removeSampleProject(){
+  if(!confirm("Clear the sample project?\n\nThe app reloads empty. If you saved the sample, it stays in Projects — this only clears what is open here.")) return;
+  try{ S._sample=false; }catch(e){}
+  try{ localStorage.removeItem("studioh_bid_last"); }catch(e){}
+  try{ CLOUD_BID_ID=null; CLOUD_BID_NAME=null; }catch(e){}
   closeSettings();
+  setTimeout(()=>{ location.reload(); }, 200);
+}
+function _buildSampleProject(){
+  closeSettings();
+  S._sample=true;
   const today=new Date().toISOString().slice(0,10);
   S.pi={client:"Sample Client", project:"Sample — San Marino", address:SAMPLE_ADDRESS, date:today,
         notes:"Demo project. Every section and builder is switched on so the app can be reviewed — the total is not a realistic bid."};
@@ -5380,9 +5408,12 @@ function _stRender(){
 
       <div class="st-card">
         <h3>Sample project</h3>
-        <div class="st-row"><span class="l">Demo estimate<small>${escAttr(SAMPLE_ADDRESS)}</small></span>
-          <span style="display:flex;align-items:center;gap:9px">
-            <button class="btn btn-o" onclick="loadSampleProject()">Load sample project</button>
+        <div class="st-row"><span class="l">Demo estimate<small>${S._sample?"Loaded · "+escAttr(SAMPLE_ADDRESS):escAttr(SAMPLE_ADDRESS)}</small></span>
+          <span style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+            ${S._sample
+              ? `<button class="btn btn-o" onclick="resetSampleProject()">Reload sample</button>
+                 <button class="btn btn-o" onclick="removeSampleProject()">Remove sample</button>`
+              : `<button class="btn btn-o" onclick="loadSampleProject()">Load sample project</button>`}
             ${ihint("Fills a demo estimate that turns on every section and one of every builder — pool, spa, kitchen, pergola, water feature, walls, planting — so you can review the whole app. It replaces whatever project is open, and the total is not a realistic bid.")}
           </span></div>
       </div>
