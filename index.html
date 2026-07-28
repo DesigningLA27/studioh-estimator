@@ -763,14 +763,26 @@ html{height:100%}
    the rail being one dark column on a neutral ground. The panes already sit inset
    by --gap, so this is a background swap plus dissolving the rail into the frame. */
 body.shell-framed{background:var(--shellc)}
+/* The rail has no pane of its own — it sits in the frame. */
 body.shell-framed #header{background:transparent;border-color:transparent;box-shadow:none}
-body.shell-framed #header:hover,body.shell-framed #header:focus-within{
-  background:rgba(255,255,255,.06);box-shadow:none}
-body.shell-framed #topbar,body.shell-framed .view.active,body.shell-framed #sumpanel{
-  border-color:transparent}
-body.shell-framed #sumpanel,body.shell-framed #header{
-  box-shadow:0 1px 2px rgba(0,0,0,.10),0 22px 44px -30px rgba(0,0,0,.55)}
-body.shell-framed #topbar{box-shadow:0 1px 2px rgba(0,0,0,.10)}
+body.shell-framed.rail-open #header{background:rgba(255,255,255,.06);box-shadow:none}
+/* Everything else is ONE sheet: the top bar spans the full width, the work area and
+   the summary panel butt against each other with no frame colour between them, and
+   only the four outer corners are rounded. */
+body.shell-framed #topbar{right:var(--gap);border:0;box-shadow:none;
+  border-radius:var(--pane) var(--pane) 0 0}
+body.shell-framed.sp-on #topbar{right:var(--gap)}
+body.shell-framed .view.active{border:0;box-shadow:none;border-radius:0 0 0 var(--pane)}
+body.shell-framed.sp-on:not(.lib-hide-panel) .view.active{right:calc(var(--sp) + var(--gap))}
+body.shell-framed:not(.sp-on) .view.active,
+body.shell-framed.lib-hide-panel .view.active{border-radius:0 0 var(--pane) var(--pane)}
+body.shell-framed #sumpanel{top:calc(var(--gap) + var(--tbh));right:var(--gap);bottom:var(--gap);
+  background:var(--card);border:0;box-shadow:none;border-radius:0 0 var(--pane) 0}
+body.shell-framed #sumpanel .sp-h{border-bottom:0;padding-bottom:6px}
+/* the panel body is a tinted card inside the sheet — and it still scrolls */
+body.shell-framed #sumpanel .sp-b{background:var(--surface2);border-radius:calc(var(--pane) - 8px);
+  margin:0 12px 12px;padding:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+body.shell-framed #sumpanel .ptile{border-color:transparent}
 body.shell-framed #sp-open,body.shell-framed #rail-grip,body.shell-framed #sp-grip{opacity:.55}
 
 #header{top:var(--gap);left:var(--gap);bottom:var(--gap);height:auto;border:1px solid var(--br);
@@ -1438,6 +1450,9 @@ body.lb-open{overflow:hidden}
 .st-shsw{width:30px;height:30px;border-radius:9px;border:2px solid transparent;cursor:pointer;padding:0;
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
 .st-shsw.on{border-color:var(--gm)}
+.st-dim{display:flex;align-items:center;gap:12px}
+.st-dim input[type=range]{width:190px;height:5px;border-radius:3px;background:var(--br)}
+.st-dim b{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;min-width:46px;color:var(--tx)}
 .st-logo{display:flex;align-items:center;gap:12px}
 .st-logo .prev{width:74px;height:52px;border-radius:9px;border:1px dashed var(--br);background:var(--surface2);
   display:grid;place-items:center;overflow:hidden;color:var(--tl);font-size:10px;flex:none}
@@ -1468,7 +1483,7 @@ body.lb-open{overflow:hidden}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v558</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v559</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5549,11 +5564,27 @@ function applyRailText(){
 }
 function shellMode(){ return PREFS.shell==="framed" ? "framed" : "standard"; }
 function shellColor(){ return (PREFS.shellColor||SHELL_DEFAULT); }
+const SHELL_DIMS={gap:[4,44,10],radius:[6,52,16],rail:[48,120,60]};   // min, max, default
+function shellDim(k){ const d=SHELL_DIMS[k]; const v=+((PREFS.shellDims||{})[k]); 
+  return (isFinite(v)&&v>0) ? Math.max(d[0],Math.min(d[1],v)) : d[2]; }
 function applyShell(){
   const on = shellMode()==="framed";
   document.body.classList.toggle("shell-framed", on);
-  document.documentElement.style.setProperty("--shellc", shellColor());
+  const r=document.documentElement.style;
+  r.setProperty("--shellc", shellColor());
+  if(on){ r.setProperty("--gap", shellDim("gap")+"px");
+          r.setProperty("--pane", shellDim("radius")+"px");
+          r.setProperty("--rail", shellDim("rail")+"px"); }
+  else  { r.removeProperty("--gap"); r.removeProperty("--pane"); r.removeProperty("--rail"); }
+  try{ _pbFit(); }catch(e){}
 }
+function stShellDim(k,v){
+  PREFS.shellDims=PREFS.shellDims||{};
+  PREFS.shellDims[k]=+v||SHELL_DIMS[k][2];
+  prefsSave(); applyShell();
+  const out=document.getElementById("st-dim-"+k); if(out) out.textContent=shellDim(k)+"px";
+}
+function stShellDimsReset(){ delete PREFS.shellDims; prefsSave(); applyShell(); _stRender(); }
 function _hex2hsl(hex){
   let h=String(hex||"").trim().replace("#","");
   if(h.length===3) h=h.split("").map(c=>c+c).join("");
@@ -5722,7 +5753,16 @@ function _stRender(){
             <button class="btn btn-o" onclick="stShellColor('${SHELL_DEFAULT}')">Default</button>
           </div></div>
         <div class="st-row"><span class="l"></span>
-          <span class="st-sw">${SHELL_PRESETS.map(p=>`<button class="st-shsw${p.hex.toLowerCase()===shellColor().toLowerCase()?" on":""}" data-hex="${p.hex}" style="background:${p.hex}" title="${escAttr(p.nm)}" onclick="stShellColor('${p.hex}')"></button>`).join("")}</span></div>`:``}
+          <span class="st-sw">${SHELL_PRESETS.map(p=>`<button class="st-shsw${p.hex.toLowerCase()===shellColor().toLowerCase()?" on":""}" data-hex="${p.hex}" style="background:${p.hex}" title="${escAttr(p.nm)}" onclick="stShellColor('${p.hex}')"></button>`).join("")}</span></div>
+        ${[["gap","Frame","How much of the shell shows around the sheet."],
+           ["radius","Corner radius","The sheet's rounded corners."],
+           ["rail","Rail width","The collapsed sidebar."]].map(([k,nm,sub])=>`
+        <div class="st-row"><span class="l">${nm}<small>${sub}</small></span>
+          <span class="st-dim"><input type="range" min="${SHELL_DIMS[k][0]}" max="${SHELL_DIMS[k][1]}"
+            value="${shellDim(k)}" oninput="stShellDim('${k}',this.value)">
+            <b id="st-dim-${k}">${shellDim(k)}px</b></span></div>`).join("")}
+        <div class="st-row"><span class="l"></span>
+          <span><button class="btn btn-o" onclick="stShellDimsReset()">Reset sizes</button></span></div>`:``}
         <div class="st-row"><span class="l">Base colour<small>Drives buttons, highlights and the sidebar.</small></span>
           <div class="st-acc">
             <input type="color" class="st-swatch" id="st-acc-pick" value="${acc}" oninput="stSetAccent(this.value,true)" title="Open the colour picker">
