@@ -762,7 +762,13 @@ html{height:100%}
    The brand colour becomes the whole page and every pane floats on it, rather than
    the rail being one dark column on a neutral ground. The panes already sit inset
    by --gap, so this is a background swap plus dissolving the rail into the frame. */
-body.shell-framed{background:var(--shellc)}
+/* With --edge at 0 the shell runs to the window edge (the default). Raise it and the
+   whole app becomes a rounded rectangle sitting on the page — the frame is painted by
+   a backdrop rather than the body, so it can have its own corner radius. */
+body.shell-framed{background:var(--bg)}
+body.shell-framed::before{content:"";position:fixed;inset:var(--edge,0px);background:var(--shellc);
+  border-radius:var(--eradius,0px);z-index:0;pointer-events:none;
+  box-shadow:0 24px 60px -30px rgba(0,0,0,.55)}
 /* The rail has no pane of its own — it sits in the frame. */
 body.shell-framed #header{background:transparent;border-color:transparent;box-shadow:none}
 body.shell-framed.rail-open #header{background:rgba(255,255,255,.06);box-shadow:none}
@@ -1487,7 +1493,7 @@ body.lb-open{overflow:hidden}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v560</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v561</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5568,7 +5574,8 @@ function applyRailText(){
 }
 function shellMode(){ return PREFS.shell==="framed" ? "framed" : "standard"; }
 function shellColor(){ return (PREFS.shellColor||SHELL_DEFAULT); }
-const SHELL_DIMS={gap:[4,44,10],radius:[6,52,16],rail:[48,120,60]};   // min, max, default
+const SHELL_DIMS={gap:[4,44,10],radius:[6,52,16],rail:[48,120,60],
+                  edge:[0,64,0],eradius:[0,64,0]};   // min, max, default
 function shellDim(k){ const d=SHELL_DIMS[k]; const v=+((PREFS.shellDims||{})[k]); 
   return (isFinite(v)&&v>0) ? Math.max(d[0],Math.min(d[1],v)) : d[2]; }
 function applyShell(){
@@ -5576,10 +5583,15 @@ function applyShell(){
   document.body.classList.toggle("shell-framed", on);
   const r=document.documentElement.style;
   r.setProperty("--shellc", shellColor());
-  if(on){ r.setProperty("--gap", shellDim("gap")+"px");
+  if(on){ const edge=shellDim("edge");
+          // Panes are offset from the WINDOW, so they have to clear the page inset as
+          // well as the frame; --gap carries both and the frame band stays `gap`.
+          r.setProperty("--gap", (edge + shellDim("gap"))+"px");
+          r.setProperty("--edge", edge+"px");
+          r.setProperty("--eradius", shellDim("eradius")+"px");
           r.setProperty("--pane", shellDim("radius")+"px");
           r.setProperty("--rail", shellDim("rail")+"px"); }
-  else  { r.removeProperty("--gap"); r.removeProperty("--pane"); r.removeProperty("--rail"); }
+  else  { ["--gap","--edge","--eradius","--pane","--rail"].forEach(k=>r.removeProperty(k)); }
   try{ _pbFit(); }catch(e){}
 }
 function stShellDim(k,v){
@@ -5758,8 +5770,10 @@ function _stRender(){
           </div></div>
         <div class="st-row"><span class="l"></span>
           <span class="st-sw">${SHELL_PRESETS.map(p=>`<button class="st-shsw${p.hex.toLowerCase()===shellColor().toLowerCase()?" on":""}" data-hex="${p.hex}" style="background:${p.hex}" title="${escAttr(p.nm)}" onclick="stShellColor('${p.hex}')"></button>`).join("")}</span></div>
-        ${[["gap","Frame","How much of the shell shows around the sheet."],
-           ["radius","Corner radius","The sheet's rounded corners."],
+        ${[["edge","Page inset","Lift the whole app off the window edge. 0 = full bleed."],
+           ["eradius","Outer radius","Corners of the app itself."],
+           ["gap","Frame","How much of the shell shows around the sheet."],
+           ["radius","Sheet radius","The white sheet's rounded corners."],
            ["rail","Rail width","The collapsed sidebar."]].map(([k,nm,sub])=>`
         <div class="st-row"><span class="l">${nm}<small>${sub}</small></span>
           <span class="st-dim"><input type="range" min="${SHELL_DIMS[k][0]}" max="${SHELL_DIMS[k][1]}"
