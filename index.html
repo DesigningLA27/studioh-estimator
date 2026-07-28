@@ -1338,7 +1338,7 @@ body.lb-open{overflow:hidden}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v541</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v542</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5110,6 +5110,86 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="ArrowRight") _lbStep(1);
 });
 
+// ── SAMPLE PROJECT ───────────────────────────────────────────
+// A demo estimate that exercises every section and every builder once, so the
+// whole app can be reviewed without hand-entering a job. Deliberately NOT a
+// realistic bid — it turns on things a real project would never have together.
+const SAMPLE_ADDRESS="1205 Patton Way, San Marino, CA 91108";
+const _SAMPLE_BUILDER_CATS=["walls","kitchen","pergola","water","pool","planting"];
+function _sampleQty(u,area){
+  switch(String(u||"").toUpperCase()){
+    case "SF":  return Math.max(50,Math.round(area*0.12));
+    case "LF":  return 60;
+    case "EA":  return 2;
+    case "CY":  return 12;
+    case "TON": return 6;
+    case "HR":  return 8;
+    case "DAY": return 5;
+    case "WK":  return 4;
+    case "MO":  return 3;
+    default:    return 1;                     // LS and anything unrecognised
+  }
+}
+function loadSampleProject(){
+  if(!confirm("Load the sample project?\n\nIt replaces whatever is open right now — save your current work first if you need it.")) return;
+  closeSettings();
+  const today=new Date().toISOString().slice(0,10);
+  S.pi={client:"Sample Client", project:"Sample — San Marino", address:SAMPLE_ADDRESS, date:today,
+        notes:"Demo project. Every section and builder is switched on so the app can be reviewed — the total is not a realistic bid."};
+  // ── site
+  S.ql=1; S.fpMode="calc"; S.homeSF=3400; S.stories=1;
+  S.lotSize=14000; S.proLotSize=14000; S.dwySF=900; S.dwyInclude=false;
+  const land=14000-3400-900;
+  S.landscapeArea=land; S.proLandscapeArea=land; S.plantingAreaSF=Math.round(land*0.40);
+  S.permitTier="standard";
+  // ── every section on; line items only where a builder isn't doing the work
+  const pct={paving:22, planting:40, irrigation:40, lighting:100, sitework:100, drainage:100};
+  Object.keys(S.cats).forEach(id=>{
+    const cs=S.cats[id]; cs.on=true; cs.lumpOn=false;
+    if(pct[id]!=null) cs.secPct=pct[id];
+    if(_SAMPLE_BUILDER_CATS.indexOf(id)>=0) return;      // builder drives the subtotal
+    const area=(typeof secArea==="function")?secArea(id):0;
+    (cs.items||[]).slice(0,3).forEach(it=>{ it.checked=true; it.q=_sampleQty(it.u,area||land); });
+  });
+  // the site fields are the source updateProSiteDims() reads from, so they have to
+  // be filled BEFORE it runs or landscape area comes back zero
+  const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
+  setv("pro-lot-sf",S.proLotSize); setv("pro-footprint-sf",S.homeSF); setv("pro-driveway-sf",S.dwySF);
+  setv("pi-client",S.pi.client); setv("pi-project",S.pi.project); setv("pi-address",S.pi.address);
+  const dwycb=document.getElementById("pro-dwy-include"); if(dwycb) dwycb.checked=false;
+  try{ updateProSiteDims(); }catch(e){}
+  try{ buildProCats(); }catch(e){}                        // builders below need their containers
+  // ── one of every builder
+  try{ S.walls=[]; newWallSegment(); Object.assign(S.walls[0],{label:"Seat wall — patio", height:1.5, length:34, finishIdx:0, sides:2, capIdx:0}); }catch(e){}
+  try{ S.pergolas=[]; newPergola(); Object.assign(S.pergolas[0],{label:"Dining shade", dimMode:"dim", L:16, W:12, height:9, attachedSides:1, lights:4}); }catch(e){}
+  try{ S.kitchens=[]; newKitchen(); Object.assign(S.kitchens[0],{label:"BBQ counter", dimMode:"run", runLF:12, segs:[{len:12}], hasBar:true, barLF:8}); S.kitchens[0].util.gas=true; S.kitchens[0].util.elec=true; }catch(e){}
+  try{ S.waterFeatures=[]; addWaterFeature("custom"); Object.assign(S.waterFeatures[0],{title:"Spillway basin", basinLen:6, basinWidth:2.5, wallLen:6, uplights:2}); }catch(e){}
+  try{ S.pools=[]; addPool(); Object.assign(S.pools[0],{title:"Pool & spa", lenFt:32, widFt:16, spa:true, baja:true, bajaSF:45, ledQty:3, automation:true}); }catch(e){}
+  // ── planting: two zones with real plants out of the book
+  try{
+    const pl=ensurePlanting(); pl.zones=[newZone("Front yard"), newZone("Rear garden")];
+    pl.zones[0].areaSF=Math.round(land*0.15); pl.zones[0]._touched=true;
+    pl.zones[1].areaSF=Math.round(land*0.25); pl.zones[1]._touched=true;
+    const pick=(kind,n)=>(PLANT_DB[kind]||[]).slice(0,n).map(p=>p.id);
+    pick("shrub",4).forEach((id,i)=>addShrubRow(i<2?0:1,id));
+    pick("gc",2).forEach((id,i)=>{ if(typeof addGcRow==="function") addGcRow(i,id); });
+    pick("tree",2).forEach((id,i)=>{ if(typeof addTreeRow==="function") addTreeRow(i,id); });
+    S.cats.planting.on=true;
+  }catch(e){}
+  // ── rebuild, same sequence a restored project uses
+  try{ updateProSiteDims(); }catch(e){}
+  try{ buildProCats(); }catch(e){}
+  try{ renderQLBtns(); renderCatCards(); updatePrep(); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+  try{ renderAreaBudget(); }catch(e){}
+  try{ plantRefresh(); }catch(e){}
+  try{ renderTotal(); }catch(e){}
+  try{ updateProBar(); }catch(e){}
+  try{ _refreshProjectName(); }catch(e){}
+  const t=document.querySelector('.tab[data-view="pro"]'); if(t) t.click();
+  try{ _toast("Sample project loaded — save it to keep a copy","#4C7B3D"); }catch(e){}
+}
+
 // ── INFO HINTS ───────────────────────────────────────────────
 let _tipEl=null;
 function _tipClose(){ if(_tipEl){ _tipEl.remove(); _tipEl=null; } }
@@ -5296,6 +5376,15 @@ function _stRender(){
           <input class="st-in" value="${escAttr(PREFS.defaults.location||"")}" placeholder="Los Angeles / Orange County" onchange="stLocation(this.value)"></div>
         <div class="st-row"><span class="l">Market adjustment<small>Moves every cost before margin.</small></span>
           <span><input type="number" class="st-in num" value="${+GSET.marketAdj||0}" step="1" onchange="setMarketAdj(this.value)"> <b style="font-size:12px;color:var(--tm)">%</b></span></div>
+      </div>
+
+      <div class="st-card">
+        <h3>Sample project</h3>
+        <div class="st-row"><span class="l">Demo estimate<small>${escAttr(SAMPLE_ADDRESS)}</small></span>
+          <span style="display:flex;align-items:center;gap:9px">
+            <button class="btn btn-o" onclick="loadSampleProject()">Load sample project</button>
+            ${ihint("Fills a demo estimate that turns on every section and one of every builder — pool, spa, kitchen, pergola, water feature, walls, planting — so you can review the whole app. It replaces whatever project is open, and the total is not a realistic bid.")}
+          </span></div>
       </div>
 
       <div class="st-card">
