@@ -611,9 +611,13 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
 .krank .r{display:grid;grid-template-columns:14px 1fr auto;gap:8px;align-items:center}
 .krank .n{font-size:10.5px;font-weight:800;color:var(--tl);font-variant-numeric:tabular-nums}
 .krank .lbl{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:none;letter-spacing:normal;color:var(--tx)}
-.krank .amt{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
-.krank .track{grid-column:2/-1;height:7px;border-radius:0 4px 4px 0;background:var(--brl);overflow:hidden}
-.krank .fill{height:100%;border-radius:0 4px 4px 0}
+.krank .amt{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:6px}
+.krank .amt em{font-style:normal;font-size:11px;font-weight:700;color:var(--tl);min-width:26px;text-align:right}
+.krank .track{grid-column:2/-1;height:7px;border-radius:4px;background:var(--brl);overflow:hidden;display:block}
+/* display:block matters — as an inline span the fill ignored width and height, which
+   is why these bars read as empty rails */
+.krank .fill{display:block;height:100%;border-radius:4px;transition:width .25s}
+.krank-f{font-size:10.5px;color:var(--tl);margin-top:2px}
 .kmeter{position:relative;height:10px;border-radius:5px;background:var(--brl);margin-top:4px}
 .kmeter .band{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--gm) 25%,transparent);border-radius:3px}
 .kmeter .pin{position:absolute;top:-5px;width:3px;height:20px;border-radius:2px;background:var(--tx)}
@@ -1338,7 +1342,7 @@ body.lb-open{overflow:hidden}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v543</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v544</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -11935,7 +11939,10 @@ function _proCardData(){
   const land=+S.proLandscapeArea||0;
   const plant=+S.plantingAreaSF||0;
   const on=PB.filter(c=>S.cats[c.id]&&S.cats[c.id].on);
-  const subs=on.map(c=>({id:c.id,nm:c.name,amt:catSubtotal(c.id)}));
+  // Each section wears the colour of the group it belongs to, so a bar in Top 3
+  // reads against the same key as Cost distribution instead of its own palette.
+  const grpCol={}; PB_GROUPS.forEach((g,i)=>g.secs.forEach(id=>{ grpCol[id]=`var(--k${i+1})`; }));
+  const subs=on.map(c=>({id:c.id,nm:c.name,amt:catSubtotal(c.id),c:grpCol[c.id]||"var(--kn)"}));
   const sub=subs.reduce((a,s)=>a+s.amt,0);
   const madjPct=+GSET.marketAdj||0, madj=sub*(madjPct/100);
   const mu=(sub+madj)*(S.markup/100);
@@ -12006,13 +12013,15 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
   if(cardOn("top3")) parts1.push(`
     <div class="ptile">
       <span class="ptile-lbl">Top 3 costs</span>
-      ${d.top3.length?`<div class="krank">${d.top3.map((s,i)=>`
-        <div class="r">
+      ${d.top3.length?`<div class="krank">${d.top3.map((s,i)=>{
+        const pct=d.sub>0?(s.amt/d.sub)*100:0;
+        return `<div class="r">
           <span class="n">${i+1}</span>
           <span class="lbl" title="${_esc(s.nm)}">${_esc(s.nm)}</span>
-          <span class="amt">${fmtN(s.amt)}</span>
-          <span class="track"><span class="fill" style="width:${(s.amt/d.top3[0].amt)*100}%;background:var(--k${(i%4)+1})"></span></span>
-        </div>`).join("")}</div>`
+          <span class="amt">${fmtN(s.amt)}<em>${pct.toFixed(0)}%</em></span>
+          <span class="track"><span class="fill" style="width:${Math.max(3,Math.min(100,pct))}%;background:${s.c}"></span></span>
+        </div>`;}).join("")}
+        <div class="krank-f">share of ${fmtN(d.sub)} scope</div></div>`
       :`<span class="ptile-sub">Nothing priced yet</span>`}
     </div>`);
   if(cardOn("ready")) parts1.push(`
