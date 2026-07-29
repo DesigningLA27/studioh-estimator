@@ -1652,6 +1652,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .ic .x{position:absolute;top:8px;right:8px;width:22px;height:22px;border-radius:7px;border:0;background:none;
   color:var(--tl);cursor:pointer;opacity:0;font-size:13px;line-height:1}
 .ic:hover .x{opacity:.7}
+.ic .ic-gear{opacity:0}
+.ic:hover .ic-gear{opacity:.7}
+.ic .ic-gear:hover{opacity:1!important}
 .ic .x:hover{background:var(--surface2);color:var(--tx);opacity:1}
 .ic-empty{font-size:12px;color:var(--tl);padding:6px 0}
 .ins-mtr{position:relative;height:11px;border-radius:6px;background:var(--brl);margin-top:3px}
@@ -1704,6 +1707,28 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .st-row{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:center}
 .st-row>.l{font-size:12.5px;font-weight:700;color:var(--tx)}
 .st-row>.l small{display:block;font-weight:500;font-size:11px;color:var(--tl);line-height:1.35;margin-top:2px}
+/* Confidence editor — a phase's low and high are independently adjustable, since a
+   contractor's low-bid discount and high-bid premium rarely match in practice. */
+.conf-grid-hd,.conf-grid-row{display:grid;grid-template-columns:1fr 78px 78px;gap:10px;align-items:center}
+.conf-grid-hd{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--tl);padding-bottom:2px}
+.conf-grid-row>.l{font-size:12.5px;font-weight:700;color:var(--tx)}
+.conf-grid-row>.l small{display:block;font-weight:500;font-size:11px;color:var(--tl);line-height:1.35;margin-top:2px}
+.conf-grid-row .st-in.num{width:100%}
+@media(max-width:700px){ .conf-grid-hd,.conf-grid-row{grid-template-columns:1fr 60px 60px;gap:6px} }
+/* Estimate-confidence editor modal — opened from the ⚙ on the confidence card,
+   either scoped to this project (S.confidence) or to the user's default. */
+.conf-edit-box{width:min(460px,100%);max-height:86vh;overflow:auto;background:var(--card);
+  border:1px solid var(--br);border-radius:18px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;
+  box-shadow:0 24px 80px -20px rgba(0,0,0,.55)}
+.conf-edit-hd{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.conf-edit-hd b{font-size:14px}
+.conf-edit-hd .x{border:0;background:none;color:var(--tl);font-size:15px;cursor:pointer;padding:4px}
+.conf-edit-hd .x:hover{color:var(--tx)}
+.conf-edit-sub{font-size:11.5px;color:var(--tl);line-height:1.5}
+.conf-edit-ft{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:4px}
+.conf-edit-btn{border:0;background:none;color:var(--tl);cursor:pointer;font-size:12px;padding:2px 4px;border-radius:6px;line-height:1}
+.conf-edit-btn:hover{background:var(--surface2);color:var(--gm)}
+.ic-gear{position:absolute;top:8px;right:32px}
 .st-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .st-seg{display:inline-flex;justify-self:start;background:var(--brl);border-radius:10px;padding:3px;gap:3px}
 .st-seg button{border:0;background:none;font:inherit;font-size:12px;font-weight:700;color:var(--tm);
@@ -1761,7 +1786,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v578</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v579</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -2533,34 +2558,51 @@ const PHASE_DEFAULT="concept";
 // finishes and details not yet locked — starts wide at Consultation and closes to
 // nothing by Bid, because that is the part design actually resolves. Both are
 // settings so a firm can tune them to how they actually price.
-const CONF_DEFAULT={contr:25, scope:{consult:28, pre:18, concept:9, cd:3, bid:0}};
-function confContr(){ const v=PREFS.confidence&&PREFS.confidence.contr;
-  return (v==null)?CONF_DEFAULT.contr:v; }
-function confScope(id){ const o=(PREFS.confidence&&PREFS.confidence.scope)||{};
-  const v=o[id]; return (v==null)?CONF_DEFAULT.scope[id]:v; }
-function confTotal(id){ return confContr()+confScope(id); }
-function stConfContr(v){ PREFS.confidence=PREFS.confidence||{};
-  PREFS.confidence.contr=Math.max(0,Math.min(60,Math.round(+v||0)));
-  prefsSave(); renderPhaseBar(); try{ renderProSummary(); }catch(e){} if(_stOpen) _stRender(); }
-function stConfScope(id,v){ PREFS.confidence=PREFS.confidence||{};
-  PREFS.confidence.scope=PREFS.confidence.scope||{};
-  PREFS.confidence.scope[id]=Math.max(0,Math.min(80,Math.round(+v||0)));
-  prefsSave(); renderPhaseBar(); try{ renderProSummary(); }catch(e){} if(_stOpen) _stRender(); }
-function stConfReset(){ delete PREFS.confidence; prefsSave(); renderPhaseBar();
-  try{ renderProSummary(); }catch(e){} if(_stOpen) _stRender(); }
+// Contractor spread and scope uncertainty each have an independent low % and high %,
+// not one symmetric ± number — a low bidder rarely discounts by as much as a high
+// bidder overshoots, and scope almost always grows rather than shrinks, so the two
+// sides are never assumed equal. Three layers, each falling back to the next:
+//   S.confidence           — this project's own override (saved with the project)
+//   PREFS.defaults.confidence — this user's default, seeded into every new project
+//   CONF_DEFAULT            — the built-in fallback if neither above is set
+const CONF_DEFAULT={contrLo:25, contrHi:25,
+  scope:{consult:{lo:28,hi:28}, pre:{lo:18,hi:18}, concept:{lo:9,hi:9}, cd:{lo:3,hi:3}, bid:{lo:0,hi:0}}};
+function _confClone(o){ try{ return JSON.parse(JSON.stringify(o)); }catch(e){ return null; } }
+function confContrLo(){ if(S.confidence&&S.confidence.contrLo!=null) return S.confidence.contrLo;
+  if(PREFS.defaults.confidence&&PREFS.defaults.confidence.contrLo!=null) return PREFS.defaults.confidence.contrLo;
+  return CONF_DEFAULT.contrLo; }
+function confContrHi(){ if(S.confidence&&S.confidence.contrHi!=null) return S.confidence.contrHi;
+  if(PREFS.defaults.confidence&&PREFS.defaults.confidence.contrHi!=null) return PREFS.defaults.confidence.contrHi;
+  return CONF_DEFAULT.contrHi; }
+function confScopeLo(id){ let v=S.confidence&&S.confidence.scope&&S.confidence.scope[id]&&S.confidence.scope[id].lo;
+  if(v!=null) return v;
+  v=PREFS.defaults.confidence&&PREFS.defaults.confidence.scope&&PREFS.defaults.confidence.scope[id]&&PREFS.defaults.confidence.scope[id].lo;
+  if(v!=null) return v;
+  return CONF_DEFAULT.scope[id].lo; }
+function confScopeHi(id){ let v=S.confidence&&S.confidence.scope&&S.confidence.scope[id]&&S.confidence.scope[id].hi;
+  if(v!=null) return v;
+  v=PREFS.defaults.confidence&&PREFS.defaults.confidence.scope&&PREFS.defaults.confidence.scope[id]&&PREFS.defaults.confidence.scope[id].hi;
+  if(v!=null) return v;
+  return CONF_DEFAULT.scope[id].hi; }
+function confPMLabel(lo,hi){ return lo===hi ? `±${lo}%` : `−${lo}% / +${hi}%`; }
 // One phase's low/mid/high given a midpoint total — shared by the phase strip,
 // the summary card and the Insights card, so the three can never disagree.
 function confRange(mid,id){
-  const tot=confTotal(id);
-  return {tot, lo:Math.round(mid*(1-tot/100)), hi:Math.round(mid*(1+tot/100))};
+  const cl=confContrLo(), ch=confContrHi(), sl=confScopeLo(id), sh=confScopeHi(id);
+  const totLo=cl+sl, totHi=ch+sh;
+  return {cl,ch,sl,sh,totLo,totHi, lo:Math.round(mid*(1-totLo/100)), hi:Math.round(mid*(1+totHi/100))};
 }
 function confBarHTML(mid,id,big,skipped){
   if(skipped){
     return `<div class="ph-band${big?" big":""} skip"><i class="ph-scope"></i></div>
       <div class="ph-lohi"><span>—</span><span>—</span></div>`;
   }
-  const r=confRange(mid,id), wIn=r.tot?Math.round(confContr()/r.tot*100):100, gut=(100-wIn)/2;
-  return `<div class="ph-band${big?" big":""}"><i class="ph-scope"></i><i class="ph-contr" style="left:${gut}%;right:${gut}%"></i><span class="ph-mk"></span></div>
+  const r=confRange(mid,id);
+  const loW=mid*r.totLo/100, hiW=mid*r.totHi/100, span=(loW+hiW)||1;
+  const mkPct=loW/span*100;
+  const contrLoW=mid*r.cl/100, contrHiW=mid*r.ch/100;
+  const contrLeftPct=(loW-contrLoW)/span*100, contrRightPct=100-((loW+contrHiW)/span*100);
+  return `<div class="ph-band${big?" big":""}"><i class="ph-scope"></i><i class="ph-contr" style="left:${contrLeftPct}%;right:${contrRightPct}%"></i><span class="ph-mk" style="left:${mkPct}%"></span></div>
     <div class="ph-lohi"><span>${fmt(r.lo)}</span><span>${fmt(r.hi)}</span></div>`;
 }
 let _phTipEl=null;
@@ -2572,7 +2614,7 @@ function _phTipShow(e,id){
   d.innerHTML = skipped
     ? `<b style="color:var(--tx)">${escAttr(PHASES[idx].nm)}</b><br>Not bid or saved separately`
     : `<b style="color:var(--tx)">${escAttr(PHASES[idx].nm)}</b><br>
-    Contractor spread ±${confContr()}%<br>Scope uncertainty ±${confScope(id)}% at this phase`;
+    Contractor spread ${confPMLabel(confContrLo(),confContrHi())}<br>Scope uncertainty ${confPMLabel(confScopeLo(id),confScopeHi(id))} at this phase`;
   document.body.appendChild(d);
   const r=e.currentTarget.getBoundingClientRect(), w=d.offsetWidth||220, h=d.offsetHeight||50;
   d.style.left=Math.max(8,Math.min(r.left+r.width/2-w/2, window.innerWidth-w-8))+"px";
@@ -2580,6 +2622,86 @@ function _phTipShow(e,id){
   _phTipEl=d;
 }
 function _phTipHide(){ if(_phTipEl){ _phTipEl.remove(); _phTipEl=null; } }
+// ── ESTIMATE CONFIDENCE EDITOR ────────────────────────────────
+// One editor, two targets: "project" writes into S.confidence (saved with the
+// project, adjustable per project) and "default" writes into PREFS.defaults.confidence
+// (this user's seed for brand-new projects). Values shown always come straight from
+// the target object being edited (falling back only to CONF_DEFAULT), never through
+// the merged getters above — otherwise editing a default that a project already
+// overrides would silently show the project's number instead of the default's.
+let _confEditTarget="project";
+function _confDisplayVal(target,field,id){
+  if(target==="default"){
+    const o=PREFS.defaults.confidence||{};
+    if(field==="contrLo") return o.contrLo!=null?o.contrLo:CONF_DEFAULT.contrLo;
+    if(field==="contrHi") return o.contrHi!=null?o.contrHi:CONF_DEFAULT.contrHi;
+    if(field==="scopeLo") return (o.scope&&o.scope[id]&&o.scope[id].lo!=null)?o.scope[id].lo:CONF_DEFAULT.scope[id].lo;
+    return (o.scope&&o.scope[id]&&o.scope[id].hi!=null)?o.scope[id].hi:CONF_DEFAULT.scope[id].hi;
+  }
+  if(field==="contrLo") return confContrLo();
+  if(field==="contrHi") return confContrHi();
+  if(field==="scopeLo") return confScopeLo(id);
+  return confScopeHi(id);
+}
+function _confTargetObj(target){
+  if(target==="default"){ PREFS.defaults.confidence=PREFS.defaults.confidence||{}; return PREFS.defaults.confidence; }
+  S.confidence=S.confidence||{}; return S.confidence;
+}
+function _confAfterEdit(target){
+  if(target==="default") prefsSave();
+  renderPhaseBar(); try{ renderProSummary(); }catch(e){} if(_stOpen) _stRender();
+  if(document.getElementById("conf-edit-modal")) _confEditRender();
+}
+function stConfContrLo(target,v){ const o=_confTargetObj(target); o.contrLo=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
+function stConfContrHi(target,v){ const o=_confTargetObj(target); o.contrHi=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
+function stConfScopeLo(target,id,v){ const o=_confTargetObj(target); o.scope=o.scope||{}; o.scope[id]=o.scope[id]||{}; o.scope[id].lo=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
+function stConfScopeHi(target,id,v){ const o=_confTargetObj(target); o.scope=o.scope||{}; o.scope[id]=o.scope[id]||{}; o.scope[id].hi=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
+function stConfReset(){ delete PREFS.defaults.confidence; prefsSave(); renderPhaseBar();
+  try{ renderProSummary(); }catch(e){} if(_stOpen) _stRender();
+  if(document.getElementById("conf-edit-modal")) _confEditRender(); }
+// Promote this project's live (effective) values into the user's default for new projects.
+function confSaveAsDefault(){
+  const scope={}; PHASES.forEach(p=>{ scope[p.id]={lo:confScopeLo(p.id),hi:confScopeHi(p.id)}; });
+  PREFS.defaults.confidence={contrLo:confContrLo(),contrHi:confContrHi(),scope};
+  prefsSave();
+  try{ _toast("Saved as your default for new projects","#4C7B3D"); }catch(e){}
+  if(document.getElementById("conf-edit-modal")) _confEditRender();
+}
+function confResetToDefault(){
+  if(!confirm("Reset this project's confidence settings back to your default?")) return;
+  delete S.confidence; _confAfterEdit("project");
+}
+function confEditOpen(target){
+  _confEditTarget=target||"project";
+  let m=document.getElementById("conf-edit-modal");
+  if(!m){ m=document.createElement("div"); m.id="conf-edit-modal"; m.className="lb-scrim"; m.onclick=confEditClose; document.body.appendChild(m); }
+  m.style.display="flex";
+  _confEditRender();
+}
+function confEditClose(){ const m=document.getElementById("conf-edit-modal"); if(m) m.style.display="none"; }
+function _confEditRender(){
+  const m=document.getElementById("conf-edit-modal"); if(!m) return;
+  const t=_confEditTarget, isDef=t==="default";
+  m.innerHTML=`<div class="conf-edit-box" onclick="event.stopPropagation()">
+    <div class="conf-edit-hd"><b>${isDef?"Your default confidence":"This project's confidence"}</b>
+      <button type="button" class="x" onclick="confEditClose()">✕</button></div>
+    <div class="conf-edit-sub">${isDef
+      ? "Seeds every new project. Open a project and use its own ⚙ to adjust that project only."
+      : "Adjusts this project only — saved with it. Most contractor quotes skew, and scope almost always grows rather than shrinks, so low and high don't have to match."}</div>
+    <div class="conf-grid-hd"><span></span><span>Low %</span><span>High %</span></div>
+    <div class="conf-grid-row"><span class="l">Contractor spread<small>Cheap bidder to expensive bidder.</small></span>
+      <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'contrLo')}" onchange="stConfContrLo('${t}',this.value)">
+      <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'contrHi')}" onchange="stConfContrHi('${t}',this.value)"></div>
+    ${PHASES.map(p=>`<div class="conf-grid-row"><span class="l">${escAttr(p.nm)} scope<small>Materials and details still unresolved at this phase.</small></span>
+      <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'scopeLo',p.id)}" onchange="stConfScopeLo('${t}','${p.id}',this.value)">
+      <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'scopeHi',p.id)}" onchange="stConfScopeHi('${t}','${p.id}',this.value)"></div>`).join("")}
+    <div class="conf-edit-ft">
+      ${isDef?"":`<button type="button" class="btn btn-o" onclick="confSaveAsDefault()">Save as my default</button>
+      <button type="button" class="btn btn-o" onclick="confResetToDefault()">Reset to my default</button>`}
+      <button type="button" class="btn" onclick="confEditClose()">Done</button>
+    </div>
+  </div>`;
+}
 function phaseIdx(id){ const i=PHASES.findIndex(p=>p.id===(id||S.phase)); return i<0?PHASES.findIndex(p=>p.id===PHASE_DEFAULT):i; }
 function phaseNow(){ return PHASES[phaseIdx()]; }
 function phaseAtLeast(id){ return phaseIdx() >= PHASES.findIndex(p=>p.id===id); }
@@ -6238,7 +6360,7 @@ const INS_CARDS=[
   need:d=>d.grand>0?"":"Nothing priced yet",
   draw:d=>`<span class="v">${fmtN(d.grand)}</span>
     <span class="s"><b style="color:var(--tm)">${fmt(confRange(d.grand,phaseNow().id).lo)} – ${fmt(confRange(d.grand,phaseNow().id).hi)}</b>
-      <span class="pchip">±${confRange(d.grand,phaseNow().id).tot}% · ${escAttr(phaseNow().nm.toLowerCase())}</span></span>
+      <span class="pchip">${confPMLabel(confRange(d.grand,phaseNow().id).totLo,confRange(d.grand,phaseNow().id).totHi)} · ${escAttr(phaseNow().nm.toLowerCase())}</span></span>
     <span class="s">${d.active} of ${d.total} sections priced</span>`},
 
  {id:"psf", g:"cost", nm:"Cost per sf", w:1, client:1, desc:"Against the LA / OC benchmark",
@@ -6357,9 +6479,10 @@ const INS_CARDS=[
  {id:"phaseline", g:"cost", nm:"Estimate confidence", w:1, client:1, desc:"How tight the number is, and why",
   need:d=>d.grand>0?"":"Nothing priced yet",
   draw:d=>{ const id=phaseNow().id, r=confRange(d.grand,id);
-    return `<span class="v" style="font-size:19px">${fmt(d.grand)}</span>
+    return `${_isClientLens()?"":`<button type="button" class="conf-edit-btn ic-gear" onclick="event.stopPropagation();confEditOpen('project')" title="Adjust this project's confidence settings">⚙</button>`}
+    <span class="v" style="font-size:19px">${fmt(d.grand)}</span>
     ${confBarHTML(d.grand,id,true)}
-    <span class="s">±${r.tot}% at ${escAttr(phaseNow().nm)} · ${confContr()}% contractor spread + ${confScope(id)}% scope</span>`;}},
+    <span class="s">${fmt(r.lo)} – ${fmt(r.hi)} at ${escAttr(phaseNow().nm)} · contractor ${confPMLabel(r.cl,r.ch)} + scope ${confPMLabel(r.sl,r.sh)}</span>`;}},
 ];
 const INS_DEFAULT={total:1,psf:1,dist:1,phase:1,phaseline:1,allow:1,lot:1,value:1,water:1,palette:1,ready:1};
 function insOn(){ const o=(PREFS.insights&&PREFS.insights.on)||null; return o||Object.assign({},INS_DEFAULT); }
@@ -6770,13 +6893,16 @@ function _stRender(){
       </div>
 
       <div class="st-card">
-        <h3 style="display:flex;align-items:center;gap:7px">Estimate confidence
-          ${ihint("The band shown on each phase is two things added together: contractor spread (who builds it — roughly constant) and scope uncertainty (what is being built — closes as design firms up). Hover any phase in the strip to see its own split.")}</h3>
-        <div class="st-row"><span class="l">Contractor spread<small>Cheap bidder to expensive bidder — usually stays fairly constant.</small></span>
-          <span style="display:flex;align-items:center;gap:7px"><input type="number" class="st-in num" value="${confContr()}" step="1" onchange="stConfContr(this.value)"> <b style="font-size:12px;color:var(--tm)">%</b></span></div>
-        ${PHASES.map(p=>`<div class="st-row"><span class="l">${escAttr(p.nm)} scope<small>Materials and details still unresolved at this phase.</small></span>
-          <span style="display:flex;align-items:center;gap:7px"><input type="number" class="st-in num" value="${confScope(p.id)}" step="1" onchange="stConfScope('${p.id}',this.value)"> <b style="font-size:12px;color:var(--tm)">%</b></span></div>`).join("")}
-        <div class="st-row"><span class="l"></span><span><button class="btn btn-o" onclick="stConfReset()">Reset to defaults</button></span></div>
+        <h3 style="display:flex;align-items:center;gap:7px">Estimate confidence — your default
+          ${ihint("The band on each phase is two things added, each with its own low and high: contractor spread (who builds it — roughly constant) and scope uncertainty (what is being built — closes as design firms up). Most contractor quotes skew — a low bidder rarely undercuts by as much as a high bidder overshoots — so low and high don't have to match. This is what seeds a brand-new project; open a project and use the ⚙ on its Estimate confidence card to adjust that project only.")}</h3>
+        <div class="conf-grid-hd"><span></span><span>Low %</span><span>High %</span></div>
+        <div class="conf-grid-row"><span class="l">Contractor spread<small>Cheap bidder to expensive bidder.</small></span>
+          <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','contrLo')}" step="1" onchange="stConfContrLo('default',this.value)">
+          <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','contrHi')}" step="1" onchange="stConfContrHi('default',this.value)"></div>
+        ${PHASES.map(p=>`<div class="conf-grid-row"><span class="l">${escAttr(p.nm)} scope<small>Materials and details still unresolved at this phase.</small></span>
+          <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','scopeLo',p.id)}" step="1" onchange="stConfScopeLo('default','${p.id}',this.value)">
+          <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','scopeHi',p.id)}" step="1" onchange="stConfScopeHi('default','${p.id}',this.value)"></div>`).join("")}
+        <div class="st-row"><span class="l"></span><span><button class="btn btn-o" onclick="stConfReset()">Reset to built-in defaults</button></span></div>
       </div>
 
       <div class="st-card">
@@ -13491,7 +13617,7 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
     <div class="ptile ptile-total">
       <span class="ptile-lbl">Project total</span>
       <span class="ptile-big">${d.grand>0?fmtN(d.grand):"$0"}</span>
-      ${d.grand>0?`<span class="phband"><b>${fmt(confRange(d.grand,phaseNow().id).lo)} – ${fmt(confRange(d.grand,phaseNow().id).hi)}</b><em>±${confRange(d.grand,phaseNow().id).tot}% · ${escAttr(phaseNow().nm.toLowerCase())}</em></span>`:''}
+      ${d.grand>0?`<span class="phband"><b>${fmt(confRange(d.grand,phaseNow().id).lo)} – ${fmt(confRange(d.grand,phaseNow().id).hi)}</b><em>${confPMLabel(confRange(d.grand,phaseNow().id).totLo,confRange(d.grand,phaseNow().id).totHi)} · ${escAttr(phaseNow().nm.toLowerCase())}</em></span>`:''}
       <span class="ptile-sub">${d.active} of ${d.total} sections on</span>
       ${_isClientLens()?'':`<span class="ptile-exp${PRO_TOT_OPEN?' open':''}" onclick="toggleProTotal()"><span class="car">▶</span>Markup &amp; adjustments</span>`}
       ${(PRO_TOT_OPEN && !_isClientLens())?`<div class="ptile-brk">
@@ -13577,7 +13703,7 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
     <div class="ptile">
       <span class="ptile-lbl">Phase totals</span>
       <span class="ptile-k">${d.grand>0?fmtN(d.grand):"$0"}</span>
-      <span class="ptile-sub">${escAttr(phaseNow().nm)} · <span class="pchip">±${confRange(d.grand,phaseNow().id).tot}%</span>${phaseSnap()?"":" · unsaved"}</span>
+      <span class="ptile-sub">${escAttr(phaseNow().nm)} · <span class="pchip">${confPMLabel(confRange(d.grand,phaseNow().id).totLo,confRange(d.grand,phaseNow().id).totHi)}</span>${phaseSnap()?"":" · unsaved"}</span>
       <div class="phmini">${PHASES.map((p,i)=>`<span><u>${vals[i]==null?"":fmt(vals[i])}</u>
         <i style="height:${vals[i]==null?4:Math.max(4,Math.round(vals[i]/mx*100))}%;background:${i===cur?"var(--gm)":vals[i]==null?"var(--brl)":"var(--kn)"}"></i></span>`).join("")}</div>
       <div class="phminix">${PHASES.map((p,i)=>`<span class="${i===cur?"on":""}">${p.seq}</span>`).join("")}</div>
@@ -13595,10 +13721,10 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
     const id=phaseNow().id, r=confRange(d.grand,id);
     H.confidence=`
     <div class="ptile">
-      <span class="ptile-lbl">Estimate confidence</span>
+      <span class="ptile-lbl">Estimate confidence ${_isClientLens()?"":`<button type="button" class="conf-edit-btn" onclick="event.stopPropagation();confEditOpen('project')" title="Adjust this project's confidence settings">⚙</button>`}</span>
       <span class="ptile-k">${fmt(d.grand)}</span>
       ${confBarHTML(d.grand,id,true)}
-      <span class="ptile-sub">±${r.tot}% at ${escAttr(phaseNow().nm)} · ${confContr()}% contractor spread + ${confScope(id)}% scope</span>
+      <span class="ptile-sub">${fmt(r.lo)} – ${fmt(r.hi)} at ${escAttr(phaseNow().nm)} · contractor ${confPMLabel(r.cl,r.ch)} + scope ${confPMLabel(r.sl,r.sh)}</span>
     </div>`;
   }
   // A material takes the panel over while it is open — same panel, different subject.
