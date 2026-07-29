@@ -1713,7 +1713,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v569</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v570</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5850,6 +5850,16 @@ let MATERIALS=(function(){ try{ const s=localStorage.getItem("studioh_materials_
       ["alert","<b>Dark stone gets hot.</b> Not around a pool deck or anywhere barefoot in full sun."]]},
 ];
 function matSave(){ try{ localStorage.setItem("studioh_materials_v1", JSON.stringify(MATERIALS)); }catch(e){} }
+MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
+function matSpecify(id){
+  const m=matFind(id); if(!m||!m.claimed) return;
+  let sf=0; try{ sf=Math.round(secArea("paving")); }catch(e){}
+  const v=prompt("How many square feet of "+m.nm+" on this project?", sf||"");
+  if(v===null) return;
+  m.specSF=Math.max(0,Math.round(+String(v).replace(/[^0-9.]/g,"")||0));
+  matSave(); renderMaterials();
+  try{ _toast(m.specSF?("Specified "+m.specSF.toLocaleString()+" sf · "+fmtN(_matEarn(m)*m.specSF)+" to you"):"Removed from the project","#4C7B3D"); }catch(e){}
+}
 function matFields(){ const o=(PREFS.matFields||null); return o||Object.assign({},MAT_FIELDS_DEFAULT); }
 function matSetField(k){ const f=matFields(); if(f[k]) delete f[k]; else f[k]=1;
   PREFS.matFields=f; prefsSave(); renderMaterials(); }
@@ -5980,7 +5990,8 @@ function _matDetail(host){
 }
 // The summary panel becomes the money panel while a material is open.
 function _matPanelHTML(){
-  const m=matFind(MAT_OPEN); if(!m) return "";
+  if(!MAT_OPEN) return _matLibPanel();
+  const m=matFind(MAT_OPEN); if(!m) return _matLibPanel();
   const seeded=!m.claimed;
   if(seeded) return `
     <div class="mp-card"><span class="k">Not yet priced</span>
@@ -6011,12 +6022,53 @@ function _matPanelHTML(){
       <div class="mp-row"><span>Contractor</span><b>$${m.cost.toFixed(2)}/sf</b></div>
       <div class="mp-row"><span>Installed</span><b>${escAttr(m.inst)}</b></div>
     </div>
-    <button class="btn btn-o" style="width:100%;justify-content:center" onclick="_toast('Specifying lands with the pricing engine update','#4C7B3D')">Specify on this project</button>
+    <button class="btn btn-o" style="width:100%;justify-content:center" onclick="matSpecify('${m.id}')">${m.specSF?"Change quantity":"Specify on this project"}</button>
+    ${m.specSF?`<div class="mp-card"><span class="k">On this project</span>
+      <div class="mp-row"><span>Specified</span><b>${(+m.specSF).toLocaleString()} sf</b></div>
+      <div class="mp-hi"><span class="v">${fmtN(_matEarn(m)*m.specSF)}</span><span class="l">you earn</span></div></div>`:""}
     <div class="mp-files">
       <span class="mp-file">${mi("doc")}Cut sheet</span>
       <span class="mp-file">${mi("cad")}CAD detail</span>
       <span class="mp-file">${mi("swatch")}Render texture</span>
       <span class="mp-file">${mi("list")}CSI ${escAttr(m.csi)}</span>
+    </div>`;
+}
+// The catalogue view gets its own panel — the library at a glance and what the
+// specified materials are earning, rather than the project cost cards.
+function _matLibPanel(){
+  const resale=matModel()==="resale";
+  const inView=MATERIALS.filter(m=>MAT_CAT==="All"||m.cat===MAT_CAT);
+  const claimed=inView.filter(m=>m.claimed);
+  const seeded=inView.length-claimed.length;
+  const best=claimed.slice().sort((a,b)=>_matEarn(b)-_matEarn(a))[0];
+  const spec=MATERIALS.filter(m=>m.specSF>0);
+  const totEarn=spec.reduce((a,m)=>a+_matEarn(m)*(+m.specSF||0),0);
+  const totSF=spec.reduce((a,m)=>a+(+m.specSF||0),0);
+  return `
+    <div class="mp-card"><span class="k">Specified on this project</span>
+      ${spec.length?`<span class="big" style="color:var(--v-ok)">${fmtN(totEarn)}</span>
+        <span class="s">${spec.length} material${spec.length===1?"":"s"} · ${totSF.toLocaleString()} sf · you earn</span>
+        ${spec.map(m=>`<div class="mp-row"><span>${escAttr(m.nm)}</span><b>${fmtN(_matEarn(m)*(+m.specSF||0))}</b></div>`).join("")}`
+        :`<span class="big" style="font-size:19px;color:var(--tl)">Nothing yet</span>
+          <span class="s">Open a material and press Specify — what you earn shows up here.</span>`}
+    </div>
+    <div class="mp-card"><span class="k">Library</span>
+      <div class="mp-row"><span>In view</span><b>${inView.length}</b></div>
+      <div class="mp-row"><span>Claimed · priced</span><b>${claimed.length}</b></div>
+      <div class="mp-row"><span>Seeded · no price</span><b>${seeded}</b></div>
+      <div class="mp-row"><span>Suppliers</span><b>${new Set(inView.map(m=>m.sup)).size}</b></div>
+    </div>
+    ${best?`<div class="mp-card"><span class="k">Best ${resale?"margin":"commission"} in view</span>
+      <span class="big" style="color:var(--v-ok)">${resale?((best.bill-best.cost)/best.bill*100).toFixed(0):best.comm}%</span>
+      <span class="s"><b style="color:var(--tx)">${escAttr(best.nm)}</b> · $${_matEarn(best).toFixed(2)}/sf${
+        (function(){ try{ const sf=Math.round(secArea("paving")); return sf>0?" · "+fmtN(_matEarn(best)*sf)+" on "+sf.toLocaleString()+" sf":""; }catch(e){ return ""; } })()}</span>
+      <button class="btn btn-o" style="width:100%;justify-content:center" onclick="matOpen('${best.id}')">Open</button>
+    </div>`:""}
+    <div class="mp-card"><span class="k">Earning model</span>
+      <span class="big" style="font-size:17px">${resale?"Resale / markup":"Commission"}</span>
+      <span class="s">${resale?"You buy at trade and bill the client — you carry the invoice."
+        :"The supplier pays you on their invoice; the client's price is unchanged."}</span>
+      <span class="s" style="color:var(--tl)">Set per project in Project Info.</span>
     </div>`;
 }
 document.addEventListener("click",()=>document.getElementById("mat-dd")?.classList.remove("open"));
@@ -13359,11 +13411,11 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
     </div>`;
   }
   // A material takes the panel over while it is open — same panel, different subject.
-  if(typeof MAT_OPEN!=="undefined" && MAT_OPEN && S.view==="materials"){
+  if(S.view==="materials"){
     let html=""; try{ html=_matPanelHTML(); }catch(e){}
     if(html){ el.innerHTML=html;
       const h2=document.getElementById("pro-cards"); if(h2) h2.innerHTML="";
-      const t2=document.querySelector("#sumpanel .sp-t"); if(t2) t2.textContent="Material";
+      const t2=document.querySelector("#sumpanel .sp-t"); if(t2) t2.textContent=MAT_OPEN?"Material":"Materials";
       return; }
   }
   { const t2=document.querySelector("#sumpanel .sp-t"); if(t2) t2.textContent="Summary"; }
