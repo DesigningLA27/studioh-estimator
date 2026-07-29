@@ -1728,7 +1728,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v572</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v573</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -3383,7 +3383,7 @@ const S={
   phase:PHASE_DEFAULT,
   snaps:{},                       // phase id -> {data, savedAt, total}
   markup:(+PREFS.defaults.markup||0),
-  earn:{model:"markup", fee:0, markupPct:35, commPct:20, commOk:false, retailPct:100},
+  earn:{model:(PREFS.defaults.goodsModel||"commission"), fee:0, markupPct:35, commPct:20, commOk:false, retailPct:100},
   proLandscapeArea:0, proLotSize:0, plantingAreaSF:0,
   walls:[],
   kitchens:[],
@@ -5886,13 +5886,20 @@ function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
 // Commission unless the project is set to resale — the app already carries that choice.
-function matModel(){ try{ const v=(S.earn&&S.earn.model)||"commission";
+// How the designer earns on anything they specify — materials today, furniture next.
+// One setting for both books so a project cannot claim commission on stone and a
+// markup on pots. Named for goods, not materials, for that reason.
+function goodsModel(){ try{ const v=(S.earn&&S.earn.model)||PREFS.defaults.goodsModel||"commission";
   return v==="markup"?"resale":v==="costplus"?"fee":"commission"; }catch(e){ return "commission"; } }
+const matModel=goodsModel;
 function _matEarn(m){ const md=matModel();
   if(md==="fee") return 0;                                  // a cost-plus fee earns nothing on the material
   return md==="resale" ? (m.bill-m.cost) : (m.msrp*(m.comm||0)/100); }
-function matSetModel(v){ try{ setEarn("model",v); }catch(e){ S.earn=S.earn||{}; S.earn.model=v; }
-  renderMaterials(); }
+function goodsSetModel(v){ try{ setEarn("model",v); }catch(e){ S.earn=S.earn||{}; S.earn.model=v; }
+  try{ renderMaterials(); }catch(e){}
+  try{ if(typeof renderFurniture==="function") renderFurniture(); }catch(e){}
+}
+const matSetModel=goodsSetModel;
 
 function renderMaterials(){
   const host=document.getElementById("mat-body"); if(!host) return;
@@ -6114,7 +6121,7 @@ function _matLibPanel(){
       <span class="s">${ {commission:"The supplier pays you on their invoice; the client's price is unchanged.",
                           resale:"You buy at trade and bill the client — you carry the invoice and the freight claim.",
                           fee:"You charge a fee for your time and take nothing on materials."}[matModel()] }</span>
-      <span class="s" style="color:var(--tl)">Applies to the whole project — the same setting the earnings panel uses.</span>
+      <span class="s" style="color:var(--tl)">Applies to everything you specify — materials and furniture — across this project.</span>
     </div>`:""}`;
 }
 document.addEventListener("click",()=>document.getElementById("mat-dd")?.classList.remove("open"));
@@ -6535,6 +6542,9 @@ function _stShellSync(){
 }
 function stDefaultQL(i){ PREFS.defaults.ql=+i||0; prefsSave(); _stRender(); }
 function stAutoSample(v){ PREFS.autoSample=(v!=="off"); prefsSave(); _stRender(); }
+function stGoodsModel(v){ PREFS.defaults.goodsModel=v; prefsSave();
+  try{ goodsSetModel(v); }catch(e){}
+  if(_stOpen) _stRender(); }
 function stDefaultMarkup(v){ PREFS.defaults.markup=Math.max(0,Math.min(100,Math.round(+v||0))); prefsSave(); }
 function stLocation(v){ PREFS.defaults.location=v; prefsSave(); }
 function stLogoPick(input){
@@ -6647,6 +6657,9 @@ function _stRender(){
           ${ihint("Margin and market adjustment are the same figures the Price Book uses — changing them here changes them everywhere.")}</h3>
         <div class="st-row"><span class="l">Quality level<small>Where a fresh estimate starts.</small></span>
           <span class="st-seg">${QL.map((q,i)=>`<button class="${(+PREFS.defaults.ql||0)===i?"on":""}" onclick="stDefaultQL(${i})">${escAttr(q.label)}</button>`).join("")}</span></div>
+        <div class="st-row"><span class="l">Earning on specified goods<small>Materials and furniture. New projects start here.</small></span>
+          ${_stSeg(PREFS.defaults.goodsModel||"commission",
+            [{v:"commission",nm:"Commission"},{v:"markup",nm:"Resale"},{v:"costplus",nm:"Fee only"}],"stGoodsModel")}</div>
         <div class="st-row"><span class="l">Project markup<small>On the whole estimate, after market adj.</small></span>
           <span style="display:flex;align-items:center;gap:7px"><input type="number" class="st-in num" value="${+PREFS.defaults.markup||0}" step="1" onchange="stDefaultMarkup(this.value)"> <b style="font-size:12px;color:var(--tm)">%</b>
             ${ihint("Seeds the Markup field in Project Info for new projects. The project open right now keeps whatever markup it already has — change that one in Project Info.")}</span></div>
