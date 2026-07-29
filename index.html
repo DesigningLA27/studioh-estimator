@@ -1583,6 +1583,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   display:flex;align-items:baseline;gap:9px}
 .mp-hi .v{font-size:22px;font-weight:800;color:var(--v-ok);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .mp-hi .l{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--tl)}
+.mp-seg{display:flex;background:var(--brl);border-radius:10px;padding:3px;gap:3px}
+.mp-seg button{flex:1;border:0;background:none;font:inherit;font-size:11.5px;font-weight:700;color:var(--tm);
+  padding:6px 4px;border-radius:7px;cursor:pointer}
+.mp-seg button.on{background:var(--card);color:var(--gm);box-shadow:0 1px 3px rgba(0,0,0,.14)}
 .mp-files{display:flex;flex-direction:column;gap:6px}
 .mp-file{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;background:var(--card);
   border:1px solid var(--br);border-radius:11px;padding:9px 12px;color:var(--tm);cursor:pointer}
@@ -1724,7 +1728,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v571</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v572</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5882,8 +5886,13 @@ function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
 // Commission unless the project is set to resale — the app already carries that choice.
-function matModel(){ try{ return (S.earn&&S.earn.model==="markup")?"resale":"commission"; }catch(e){ return "commission"; } }
-function _matEarn(m){ return matModel()==="resale" ? (m.bill-m.cost) : (m.msrp*(m.comm||0)/100); }
+function matModel(){ try{ const v=(S.earn&&S.earn.model)||"commission";
+  return v==="markup"?"resale":v==="costplus"?"fee":"commission"; }catch(e){ return "commission"; } }
+function _matEarn(m){ const md=matModel();
+  if(md==="fee") return 0;                                  // a cost-plus fee earns nothing on the material
+  return md==="resale" ? (m.bill-m.cost) : (m.msrp*(m.comm||0)/100); }
+function matSetModel(v){ try{ setEarn("model",v); }catch(e){ S.earn=S.earn||{}; S.earn.model=v; }
+  renderMaterials(); }
 
 function renderMaterials(){
   const host=document.getElementById("mat-body"); if(!host) return;
@@ -5935,8 +5944,10 @@ function _matGrid(host){
          ${r.join("")}
          ${F.earn?(seeded
            ? `<span class="foot"><span class="l">Awaiting supplier price</span></span>`
-           : `<span class="foot"><span class="v">${matModel()==="resale"?((m.bill-m.cost)/m.bill*100).toFixed(0)+"%":m.comm+"%"}</span>
-              <span class="l">${matModel()==="resale"?"margin":"commission"} · $${earn.toFixed(2)}/sf</span></span>`):""}
+           : matModel()==="fee"
+             ? `<span class="foot"><span class="l">Fee model · no material earnings</span></span>`
+             : `<span class="foot"><span class="v">${matModel()==="resale"?((m.bill-m.cost)/m.bill*100).toFixed(0)+"%":m.comm+"%"}</span>
+                <span class="l">${matModel()==="resale"?"margin":"commission"} · $${earn.toFixed(2)}/sf</span></span>`):""}
        </span></button>`;}).join("")}</div>`;
 }
 function matFind(id){ return MATERIALS.find(m=>m.id===id)||null; }
@@ -6017,16 +6028,20 @@ function _matPanelHTML(){
   const SF=(function(){ try{ return Math.max(0,Math.round(secArea("paving")))||640; }catch(e){ return 640; } })();
   const earn=_matEarn(m), resale=matModel()==="resale", on=matpOn();
   return `
-    ${on.earn?`<div class="mp-card"><span class="k">${resale?"Your margin":"Your commission"}</span>
-      <span class="big" style="color:var(--v-ok)">${resale?((m.bill-m.cost)/m.bill*100).toFixed(1)+"%":m.comm+"%"}</span>
-      <span class="s">$${earn.toFixed(2)} per sf — ${resale?"you carry the invoice and the freight claim":"paid by the supplier on their invoice"}</span>
-    </div>`:""}
+    ${on.earn?(matModel()==="fee"
+      ? `<div class="mp-card"><span class="k">Your earnings</span>
+          <span class="big" style="font-size:18px;color:var(--tl)">Fee only</span>
+          <span class="s">You take nothing on materials under this model — specify on merit alone.</span></div>`
+      : `<div class="mp-card"><span class="k">${resale?"Your margin":"Your commission"}</span>
+          <span class="big" style="color:var(--v-ok)">${resale?((m.bill-m.cost)/m.bill*100).toFixed(1)+"%":m.comm+"%"}</span>
+          <span class="s">$${earn.toFixed(2)} per sf — ${resale?"you carry the invoice and the freight claim":"paid by the supplier on their invoice"}</span>
+        </div>`):""}
     ${on.proj?`<div class="mp-card"><span class="k">On this project</span>
       <div class="mp-row"><span>Paving area</span><b>${SF.toLocaleString()} sf</b></div>
       <div class="mp-row"><span>${resale?"You pay":"Client pays"}</span><b>${fmtN((resale?m.cost:m.msrp)*SF)}</b></div>
       ${resale?`<div class="mp-row"><span>You bill</span><b>${fmtN(m.bill*SF)}</b></div>`:""}
-      <div class="mp-hi"><span class="v">${fmtN(earn*SF)}</span><span class="l">you earn</span></div>
-      ${resale?"":`<span class="s">Your specification does not change what the client pays.</span>`}
+      ${matModel()==="fee"?"":`<div class="mp-hi"><span class="v">${fmtN(earn*SF)}</span><span class="l">you earn</span></div>`}
+      ${matModel()==="commission"?`<span class="s">Your specification does not change what the client pays.</span>`:""}
     </div>`:""}
     ${on.price?`<div class="mp-card"><span class="k">Price</span>
       <div class="mp-row"><span>MSRP</span><b>$${m.msrp.toFixed(2)}/sf</b></div>
@@ -6075,9 +6090,9 @@ function _matLibPanel(){
   const on=matpOn();
   return `
     ${on.spec?`<div class="mp-card"><span class="k">Specified on this project</span>
-      ${spec.length?`<span class="big" style="color:var(--v-ok)">${fmtN(totEarn)}</span>
-        <span class="s">${spec.length} material${spec.length===1?"":"s"} · ${totSF.toLocaleString()} sf · you earn</span>
-        ${spec.map(m=>`<div class="mp-row"><span>${escAttr(m.nm)}</span><b>${fmtN(_matEarn(m)*(+m.specSF||0))}</b></div>`).join("")}`
+      ${spec.length?`<span class="big" style="color:${matModel()==="fee"?"var(--tl)":"var(--v-ok)"}">${matModel()==="fee"?"—":fmtN(totEarn)}</span>
+        <span class="s">${spec.length} material${spec.length===1?"":"s"} · ${totSF.toLocaleString()} sf${matModel()==="fee"?" · no material earnings on a fee model":" · you earn"}</span>
+        ${spec.map(m=>`<div class="mp-row"><span>${escAttr(m.nm)}</span><b>${matModel()==="fee"?(+m.specSF||0).toLocaleString()+" sf":fmtN(_matEarn(m)*(+m.specSF||0))}</b></div>`).join("")}`
         :`<span class="big" style="font-size:19px;color:var(--tl)">Nothing yet</span>
           <span class="s">Open a material and press Specify — what you earn shows up here.</span>`}
     </div>`:""}
@@ -6087,17 +6102,19 @@ function _matLibPanel(){
       <div class="mp-row"><span>Seeded · no price</span><b>${seeded}</b></div>
       <div class="mp-row"><span>Suppliers</span><b>${new Set(inView.map(m=>m.sup)).size}</b></div>
     </div>`:""}
-    ${(on.best&&best)?`<div class="mp-card"><span class="k">Best ${resale?"margin":"commission"} in view</span>
+    ${(on.best&&best&&matModel()!=="fee")?`<div class="mp-card"><span class="k">Best ${resale?"margin":"commission"} in view</span>
       <span class="big" style="color:var(--v-ok)">${resale?((best.bill-best.cost)/best.bill*100).toFixed(0):best.comm}%</span>
       <span class="s"><b style="color:var(--tx)">${escAttr(best.nm)}</b> · $${_matEarn(best).toFixed(2)}/sf${
         (function(){ try{ const sf=Math.round(secArea("paving")); return sf>0?" · "+fmtN(_matEarn(best)*sf)+" on "+sf.toLocaleString()+" sf":""; }catch(e){ return ""; } })()}</span>
       <button class="btn btn-o" style="width:100%;justify-content:center" onclick="matOpen('${best.id}')">Open</button>
     </div>`:""}
     ${on.model?`<div class="mp-card"><span class="k">Earning model</span>
-      <span class="big" style="font-size:17px">${resale?"Resale / markup":"Commission"}</span>
-      <span class="s">${resale?"You buy at trade and bill the client — you carry the invoice."
-        :"The supplier pays you on their invoice; the client's price is unchanged."}</span>
-      <span class="s" style="color:var(--tl)">Set per project in Project Info.</span>
+      <span class="mp-seg">${[["commission","Commission"],["markup","Resale"],["costplus","Fee only"]]
+        .map(([v,l])=>`<button class="${((S.earn&&S.earn.model)||"commission")===v?"on":""}" onclick="matSetModel('${v}')">${l}</button>`).join("")}</span>
+      <span class="s">${ {commission:"The supplier pays you on their invoice; the client's price is unchanged.",
+                          resale:"You buy at trade and bill the client — you carry the invoice and the freight claim.",
+                          fee:"You charge a fee for your time and take nothing on materials."}[matModel()] }</span>
+      <span class="s" style="color:var(--tl)">Applies to the whole project — the same setting the earnings panel uses.</span>
     </div>`:""}`;
 }
 document.addEventListener("click",()=>document.getElementById("mat-dd")?.classList.remove("open"));
