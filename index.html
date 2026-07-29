@@ -869,6 +869,9 @@ body.lib-view{--tbh:var(--tbh0)}
 .ph .nm{font-size:11.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis}
 .ph.done .sq{color:var(--gl)}
 .ph.fut{opacity:.55}
+.ph.skip{opacity:.5}
+.ph.skip .ph-amt{font-style:italic;font-weight:600;color:var(--tl)}
+.ph-band.skip .ph-scope{background:repeating-linear-gradient(45deg,var(--brl),var(--brl) 4px,transparent 4px,transparent 8px)}
 .ph.on{background:var(--brand-soft);border-color:color-mix(in srgb,var(--gm) 30%,transparent)}
 .ph.on .nm{color:var(--gm);font-weight:800}
 .ph.on .sq{color:var(--gm)}
@@ -1757,7 +1760,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v576</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v577</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -2550,7 +2553,11 @@ function confRange(mid,id){
   const tot=confTotal(id);
   return {tot, lo:Math.round(mid*(1-tot/100)), hi:Math.round(mid*(1+tot/100))};
 }
-function confBarHTML(mid,id,big){
+function confBarHTML(mid,id,big,skipped){
+  if(skipped){
+    return `<div class="ph-band${big?" big":""} skip"><i class="ph-scope"></i></div>
+      <div class="ph-lohi"><span>—</span><span>—</span></div>`;
+  }
   const r=confRange(mid,id), wIn=r.tot?Math.round(confContr()/r.tot*100):100, gut=(100-wIn)/2;
   return `<div class="ph-band${big?" big":""}"><i class="ph-scope"></i><i class="ph-contr" style="left:${gut}%;right:${gut}%"></i><span class="ph-mk"></span></div>
     <div class="ph-lohi"><span>${fmt(r.lo)}</span><span>${fmt(r.hi)}</span></div>`;
@@ -2560,7 +2567,10 @@ function _phTipShow(e,id){
   _phTipHide();
   const idx=PHASES.findIndex(p=>p.id===id); if(idx<0) return;
   const d=document.createElement("div"); d.className="tipbox";
-  d.innerHTML=`<b style="color:var(--tx)">${escAttr(PHASES[idx].nm)}</b><br>
+  const skipped = idx<phaseIdx() && !phaseSnap(id);
+  d.innerHTML = skipped
+    ? `<b style="color:var(--tx)">${escAttr(PHASES[idx].nm)}</b><br>Not bid or saved separately`
+    : `<b style="color:var(--tx)">${escAttr(PHASES[idx].nm)}</b><br>
     Contractor spread ±${confContr()}%<br>Scope uncertainty ±${confScope(id)}% at this phase`;
   document.body.appendChild(d);
   const r=e.currentTarget.getBoundingClientRect(), w=d.offsetWidth||220, h=d.offsetHeight||50;
@@ -5766,15 +5776,18 @@ function renderPhaseBar(){
   let curGrand=0; try{ curGrand=_proCardData().grand; }catch(e){}
   el.innerHTML=PHASES.map((p,i)=>{
     const sn=phaseSnap(p.id), has=!!sn;
-    // Saved phases use their own saved total; the live phase uses the live total;
-    // phases not reached yet project the live total forward flat, since there is
-    // no honest signal about how scope will change before you get there.
+    // A phase only counts as done if it was actually saved. A past phase with no
+    // snapshot was skipped over (e.g. jumped Consultation straight to Concept) —
+    // it never happened, so it gets no checkmark and no borrowed number.
+    const skipped = i<cur && !has;
+    const state = i===cur ? "on" : has ? "done" : (skipped ? "skip" : "fut");
     const mid = (i===cur) ? curGrand : (has ? +sn.total : curGrand);
-    return `<button type="button" class="ph ${i===cur?"on":has?"done":"fut"}" onclick="setPhase('${p.id}')"
+    const sq = state==="done" ? "✓" : state==="skip" ? "–" : p.seq;
+    return `<button type="button" class="ph ${state}" onclick="setPhase('${p.id}')"
        onmouseenter="_phTipShow(event,'${p.id}')" onmouseleave="_phTipHide()">
-       <span class="ph-hd"><span class="sq">${i<cur?"✓":p.seq}</span><span class="nm">${escAttr(p.nm)}</span></span>
-       ${confBarHTML(mid,p.id)}
-       <span class="ph-amt">${fmt(mid)}</span>
+       <span class="ph-hd"><span class="sq">${sq}</span><span class="nm">${escAttr(p.nm)}</span></span>
+       ${confBarHTML(mid,p.id,false,skipped)}
+       <span class="ph-amt">${skipped?"Skipped":fmt(mid)}</span>
      </button>`;}).join("");
   const bc=document.getElementById("sb-bidcompare");
   if(bc) bc.style.display = phaseAtLeast("bid") ? "" : "none";
