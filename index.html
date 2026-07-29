@@ -1788,7 +1788,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v581</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v582</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6687,6 +6687,7 @@ function applyAccent(){
   el.textContent=
    `:root{--gd:${r.gd};--gm:${r.gm};--gl:${r.gl};--brand-soft:${r.soft};--sidebar:${r.side}}`
    +`:root[data-theme="dark"]{--gm:${r.dgm};--gl:${r.dgl};--brand-soft:${r.dsoft};--sidebar:${r.dside}}`;
+  try{ applyDarkBg(); }catch(e){}   // re-append darkbg-css after this tag so a custom dark bg still wins
 }
 // One place that turns a chosen colour into the whole ramp, so the preview in
 // Settings and the CSS that ships can never drift apart.
@@ -6715,6 +6716,47 @@ function _stAccSync(){
   const hex=_accHex();
   const pk=document.getElementById("st-acc-pick"); if(pk && pk.value.toLowerCase()!==hex.toLowerCase()) pk.value=hex;
   const hx=document.getElementById("st-acc-hex"); if(hx) hx.value=hex.toUpperCase();
+}
+// ── DARK BACKGROUND / SIDEBAR ─────────────────────────────────
+// Night mode's page backdrop and sidebar, independent of the brand accent — a
+// plain validator (no ink-band clamping like _accNorm) since this is a near-black
+// background colour, not text. Applied as its own <style> tag re-appended AFTER
+// accent-css on every change, so it always wins the cascade tie-break even if the
+// accent ramp also sets --sidebar for dark mode.
+const DARKBG_DEFAULT="#11151C";
+function _hexNorm(hex){
+  let h=String(hex||"").trim().replace("#","");
+  if(h.length===3) h=h.split("").map(c=>c+c).join("");
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  return "#"+h.toUpperCase();
+}
+function darkBgHex(){ return _hexNorm(PREFS.darkBg||"")||DARKBG_DEFAULT; }
+function applyDarkBg(){
+  let el=document.getElementById("darkbg-css");
+  const hex=(PREFS.darkBg||"").trim();
+  const n=hex?_hexNorm(hex):null;
+  if(!n || n.toLowerCase()===DARKBG_DEFAULT.toLowerCase()){ if(el) el.remove(); return; }
+  if(!el){ el=document.createElement("style"); el.id="darkbg-css"; }
+  document.head.appendChild(el);           // (re)append — always last, always wins ties
+  el.textContent=`:root[data-theme="dark"]{--bg:${n};--sidebar:${n}}`;
+}
+function stDarkBg(hex,live){
+  const n=_hexNorm(hex);
+  if(!n){ _stDarkBgSync(); return; }
+  PREFS.darkBg=(n.toLowerCase()===DARKBG_DEFAULT.toLowerCase())?"":n;
+  prefsSave(); applyDarkBg();
+  if(live) _stDarkBgSync(); else if(_stOpen) _stRender();
+}
+function stDarkBgReset(){ delete PREFS.darkBg; prefsSave(); applyDarkBg(); _stRender(); }
+function _stDarkBgSync(){
+  const hex=darkBgHex();
+  const pk=document.getElementById("st-darkbg-pick"); if(pk && pk.value.toLowerCase()!==hex.toLowerCase()) pk.value=hex;
+  const hx=document.getElementById("st-darkbg-hex"); if(hx) hx.value=hex.toUpperCase();
+}
+function stDarkBgEyedrop(){
+  if(!window.EyeDropper){ alert("The on-screen eyedropper needs Chrome or Edge.\n\nYou can still paste a hex code directly."); return; }
+  try{ const ed=new EyeDropper(); ed.open().then(res=>{ if(res&&res.sRGBHex) stDarkBg(res.sRGBHex,true); }).catch(()=>{}); }
+  catch(e){ alert("Couldn't open the eyedropper."); }
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────
@@ -6800,7 +6842,7 @@ function _stRender(){
   // reset the scrollable body to the top on each click — save and restore its
   // scroll position across the rebuild so one tap doesn't bounce you back up.
   const _prevBody=host.querySelector(".st-b"), _scrollTop=_prevBody?_prevBody.scrollTop:0;
-  const P=PREFS.profile, acc=_accHex();
+  const P=PREFS.profile, acc=_accHex(), dbg=darkBgHex();
   const fld=(k,lbl,ph)=>`<label class="st-row"><span class="l">${escAttr(lbl)}</span>
     <input class="st-in" value="${escAttr(P[k]||"")}" placeholder="${escAttr(ph||"")}" onchange="stProfile('${k}',this.value)"></label>`;
   const sunIc='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/></svg>';
@@ -6860,6 +6902,13 @@ function _stRender(){
             <input class="st-in" id="st-acc-hex" value="${acc.toUpperCase()}" onchange="stSetAccent(this.value)">
             <button class="btn btn-o" onclick="stSetAccent('${ACCENT_DEFAULT}')">Default</button>
             ${ihint("Very light or very saturated colours are pulled back to a shade that still reads as text on a white card, so the swatch shows what actually ships.")}
+          </div></div>
+        <div class="st-row"><span class="l">Dark background<small>Sidebar and page backdrop in Night mode — sample it with the eyedropper, or pick and type a hex.</small></span>
+          <div class="st-acc">
+            <input type="color" class="st-swatch" id="st-darkbg-pick" value="${dbg}" oninput="stDarkBg(this.value,true)" title="Open the colour picker">
+            <input class="st-in" id="st-darkbg-hex" value="${dbg.toUpperCase()}" onchange="stDarkBg(this.value)">
+            ${window.EyeDropper?`<button class="btn btn-o" onclick="stDarkBgEyedrop()" title="Click any pixel on screen to sample its colour (Chrome/Edge)">◉ Eyedrop</button>`:``}
+            <button class="btn btn-o" onclick="stDarkBg('${DARKBG_DEFAULT}')">Default</button>
           </div></div>
       </div>
 
@@ -7041,7 +7090,7 @@ function setThemeMode(m){
   const r=document.documentElement;
   if(m==="system") r.removeAttribute("data-theme"); else r.setAttribute("data-theme",m);
   try{ localStorage.setItem("studioh_theme",m); }catch(e){}
-  _setThemeIcon(effectiveTheme()); applyAccent(); applyShell(); if(_stOpen) _stRender();
+  _setThemeIcon(effectiveTheme()); applyAccent(); applyDarkBg(); applyShell(); if(_stOpen) _stRender();
 }
 function toggleTheme(){ setThemeMode(effectiveTheme()==="dark"?"light":"dark"); }
 // The rail button is Settings now, not a day/night toggle — it keeps its cog. This
@@ -7113,6 +7162,7 @@ try{ document.addEventListener("click",()=>closeHMenus()); }catch(e){}
 (function(){
   try{ const m=themeMode(); if(m==="dark"||m==="light") document.documentElement.setAttribute("data-theme",m); }catch(e){}
   try{ applyAccent(); }catch(e){}
+  try{ applyDarkBg(); }catch(e){}
   try{ document.addEventListener("DOMContentLoaded",()=>{ applyShell(); applyRailText(); }); }catch(e){}
   // Open on the sample rather than an empty form — but never on top of real work.
   try{ window.addEventListener("load",()=>setTimeout(()=>{
@@ -7127,7 +7177,7 @@ try{ document.addEventListener("click",()=>closeHMenus()); }catch(e){}
       _buildSampleProject();
     }catch(e){}
   }, 900)); }catch(e){}
-  try{ matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{ if(themeMode()==="system"){ _setThemeIcon(effectiveTheme()); applyAccent(); applyShell(); } }); }catch(e){}
+  try{ matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{ if(themeMode()==="system"){ _setThemeIcon(effectiveTheme()); applyAccent(); applyDarkBg(); applyShell(); } }); }catch(e){}
   try{ document.addEventListener("DOMContentLoaded",()=>{ _setThemeIcon(effectiveTheme()); _applyProfileText(); renderPhaseBar(); }); }catch(e){}
 })();
 // Replace native alert() everywhere with a non-suppressible in-page notice. Browsers silently kill
