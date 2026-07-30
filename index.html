@@ -89,12 +89,14 @@
 /* Project Info is a normal view now, so .view.active does the positioning — it only
    needs the recessed ground its own cards sit on, and no padding of its own since
    .pinfo-card carries that. */
-#view-projectinfo.view.active{background:var(--bg);padding:0}
+/* Bottom breathing room lives on the scrolling view itself, so the last row of
+   reference cards can never sit flush against the bottom edge. */
+#view-projectinfo.view.active{background:var(--bg);padding:0 0 2.5rem}
 body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .pinfo-block{background:var(--card);border:1px solid var(--br);border-radius:16px;box-shadow:0 1px 2px rgba(28,43,22,.04);padding:1.5rem 1.6rem}
 /* Google Places autocomplete dropdown must sit ABOVE the Project Info panel (z 9000) or you can't pick a suggestion */
 .pac-container{z-index:10001!important}
-.pinfo-card{background:transparent;border:none;border-radius:0;box-shadow:none;padding:1.8rem 1.9rem 5rem;max-width:1200px;width:100%;margin:0 auto}
+.pinfo-card{background:transparent;border:none;border-radius:0;box-shadow:none;padding:1.8rem 1.9rem 2rem;max-width:1200px;width:100%;margin:0 auto}
 #pinfo-refcards{margin-top:1.25rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
 .pinfo-sub{background:var(--card);border:1px solid var(--br);border-radius:16px;padding:1.2rem 1.3rem;box-shadow:0 1px 2px rgba(28,43,22,.04)}
 .pinfo-sub-h{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:.9rem;color:var(--tx);margin-bottom:.6rem;gap:.5rem}
@@ -1865,7 +1867,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v592</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v593</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5977,6 +5979,7 @@ function _buildSampleProject(){
     S.snaps.concept={ data:full, savedAt:new Date().toISOString(), total:grand };
   }catch(e){}
   try{ _refreshProjectName(); }catch(e){}
+  try{ resolveAddress(SAMPLE_ADDRESS); }catch(e){}   // seed the map without a typed pick
   try{ renderPhaseBar(); renderProSummary(); }catch(e){}
   const t=document.querySelector('.tab[data-view="pro"]'); if(t) t.click();
   try{ _toast("Sample project loaded — save it to keep a copy","#4C7B3D"); }catch(e){}
@@ -14212,7 +14215,10 @@ const _PB_FULL=800, _PB_NARROW=610, _PB_PANEL=332;
 function _pbFit(){
   const b=document.body, v=document.querySelector(".view.active");
   if(!v) return;
-  if(b.classList.contains("lib-view")){
+  // Project Info is about the property, not the money — the cost panel has nothing
+  // to say there, so the page takes the full width.
+  if(S.view==="projectinfo"){ b.classList.add("lib-hide-panel"); }
+  else if(b.classList.contains("lib-view")){
     // What the pane would measure with the panel shown, so the test does not flip
     // back and forth as hiding the panel widens the pane that justified hiding it.
     const shown=b.classList.contains("sp-on") && !b.classList.contains("lib-hide-panel");
@@ -14723,7 +14729,13 @@ function initMap(){
 
 function onPlaceSelected(){
   const place=autocomplete.getPlace();
-  if(!place.geometry)return;
+  _applyPlace(place);
+}
+// Everything that has to happen once an address resolves. Split out of
+// onPlaceSelected so an address restored with a project — or seeded by the sample —
+// can light up the map the same way, instead of only a live autocomplete pick.
+function _applyPlace(place){
+  if(!place||!place.geometry)return;
   window._dbg.placeSelected=true; window._dbg.addr=place.formatted_address;
   S.pi.address=place.formatted_address;
   try{ const loc=place.geometry.location; S.pi.lat=(typeof loc.lat==="function"?loc.lat():loc.lat); S.pi.lng=(typeof loc.lng==="function"?loc.lng():loc.lng);
@@ -14731,10 +14743,25 @@ function onPlaceSelected(){
   if(S.pi&&S.pi.city && typeof fetchCityTemps==="function") fetchCityTemps(S.pi.city);
   if(typeof poolRefresh==="function" && (S.pools||[]).length) poolRefresh();
   updatePI("address",place.formatted_address);
-  document.getElementById("site-intel-card").style.display="block";
+  const sic=document.getElementById("site-intel-card"); if(sic) sic.style.display="block";
   buildMap(place.geometry.location);
   checkSiteFlags(place);
   fetchParcelBoundary(place.geometry.location, place.address_components||[]);
+}
+// Resolve an address the user never typed — a restored project, or the sample.
+// The Maps script loads async, so wait for it rather than firing into nothing.
+function resolveAddress(addr,tries){
+  addr=String(addr||"").trim(); if(!addr) return;
+  if(!(window.google&&google.maps&&google.maps.Geocoder)){
+    if((tries||0)>20) return;                       // ~10s, then give up quietly
+    setTimeout(()=>resolveAddress(addr,(tries||0)+1),500); return;
+  }
+  if(S.pi&&S.pi.lat&&S.pi.lng&&S.pi.address===addr) return;   // already resolved
+  try{
+    new google.maps.Geocoder().geocode({address:addr},(res,status)=>{
+      if(status==="OK"&&res&&res[0]) _applyPlace(res[0]);
+    });
+  }catch(e){}
 }
 
 function buildMap(center){
@@ -16987,6 +17014,7 @@ function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a save
   const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
   setv("pro-lot-sf",S.proLotSize||S.lotSize); setv("pro-footprint-sf",S.homeSF); setv("pro-driveway-sf",S.dwySF);
   setv("pi-client",S.pi&&S.pi.client); setv("pi-project",S.pi&&S.pi.project); setv("pi-address",S.pi&&S.pi.address);
+  try{ if(S.pi&&S.pi.address) resolveAddress(S.pi.address); }catch(e){}   // reopened project — bring its map back
   try{ updateProSiteDims(); }catch(e){}
   try{ buildProCats(); }catch(e){}
   try{ renderProSummary(); }catch(e){}
