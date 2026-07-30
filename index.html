@@ -966,12 +966,18 @@ body.lib-hide-panel #sp-open,body.lib-hide-panel .tb-sp{display:none}
 #sumpanel .kleg{flex-direction:column;gap:4px}
 #sumpanel .krank .lbl{font-size:12px}
 /* Reopen button, parked on the right edge when the panel is closed */
+/* The collapsed panel handle reads as a brand-coloured tab with a label, not a pale
+   grey nub — when the panel is hidden this is the only way back to it, so it has to
+   announce itself. Writing-mode turns the word on its side so it stays narrow. */
 #sp-open{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:79;display:none;
-  width:30px;height:52px;border:1px solid var(--br);border-right:0;border-radius:10px 0 0 10px;
-  background:var(--card);color:var(--tm);cursor:pointer;place-items:center;
-  box-shadow:0 6px 20px -8px rgba(28,43,22,.4)}
-#sp-open:hover{background:var(--brand-soft);color:var(--gm)}
-#sp-open svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8}
+  width:34px;min-height:104px;border:0;border-radius:12px 0 0 12px;
+  background:var(--gm);color:#fff;cursor:pointer;place-items:center;gap:7px;
+  padding:12px 0;box-shadow:0 8px 26px -8px rgba(0,0,0,.5)}
+#sp-open:hover{background:var(--gd);width:38px}
+#sp-open .lbl{writing-mode:vertical-rl;transform:rotate(180deg);font-size:10px;font-weight:800;
+  letter-spacing:.13em;text-transform:uppercase}
+#sp-open svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.2}
+:root[data-theme="dark"] #sp-open{color:#0E1512}
 body:not(.sp-on) #sp-open{display:grid}
 @media (max-width:1100px){
 
@@ -1577,7 +1583,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   background:var(--surface2);border:1px solid var(--br);border-radius:9px;padding:7px 10px;outline:0}
 .tagm .tagq:focus{border-color:var(--gm)}
 .tagm .tagl{max-height:260px;overflow-y:auto}
-.gcols{display:inline-flex;background:var(--brl);border-radius:10px;padding:3px;gap:2px}
+/* Keeps the column switch pinned beside Add-from-URL so it can never wrap onto a
+   row of its own and eat a whole band of vertical space. */
+.sp-grp{display:inline-flex;align-items:center;gap:9px;flex:none}
+.gcols{display:inline-flex;background:var(--brl);border-radius:10px;padding:3px;gap:2px;flex:none}
 .gcols button{border:0;background:none;color:var(--tl);cursor:pointer;padding:5px 9px;border-radius:8px;
   display:grid;place-items:center}
 .gcols button svg{width:15px;height:15px;fill:currentColor;stroke:none}
@@ -1867,7 +1876,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v593</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v594</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -1937,7 +1946,8 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </div>
 </aside>
 <button type="button" id="sp-open" class="noprint" onclick="toggleSumPanel()" title="Show the summary panel">
-  <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+  <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+  <span class="lbl">Summary</span>
 </button>
 
 <!-- ════════════════════════════════════════════
@@ -6139,13 +6149,23 @@ function goodsAddTag(t){ t=String(t||"").trim().toLowerCase().replace(/\s+/g,"-"
   if(cur.indexOf(t)<0){ cur.push(t); PREFS.goodsTags=cur; prefsSave(); }
   return t;
 }
-// Card width: two columns reads well on an iPad, four on a laptop. Default is
-// picked from the viewport the first time and then remembered per device.
-function goodsCols(){ const v=+PREFS.goodsCols;
-  if(v===2||v===4) return v;
+// Card width follows the summary panel, because that is what actually decides how
+// much room the grid has: panel open → two across, panel closed → four. An explicit
+// pick overrides it, but only for that panel state — reopening the panel goes back
+// to the width that fits, instead of leaving four cramped columns behind.
+function _spOpen(){ try{ const b=document.body;
+  return b.classList.contains("sp-on") && !b.classList.contains("lib-hide-panel"); }catch(e){ return false; } }
+function goodsCols(){
+  const state=_spOpen()?"open":"closed";
+  const v=+PREFS.goodsCols;
+  if((v===2||v===4) && PREFS.goodsColsFor===state) return v;
+  if(state==="open") return 2;
   try{ return window.innerWidth<1180 ? 2 : 4; }catch(e){ return 4; }
 }
-function goodsSetCols(n){ PREFS.goodsCols=(+n===2)?2:4; prefsSave();
+function goodsSetCols(n){
+  PREFS.goodsCols=(+n===2)?2:4;
+  PREFS.goodsColsFor=_spOpen()?"open":"closed";
+  prefsSave();
   try{ renderMaterials(); }catch(e){}
   try{ if(typeof renderFurnishings==="function") renderFurnishings(); }catch(e){}
 }
@@ -6794,10 +6814,12 @@ function _furGrid(host){
            <div class="ft"><span onclick="event.stopPropagation();furAllFields(1);document.getElementById('fur-dd').classList.add('open')">Select all</span>
              <span onclick="event.stopPropagation();furAllFields(0);document.getElementById('fur-dd').classList.add('open')">Clear</span></div>
          </div></span>
-       <button class="mchip pri" onclick="furImportURL()">${mi("link")}Add from URL</button>
-       <span class="gcols" title="Cards across">
-         <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
-         <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
+       <span class="sp-grp">
+         <button class="mchip pri" onclick="furImportURL()">${mi("link")}Add from URL</button>
+         <span class="gcols" title="Cards across">
+           <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
+           <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
+         </span>
        </span>
      </span></div>
    ${FUR_AIBUSY?`<div class="gres busy">${mi("spark")}<span>Searching the catalogue…</span></div>`:""}
@@ -14242,6 +14264,9 @@ function toggleSumPanel(){
   document.body.classList.toggle("sp-user-off",!on);
   if(on){ try{ renderProSummary(); }catch(e){} }
   try{ _pbFit(); }catch(e){}
+  // The goods grids size themselves to the panel, so they have to re-derive here.
+  try{ if(S.view==="materials") renderMaterials(); }catch(e){}
+  try{ if(S.view==="furnishings") renderFurnishings(); }catch(e){}
 }
 (function(){ let v="1"; try{ v=localStorage.getItem("studioh_sp_v1")||"1"; }catch(e){}
   if(v==="1") document.body.classList.add("sp-on"); })();
