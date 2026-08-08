@@ -1982,7 +1982,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v608</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v609</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7294,7 +7294,7 @@ const INS_CARDS=[
   draw:(d,t)=>{ const pi=_plantInsights();
     if(!pi.bed) return `<span class="ic-empty">Set a planting area on the zones first</span>`;
     const y=INS_COV_YEAR, sf=pi.byYear[y]||0, pct=Math.round(sf/pi.bed*100);
-    const state = pct>115?["bad","Crowded"] : pct>=85?["ok","On target"] : pct>=55?["warn","Filling in"] : ["warn","Sparse"];
+    const state = pct>105?["bad","Over-planted"] : pct>=85?["ok","On target"] : pct>=55?["warn","Filling in"] : ["warn","Sparse"];
     const barPct=Math.min(100,Math.round(pct/1.4));
     return `<span class="v">${pct}<small>%</small></span>
       <span class="ic-pill ${state[0]}">${state[1]}</span>
@@ -7302,8 +7302,8 @@ const INS_CARDS=[
         <span class="covmark" data-l="full"></span></div></div>
       <div class="covyrs">${[1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})">${v}</button>`).join("")}<span class="yl">years after planting</span></div>
       <span class="s">${Math.round(sf).toLocaleString()} sf of canopy over a <b>${Math.round(pi.bed).toLocaleString()} sf</b> bed.
-        ${pct>115?`Crowds by year ${y} — thin the plan or expect heavier pruning.`:pct<55?`Still open at year ${y}; mulch and weeding until it knits.`:`Reads full without crowding.`}</span>
-      <span class="s" style="color:var(--tl)">Grown from container size using each plant's growth rate.</span>`;}},
+        ${pct>105?`Past full by year ${y} — thin the plan or expect heavier pruning.`:pct<55?`Still open at year ${y}; mulch and weeding until it knits.`:`Reads full without crowding.`}</span>
+      <span class="s" style="color:var(--tl)">Grown from container size on each plant's growth rate. Full = <b>${spacingPct()}%</b> of mature spread, your design spacing.</span>`;}},
 
  {id:"climfit", g:"plant", nm:"Climate fit", w:1, client:1, desc:"Specified plants that will not take this zone",
   need:(d,t)=>t.qty>0?(projSunsetZone()?"":"No Sunset zone for this project yet"):"No plants placed yet",
@@ -7843,6 +7843,8 @@ function _stRender(){
         <div class="st-row"><span class="l">Build-up margin<small>Inside items priced by material + hours.</small></span>
           <span style="display:flex;align-items:center;gap:7px"><input type="number" class="st-in num" value="${+GSET.margin||0}" step="1" onchange="gsetSet('margin',+this.value||0)"> <b style="font-size:12px;color:var(--tm)">%</b>
             ${ihint("A build-up item costs (material + labor hours × rate) × (1 + this margin). It is part of that item's unit cost, so it is not the project markup — items priced by Low / Standard / High tier ignore it entirely.")}</span></div>
+        <div class="st-row"><span class="l">Plant spacing<small>What counts as full coverage — the share of mature spread you space to. Plants are pruned, so they rarely reach catalogue width.</small></span>
+          <span style="display:flex;align-items:center;gap:7px"><input type="number" class="st-in num" min="40" max="100" value="${spacingPct()}" step="5" onchange="stSpacingPct(this.value)"> <b style="font-size:12px;color:var(--tm)">% of mature</b></span></div>
         <div class="st-row"><span class="l">Pricing location<small>Label for the market you price in.</small></span>
           <input class="st-in" value="${escAttr(PREFS.defaults.location||"")}" placeholder="Los Angeles / Orange County" onchange="stLocation(this.value)"></div>
         <div class="st-row"><span class="l">Market adjustment<small>Moves every cost before markup.</small></span>
@@ -14880,8 +14882,18 @@ function _growYears(p){ const g=String((p&&p.growthRate)||"").toLowerCase();
 // Start at the container's spread and ease toward mature — plants put on width
 // quickly early and slow as they approach full size, so a straight line reads wrong
 // in the years that matter most.
+// Designers space to a FRACTION of mature spread, not to full width — plants are
+// meant to knit together and get pruned, never to reach catalogue size. Studio H
+// designs to 75%, so 75% of mature is what "full" means here; going past it is
+// genuinely over-planted rather than merely mature.
+const SPACING_DEFAULT=75;
+function spacingPct(){ const v=+(PREFS.defaults&&PREFS.defaults.spacingPct);
+  return (v>=40&&v<=100)?v:SPACING_DEFAULT; }
+function stSpacingPct(v){ const n=Math.max(40,Math.min(100,Math.round(+v||0)||SPACING_DEFAULT));
+  PREFS.defaults=PREFS.defaults||{}; PREFS.defaults.spacingPct=n; prefsSave();
+  try{ renderInsights(); }catch(e){} try{ renderProSummary(); }catch(e){} if(_stOpen) _stRender(); }
 function _spreadAt(p,startW,yr){
-  const mat=+((p&&p.w)||0); if(!(mat>0)) return 0;
+  const mat=+((p&&p.w)||0)*(spacingPct()/100); if(!(mat>0)) return 0;
   const s=Math.min(startW||0.9, mat);
   const Y=_growYears(p), x=Math.max(0,Math.min(1,yr/Y));
   return s + (mat-s)*(1-Math.pow(1-x,1.6));
