@@ -1857,6 +1857,14 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .rbar{height:6px;border-radius:4px;background:var(--surface2);overflow:hidden;margin:1px 0 2px}
 .rbar i{display:block;height:100%;border-radius:4px}
 .rbar i.bad{background:var(--v-high)} .rbar i.warn{background:var(--gold)}
+/* cautions — one bar showing the mix, so the card carries a shape not just a count */
+.cbar{display:flex;height:8px;border-radius:5px;overflow:hidden;background:var(--surface2);gap:1px;margin:2px 0 3px}
+.cbar i{display:block;height:100%}
+.icrows .who{font-size:10.5px;color:var(--tl);margin-left:8px;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:right}
+.icrows .dot.mut{background:var(--tl)}
+.icrows .why.mut{color:var(--tl)}
+.icrows .r .nm{flex:none}
 .ic .v small,.ptile-k small{font-size:12px;color:var(--tl);font-weight:700;margin-left:4px}
 .covwrap{padding-top:9px}
 .cov{height:24px;border-radius:8px;background:var(--surface2);position:relative;display:flex;overflow:hidden}
@@ -2019,7 +2027,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v614</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v615</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7369,20 +7377,20 @@ const INS_CARDS=[
         ${n>4?`<div class="r"><span class="nm" style="color:var(--tl)">+${n-4} more</span></div>`:""}</div>
       <span class="s">Flagged high fuel in your book. Keep clear of the 0–30 ft zones and verify with the local fire authority.</span>`;}},
 
- {id:"toxicity", g:"plant", nm:"Toxicity", w:1, client:0, desc:"Plants worth raising with the client",
+ {id:"toxicity", g:"plant", nm:"Palette cautions", w:1, client:0, desc:"Toxic, invasive, aggressive roots, deer-palatable",
   need:(d,t)=>t.qty>0?"":"No plants placed yet",
-  draw:(d,t)=>{ const pi=_plantInsights();
-    const sev=pi.toxic.filter(x=>x.lvl==="severe"), mod=pi.toxic.filter(x=>x.lvl==="moderate");
-    if(!sev.length&&!mod.length) return `<span class="v" style="color:var(--v-ok)">✓</span>
-      <span class="ic-pill ok">Nothing severe</span>
-      <span class="s">No specified plant is rated moderately or severely toxic.</span>`;
-    return `<span class="v"${sev.length?' style="color:var(--v-high)"':''}>${sev.length||mod.length}<small>${sev.length?"severe":"moderate"}</small></span>
-      <span class="ic-pill ${sev.length?"bad":"warn"}">${sev.length?"Check with client":"Worth a mention"}</span>
-      ${_ratioBar(pi.toxic.length,t.species,sev.length?"bad":"warn")}
-      <div class="icrows">${pi.toxic.slice(0,4).map(x=>`<div class="r"><span class="dot ${x.lvl==="severe"?"bad":"warn"}"></span><span class="nm">${escAttr(x.nm)}</span><span class="why ${x.lvl==="severe"?"bad":"warn"}">${x.lvl}</span></div>`).join("")}
-        ${pi.toxic.length>4?`<div class="r"><span class="nm" style="color:var(--tl)">+${pi.toxic.length-4} more</span></div>`:""}</div>
-      <span class="s">Worth raising before installation if there are children or dogs.</span>`;}},
-
+  draw:(d,t)=>{ const pi=_plantInsights(), C=_cautionRows(pi);
+    if(!C.total) return `<span class="v" style="color:var(--v-ok)">✓</span>
+      <span class="ic-pill ok">Nothing flagged</span>
+      <span class="s">No plant in this palette is toxic, invasive, aggressive-rooted or deer-palatable.</span>`;
+    return `<span class="v"${C.severe?' style="color:var(--v-high)"':''}>${C.total}<small>of ${t.species} species</small></span>
+      <span class="ic-pill ${C.severe?"bad":"warn"}">${C.severe?C.severe+" severe":"Worth a mention"}</span>
+      ${_cautionBar(C)}
+      <div class="icrows">${C.rows.map(r=>`<div class="r">
+        <span class="dot ${r.tone}"></span><span class="nm">${r.lbl}</span>
+        <span class="who">${r.names.slice(0,2).map(escAttr).join(", ")}${r.names.length>2?" +"+(r.names.length-2):""}</span>
+        <span class="why ${r.tone}">${r.names.length}</span></div>`).join("")}</div>
+      <span class="s">${escAttr(C.lead)}</span>`;}},
 ];
 const INS_DEFAULT={total:1,psf:1,dist:1,phase:1,phaseline:1,allow:1,lot:1,value:1,water:1,palette:1,ready:1,bloomcal:1,coverage:1,climfit:1,firesafe:1,toxicity:1};
 function insOn(){ const o=(PREFS.insights&&PREFS.insights.on)||null; return o||Object.assign({},INS_DEFAULT); }
@@ -14971,7 +14979,8 @@ function _rowStartW(r){
   return tot>0 ? acc/tot : CONTAINER_W["5g"];
 }
 function _plantInsights(){
-  const out={ bed:0, byYear:{}, misfit:[], fire:[], toxic:[], season:{Spring:0,Summer:0,Fall:0,Winter:0},
+  const out={ bed:0, byYear:{}, misfit:[], fire:[], toxic:[], caut:{invasive:[],roots:[],deer:[]},
+              season:{Spring:0,Summer:0,Fall:0,Winter:0},
               seasonSpecies:0, rows:0, matureSF:0 };
   const YEARS=[0,1,2,3,5,10,20];   // 0 = the day it goes in the ground, at container size
   YEARS.forEach(y=>{ out.byYear[y]=0; });
@@ -15005,9 +15014,15 @@ function _plantInsights(){
               if(fit===false) out.misfit.push({nm:p.c||p.b||"—", z:p.sunset||"", kind}); }
             const dz=dsZoneOf(p);
             if(dz==="avoid"||fireAvoidFlag(p)) out.fire.push({nm:p.c||p.b||"—", why:"high fuel", bad:1});
+            const nmx=p.c||p.b||"—";
             const tx=String(p.toxic||"").toLowerCase();
-            if(tx.indexOf("severe")>=0) out.toxic.push({nm:p.c||p.b||"—", bot:p.b||"", lvl:"severe", bad:1});
-            else if(tx.indexOf("moderate")>=0) out.toxic.push({nm:p.c||p.b||"—", bot:p.b||"", lvl:"moderate"});
+            if(tx.indexOf("severe")>=0) out.toxic.push({nm:nmx, bot:p.b||"", lvl:"severe", bad:1});
+            else if(tx.indexOf("moderate")>=0) out.toxic.push({nm:nmx, bot:p.b||"", lvl:"moderate"});
+            // Other cautions worth raising before installation, not after. Each is 99%
+            // populated in the book and none had anywhere to surface until now.
+            if(String(p.invasive||"").toLowerCase().indexOf("yes")>=0) out.caut.invasive.push(nmx);
+            if(String(p.rootAggr||"").toLowerCase().indexOf("high")>=0) out.caut.roots.push(nmx);
+            if(String(p.deerResist||"").toLowerCase()==="no") out.caut.deer.push(nmx);
           }
         });
       });
@@ -15033,6 +15048,34 @@ function _covMeter(pct){
 }
 // The whole trajectory in one glance — where it starts, how fast it knits, where it
 // settles. The selected year is the dot; the dashed line is full coverage.
+// Four cautions in one card. Any one of them alone is usually a single plant — which
+// reads as a card not worth having — but together they answer "what should I warn the
+// client about?", and every field behind them is 99% populated.
+const CAUTION_META=[
+  {k:"severe",  lbl:"Severely toxic",  tone:"bad",  c:"var(--v-high)"},
+  {k:"moderate",lbl:"Moderately toxic",tone:"warn", c:"var(--gold)"},
+  {k:"invasive",lbl:"Invasive",        tone:"warn", c:"#B5763C"},
+  {k:"roots",   lbl:"Aggressive roots",tone:"warn", c:"#7B6BA8"},
+  {k:"deer",    lbl:"Deer will browse",tone:"mut",  c:"var(--tl)"},
+];
+function _cautionRows(pi){
+  const sev=pi.toxic.filter(x=>x.lvl==="severe").map(x=>x.nm);
+  const mod=pi.toxic.filter(x=>x.lvl==="moderate").map(x=>x.nm);
+  const by={severe:sev, moderate:mod, invasive:pi.caut.invasive, roots:pi.caut.roots, deer:pi.caut.deer};
+  const rows=CAUTION_META.filter(m=>by[m.k].length).map(m=>({...m, names:by[m.k]}));
+  // A species can carry more than one caution, so count distinct plants, not flags.
+  const uniq=new Set(); Object.keys(by).forEach(k=>by[k].forEach(n=>uniq.add(n)));
+  const lead = sev.length ? "Sap or foliage can seriously harm a child or dog — raise it before installation."
+    : pi.caut.invasive.length ? "Invasive here; some jurisdictions restrict planting them."
+    : pi.caut.roots.length ? "Keep aggressive roots clear of paving, walls and service lines."
+    : "Nothing severe — worth a line in the planting notes.";
+  return {rows, total:uniq.size, severe:sev.length, lead};
+}
+function _cautionBar(C){
+  const tot=C.rows.reduce((a,r)=>a+r.names.length,0)||1;
+  return `<div class="cbar">${C.rows.map(r=>
+    `<i style="width:${Math.max(4,r.names.length/tot*100)}%;background:${r.c}" title="${r.lbl} — ${r.names.length}"></i>`).join("")}</div>`;
+}
 let _sparkSeq=0;
 function _covSpark(pi,sel){
   const YS=[0,1,2,3,5,10,20];
@@ -15294,11 +15337,12 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
         <span class="ptile-k" style="color:${n?"var(--gold)":"var(--v-ok)"}">${n?n:"✓"}${n?`<small> of ${t.species}</small>`:""}</span>
         ${n?_ratioBar(n,t.species,"warn"):""}
         <span class="ptile-sub">${n?pi.fire.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(n>3?` +${n-3}`:"")+" flagged high fuel":"Nothing flagged high fuel"}</span></div>`; }
-    { const sev=pi.toxic.filter(x=>x.lvl==="severe");
-      H.toxicity=`<div class="ptile"><span class="ptile-lbl">Toxicity</span>
-        <span class="ptile-k" style="color:${sev.length?"var(--v-high)":"var(--v-ok)"}">${pi.toxic.length?(sev.length||pi.toxic.length):"✓"}${pi.toxic.length?`<small> of ${t.species}</small>`:""}</span>
-        ${pi.toxic.length?_ratioBar(pi.toxic.length,t.species,sev.length?"bad":"warn"):""}
-        <span class="ptile-sub">${pi.toxic.length?pi.toxic.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(pi.toxic.length>3?` +${pi.toxic.length-3}`:""):"Nothing moderately or severely toxic"}</span></div>`; }
+    { const C=_cautionRows(pi);
+      H.toxicity=`<div class="ptile"><span class="ptile-lbl">Palette cautions</span>
+        <span class="ptile-k" style="color:${C.severe?"var(--v-high)":C.total?"var(--gold)":"var(--v-ok)"}">${C.total||"✓"}${C.total?`<small> of ${t.species}</small>`:""}</span>
+        ${C.total?_cautionBar(C):""}
+        ${C.total?`<div class="icrows">${C.rows.map(r=>`<div class="r"><span class="dot ${r.tone}"></span><span class="nm">${r.lbl}</span><span class="why ${r.tone}">${r.names.length}</span></div>`).join("")}</div>`:""}
+        <span class="ptile-sub">${C.total?escAttr(C.lead):"Nothing toxic, invasive, aggressive-rooted or deer-palatable"}</span></div>`; }
   }
   // A material takes the panel over while it is open — same panel, different subject.
   if(S.view==="materials"){
