@@ -1834,12 +1834,25 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .bcal .mo{display:flex;flex-direction:column;align-items:center;gap:5px}
 .bcal .bar{width:100%;height:66px;background:var(--surface2);border-radius:8px;display:flex;
   flex-direction:column;justify-content:flex-end;overflow:hidden}
-.bcal .bar i{display:block;width:100%;border-radius:8px 8px 0 0;background:var(--gm);min-height:2px}
+.bcal .bar i{display:block;width:100%;border-radius:7px;min-height:3px;
+  background:linear-gradient(180deg,var(--gl),var(--gm));box-shadow:0 1px 3px -1px rgba(0,0,0,.25)}
 .bcal .bar i.gap{background:repeating-linear-gradient(45deg,var(--brl),var(--brl) 4px,transparent 4px,transparent 8px)}
 .bcal .lb{font-size:10px;font-weight:700;color:var(--tm)}
 .bcal .n{font-size:11.5px;font-weight:800;color:var(--tx);font-variant-numeric:tabular-nums}
 .bcal .mo.gap .lb,.bcal .mo.gap .n{color:var(--gold)}
-/* coverage */
+/* coverage — colour carries state, length carries amount, the spark carries the arc */
+.cmeter{position:relative;height:9px;border-radius:6px;background:var(--surface2);overflow:visible;margin:2px 0 1px}
+.cmeter i{display:block;height:100%;border-radius:6px;transition:width .25s,background .25s}
+.cmeter .full{position:absolute;left:71.4%;top:-3px;bottom:-3px;width:2px;border-radius:1px;background:var(--tl);opacity:.5}
+.cspark{width:100%;height:32px;display:block;margin:1px 0 2px;overflow:visible}
+.cspark .cline{stroke:var(--gm);stroke-width:1.6;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+.cspark .fullline{stroke:var(--tl);stroke-width:1;stroke-dasharray:3 3;opacity:.55;vector-effect:non-scaling-stroke}
+.cspark .cdot{fill:var(--card);stroke:var(--gm);stroke-width:2.2;vector-effect:non-scaling-stroke}
+/* how much of the palette a warning actually covers */
+.rbar{height:6px;border-radius:4px;background:var(--surface2);overflow:hidden;margin:1px 0 2px}
+.rbar i{display:block;height:100%;border-radius:4px}
+.rbar i.bad{background:var(--v-high)} .rbar i.warn{background:var(--gold)}
+.ic .v small,.ptile-k small{font-size:12px;color:var(--tl);font-weight:700;margin-left:4px}
 .covwrap{padding-top:9px}
 .cov{height:24px;border-radius:8px;background:var(--surface2);position:relative;display:flex;overflow:hidden}
 .cov i{display:block;height:100%}
@@ -2001,7 +2014,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v612</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v613</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7313,20 +7326,17 @@ const INS_CARDS=[
   draw:(d,t)=>{ const pi=_plantInsights();
     if(!pi.bed) return `<span class="ic-empty">Set a planting area on the zones first</span>`;
     const y=INS_COV_YEAR, sf=pi.byYear[y]||0, pct=Math.round(sf/pi.bed*100);
-    // At planting, bare ground is the normal condition — judging it as "sparse" would
-    // flag every well-designed plan. Year 0 reports the day-one look instead.
     const state = y===0 ? (pct>60?["warn","Dense at install"]:["ok","Day one"])
       : pct>105?["bad","Over-planted"] : pct>=85?["ok","On target"] : pct>=55?["warn","Filling in"] : ["warn","Sparse"];
-    const barPct=Math.min(100,Math.round(pct/1.4));
-    return `<span class="v">${pct}<small>%</small></span>
+    return `<span class="v" style="color:${_covColor(pct)}">${pct}<small>%</small></span>
       <span class="ic-pill ${state[0]}">${state[1]}</span>
-      <div class="covwrap"><div class="cov"><i style="width:${Math.min(barPct,71)}%;background:var(--gm)"></i>${pct>140?`<i style="width:${barPct-71}%;background:color-mix(in srgb,var(--gold) 55%,transparent)"></i>`:pct>100?`<i style="width:${barPct-71}%;background:color-mix(in srgb,var(--gold) 55%,transparent)"></i>`:""}
-        <span class="covmark" data-l="full"></span></div></div>
-      <div class="covyrs">${[0,1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})" title="${v===0?"The day it is planted":"Year "+v}">${v}</button>`).join("")}<span class="yl">${y===0?"at planting":"years after planting"}</span></div>
+      ${_covMeter(pct)}
+      ${_covSpark(pi,y)}
+      <div class="covyrs">${[0,1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})" title="${v===0?"The day it is planted":"Year "+v}">${v}</button>`).join("")}<span class="yl">${y===0?"at planting":"years"}</span></div>
       <span class="s">${Math.round(sf).toLocaleString()} sf of canopy over a <b>${Math.round(pi.bed).toLocaleString()} sf</b> bed.
-        ${y===0?`How it reads on install day — the rest is mulch. Container mix drives this: 1&nbsp;gal is nearly invisible, 15&nbsp;gal reads immediately.`
-          :pct>105?`Past full by year ${y} — thin the plan or expect heavier pruning.`:pct<55?`Still open at year ${y}; mulch and weeding until it knits.`:`Reads full without crowding.`}</span>
-      <span class="s" style="color:var(--tl)">Grown from container size on each plant's growth rate. Full = <b>${spacingPct()}%</b> of mature spread, your design spacing.</span>`;}},
+        ${y===0?`How it reads on install day — container mix drives this.`
+          :pct>105?`Past full by year ${y} — thin the plan or expect heavier pruning.`:pct<55?`Still open at year ${y}; mulch until it knits.`:`Reads full without crowding.`}</span>
+      <span class="s" style="color:var(--tl)">Full = <b>${spacingPct()}%</b> of mature spread, your design spacing.</span>`;}},
 
  {id:"climfit", g:"plant", nm:"Climate fit", w:1, client:1, desc:"Specified plants that will not take this zone",
   need:(d,t)=>t.qty>0?(projSunsetZone()?"":"No Sunset zone for this project yet"):"No plants placed yet",
@@ -7334,8 +7344,9 @@ const INS_CARDS=[
     if(!n) return `<span class="v" style="color:var(--v-ok)">✓</span>
       <span class="ic-pill ok">All suit Zone ${projSunsetZone()}</span>
       <span class="s">Every specified plant is rated for this climate.</span>`;
-    return `<span class="v" style="color:var(--v-high)">${n}</span>
+    return `<span class="v" style="color:var(--v-high)">${n}<small>of ${t.species}</small></span>
       <span class="ic-pill bad">Won't thrive</span>
+      ${_ratioBar(n,t.species,"bad")}
       <div class="icrows">${pi.misfit.slice(0,4).map(x=>`<div class="r"><span class="dot bad"></span><span class="nm">${escAttr(x.nm)}</span><span class="why bad">${escAttr(x.z||"—")}</span></div>`).join("")}
         ${n>4?`<div class="r"><span class="nm" style="color:var(--tl)">+${n-4} more</span></div>`:""}</div>
       <span class="s">Rated for other zones. This project is <b>Sunset Zone ${projSunsetZone()}</b>.</span>`;}},
@@ -7346,8 +7357,9 @@ const INS_CARDS=[
     if(!n) return `<span class="v" style="color:var(--v-ok)">✓</span>
       <span class="ic-pill ok">No high-fuel plants</span>
       <span class="s">Nothing specified is flagged high fuel. Still verify spacing and dead-material removal with the local fire authority.</span>`;
-    return `<span class="v" style="color:var(--gold)">${n}</span>
+    return `<span class="v" style="color:var(--gold)">${n}<small>of ${t.species}</small></span>
       <span class="ic-pill warn">Review</span>
+      ${_ratioBar(n,t.species,"warn")}
       <div class="icrows">${pi.fire.slice(0,4).map(x=>`<div class="r"><span class="dot bad"></span><span class="nm">${escAttr(x.nm)}</span><span class="why bad">${escAttr(x.why)}</span></div>`).join("")}
         ${n>4?`<div class="r"><span class="nm" style="color:var(--tl)">+${n-4} more</span></div>`:""}</div>
       <span class="s">Flagged high fuel in your book. Keep clear of the 0–30 ft zones and verify with the local fire authority.</span>`;}},
@@ -7361,6 +7373,7 @@ const INS_CARDS=[
       <span class="s">No specified plant is rated moderately or severely toxic.</span>`;
     return `<span class="v"${sev.length?' style="color:var(--v-high)"':''}>${sev.length||mod.length}<small>${sev.length?"severe":"moderate"}</small></span>
       <span class="ic-pill ${sev.length?"bad":"warn"}">${sev.length?"Check with client":"Worth a mention"}</span>
+      ${_ratioBar(pi.toxic.length,t.species,sev.length?"bad":"warn")}
       <div class="icrows">${pi.toxic.slice(0,4).map(x=>`<div class="r"><span class="dot ${x.lvl==="severe"?"bad":"warn"}"></span><span class="nm">${escAttr(x.nm)}</span><span class="why ${x.lvl==="severe"?"bad":"warn"}">${x.lvl}</span></div>`).join("")}
         ${pi.toxic.length>4?`<div class="r"><span class="nm" style="color:var(--tl)">+${pi.toxic.length-4} more</span></div>`:""}</div>
       <span class="s">Worth raising before installation if there are children or dogs.</span>`;}},
@@ -15004,6 +15017,52 @@ function _plantInsights(){
   }catch(e){}
   return out;
 }
+// ── shared card graphics ─────────────────────────────────────
+// A number alone does not read at a glance. These give the planting cards one visual
+// language: colour carries state, length carries amount, shape carries trajectory.
+// Coverage runs pale green when the bed is bare and deepens as it knits together,
+// then turns amber past full — so the colour alone answers "is this right?".
+function _covColor(pct){
+  if(pct>105) return "var(--gold)";
+  const t=Math.max(0,Math.min(100,Math.round(pct)));
+  return `color-mix(in srgb, var(--gd) ${t}%, #BCD9B0)`;
+}
+function _covMeter(pct){
+  const w=Math.max(2,Math.min(100,Math.round(pct/1.4)));   // 140% fills the track
+  return `<div class="cmeter"><i style="width:${w}%;background:${_covColor(pct)}"></i>
+    <span class="full" title="full at your design spacing"></span></div>`;
+}
+// The whole trajectory in one glance — where it starts, how fast it knits, where it
+// settles. The selected year is the dot; the dashed line is full coverage.
+let _sparkSeq=0;
+function _covSpark(pi,sel){
+  const YS=[0,1,2,3,5,10,20];
+  if(!pi.bed) return "";
+  // The same card renders in the panel and on the Insights board at once, so the
+  // gradient needs a unique id per instance rather than a duplicate in the DOM.
+  const gid="cspg"+(++_sparkSeq);
+  const vals=YS.map(y=>Math.min(150,(pi.byYear[y]||0)/pi.bed*100));
+  const mx=Math.max(110,...vals), W=100,H=32;
+  const xy=vals.map((v,i)=>[ +(i/(YS.length-1)*W).toFixed(2), +(H-(v/mx)*H).toFixed(2) ]);
+  const line=xy.map(([x,y],i)=>(i?"L":"M")+x+" "+y).join(" ");
+  const area=line+` L${W} ${H} L0 ${H} Z`;
+  const si=YS.indexOf(sel), sp=si>=0?xy[si]:null;
+  const fullY=+(H-(100/mx)*H).toFixed(2);
+  return `<svg class="cspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--gm)" stop-opacity=".34"/>
+      <stop offset="1" stop-color="var(--gm)" stop-opacity="0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#${gid})"/>
+    <line x1="0" y1="${fullY}" x2="${W}" y2="${fullY}" class="fullline"/>
+    <path d="${line}" fill="none" class="cline"/>
+    ${sp?`<circle cx="${sp[0]}" cy="${sp[1]}" r="3.2" class="cdot"/>`:""}
+  </svg>`;
+}
+// How much of the palette is affected — a count says "3", this says "3 of 22".
+function _ratioBar(bad,total,tone){
+  const pct=total?Math.max(3,Math.round(bad/total*100)):0;
+  return `<div class="rbar"><i class="${tone||"bad"}" style="width:${pct}%"></i></div>`;
+}
 let INS_COV_YEAR=+(PREFS.insCovYear)||5;
 function insSetCovYear(y){ INS_COV_YEAR=+y||5; PREFS.insCovYear=INS_COV_YEAR; prefsSave();
   try{ renderInsights(); }catch(e){}
@@ -15218,23 +15277,28 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
       const st = y===0 ? (pct>60?["var(--gold)","Dense at install"]:["var(--v-ok)","Day one"])
         : pct>105?["var(--v-high)","Over-planted"] : pct>=85?["var(--v-ok)","On target"] : pct>=55?["var(--gold)","Filling in"] : ["var(--gold)","Sparse"];
       H.coverage=`<div class="ptile"><span class="ptile-lbl">Coverage ${y===0?"at planting":"at year "+y}</span>
-        <span class="ptile-k" style="color:${st[0]}">${pct}%</span>
+        <span class="ptile-k" style="color:${_covColor(pct)}">${pct}%</span>
+        ${_covMeter(pct)}
+        ${_covSpark(pi,y)}
         <div class="covyrs">${[0,1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})">${v}</button>`).join("")}</div>
         <span class="ptile-sub">${st[1]} · ${Math.round(sf).toLocaleString()} sf over ${Math.round(pi.bed).toLocaleString()} sf${y===0?" — at container size":" at "+spacingPct()+"% spread"}</span></div>`;
     }
     if(projSunsetZone()){
       const n=pi.misfit.length;
       H.climfit=`<div class="ptile"><span class="ptile-lbl">Climate fit · Zone ${projSunsetZone()}</span>
-        <span class="ptile-k" style="color:${n?"var(--v-high)":"var(--v-ok)"}">${n?n:"✓"}</span>
+        <span class="ptile-k" style="color:${n?"var(--v-high)":"var(--v-ok)"}">${n?n:"✓"}${n?`<small> of ${t.species}</small>`:""}</span>
+        ${n?_ratioBar(n,t.species,"bad"):""}
         <span class="ptile-sub">${n?pi.misfit.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(n>3?` +${n-3}`:"")+" won't take this zone":"Every plant suits this zone"}</span></div>`;
     }
     { const n=pi.fire.length;
       H.firesafe=`<div class="ptile"><span class="ptile-lbl">Defensible space</span>
-        <span class="ptile-k" style="color:${n?"var(--gold)":"var(--v-ok)"}">${n?n:"✓"}</span>
+        <span class="ptile-k" style="color:${n?"var(--gold)":"var(--v-ok)"}">${n?n:"✓"}${n?`<small> of ${t.species}</small>`:""}</span>
+        ${n?_ratioBar(n,t.species,"warn"):""}
         <span class="ptile-sub">${n?pi.fire.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(n>3?` +${n-3}`:"")+" flagged high fuel":"Nothing flagged high fuel"}</span></div>`; }
     { const sev=pi.toxic.filter(x=>x.lvl==="severe");
       H.toxicity=`<div class="ptile"><span class="ptile-lbl">Toxicity</span>
-        <span class="ptile-k" style="color:${sev.length?"var(--v-high)":"var(--v-ok)"}">${pi.toxic.length?(sev.length||pi.toxic.length):"✓"}</span>
+        <span class="ptile-k" style="color:${sev.length?"var(--v-high)":"var(--v-ok)"}">${pi.toxic.length?(sev.length||pi.toxic.length):"✓"}${pi.toxic.length?`<small> of ${t.species}</small>`:""}</span>
+        ${pi.toxic.length?_ratioBar(pi.toxic.length,t.species,sev.length?"bad":"warn"):""}
         <span class="ptile-sub">${pi.toxic.length?pi.toxic.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(pi.toxic.length>3?` +${pi.toxic.length-3}`:""):"Nothing moderately or severely toxic"}</span></div>`; }
   }
   // A material takes the panel over while it is open — same panel, different subject.
