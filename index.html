@@ -1988,7 +1988,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v610</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v611</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7300,15 +7300,19 @@ const INS_CARDS=[
   draw:(d,t)=>{ const pi=_plantInsights();
     if(!pi.bed) return `<span class="ic-empty">Set a planting area on the zones first</span>`;
     const y=INS_COV_YEAR, sf=pi.byYear[y]||0, pct=Math.round(sf/pi.bed*100);
-    const state = pct>105?["bad","Over-planted"] : pct>=85?["ok","On target"] : pct>=55?["warn","Filling in"] : ["warn","Sparse"];
+    // At planting, bare ground is the normal condition — judging it as "sparse" would
+    // flag every well-designed plan. Year 0 reports the day-one look instead.
+    const state = y===0 ? (pct>60?["warn","Dense at install"]:["ok","Day one"])
+      : pct>105?["bad","Over-planted"] : pct>=85?["ok","On target"] : pct>=55?["warn","Filling in"] : ["warn","Sparse"];
     const barPct=Math.min(100,Math.round(pct/1.4));
     return `<span class="v">${pct}<small>%</small></span>
       <span class="ic-pill ${state[0]}">${state[1]}</span>
       <div class="covwrap"><div class="cov"><i style="width:${Math.min(barPct,71)}%;background:var(--gm)"></i>${pct>140?`<i style="width:${barPct-71}%;background:color-mix(in srgb,var(--gold) 55%,transparent)"></i>`:pct>100?`<i style="width:${barPct-71}%;background:color-mix(in srgb,var(--gold) 55%,transparent)"></i>`:""}
         <span class="covmark" data-l="full"></span></div></div>
-      <div class="covyrs">${[1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})">${v}</button>`).join("")}<span class="yl">years after planting</span></div>
+      <div class="covyrs">${[0,1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})" title="${v===0?"The day it is planted":"Year "+v}">${v}</button>`).join("")}<span class="yl">${y===0?"at planting":"years after planting"}</span></div>
       <span class="s">${Math.round(sf).toLocaleString()} sf of canopy over a <b>${Math.round(pi.bed).toLocaleString()} sf</b> bed.
-        ${pct>105?`Past full by year ${y} — thin the plan or expect heavier pruning.`:pct<55?`Still open at year ${y}; mulch and weeding until it knits.`:`Reads full without crowding.`}</span>
+        ${y===0?`How it reads on install day — the rest is mulch. Container mix drives this: 1&nbsp;gal is nearly invisible, 15&nbsp;gal reads immediately.`
+          :pct>105?`Past full by year ${y} — thin the plan or expect heavier pruning.`:pct<55?`Still open at year ${y}; mulch and weeding until it knits.`:`Reads full without crowding.`}</span>
       <span class="s" style="color:var(--tl)">Grown from container size on each plant's growth rate. Full = <b>${spacingPct()}%</b> of mature spread, your design spacing.</span>`;}},
 
  {id:"climfit", g:"plant", nm:"Climate fit", w:1, client:1, desc:"Specified plants that will not take this zone",
@@ -14919,7 +14923,7 @@ function _rowStartW(r){
 function _plantInsights(){
   const out={ bed:0, byYear:{}, misfit:[], fire:[], toxic:[], season:{Spring:0,Summer:0,Fall:0,Winter:0},
               seasonSpecies:0, rows:0, matureSF:0 };
-  const YEARS=[1,2,3,5,10,20];
+  const YEARS=[0,1,2,3,5,10,20];   // 0 = the day it goes in the ground, at container size
   YEARS.forEach(y=>{ out.byYear[y]=0; });
   try{
     const P=S.planting, zones=(P&&P.zones)||[];
@@ -15173,11 +15177,12 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
       } }
     if(pi.bed){
       const y=INS_COV_YEAR, sf=pi.byYear[y]||0, pct=Math.round(sf/pi.bed*100);
-      const st = pct>105?["var(--v-high)","Over-planted"] : pct>=85?["var(--v-ok)","On target"] : pct>=55?["var(--gold)","Filling in"] : ["var(--gold)","Sparse"];
-      H.coverage=`<div class="ptile"><span class="ptile-lbl">Coverage at year ${y}</span>
+      const st = y===0 ? (pct>60?["var(--gold)","Dense at install"]:["var(--v-ok)","Day one"])
+        : pct>105?["var(--v-high)","Over-planted"] : pct>=85?["var(--v-ok)","On target"] : pct>=55?["var(--gold)","Filling in"] : ["var(--gold)","Sparse"];
+      H.coverage=`<div class="ptile"><span class="ptile-lbl">Coverage ${y===0?"at planting":"at year "+y}</span>
         <span class="ptile-k" style="color:${st[0]}">${pct}%</span>
-        <div class="covyrs">${[1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})">${v}</button>`).join("")}</div>
-        <span class="ptile-sub">${st[1]} · ${Math.round(sf).toLocaleString()} sf over ${Math.round(pi.bed).toLocaleString()} sf at ${spacingPct()}% spread</span></div>`;
+        <div class="covyrs">${[0,1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})">${v}</button>`).join("")}</div>
+        <span class="ptile-sub">${st[1]} · ${Math.round(sf).toLocaleString()} sf over ${Math.round(pi.bed).toLocaleString()} sf${y===0?" — at container size":" at "+spacingPct()+"% spread"}</span></div>`;
     }
     if(projSunsetZone()){
       const n=pi.misfit.length;
