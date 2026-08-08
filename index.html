@@ -1577,6 +1577,14 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   border-radius:999px;padding:5px 6px 5px 13px;min-width:270px}
 .gsearch:focus-within{border-color:var(--gm)}
 .gsearch>svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;color:var(--gm);flex:none}
+/* A labelled badge rather than a bare sparkle — the box has to say out loud that it
+   takes plain language, or it reads as another literal keyword filter. */
+.ai-pill{display:inline-flex;align-items:center;gap:4px;flex:none;background:var(--brand-soft);
+  color:var(--gm);border-radius:999px;padding:3px 9px;font-size:9.5px;font-weight:800;letter-spacing:.09em}
+.ai-pill svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2.2}
+/* Plant Book: sits beside the literal name search, so it needs its own height to match. */
+.pb-gsearch{height:42px;border-radius:12px;min-width:300px;flex:1}
+.pb-gsearch input{font-size:.85rem}
 .gsearch input{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:12.5px;color:var(--tx);outline:0}
 .gsearch input::placeholder{color:var(--tl)}
 .gsearch .x{border:0;background:none;color:var(--tl);cursor:pointer;padding:3px;display:grid;place-items:center;flex:none}
@@ -1883,7 +1891,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v596</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v597</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6360,8 +6368,8 @@ function _matGrid(host){
      <small>${MATERIALS.length} products · ${new Set(MATERIALS.map(m=>m.sup)).size} suppliers · ${matModel()==="resale"?"resale model":"commission model"}</small></span>
      <span class="sp">
        <span class="gsearch">
-         ${mi("spark")}
-         <input id="mat-ai-in" placeholder="Ask for what you need…" value="${escAttr(MAT_AIQ)}"
+         <span class="ai-pill">${mi("spark")}AI</span>
+         <input id="mat-ai-in" placeholder="Describe what you need…" value="${escAttr(MAT_AIQ)}"
            onkeydown="if(event.key==='Enter'){event.preventDefault();matAIGo(this.value)}">
          ${MAT_AI||MAT_AIQ?`<button class="x" title="Clear search" onclick="matAIClear()">${mi("x")}</button>`:""}
          <button class="go" onclick="matAIGo(document.getElementById('mat-ai-in').value)" ${MAT_AIBUSY?"disabled":""}>${MAT_AIBUSY?"…":"Search"}</button>
@@ -6790,8 +6798,8 @@ function _furGrid(host){
      <small>${FURNISHINGS.length} products · ${new Set(FURNISHINGS.map(f=>f.sup)).size} suppliers · ${goodsModel()==="resale"?"resale model":goodsModel()==="fee"?"fee model":"commission model"}</small></span>
      <span class="sp">
        <span class="gsearch">
-         ${mi("spark")}
-         <input id="fur-ai-in" placeholder="Ask for what you need…" value="${escAttr(FUR_AIQ)}"
+         <span class="ai-pill">${mi("spark")}AI</span>
+         <input id="fur-ai-in" placeholder="Describe what you need…" value="${escAttr(FUR_AIQ)}"
            onkeydown="if(event.key==='Enter'){event.preventDefault();furAIGo(this.value)}">
          ${FUR_AI||FUR_AIQ?`<button class="x" title="Clear search" onclick="furAIClear()">${mi("x")}</button>`:""}
          <button class="go" onclick="furAIGo(document.getElementById('fur-ai-in').value)" ${FUR_AIBUSY?"disabled":""}>${FUR_AIBUSY?"…":"Search"}</button>
@@ -9821,6 +9829,28 @@ function mergeDuplicates(){
 function togglePlantVerified(kind,id){ const p=(PLANT_DB[kind]||[]).find(x=>x.id===id); if(!p) return; p.sv=p.sv?0:"user"; plantBookSave(); renderPlantBook(); }
 function pbBookClear(){ PB_BOOK.tags=[]; PB_BOOK.q=""; renderPlantBook(); }
 function pbBookSearch(v){ PB_BOOK.q=(v||"").toLowerCase(); renderPlantBookList(); }
+// ── PLANT BOOK: AI SEARCH ─────────────────────────────────────
+// The plain box above only matches letters in a name, so a plain-language question
+// ("shade under an oak, no berries") finds nothing. This asks the model to pick from
+// the book instead, using the same engine as the Materials and Furnishings books.
+let PB_AI=null, PB_AIQ="", PB_AIBUSY=false;
+function pbAIClear(){ PB_AI=null; PB_AIQ=""; renderPlantBook(); }
+async function pbAIGo(q){
+  q=(q||"").trim(); if(!q) return;
+  PB_AIQ=q; PB_AIBUSY=true; renderPlantBook();
+  const kind=PB_BOOK.kind;
+  const rows=(PLANT_DB[kind]||[]).slice(0,400).map(p=>({
+    id:p.id, nm:p.c||"", bot:p.b||"", water:p.wu||"", sun:(lightSetOf(p)||[]).join("/"),
+    color:bloomColorOf(p)||"", form:p.form||"", size:(p.widthFt?p.widthFt+"ft w":"")+(p.heightFt?" "+p.heightFt+"ft h":""),
+    native:p.native||"", evergreen:p.dormancy||"", fire:dsZoneOf(p)||"", tags:p.tags||[]
+  }));
+  if(!rows.length){ PB_AIBUSY=false; PB_AI={ids:[],why:""}; renderPlantBook(); return; }
+  const r=await goodsAISearch(q,rows,PLANT_KIND_LABEL[kind].toLowerCase()+" from a Southern California plant book");
+  PB_AIBUSY=false;
+  if(r.err){ PB_AI=null; try{ _toast(r.err,"#B23F3C"); }catch(e){} }
+  else PB_AI={ids:r.ids,why:r.why};
+  renderPlantBook();
+}
 
 // ===== NURSERY AVAILABILITY & PRICING LAYER =====
 let NURSERY_DB={nurseries:[],stock:{},plants:{}};
@@ -10075,6 +10105,13 @@ function renderPlantBook(){
       <div class="pb-topbar"><div class="pb-seg">${kindTabs}</div></div>
       <div class="pb-tool">
         <input class="pb-search-in" value="${escAttr(PB_BOOK.q)}" placeholder="🔍  Search name or botanical…" oninput="pbBookSearch(this.value)">
+        <span class="gsearch pb-gsearch">
+          <span class="ai-pill">${mi("spark")}AI</span>
+          <input id="pb-ai-in" placeholder="Describe the plant you need…" value="${escAttr(PB_AIQ)}"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();pbAIGo(this.value)}">
+          ${(PB_AI||PB_AIQ)?`<button class="x" title="Clear AI search" onclick="pbAIClear()">${mi("x")}</button>`:""}
+          <button class="go" onclick="pbAIGo(document.getElementById('pb-ai-in').value)" ${PB_AIBUSY?"disabled":""}>${PB_AIBUSY?"…":"Search"}</button>
+        </span>
         <div class="hwrap" style="display:inline-block"><button class="hbtn pb-mbtn" onclick="toggleHMenu('pb-ai-menu',event)">✨ AI tools ▾</button>
           <div class="hmenu" id="pb-ai-menu" style="left:auto;right:0">
             <button onclick="openFillImages()">🖼&nbsp; Fill missing images</button>
@@ -10127,6 +10164,10 @@ function renderPlantBook(){
       </div>
       </div>
     </div>
+    ${PB_AIBUSY?`<div class="gres busy">${mi("spark")}<span>Searching your plant book…</span></div>`:""}
+    ${(PB_AI&&!PB_AIBUSY)?`<div class="gres">${mi("spark")}
+      <span><b>${PB_AI.ids.length} match${PB_AI.ids.length===1?"":"es"}</b>${PB_AI.why?" · "+escAttr(PB_AI.why):""}</span>
+      <button onclick="pbAIClear()">Clear</button></div>`:""}
     <div id="plantbook-list"></div>`;
   renderPlantBookList();
 }
@@ -10246,7 +10287,11 @@ function renderPlantBookList(){
   const wrap=document.getElementById("plantbook-list"); if(!wrap) return;
   if(!PB_BOOK.open) PB_BOOK.open=new Set();
   const kind=PB_BOOK.kind; const q=PB_BOOK.q; const ftags=PB_BOOK.tags;
+  // An AI search narrows to what it picked and keeps its ranking; every other
+  // filter below still applies on top, so the two never fight each other.
+  const _aiRank=(PB_AI&&PB_AI.ids)?(function(){ const r={}; PB_AI.ids.forEach((id,i)=>{r[id]=i;}); return r; })():null;
   let list=(PLANT_DB[kind]||[]).filter(p=>{
+    if(_aiRank && _aiRank[p.id]==null) return false;
     if(q){ const bc=bloomColorOf(p); const bcl=(BLOOM_COLOR_MAP[bc]?BLOOM_COLOR_MAP[bc].lab:""); const hay=((p.c||"")+" "+(p.b||"")+" "+(p.color||"")+" "+bcl).toLowerCase(); if(hay.indexOf(q)<0) return false; }
     if(ftags.length){ const t=p.tags||[]; if(!ftags.every(x=>t.indexOf(x)>=0)) return false; }
     if(PB_BOOK.photo==="with" && !p.img) return false;
@@ -10268,6 +10313,7 @@ function renderPlantBookList(){
     if(PB_BOOK.dorm!=="all"){ const dm=(p.dormancy||"").toLowerCase(); if(PB_BOOK.dorm==="evergreen"&&dm.indexOf("evergreen")<0) return false; if(PB_BOOK.dorm==="deciduous"&&(dm.indexOf("deciduous")<0||dm.indexOf("semi")>=0)) return false; if(PB_BOOK.dorm==="semi"&&dm.indexOf("semi")<0) return false; }
     return true;
   });
+  if(_aiRank) list.sort((a,b)=>_aiRank[a.id]-_aiRank[b.id]);   // keep the model's ranking
   const money=v=>fmtN(v);
   const inp=(val,call,w,ph)=>`<input class="inp" value="${val==null?'':escAttr(''+val)}" placeholder="${ph||''}" style="font-size:.78rem;width:${w||'100%'};padding:.3rem .4rem" onchange="${call}">`;
   const fld=(label,inner)=>`<div><div style="font-size:.58rem;color:var(--tl);text-transform:uppercase;letter-spacing:.02em;margin-bottom:.1rem">${label}</div>${inner}</div>`;
