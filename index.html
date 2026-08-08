@@ -1893,7 +1893,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v602</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v603</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9584,6 +9584,90 @@ function openFillDetails(){ let d=document.getElementById("filldet-modal"); if(d
     </div>`;
   document.body.appendChild(d);
 }
+// ── Bulk: fill SUNSET CLIMATE ZONES only ──────────────────────
+// The climate filter is only as good as its coverage, and a book synced from
+// nurseries arrives with the zone blank on most rows. "Fill plant details" does
+// cover it, but re-asks all thirteen fields eight plants at a time; asking for the
+// one field lets each call carry far more plants, so a whole book is minutes.
+function needsSunset(p){ return !!p && !String(p.sunset||"").trim(); }
+let _zoneStop=false;
+function openFillZones(){
+  let d=document.getElementById("fillzone-modal"); if(d) d.remove();
+  const miss=_allPlantsFlat().filter(x=>needsSunset(x.p)).length;
+  const tot=_allPlantsFlat().length;
+  d=document.createElement("div"); d.id="fillzone-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:var(--card);border-radius:14px;max-width:520px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="font-size:1.05rem;font-weight:700;color:#6A4FA3;margin-bottom:.3rem">🌡 Fill climate zones</div>
+      <div style="font-size:.78rem;color:var(--tm);line-height:1.55">Asks AI for the <b>Sunset Western Garden Book zones</b> of the <b>${miss.toLocaleString()}</b> of ${tot.toLocaleString()} plants with none recorded.
+      ${miss?`Until these are filled the climate filter can only judge ${(tot-miss).toLocaleString()} plants and lets the rest through, so it looks like it is doing nothing.`:"Every plant already has a zone."}
+      Values are flagged <b>⚠ AI</b> for review and never overwrite a zone already set.</div>
+      <div id="fillzone-progress" style="font-size:.82rem;color:var(--tm);min-height:1.4rem;margin-top:.7rem"></div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
+        <button class="btn" onclick="_zoneStop=true;document.getElementById('fillzone-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:var(--card);border:1px solid var(--br);color:var(--tm)">Close</button>
+        ${miss?`<button id="fillzone-start" class="btn" onclick="fillMissingZones()" style="padding:.45rem 1.1rem;font-size:.85rem;background:var(--gm);color:#fff;border:none;font-weight:600">Start</button>`:""}
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+}
+async function fetchZoneBatch(items){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
+  const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
+  const prompt=`For each landscape plant below, give the Sunset Western Garden Book climate zones where it grows well.\nOutput ONLY a minified JSON array, one object per plant IN THE SAME ORDER, no prose:\n[{"i":1,"sunset":"8-24"}]\nUse compact range notation exactly like the book: "8-24", "8-9,14-24", "13,16-24". Numbers only, no "H" zones. Use "" if genuinely unknown.\nPlants:\n${list}`;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,
+        system:"You are a horticultural database. Output only a minified JSON array, no other text.",
+        messages:[{role:"user",content:prompt}]})});
+    const data=await r.json();
+    let t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
+    const a=t.indexOf("["); if(a<0) return {err:"bad json"};
+    let arr=null; const b=t.lastIndexOf("]");
+    if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+    if(!arr) arr=_salvageJsonObjects(t.slice(a));
+    if(!arr||!arr.length) return {err:"parse"};
+    let n=0;
+    arr.forEach(o=>{
+      const it=items[(o.i||0)-1]; if(!it) return;
+      const p=plantDbFind(it.kind,it.pid); if(!p) return;
+      const v=String(o.sunset==null?"":o.sunset).trim();
+      if(!v) return;
+      if(!sunsetSet(v).size) return;                 // reject anything that will not parse
+      if(String(p.sunset||"").trim()) return;        // never overwrite a recorded zone
+      p.sunset=v; p.sunsetFlag=true; n++;
+    });
+    return {ok:true,n};
+  }catch(e){ return {err:(e&&e.message)||"error"}; }
+}
+async function fillMissingZones(){
+  const prog=document.getElementById("fillzone-progress"), sb=document.getElementById("fillzone-start");
+  if(sb){ sb.textContent="Working…"; sb.disabled=true; }
+  const todo=_allPlantsFlat().filter(x=>needsSunset(x.p))
+    .map(x=>({kind:x.kind,pid:x.p.id,name:(botName(x.p)||x.p.c||"").trim()})).filter(x=>x.name);
+  _zoneStop=false; let done=0, ok=0;
+  const BATCH=40, PARALLEL=5;             // one field per row, so batches can be large
+  const t0=Date.now();
+  for(let i=0;i<todo.length;i+=BATCH*PARALLEL){
+    if(_zoneStop) break;
+    const group=[];
+    for(let j=0;j<PARALLEL;j++){ const c=todo.slice(i+j*BATCH,i+(j+1)*BATCH); if(c.length) group.push(c); }
+    if(!group.length) break;
+    const res=await Promise.all(group.map(c=>fetchZoneBatch(c)));
+    if(res.some(r=>r&&r.noproxy)){ if(prog) prog.innerHTML=`<span style="color:#B23F3C">No worker connected — can't reach AI.</span>`; break; }
+    res.forEach((r,k)=>{ done+=group[k].length; if(r&&r.ok) ok+=r.n; });
+    try{ plantBookSave(); }catch(e){}
+    if(prog){
+      const el=Math.max(1,Math.round((Date.now()-t0)/1000));
+      const eta=done?Math.round(el/done*(todo.length-done)):0;
+      prog.innerHTML=`${done.toLocaleString()} of ${todo.length.toLocaleString()} checked · <b>${ok.toLocaleString()}</b> zones filled`
+        +(eta>0?` · about ${eta<60?eta+"s":Math.round(eta/60)+" min"} left`:"");
+    }
+  }
+  try{ plantBookSave(); }catch(e){}
+  try{ renderPlantBook(); }catch(e){}
+  if(prog) prog.innerHTML=`<b style="color:var(--gm)">Done — ${ok.toLocaleString()} zones filled.</b> ${_zoneStop?"Stopped early. ":""}Publish the master book to share them.`;
+  if(sb){ sb.textContent="Run again"; sb.disabled=false; }
+}
 // ── Bulk: refresh SUN RANGES for every plant (overwrites single values with full tolerance range) ──
 async function fetchSunBatch(items){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {noproxy:true};
   const list=items.map((it,i)=>`${i+1}. ${it.name}`).join("\n");
@@ -10204,6 +10288,7 @@ function renderPlantBook(){
             <button onclick="openFillImages()">🖼&nbsp; Fill missing images</button>
             <button onclick="openFillDetails()">✨&nbsp; Fill plant details</button>
             <button onclick="openFillSun()">☀️&nbsp; Refresh sun ranges</button>
+            <button onclick="openFillZones()">🌡&nbsp; Fill climate zones</button>
             <button onclick="openAiImages()">🖼&nbsp; AI images (bulk)</button>
           </div>
         </div>
@@ -10246,7 +10331,13 @@ function renderPlantBook(){
         <div class="pbf-full-lab">🌡 Climate zone</div><div class="pbf-full-ctrl">${
           projSunsetZone()
             ? pf([["all","All"],["fits","Suits Zone "+projSunsetZone()],["strict","Confirmed only"],["unknown","Not recorded"]],PB_BOOK.sunset,'pbBookSunset')
-              +`<span class="pbf-note">Sunset Zone <b>${projSunsetZone()}</b> from the project address${(S.pi&&S.pi.sunsetWhy)?" · "+escAttr(S.pi.sunsetWhy):""}</span>`
+              +(function(){
+                 const all=(PLANT_DB[PB_BOOK.kind]||[]);
+                 const blank=all.filter(p=>needsSunset(p)).length;
+                 const pct=all.length?Math.round((all.length-blank)/all.length*100):0;
+                 return `<span class="pbf-note">Sunset Zone <b>${projSunsetZone()}</b> from the project address${(S.pi&&S.pi.sunsetWhy)?" · "+escAttr(S.pi.sunsetWhy):""}`
+                   +(blank?`<br><span style="color:var(--gold)">Only <b>${pct}%</b> of these have a zone recorded — the other ${blank.toLocaleString()} can't be judged and are shown anyway. <a href="#" onclick="event.preventDefault();openFillZones()">Fill them with AI</a></span>`:"")
+                   +`</span>`;})()
             : `<span class="pbf-note">Set the project address, or enter a Sunset zone in <a href="#" onclick="event.preventDefault();openPInfo()">Project Info</a>, to filter by climate.</span>`
         }</div>
         ${NURSERY_DB.nurseries.length?`<div class="pbf-full-lab">Nursery</div><div class="pbf-full-ctrl"><select class="pbf-nsel" onchange="pbBookNurserySet(this.value)" title="Show only plants carried by a nursery"><option value="">All nurseries</option>${NURSERY_DB.nurseries.map(x=>`<option value="${x.id}" ${PB_BOOK.nursery===x.id?'selected':''}>${escAttr(x.name)}</option>`).join('')}</select></div>`:''}
