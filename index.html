@@ -108,6 +108,10 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .pbf-note{font-size:.72rem;color:var(--tl);line-height:1.45;align-self:center}
 .pbf-note b{color:var(--tx)}
 .pbf-note a{color:var(--gm);font-weight:700}
+.acc-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.05em;
+  border-radius:999px;padding:5px 12px}
+.acc-badge.owner{background:var(--brand-soft);color:var(--gm)}
+.acc-badge.guest{background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--gold)}
 .pinfo-empty{font-size:.78rem;color:var(--tl);padding:.4rem 0}
 @media(max-width:900px){ #pinfo-refcards{grid-template-columns:1fr} }
 /* ── Reports Hub (full page) ── */
@@ -1893,7 +1897,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v603</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v604</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6301,7 +6305,8 @@ let MATERIALS=(function(){ try{ const s=localStorage.getItem("studioh_materials_
   ai:[["alert","<b>Seeded from the supplier's catalogue.</b> Pricing is not published until they claim the listing."],
       ["alert","<b>Dark stone gets hot.</b> Not around a pool deck or anywhere barefoot in full sun."]]},
 ];
-function matSave(){ try{ localStorage.setItem("studioh_materials_v1", JSON.stringify(MATERIALS)); }catch(e){} }
+function matSave(){ try{ localStorage.setItem("studioh_materials_v1", JSON.stringify(MATERIALS)); }catch(e){}
+  try{ _cfgSchedulePush(); }catch(e){} }
 MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
 function matSpecify(id){
   const m=matFind(id); if(!m||!m.claimed) return;
@@ -6685,7 +6690,8 @@ let FURNISHINGS=(function(){ try{ const s=localStorage.getItem("studioh_furnishi
   goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
   ai:[["alert","<b>Seeded from the supplier's catalogue.</b> Specification and images are theirs; pricing is not published until they claim the listing."]]},
 ];
-function furSave(){ try{ localStorage.setItem("studioh_furnishings_v1", JSON.stringify(FURNISHINGS)); }catch(e){} }
+function furSave(){ try{ localStorage.setItem("studioh_furnishings_v1", JSON.stringify(FURNISHINGS)); }catch(e){}
+  try{ _cfgSchedulePush(); }catch(e){} }
 FURNISHINGS.forEach(f=>{ if(f.specQty==null) f.specQty=0; });
 function furFind(id){ return FURNISHINGS.find(f=>f.id===id)||null; }
 // A sale price, when the supplier lists one, is what the client actually pays — so
@@ -7689,6 +7695,19 @@ function _stRender(){
       </div>
 
       <div class="st-card">
+        <h3>Master library access</h3>
+        <div class="st-row"><span class="l">Admin key<small>Held on this device only. With it, your libraries save to the server automatically. Without it the app is read-only — safe to hand someone a link.</small></span>
+          <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <input class="st-in" type="password" id="st-adminkey" placeholder="${_hasAdminKey()?"••••••••":"Not set — read-only"}" onchange="stSetAdminKey(this.value)" style="width:190px">
+            ${_hasAdminKey()?`<button class="btn btn-o" onclick="stClearAdminKey()">Sign out</button>`:""}
+          </span></div>
+        <div class="st-row"><span class="l">Status</span>
+          <span>${_hasAdminKey()
+            ? `<span class="acc-badge owner">Owner · saves to server</span>`
+            : `<span class="acc-badge guest">Guest · read-only</span>`}</span></div>
+      </div>
+
+      <div class="st-card">
         <h3 style="display:flex;align-items:center;gap:7px">Estimate confidence — your default
           ${ihint("The band on each phase is two things added, each with its own low and high: contractor spread (who builds it — roughly constant) and scope uncertainty (what is being built — closes as design firms up). Most contractor quotes skew — a low bidder rarely undercuts by as much as a high bidder overshoots — so low and high don't have to match. This is what seeds a brand-new project; open a project and use the ⚙ on its Estimate confidence card to adjust that project only.")}</h3>
         <div class="conf-grid-hd"><span></span><span>Low %</span><span>High %</span></div>
@@ -7817,6 +7836,23 @@ async function masterBookLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefine
   }catch(e){ if(!silent) alert("Couldn't reach the server ("+((e&&e.message)||"error")+")."); return false; }
 }
 function _adminKey(){ let k=""; try{ k=localStorage.getItem("studioh_admin_key")||""; }catch(e){} if(!k){ k=prompt("Enter the Studio H admin key to publish the master book:")||""; if(k){ try{ localStorage.setItem("studioh_admin_key",k); }catch(e){} } } return k; }
+// ── OWNER vs GUEST ────────────────────────────────────────────
+// Every server WRITE already requires this key — the worker rejects one without it —
+// so someone you send a link to can read the libraries but cannot alter them. This
+// just makes that state visible and settable, instead of a prompt that appears at
+// the worst moment.
+function _hasAdminKey(){ try{ return !!(localStorage.getItem("studioh_admin_key")||""); }catch(e){ return false; } }
+function stSetAdminKey(v){
+  const k=String(v||"").trim();
+  try{ if(k) localStorage.setItem("studioh_admin_key",k); else localStorage.removeItem("studioh_admin_key"); }catch(e){}
+  if(_stOpen) _stRender();
+  try{ _renderPbSync(); }catch(e){}
+  try{ _toast(k?"Signed in — your libraries now save to the server":"Signed out — read-only on this device","#4C7B3D"); }catch(e){}
+}
+function stClearAdminKey(){
+  if(!confirm("Sign out of the master library on this device?\n\nYou keep working, but nothing will save to the server until you enter the key again.")) return;
+  stSetAdminKey("");
+}
 function _toast(msg,col){ try{ let t=document.getElementById("_toast"); if(t) t.remove(); t=document.createElement("div"); t.id="_toast";
   t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100000;background:"+(col||"#4C7B3D")+";color:#fff;padding:.6rem 1.05rem;border-radius:10px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.3);opacity:0;transition:opacity .2s";
   t.textContent=msg; document.body.appendChild(t); requestAnimationFrame(()=>{ t.style.opacity="1"; });
@@ -7973,7 +8009,17 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
 // Triggers: (1) right after an AI image is generated, (2) 5 minutes after the last plant-book change.
 // Never prompts. Skips (does NOT clobber) if this device is behind the server, keeping the v403 safety.
 let _autoPubTimer=null, _autoPubBusy=false;
-function _scheduleAutoPublish(){ try{ if(_autoPubTimer) clearTimeout(_autoPubTimer); _autoPubTimer=setTimeout(()=>{ _autoPubTimer=null; _autoPublish("idle"); }, 5*60*1000); }catch(e){} }
+// 90s to match the config bundle. The old 5 minutes reset on every edit, so a long
+// working session could go entirely unsaved — the timer only ever fired once you
+// stopped for five clear minutes. Hiding or closing the tab also forces a save.
+let _bookDirty=false;
+function _scheduleAutoPublish(){ _bookDirty=true;
+  try{ if(_autoPubTimer) clearTimeout(_autoPubTimer);
+    _autoPubTimer=setTimeout(()=>{ _autoPubTimer=null; _autoPublish("idle"); }, 90*1000); }catch(e){} }
+try{
+  document.addEventListener("visibilitychange",()=>{ if(document.hidden && _bookDirty) _autoPublish("hidden"); });
+  window.addEventListener("pagehide",()=>{ if(_bookDirty) _autoPublish("pagehide"); });
+}catch(e){}
 async function _autoPublish(reason){
   if(_autoPubBusy) return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
@@ -7990,7 +8036,7 @@ async function _autoPublish(reason){
       if(lost){ _toast("Auto-save skipped — this device is behind ("+lost+" server image"+(lost>1?"s":"")+" missing). Click ☁ Pull master.","#B23F3C"); _autoPubBusy=false; return; }
     }
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (auto)"})}); const d=await r.json();
-    if(d&&d.ok) _toast("Auto-saved to server ✓","#6A4FA3");
+    if(d&&d.ok){ _bookDirty=false; _toast("Auto-saved to server ✓","#6A4FA3"); }
   }catch(e){}
   _autoPubBusy=false;
 }
@@ -8036,7 +8082,9 @@ setTimeout(()=>{ try{ Promise.resolve(masterBookLoad(true)).then(()=>{
 window.addEventListener("load", ()=>{ setTimeout(()=>{ try{ if(typeof renderPlantBook==="function"&&document.getElementById("plantbook-body")) renderPlantBook(); }catch(e){} }, 600); });
 setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
-const SHARED_CFG_KEYS=["studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+// Materials and Furnishings ride in this bundle too — they were previously local-only,
+// so clearing browser data destroyed them with no server copy to fall back on.
+const SHARED_CFG_KEYS=["studioh_materials_v1","studioh_furnishings_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
