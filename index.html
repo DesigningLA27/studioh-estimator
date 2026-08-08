@@ -1057,16 +1057,21 @@ body:not(.sp-on) #sp-open{display:grid}
   border:1px solid var(--br);border-radius:12px;padding:6px;display:none;z-index:70;
   max-height:min(62vh,520px);overflow-y:auto;overscroll-behavior:contain;
   box-shadow:0 4px 10px rgba(28,43,22,.06),0 18px 38px -22px rgba(28,43,22,.4)}
-.cards-grp+.cards-grp{margin-top:2px}
-.cards-gh{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;font:inherit;
-  cursor:pointer;padding:8px 9px;border-radius:9px;color:var(--tx);text-align:left}
-.cards-gh:hover{background:var(--surface2)}
-.cards-gh b{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--tm)}
-.cards-gh .ct{margin-left:auto;font-size:10.5px;color:var(--tl);font-variant-numeric:tabular-nums}
-.cards-gh .cv{font-size:10px;color:var(--tl);transition:transform .15s}
-.cards-grp.open .cards-gh .cv{transform:rotate(90deg)}
-.cards-gb{display:none}
-.cards-grp.open .cards-gb{display:block}
+/* Categories filter the view rather than sectioning it, so the list stays one flat
+   orderable sequence — the panel renders exactly this order. */
+.cards-chips{display:flex;gap:5px;flex-wrap:wrap;padding:4px 5px 7px;position:sticky;top:-6px;
+  background:var(--card);z-index:2}
+.cchip{border:1px solid var(--br);background:var(--card);color:var(--tm);font:inherit;font-size:11px;
+  font-weight:700;border-radius:8px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.cchip:hover{border-color:var(--gm);color:var(--gm)}
+.cchip.on{background:var(--gm);border-color:var(--gm);color:#fff}
+.cards-grip.off{width:14px;flex:none}
+.cards-tag{margin-left:auto;font-size:8.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  border-radius:5px;padding:2px 6px;flex:none}
+.cards-tag.cost{color:var(--gm);background:var(--brand-soft)}
+.cards-tag.plant{color:#5B7FA8;background:color-mix(in srgb,#5B7FA8 14%,transparent)}
+.cards-tag.site{color:var(--gold);background:color-mix(in srgb,var(--gold) 16%,transparent)}
+:root[data-theme="dark"] .cards-tag.plant{color:#7FA9C4}
 .cards-menu.open{display:block}
 .cards-row{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:10px;cursor:pointer;
   font-size:12.5px;font-weight:600;color:var(--tx)}
@@ -2014,7 +2019,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v613</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v614</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -14665,20 +14670,13 @@ const PRO_CARDS=[
   {id:"firesafe",nm:"Defensible space",     row:1, needs:"planting", g:"plant"},
   {id:"toxicity",nm:"Toxicity",             row:1, needs:"planting", g:"plant"},
 ];
-// Which picker groups are expanded. Planting starts closed — it is the longest and
-// the least often changed once a palette is set.
-let _cardGrpOpen=(function(){ try{ const v=localStorage.getItem("studioh_cardgrp_v1"); if(v) return JSON.parse(v); }catch(e){}
-  return {cost:true,site:true,plant:false}; })();
-function cardGrpToggle(g){ _cardGrpOpen[g]=_cardGrpOpen[g]===false?true:false;
-  try{ localStorage.setItem("studioh_cardgrp_v1",JSON.stringify(_cardGrpOpen)); }catch(e){}
-  renderCardsMenu(); }
+// Categories narrow the VIEW; they never constrain order. Grouping the list forced
+// the panel to render grouped too, which made it impossible to put a Cost card above
+// a Planting one — so the list is flat and the categories are a filter instead.
+let _cardFilter="all";
+function cardFilterSet(g){ _cardFilter=g; renderCardsMenu(); }
 function cardGroupOf(id){ const c=PRO_CARDS.find(x=>x.id===id); return (c&&c.g)||"cost"; }
-// Panel order = category order, then the user's drag order inside each category, so
-// what the picker shows and what the panel renders can never disagree.
-function cardOrderGrouped(){ const o=cardOrder(), out=[];
-  CARD_GROUPS.forEach(g=>{ o.forEach(id=>{ if(cardGroupOf(id)===g.id) out.push(id); }); });
-  o.forEach(id=>{ if(out.indexOf(id)<0) out.push(id); });
-  return out; }
+
 const PRO_CARDS_DEFAULT={total:1,psf:1,phases:1,top3:1,ready:1,dist:1,site:1,allow:1};
 let PRO_CARDS_ON=(function(){
   try{ const s=localStorage.getItem("studioh_cards_v1"); if(s) return JSON.parse(s); }catch(e){}
@@ -14906,30 +14904,31 @@ function renderCardsMenu(){
   }
   const t=_plantTally();
   const byId={}; PRO_CARDS.forEach(c=>{ byId[c.id]=c; });
-  const order=cardOrderGrouped();
-  m.innerHTML=CARD_GROUPS.map(g=>{
-    const ids=order.filter(id=>byId[id] && cardGroupOf(id)===g.id);
-    if(!ids.length) return "";
-    const on=ids.filter(id=>cardOn(id)).length;
-    const open=_cardGrpOpen[g.id]!==false;
-    return `<div class="cards-grp${open?" open":""}">
-      <button class="cards-gh" onclick="event.stopPropagation();cardGrpToggle('${g.id}')">
-        <span class="cv">▸</span><b>${g.nm}</b><span class="ct">${on} of ${ids.length}</span></button>
-      <div class="cards-gb">${ids.map(id=>{
-        const c=byId[id], need = c.needs==="planting" && t.qty===0;
-        return `<div class="cards-row${c.core?" locked":""}${need?" need":""}" data-cid="${c.id}">
-          <span class="cards-grip" onpointerdown="cardDragStart(event,'${c.id}')" title="Drag to reorder">
-            <svg viewBox="0 0 16 16"><circle cx="6" cy="4" r="1.4"/><circle cx="10" cy="4" r="1.4"/><circle cx="6" cy="8" r="1.4"/><circle cx="10" cy="8" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="10" cy="12" r="1.4"/></svg>
-          </span>
-          <label>
-            <input type="checkbox" ${cardOn(c.id)?"checked":""} ${c.core?"disabled":""}
-              onchange="toggleCard('${c.id}',this.checked)">
-            <span>${c.nm}</span>
-          </label>
-          ${need?'<em>needs plants</em>':''}
-        </div>`;}).join("")}</div>
-    </div>`;}).join("")
-   +`<div class="cards-hint">Drag ⠿ to reorder within a group · <a href="#" onclick="event.preventDefault();resetCardOrder()" style="color:var(--gm);font-weight:700">reset</a></div>`;
+  const order=cardOrder();
+  const counts={}; CARD_GROUPS.forEach(g=>{ counts[g.id]=order.filter(id=>byId[id]&&cardGroupOf(id)===g.id).length; });
+  const filtered = order.filter(id=>byId[id] && (_cardFilter==="all" || cardGroupOf(id)===_cardFilter));
+  const canDrag = _cardFilter==="all";     // reordering a filtered subset would rewrite the whole order
+  const GLBL={cost:"Cost",site:"Site",plant:"Plant"};
+  m.innerHTML=`<div class="cards-chips">
+      <button class="cchip${_cardFilter==="all"?" on":""}" onclick="event.stopPropagation();cardFilterSet('all')">All ${order.filter(id=>byId[id]).length}</button>
+      ${CARD_GROUPS.map(g=>`<button class="cchip${_cardFilter===g.id?" on":""}" onclick="event.stopPropagation();cardFilterSet('${g.id}')">${g.nm} ${counts[g.id]}</button>`).join("")}
+    </div>
+    <div class="cards-hd">${canDrag?"Panel order · drag ⠿ to move":"Filtered — clear to reorder"}</div>`
+   +filtered.map(id=>{
+    const c=byId[id]; const need = c.needs==="planting" && t.qty===0;
+    return `<div class="cards-row${c.core?" locked":""}${need?" need":""}" data-cid="${c.id}">
+      ${canDrag?`<span class="cards-grip" onpointerdown="cardDragStart(event,'${c.id}')" title="Drag to reorder">
+        <svg viewBox="0 0 16 16"><circle cx="6" cy="4" r="1.4"/><circle cx="10" cy="4" r="1.4"/><circle cx="6" cy="8" r="1.4"/><circle cx="10" cy="8" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="10" cy="12" r="1.4"/></svg>
+      </span>`:`<span class="cards-grip off"></span>`}
+      <label>
+        <input type="checkbox" ${cardOn(c.id)?"checked":""} ${c.core?"disabled":""}
+          onchange="toggleCard('${c.id}',this.checked)">
+        <span>${c.nm}</span>
+      </label>
+      ${need?'<em>needs plants</em>':`<span class="cards-tag ${c.g}">${GLBL[c.g]||c.g}</span>`}
+    </div>`;
+  }).join("")
+   +`<div class="cards-hint">Order is yours — any card can sit anywhere · <a href="#" onclick="event.preventDefault();resetCardOrder()" style="color:var(--gm);font-weight:700">reset</a></div>`;
 }
 // Planting tally — quantities, species, water and WUCOLS mix, straight from the
 // plant zones using the same helpers the plant report uses.
@@ -15320,7 +15319,7 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
   Object.assign(H, _proChartCards(d, sf, t));
   // One ordered list: the picker's order decides everything, and the second
   // container is left empty so a card can be dragged anywhere in the panel.
-  el.innerHTML=cardOrderGrouped().filter(id=>cardOn(id) && H[id]).map(id=>H[id]).join("");
+  el.innerHTML=cardOrder().filter(id=>cardOn(id) && H[id]).map(id=>H[id]).join("");
   const host2=document.getElementById("pro-cards"); if(host2) host2.innerHTML="";
 }
 // Margin and markup are never shown in the Client lens — same rule the rest of the
