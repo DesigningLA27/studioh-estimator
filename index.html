@@ -1848,6 +1848,12 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .icrows .why.bad{color:var(--v-high)} .icrows .why.warn{color:var(--gold)}
 .icrows .dot{width:7px;height:7px;border-radius:50%;flex:none}
 .icrows .dot.bad{background:var(--v-high)} .icrows .dot.warn{background:var(--gold)}
+#sumpanel .bcal{gap:5px;margin:2px 0}
+#sumpanel .bcal .bar{height:44px}
+#sumpanel .bcal .lb{font-size:9px}
+#sumpanel .bcal .n{font-size:10.5px}
+#sumpanel .covyrs{margin:1px 0 2px}
+#sumpanel .covyrs button{font-size:10px;padding:3px 7px}
 .ic .ic-gear{opacity:0}
 .ic:hover .ic-gear{opacity:.7}
 .ic .ic-gear:hover{opacity:1!important}
@@ -1982,7 +1988,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v609</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v610</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -14620,6 +14626,11 @@ const PRO_CARDS=[
   {id:"allow",   nm:"Allowance exposure",   row:2},
   {id:"water",   nm:"Water use & cost",     row:2, needs:"planting"},
   {id:"wucols",  nm:"WUCOLS water mix",     row:2, needs:"planting"},
+  {id:"bloomcal",nm:"Year-round interest",  row:2, needs:"planting"},
+  {id:"coverage",nm:"Coverage over time",   row:1, needs:"planting"},
+  {id:"climfit", nm:"Climate fit",          row:1, needs:"planting"},
+  {id:"firesafe",nm:"Defensible space",     row:1, needs:"planting"},
+  {id:"toxicity",nm:"Toxicity",             row:1, needs:"planting"},
 ];
 const PRO_CARDS_DEFAULT={total:1,psf:1,phases:1,top3:1,ready:1,dist:1,site:1,allow:1};
 let PRO_CARDS_ON=(function(){
@@ -15145,6 +15156,43 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
       ${confBarHTML(d.grand,id,true)}
       <span class="ptile-sub">${fmt(r.lo)} – ${fmt(r.hi)} at ${escAttr(phaseNow().nm)} · contractor ${confPMLabel(r.cl,r.ch)} + scope ${confPMLabel(r.sl,r.sh)}</span>
     </div>`;
+  }
+  // ── planting cards, panel width ──
+  // Same _plantInsights() walk as the Insights board, rendered compactly. The numbers
+  // are the same object, so the two surfaces cannot disagree.
+  if(t.qty>0){
+    const pi=_plantInsights();
+    { const S4=pi.season;
+      if(pi.seasonSpecies){
+        const mx=Math.max(1,S4.Spring,S4.Summer,S4.Fall,S4.Winter);
+        const thin=Object.keys(S4).filter(k=>S4[k]<=Math.max(1,Math.round(pi.seasonSpecies*0.12)));
+        H.bloomcal=`<div class="ptile"><span class="ptile-lbl">Year-round interest</span>
+          <div class="bcal">${["Spring","Summer","Fall","Winter"].map(k=>{const g=thin.indexOf(k)>=0;
+            return `<div class="mo${g?" gap":""}"><span class="n">${S4[k]}</span><div class="bar"><i class="${g?"gap":""}" style="height:${Math.round(S4[k]/mx*100)}%"></i></div><span class="lb">${k.slice(0,3)}</span></div>`;}).join("")}</div>
+          <span class="ptile-sub">${thin.length?`<b style="color:var(--gold)">${thin.join(" & ")} gap</b> — ${S4[thin[0]]} species in flower`:"Flower in all four seasons"}</span></div>`;
+      } }
+    if(pi.bed){
+      const y=INS_COV_YEAR, sf=pi.byYear[y]||0, pct=Math.round(sf/pi.bed*100);
+      const st = pct>105?["var(--v-high)","Over-planted"] : pct>=85?["var(--v-ok)","On target"] : pct>=55?["var(--gold)","Filling in"] : ["var(--gold)","Sparse"];
+      H.coverage=`<div class="ptile"><span class="ptile-lbl">Coverage at year ${y}</span>
+        <span class="ptile-k" style="color:${st[0]}">${pct}%</span>
+        <div class="covyrs">${[1,2,3,5,10,20].map(v=>`<button class="${v===y?"on":""}" onclick="insSetCovYear(${v})">${v}</button>`).join("")}</div>
+        <span class="ptile-sub">${st[1]} · ${Math.round(sf).toLocaleString()} sf over ${Math.round(pi.bed).toLocaleString()} sf at ${spacingPct()}% spread</span></div>`;
+    }
+    if(projSunsetZone()){
+      const n=pi.misfit.length;
+      H.climfit=`<div class="ptile"><span class="ptile-lbl">Climate fit · Zone ${projSunsetZone()}</span>
+        <span class="ptile-k" style="color:${n?"var(--v-high)":"var(--v-ok)"}">${n?n:"✓"}</span>
+        <span class="ptile-sub">${n?pi.misfit.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(n>3?` +${n-3}`:"")+" won't take this zone":"Every plant suits this zone"}</span></div>`;
+    }
+    { const n=pi.fire.length;
+      H.firesafe=`<div class="ptile"><span class="ptile-lbl">Defensible space</span>
+        <span class="ptile-k" style="color:${n?"var(--gold)":"var(--v-ok)"}">${n?n:"✓"}</span>
+        <span class="ptile-sub">${n?pi.fire.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(n>3?` +${n-3}`:"")+" flagged high fuel":"Nothing flagged high fuel"}</span></div>`; }
+    { const sev=pi.toxic.filter(x=>x.lvl==="severe");
+      H.toxicity=`<div class="ptile"><span class="ptile-lbl">Toxicity</span>
+        <span class="ptile-k" style="color:${sev.length?"var(--v-high)":"var(--v-ok)"}">${pi.toxic.length?(sev.length||pi.toxic.length):"✓"}</span>
+        <span class="ptile-sub">${pi.toxic.length?pi.toxic.slice(0,3).map(x=>escAttr(x.nm)).join(", ")+(pi.toxic.length>3?` +${pi.toxic.length-3}`:""):"Nothing moderately or severely toxic"}</span></div>`; }
   }
   // A material takes the panel over while it is open — same panel, different subject.
   if(S.view==="materials"){
