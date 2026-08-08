@@ -105,6 +105,9 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .li-kv:last-of-type{border-bottom:none}
 .li-kv span{color:var(--tm)} .li-kv b{color:var(--tx);font-variant-numeric:tabular-nums}
 .pinfo-note{font-size:.72rem;color:var(--tl);line-height:1.5;margin-top:.6rem}
+.pbf-note{font-size:.72rem;color:var(--tl);line-height:1.45;align-self:center}
+.pbf-note b{color:var(--tx)}
+.pbf-note a{color:var(--gm);font-weight:700}
 .pinfo-empty{font-size:.78rem;color:var(--tl);padding:.4rem 0}
 @media(max-width:900px){ #pinfo-refcards{grid-template-columns:1fr} }
 /* ── Reports Hub (full page) ── */
@@ -1890,7 +1893,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v599</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v600</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7899,7 +7902,12 @@ function _renderPInfoCards(){ const host=document.getElementById("pinfo-refcards
   host.innerHTML=`
     <div class="pinfo-sub"><div class="pinfo-sub-h"><span>Setbacks &amp; zoning</span><span class="pinfo-city">${cityName}</span></div>${setHtml}</div>
     <div class="pinfo-sub"><div class="pinfo-sub-h"><span>Fire &amp; fuel mod</span></div><div class="pinfo-note">Defensible space — <b>Zone 0</b>: 0–5 ft (ember), <b>Zone 1</b>: 5–30 ft, <b>Zone 2</b>: 30–100 ft. Fire-safe, well-spaced, irrigated planting; clear dead material. Verify fuel-mod requirements with the local fire authority.</div><button class="hbtn ghost" style="margin-top:.7rem;height:auto;padding:.42rem .8rem;font-size:.78rem" onclick="closePInfo();openFireReport()">Fire-safe planting report</button></div>
-    <div class="pinfo-sub"><div class="pinfo-sub-h"><span>Water compliance</span></div>${waterHtml}</div>`;
+    <div class="pinfo-sub"><div class="pinfo-sub-h"><span>Water compliance</span></div>${waterHtml}</div>
+    <div class="pinfo-sub"><div class="pinfo-sub-h"><span>Climate zone</span>${projSunsetZone()?`<span class="pinfo-city">Zone ${projSunsetZone()}</span>`:""}</div>
+      <div class="li-kv"><span>Sunset zone</span><b><input type="number" min="1" max="45" value="${projSunsetZone()||""}" placeholder="—"
+        onchange="setProjSunsetZone(this.value)" style="width:64px;text-align:right;font:inherit;font-weight:700;border:1px solid var(--br);border-radius:7px;padding:.2rem .4rem;background:var(--card);color:var(--tx)"></b></div>
+      <div class="pinfo-note">${(S.pi&&S.pi.sunsetWhy)?escAttr(S.pi.sunsetWhy)+" — ":""}Sunset Western Garden Book zones describe what actually survives locally, unlike USDA which only tracks winter lows. Used by the Plant Book to hide plants that will not take this climate.</div>
+      <button class="hbtn ghost" style="margin-top:.7rem;height:auto;padding:.42rem .8rem;font-size:.78rem" onclick="detectSunsetZone(true)">${projSunsetZone()?"Re-detect from address":"Detect from address"}</button></div>`;
 }
 // Relocate Site Intelligence (map + assessor) and Site Dimensions into the Project Info panel
 try{ document.addEventListener("DOMContentLoaded",function(){ try{
@@ -9783,8 +9791,62 @@ async function addPlantByName(kind){ const name=(prompt("Enter the plant name (c
   plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); goToPlantInBook(kind,id);
 }
 const PLANT_TAG_VOCAB=(function(){ const s=new Set(); PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>(p.tags||[]).forEach(t=>s.add(t)))); return Array.from(s).sort(); })();
-let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all", imgstate:"all", detstate:"all", colors:[], seasons:[], dorm:"all", dszone:"all"};
+let PB_BOOK={kind:"shrub", q:"", tags:[], photo:"all", sizev:"all", nursery:null, fav:false, avail:"all", imgstate:"all", detstate:"all", colors:[], seasons:[], dorm:"all", dszone:"all", sunset:"all"};
 function pbBookZone(m){ PB_BOOK.dszone=m; renderPlantBook(); }
+// ── SUNSET CLIMATE ZONES ──────────────────────────────────────
+// Stored per plant as a compact range list — "8-24", "8-9,14-24", "13,16-24", and
+// occasionally with Hawaii codes ("12-24 H1 H2") that are not numeric zones here.
+// Expanded to a set so a project's single zone can be tested against it.
+function sunsetSet(str){
+  const out=new Set();
+  String(str||"").split(/[,;]+/).forEach(part=>{
+    const m=String(part).trim().match(/^(\d+)\s*(?:-\s*(\d+))?/);
+    if(!m) return;
+    const a=+m[1], b=m[2]?+m[2]:a;
+    if(!(a>=1&&a<=45)) return;
+    for(let z=a; z<=Math.min(b,45); z++) out.add(z);
+  });
+  return out;
+}
+// Unknown zone data is kept, not hidden — a blank field means "not recorded yet",
+// which is very different from "does not grow here".
+function sunsetFits(p,zone){
+  if(!zone) return true;
+  const s=sunsetSet(p&&p.sunset);
+  if(!s.size) return null;                 // null = unknown, caller decides
+  return s.has(+zone);
+}
+function projSunsetZone(){ const z=+(S.pi&&S.pi.sunsetZone); return (z>=1&&z<=45)?z:0; }
+function setProjSunsetZone(v){
+  const z=Math.round(+String(v).replace(/[^0-9]/g,"")||0);
+  S.pi=S.pi||{};
+  if(z>=1&&z<=45) S.pi.sunsetZone=z; else delete S.pi.sunsetZone;
+  try{ _renderPInfoCards(); }catch(e){}
+  try{ if(S.view==="plantbook") renderPlantBook(); }catch(e){}
+}
+// Ask AI once per address. Sunset zones are not derivable from lat/lng without a
+// boundary dataset, but they are well documented per town, so the model is a
+// reasonable source — and it is always overridable by hand.
+async function detectSunsetZone(force){
+  const addr=(S.pi&&S.pi.address)||""; if(!addr) return;
+  if(!force && projSunsetZone() && S.pi._sunsetFor===addr) return;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:120,
+        system:"You are a horticultural reference. Output only minified JSON.",
+        messages:[{role:"user",content:`Which Sunset Western Garden Book climate zone is this address in? Reply ONLY minified JSON: {"zone":<number>,"why":"<town or microclimate note, max 12 words>"}. If genuinely unsure, use {"zone":0,"why":""}.\nAddress: ${addr}`}]})});
+    const d=await r.json();
+    let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
+    const a=t.indexOf("{"), b=t.lastIndexOf("}"); if(a<0||b<=a) return;
+    const o=JSON.parse(t.slice(a,b+1));
+    const z=Math.round(+o.zone||0);
+    if(z>=1&&z<=45){ S.pi.sunsetZone=z; S.pi.sunsetWhy=(o.why||"").trim(); S.pi._sunsetFor=addr;
+      try{ _renderPInfoCards(); }catch(e){}
+      try{ if(S.view==="plantbook") renderPlantBook(); }catch(e){} }
+  }catch(e){}
+}
+function pbBookSunset(m){ PB_BOOK.sunset=m; renderPlantBook(); }
 function pbBookColor(k){ const a=PB_BOOK.colors, i=a.indexOf(k); if(i>=0)a.splice(i,1); else a.push(k); renderPlantBook(); }
 function pbBookSeason(k){ const a=PB_BOOK.seasons, i=a.indexOf(k); if(i>=0)a.splice(i,1); else a.push(k); renderPlantBook(); }
 function pbBookDorm(m){ PB_BOOK.dorm=m; renderPlantBook(); }
@@ -9805,7 +9867,7 @@ function plantImgOf(p){ if(!p) return ""; if(p.img) return p.img; if(!_imgNameId
 function plantImgUpload(input,kind,id){ const f=input.files&&input.files[0]; if(!f)return; const rd=new FileReader(); rd.onload=e=>{ const im=new Image(); im.onload=()=>{ const max=640; let w=im.width,h=im.height; const s=Math.min(1,max/Math.max(w,h)); w=Math.max(1,Math.round(w*s)); h=Math.max(1,Math.round(h*s)); const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(im,0,0,w,h); let url; try{ url=cv.toDataURL('image/jpeg',0.82); }catch(_){ url=e.target.result; } const p=(PLANT_DB[kind]||[]).find(x=>x.id===id); if(p){ p.img=url; plantBookSave(); } }; im.onerror=()=>{ const p=(PLANT_DB[kind]||[]).find(x=>x.id===id); if(p){ p.img=e.target.result; plantBookSave(); } }; im.src=e.target.result; }; rd.readAsDataURL(f); }
 function pbBookKind(k){ PB_BOOK.kind=k; renderPlantBook(); }
 function pbToggleFilters(){ PB_BOOK.showFilters=!PB_BOOK.showFilters; renderPlantBook(); }
-function pbClearAllFilters(){ PB_BOOK.tags=[]; PB_BOOK.q=""; PB_BOOK.photo="all"; PB_BOOK.sizev="all"; PB_BOOK.fav=false; PB_BOOK.avail="all"; PB_BOOK.imgstate="all"; PB_BOOK.detstate="all"; PB_BOOK.colors=[]; PB_BOOK.seasons=[]; PB_BOOK.dorm="all"; PB_BOOK.dszone="all"; renderPlantBook(); }
+function pbClearAllFilters(){ PB_BOOK.tags=[]; PB_BOOK.q=""; PB_BOOK.photo="all"; PB_BOOK.sizev="all"; PB_BOOK.fav=false; PB_BOOK.avail="all"; PB_BOOK.imgstate="all"; PB_BOOK.detstate="all"; PB_BOOK.colors=[]; PB_BOOK.seasons=[]; PB_BOOK.dorm="all"; PB_BOOK.dszone="all"; PB_BOOK.sunset="all"; renderPlantBook(); }
 function pbBookToggleTag(t){ const i=PB_BOOK.tags.indexOf(t); if(i>=0)PB_BOOK.tags.splice(i,1); else PB_BOOK.tags.push(t); renderPlantBook(); }
 function pbBookPhoto(m){ PB_BOOK.photo=m; renderPlantBook(); }
 function pbBookSizeV(m){ PB_BOOK.sizev=m; renderPlantBook(); }
@@ -10130,7 +10192,7 @@ function renderPlantBook(){
   const kindTags=(function(){ const s=new Set(); (PLANT_DB[PB_BOOK.kind]||[]).forEach(p=>(p.tags||[]).forEach(t=>s.add(t))); return Array.from(s).sort(); })();
   const catTags=kindTags.map(t=>{ const on=PB_BOOK.tags.indexOf(t)>=0; return `<button class="pbf-tag${on?' on':''}" data-tag="${t}" onclick="pbBookToggleTag('${t}')">${t.replace(/-/g,' ')}</button>`; }).join('');
   const pf=(opts,cur,fn,extra)=>opts.map(o=>{const on=(''+cur)===(''+o[0]);return `<button class="pbf-pill${extra?' '+extra:''}${on?' on':''}" onclick="${fn}('${o[0]}')">${o[1]}</button>`;}).join('');
-  const _af=[PB_BOOK.sizev!=="all",PB_BOOK.fav,PB_BOOK.avail!=="all",PB_BOOK.imgstate!=="all",PB_BOOK.detstate!=="all",(PB_BOOK.colors||[]).length>0,(PB_BOOK.seasons||[]).length>0,PB_BOOK.dorm!=="all",PB_BOOK.dszone!=="all",(PB_BOOK.tags||[]).length>0,!!PB_BOOK.nursery].filter(Boolean).length;
+  const _af=[PB_BOOK.sizev!=="all",PB_BOOK.fav,PB_BOOK.avail!=="all",PB_BOOK.imgstate!=="all",PB_BOOK.detstate!=="all",(PB_BOOK.colors||[]).length>0,(PB_BOOK.seasons||[]).length>0,PB_BOOK.dorm!=="all",PB_BOOK.dszone!=="all",PB_BOOK.sunset!=="all",(PB_BOOK.tags||[]).length>0,!!PB_BOOK.nursery].filter(Boolean).length;
   host.innerHTML=`
     <div class="card" style="margin-bottom:1rem">
       <div class="pb-topbar"><div class="pb-seg">${kindTabs}</div></div>
@@ -10181,6 +10243,12 @@ function renderPlantBook(){
         <div class="pbf-lab">Foliage</div><div class="pbf-ctrl">${pf([["all","All"],["evergreen","Evergreen"],["deciduous","Deciduous"],["semi","Semi"]],PB_BOOK.dorm,'pbBookDorm')}</div>
         <div class="pbf-full-lab">Bloom color</div><div class="pbf-full-ctrl">${BLOOM_COLORS.filter(c=>c.k!=='none'&&c.k!=='multi').map(c=>{const on=PB_BOOK.colors.indexOf(c.k)>=0;return `<button class="pbf-sw${on?' on':''}" title="${c.lab}" onclick="pbBookColor('${c.k}')" style="background:${c.hex}"></button>`;}).join('')}</div>
         <div class="pbf-full-lab" style="color:#B23F3C">🔥 Fire zone</div><div class="pbf-full-ctrl">${pf([["all","All"],["safe","Fire-safe (any)"],["0","Zone 0 · 0–5ft"],["1","Zone 1 · 5–30ft"],["2","Zone 2 · 30–100ft"],["avoid","⚠ Avoid"]],PB_BOOK.dszone,'pbBookZone','fire')}</div>
+        <div class="pbf-full-lab">🌡 Climate zone</div><div class="pbf-full-ctrl">${
+          projSunsetZone()
+            ? pf([["all","All"],["fits","Suits Zone "+projSunsetZone()],["strict","Confirmed only"],["unknown","Not recorded"]],PB_BOOK.sunset,'pbBookSunset')
+              +`<span class="pbf-note">Sunset Zone <b>${projSunsetZone()}</b> from the project address${(S.pi&&S.pi.sunsetWhy)?" · "+escAttr(S.pi.sunsetWhy):""}</span>`
+            : `<span class="pbf-note">Set the project address, or enter a Sunset zone in <a href="#" onclick="event.preventDefault();openPInfo()">Project Info</a>, to filter by climate.</span>`
+        }</div>
         ${NURSERY_DB.nurseries.length?`<div class="pbf-full-lab">Nursery</div><div class="pbf-full-ctrl"><select class="pbf-nsel" onchange="pbBookNurserySet(this.value)" title="Show only plants carried by a nursery"><option value="">All nurseries</option>${NURSERY_DB.nurseries.map(x=>`<option value="${x.id}" ${PB_BOOK.nursery===x.id?'selected':''}>${escAttr(x.name)}</option>`).join('')}</select></div>`:''}
       </div>
       <div class="pbf-cats">
@@ -10335,6 +10403,10 @@ function renderPlantBookList(){
     if(PB_BOOK.colors.length){ const bcs=bloomColorsOf(p); if(!bcs.length || !bcs.some(c=>PB_BOOK.colors.indexOf(c)>=0)) return false; }
     if(PB_BOOK.seasons.length){ const bs=(p.bloomSeason||"").toLowerCase(); const hit=PB_BOOK.seasons.some(s=> bs.indexOf(s.toLowerCase())>=0 || bs.indexOf("year")>=0 ); if(!hit) return false; }
     if(PB_BOOK.dszone!=="all"){ const z=dsZoneOf(p); if(PB_BOOK.dszone==="safe"){ if(!z||z==="avoid") return false; } else if(z!==PB_BOOK.dszone) return false; }
+    if(PB_BOOK.sunset!=="all"){ const fit=sunsetFits(p,projSunsetZone());
+      if(PB_BOOK.sunset==="fits" && fit===false) return false;              // hides misfits, keeps unrecorded
+      if(PB_BOOK.sunset==="strict" && fit!==true) return false;             // confirmed fits only
+      if(PB_BOOK.sunset==="unknown" && fit!==null) return false; }
     if(PB_BOOK.dorm!=="all"){ const dm=(p.dormancy||"").toLowerCase(); if(PB_BOOK.dorm==="evergreen"&&dm.indexOf("evergreen")<0) return false; if(PB_BOOK.dorm==="deciduous"&&(dm.indexOf("deciduous")<0||dm.indexOf("semi")>=0)) return false; if(PB_BOOK.dorm==="semi"&&dm.indexOf("semi")<0) return false; }
     return true;
   });
@@ -14844,6 +14916,7 @@ function _applyPlace(place){
   try{ const loc=place.geometry.location; S.pi.lat=(typeof loc.lat==="function"?loc.lat():loc.lat); S.pi.lng=(typeof loc.lng==="function"?loc.lng():loc.lng);
     const comps=place.address_components||[]; S.pi.city=((comps.find(c=>c.types.includes("locality"))||comps.find(c=>c.types.includes("sublocality"))||comps.find(c=>c.types.includes("neighborhood"))||{}).long_name||""); }catch(e){}
   if(S.pi&&S.pi.city && typeof fetchCityTemps==="function") fetchCityTemps(S.pi.city);
+  try{ detectSunsetZone(); }catch(e){}
   if(typeof poolRefresh==="function" && (S.pools||[]).length) poolRefresh();
   updatePI("address",place.formatted_address);
   const sic=document.getElementById("site-intel-card"); if(sic) sic.style.display="block";
