@@ -34,6 +34,27 @@ export default {
       // Which pages on this site are the real products? Fetch a couple from each URL
       // shape and report only what it takes to judge richness — never the page text,
       // which would be 14 KB a page for no reason.
+      // A sale is advertised, not published as data. It lives in an announcement bar, a
+      // banner image's alt text, a /sale collection — so look in all of those places at
+      // once and hand back only the words, which is all the model needs.
+      if (body.type === "salescan") {
+        let origin;
+        try { origin = new URL(/^https?:/i.test(body.url) ? body.url : "https://" + body.url).origin; }
+        catch (e) { return json({ ok: false, error: "bad url" }); }
+        const paths = ["/", "/collections/sale", "/sale", "/collections/clearance", "/clearance", "/promotions"];
+        const out = [];
+        for (const p of paths) {
+          if (out.length >= 5) break;                       // enough evidence; stop knocking
+          try {
+            const { html, finalUrl } = await getHtml(origin + p);
+            const banners = collectAltText(html);
+            const text = readableText(html).slice(0, 3500);
+            const hit = /\b(sale|clearance|% ?off|discount|promo|save \d|markdown|closeout)\b/i.test(text + " " + banners);
+            if (p === "/" || hit) out.push({ path: p, url: finalUrl, banners, text });
+          } catch (e) { /* a missing /sale page is the normal case, not an error */ }
+        }
+        return json({ ok: true, origin, pages: out });
+      }
       if (body.type === "sample") {
         const urls = (body.urls || []).slice(0, 14);
         const out = [];
@@ -73,9 +94,12 @@ export default {
 
 // ── fetch + parse one page ───────────────────────────────────
 async function getHtml(url) {
+  // A slow origin must not hold the whole scan hostage — one site that never answers
+  // used to stall a sale sweep across a dozen brands.
   const r = await fetch(url, {
     headers: { "User-Agent": UA, "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9" },
     redirect: "follow",
+    signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(9000) : undefined,
   });
   if (!r.ok) throw new Error("http " + r.status);
   const ct = r.headers.get("content-type") || "";
@@ -367,6 +391,20 @@ function collectDocs(html, finalUrl) {
     out.push({ url: href, label: tidyDocName(key) });
   }
   return out;
+}
+// Banner copy is usually an image, and the words are in its alt attribute or in the
+// announcement bar's own markup. Both are invisible to plain text extraction.
+function collectAltText(html) {
+  const bits = [];
+  const re = /<img[^>]*\balt=["']([^"']{3,120})["']/gi;
+  let m;
+  while ((m = re.exec(html)) && bits.length < 40) bits.push(decodeEntities(m[1]));
+  const re2 = /<[^>]*class=["'][^"']*(announcement|banner|promo|marquee|ticker)[^"']*["'][^>]*>([\s\S]{0,300}?)<\//gi;
+  while ((m = re2.exec(html)) && bits.length < 60) {
+    const t = decodeEntities(m[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+    if (t.length > 3) bits.push(t);
+  }
+  return [...new Set(bits)].join(" | ").slice(0, 2000);
 }
 function readableText(html) {
   const t = html

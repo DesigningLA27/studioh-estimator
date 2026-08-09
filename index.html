@@ -1642,6 +1642,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .grp.on .n,.grp.on .cv{color:rgba(255,255,255,.82)}
 .grp.sel{border-color:var(--gm);background:var(--brand-soft);color:var(--gm)}
 .grp.sel .n,.grp.sel .cv{color:var(--gm);opacity:.75}
+.grp.sale{border-color:var(--gold);color:var(--gold)}
+.grp.sale.on{background:var(--gold);border-color:var(--gold);color:#231a06}
+.grp.sale.on .n{color:rgba(35,26,6,.7)}
 .gbar .dd{position:absolute;top:calc(100% + 7px);left:0;z-index:60;background:var(--card);
   border:1px solid var(--br);border-radius:13px;padding:7px;min-width:236px;
   box-shadow:0 20px 50px -14px rgba(0,0,0,.42);display:none}
@@ -2463,7 +2466,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v675</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v676</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7501,6 +7504,72 @@ function goodsEstPrice(x){
   if(sale>0 && (b==="msrp"||b==="client")) return Math.min(v||sale, sale);
   return v;
 }
+// ── SALES ─────────────────────────────────────────────────────
+// A supplier announces a sale; they do not publish one. It is a strip across the top
+// of the home page, a word in a banner image's alt text, a /sale collection — never a
+// field. So sweep those places per brand, read what is claimed, and apply it only where
+// the claim is specific enough to trust.
+let _saleBusy=false;
+async function goodsFindSales(book){
+  if(_saleBusy) return; _saleBusy=true;
+  try{
+    const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+    if(!ep){ alert("No worker connected."); return; }
+    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    const hosts={};
+    (arr||[]).forEach(x=>{ if(!x||!x.srcUrl) return; const h=_brandHost(x.srcUrl); if(h) (hosts[h]=hosts[h]||[]).push(x); });
+    const keys=Object.keys(hosts);
+    if(!keys.length){ alert("Nothing here came from a supplier site, so there is nowhere to look for a sale."); return; }
+    if(!confirm(`Check ${keys.length} supplier site${keys.length===1?"":"s"} for current sales?\n\nReads their home page, banners and any sale or clearance section. Anything found is shown before it is applied.`)) return;
+    const found=[];
+    _prog("Checking for sales",0,keys.length);
+    for(let i=0;i<keys.length;i++){
+      const h=keys[i];
+      _prog("Checking "+h,i,keys.length);
+      const sc=await _scrapeCall({type:"salescan",url:"https://"+h});
+      if(!sc.err && sc.pages && sc.pages.length){
+        const blob=sc.pages.map(p=>`PAGE ${p.path}\nBANNERS: ${p.banners||"(none)"}\nTEXT: ${(p.text||"").slice(0,2200)}`).join("\n\n");
+        const names=hosts[h].slice(0,40).map(x=>x.nm).join(", ");
+        try{
+          const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:600,temperature:0,
+              system:"You read retail pages and report only discounts that are actually advertised. Output only a minified JSON object.",
+              messages:[{role:"user",content:`Is ${h} currently advertising a discount? Output ONLY minified JSON:
+{"onSale":true|false,"pct":0,"ends":"YYYY-MM-DD or \"\"","scope":"all|some","what":"what it covers, max 12 words","quote":"the exact words on the page, max 20 words"}
+Rules: pct is the headline percentage off. Report a range as its lowest number. onSale false unless the page states a discount right now — a "Sale" menu link on its own is not one, and neither is a past or upcoming promotion. scope "some" unless it plainly covers the whole range. quote must appear verbatim in the text.
+
+Products this designer holds from ${h}: ${names}
+
+${blob}`}]})});
+          const d=await r.json();
+          let t=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+          const a=t.indexOf("{"), b=t.lastIndexOf("}");
+          if(a>=0&&b>a){
+            const o=JSON.parse(t.slice(a,b+1));
+            if(o.onSale && +o.pct>0) found.push({host:h,rows:hosts[h],pct:Math.min(90,Math.round(+o.pct)),
+              ends:String(o.ends||"").slice(0,10), scope:o.scope==="all"?"all":"some",
+              what:String(o.what||"").slice(0,60), quote:String(o.quote||"").slice(0,120)});
+          }
+        }catch(e){}
+      }
+      _prog("Checking for sales",i+1,keys.length);
+    }
+    _progDone();
+    if(!found.length){ alert("No current sales found on "+(keys.length===1?"that site":"those "+keys.length+" sites")+"."); return; }
+    // Only a site-wide claim is applied without asking. "Some products" is exactly the
+    // case where a blanket 20% off would put a wrong number on a bid.
+    const lines=found.map(f=>`  ${f.host} — ${f.pct}% off${f.ends?", until "+f.ends:""}\n    ${f.what}\n    “${f.quote}”\n    ${f.scope==="all"?`applies to all ${f.rows.length} of your items`:`covers only part of the range — ${f.rows.length} items would be marked, check before you bid`}`).join("\n\n");
+    if(!confirm(`Sales found:\n\n${lines}\n\nApply these discounts?`)) return;
+    let n=0;
+    found.forEach(f=>f.rows.forEach(x=>{
+      if(+x.salePct>0 && !x.saleAuto) return;      // never overwrite a discount you typed
+      x.salePct=f.pct; x.saleEnds=f.ends||""; x.saleAuto=1;
+      x.saleNote=f.quote; x.saleScope=f.scope; n++;
+    }));
+    goodsSaveBook(book);
+    try{ _toast(n+" item"+(n===1?"":"s")+" marked on sale","#9B7B3A"); }catch(e){}
+  } finally { _saleBusy=false; }
+}
 // ── INSTALL RATE ──────────────────────────────────────────────
 // The install cost of a material is not a property of the material — it is a rate in
 // the Price Book, shared by everything of that type. So the item reads it from there,
@@ -8926,14 +8995,15 @@ function matGroupBarHTML(){
     : MAT_GRP ? (groups.find(x=>x.g.id===MAT_GRP)||{g:{nm:""}}).g.nm : "";
   if(MAT_PMIN||MAT_PMAX) path = (path?path+" · ":"") + matPriceLabel();
   if(MAT_USE) path = (path?path+" · ":"") + (MAT_USE==="outdoor"?"Outdoor":"Indoor");
+  if(MAT_SALE) path = (path?path+" · ":"") + "On sale";
   return `<div class="mbar gbar">
     <button class="grp${(!MAT_GRP&&!sel.length)?" on":""}" onclick="matPick('','All')">All<span class="n">${tot}</span></button>
     ${btns}
-    ${matUseBarHTML()}
+    ${matUseBarHTML()}${matSaleBarHTML()}
     <span class="gsp"></span>${matPriceBarHTML()}${matSortBarHTML()}
   </div>
   ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b> · ${MATERIALS.filter(matInView).length} of ${tot}
-     <button onclick="MAT_USE='';matPick('','All');matSetPrice(0,0)">clear</button></div>`:""}`;
+     <button onclick="MAT_USE='';MAT_SALE=false;matPick('','All');matSetPrice(0,0)">clear</button></div>`:""}`;
 }
 // CSI and the supplier's city are both things a person would look up in seconds and
 // neither is on most product pages — which is exactly the sort of gap worth filling
@@ -9036,6 +9106,11 @@ ${list}`}]})});
   } finally { _useBusy=false; }
 }
 function matSetUse(u){ MAT_USE=(MAT_USE===u)?"":u; renderMaterials(); }
+function matSaleBarHTML(){
+  const n=MATERIALS.filter(m=>goodsSaleLive(m)).length;
+  if(!n) return "";
+  return `<button class="grp sale${MAT_SALE?" on":""}" onclick="MAT_SALE=!MAT_SALE;renderMaterials()" title="Currently discounted">On sale<span class="n">${n}</span></button>`;
+}
 function matUseBarHTML(){
   const n=MATERIALS.filter(m=>goodsUse(m)).length;
   if(!n) return "";
@@ -9264,7 +9339,7 @@ function matDDToggle(ev,gid){
   renderMaterials();
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
-let MAT_GRP="", _matDD="", MAT_USE="";
+let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false;
 let MAT_CATS={};
 let MAT_PMIN=0, MAT_PMAX=0, MAT_PEXCL=false;
 let MAT_SORT=(function(){ try{ return PREFS.matSort||"earn"; }catch(e){ return "earn"; } })();
@@ -9324,7 +9399,7 @@ function matInUse(m){
   const u=goodsUse(m);
   return MAT_USE==="outdoor" ? (u==="outdoor"||u==="both") : u===MAT_USE;
 }
-function matInView(m){ return matInGroup(m) && matInPrice(m) && matInUse(m); }
+function matInView(m){ return matInGroup(m) && matInPrice(m) && matInUse(m) && (!MAT_SALE || goodsSaleLive(m)); }
 function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
@@ -9396,6 +9471,7 @@ function _matGrid(host){
          <button class="mchip" onclick="goodsDropThin('materials')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsFillUse('materials')" title="Work out which items suit outdoor use">${mi("sun")}Outdoor sort</button>
          <button class="mchip" onclick="goodsFillSpecs('materials')" title="Fill in CSI sections and supplier locations">${mi("list")}CSI &amp; location</button>
+         <button class="mchip" onclick="goodsFindSales('materials')" title="Check supplier sites for current discounts">${mi("tag")}Find sales</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="View">
            <button class="${MAT_VIEW!=="list"&&cols===2?"on":""}" onclick="matSetView('cards');goodsSetCols(2)">${mi("col2")}</button>
@@ -9837,6 +9913,7 @@ function _furGrid(host){
          <button class="mchip" onclick="goodsDropThin('furnishings')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsFillUse('furnishings')" title="Work out which items suit outdoor use">${mi("sun")}Outdoor sort</button>
          <button class="mchip" onclick="goodsFillSpecs('furnishings')" title="Fill in CSI sections and supplier locations">${mi("list")}CSI &amp; location</button>
+         <button class="mchip" onclick="goodsFindSales('furnishings')" title="Check supplier sites for current discounts">${mi("tag")}Find sales</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
