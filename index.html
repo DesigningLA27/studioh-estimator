@@ -2415,7 +2415,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v661</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v662</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7046,17 +7046,22 @@ async function _gpickRun(){
     }
   }
   await Promise.all([0,0,0,0].map(worker));
-  if(pr) pr.textContent=`Done — ${ok} of ${picks.length} imported`;
-  if(go){ go.disabled=false; go.textContent="Close"; go.onclick=_goodsPickerClose; }
-  try{ _toast(ok+" imported from "+_gpick.host,"#4C7B3D"); }catch(e){}
-  const book=_gpick.kind==="mat"?"materials":"furnishings";
+  const host=_gpick.host, kind=_gpick.kind, failed=picks.length-ok;
+  // The job is finished — get out of the way. The dialog only stays up when something
+  // actually failed, because that is the only case where there is anything to look at.
+  if(failed){
+    if(pr) pr.textContent=`${ok} imported · ${failed} could not be read`;
+    if(go){ go.disabled=false; go.textContent="Close"; go.onclick=_goodsPickerClose; }
+  } else {
+    _goodsPickerClose();
+  }
+  try{ _toast(ok+" imported from "+host,"#4C7B3D"); }catch(e){}
+  // Pricing runs on afterwards against the progress bar, so it never holds the dialog
+  // open — you can carry on looking at what just landed.
+  const book=kind==="mat"?"materials":"furnishings";
   const lib=book==="materials"?MATERIALS:FURNISHINGS;
   const noPrice=made.filter(id=>{ const x=lib.find(r=>r&&r.id===id); return x&&!(x.msrp>0); });
-  if(noPrice.length){
-    if(pr) pr.textContent=`${ok} imported · estimating ${noPrice.length} price${noPrice.length===1?"":"s"}…`;
-    const n=await goodsAutoPrice(book,noPrice);
-    if(pr) pr.textContent=`${ok} imported · ${n} price${n===1?"":"s"} estimated (flagged as AI)`;
-  }
+  if(noPrice.length) goodsAutoPrice(book,noPrice);
 }
 // A page offers the same photo at half a dozen widths and pads the list with badges,
 // icons and lifestyle shots. Keep the widest copy of each distinct picture, since a
@@ -8064,11 +8069,15 @@ async function goodsAutoPrice(book,ids){
   const lib=book==="materials"?MATERIALS:FURNISHINGS;
   const todo=ids.filter(id=>{ const x=lib.find(r=>r&&r.id===id); return x&&!(x.msrp>0)&&!x.msrpAI; });
   if(!todo.length) return 0;
-  try{ _toast("No price published — estimating "+todo.length+"…","#9B7B3A"); }catch(e){}
   let n=0;
-  for(let i=0;i<todo.length;i+=15) n+=await goodsAIPrice(book,todo.slice(i,i+15));
+  try{ _prog("Estimating prices",0,todo.length); }catch(e){}
+  for(let i=0;i<todo.length;i+=15){
+    n+=await goodsAIPrice(book,todo.slice(i,i+15));
+    try{ _prog("Estimating prices",Math.min(i+15,todo.length),todo.length); }catch(e){}
+  }
+  goodsSaveQuiet(book);
   try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
-  if(n) try{ _toast(n+" price"+(n===1?"":"s")+" estimated — flagged as AI","#9B7B3A"); }catch(e){}
+  try{ _progDone(n?(n+" price"+(n===1?"":"s")+" estimated"):"", n?"#9B7B3A":""); }catch(e){}
   return n;
 }
 
