@@ -2119,7 +2119,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v619</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v620</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6445,6 +6445,83 @@ function goodsSearchBarHTML(o){
       ${o.busy?"…":mi("spark")+"AI Search"}</button>
   </span>`;
 }
+// ── IMPORT FROM A SUPPLIER URL ────────────────────────────────
+// The page fetch happens in the Worker: a browser fetch of a retail site is blocked
+// by CORS, and the model cannot browse. Without the Worker step the model is only
+// recalling the product from training data, which is worthless for real pricing.
+async function goodsScrape(url){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return {err:"No worker connected."};
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"scrape",url})});
+    const d=await r.json();
+    if(d&&d.ok) return d;
+    // Older worker builds have no scrape endpoint — say so rather than silently
+    // falling back to a model that will invent the answer.
+    if(d&&d.error&&/model|required/i.test(d.error.message||d.error||"")) return {err:"needs-worker"};
+    return {err:(d&&(d.error||"couldn't read that page"))||"couldn't read that page"};
+  }catch(e){ return {err:(e&&e.message)||"fetch failed"}; }
+}
+// Pull the fields we can read straight out of schema.org rather than asking the
+// model for them — exact beats inferred whenever the site publishes it.
+function _ldFields(sc){
+  const p=sc.product||{}, m=sc.meta||{}, out={};
+  const off=[].concat(p.offers||[]).filter(Boolean)[0]||{};
+  const brand = typeof p.brand==="string" ? p.brand : (p.brand&&p.brand.name)||"";
+  out.nm   = (p.name||m["og:title"]||sc.title||"").toString().trim().slice(0,120);
+  out.sup  = (brand||m["product:brand"]||m["og:site_name"]||"").toString().trim().slice(0,60);
+  const price = off.price || off.lowPrice || m["product:price:amount"] || 0;
+  // Keep the cents. Materials are priced per square foot, where $12.75 rounded to
+  // $13 is a 2% error on every square foot of the job.
+  out.msrp = Math.round((+String(price).replace(/[^0-9.]/g,"")||0)*100)/100;
+  out.sku  = (p.sku||p.mpn||"").toString().slice(0,40);
+  out.desc = (p.description||m["og:description"]||m["description"]||"").toString().trim().slice(0,600);
+  out.cur  = (off.priceCurrency||m["product:price:currency"]||"").toString().slice(0,4);
+  return out;
+}
+// One extraction path for both books. `schema` describes the shape wanted; the page
+// text is real, so anything returned is grounded in it.
+async function goodsExtractFromURL(url,kindLabel,schema){
+  const sc=await goodsScrape(url);
+  if(sc.err) return {err:sc.err};
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  const ld=_ldFields(sc);
+  const known=Object.keys(ld).filter(k=>ld[k]).map(k=>`${k}: ${ld[k]}`).join("\n");
+  const prompt=`Extract ${kindLabel} product details from this page. Output ONLY minified JSON, no prose:
+${schema}
+Rules: use "" or 0 for anything the page does not state. NEVER invent a price, size or material.
+Already read from the page's structured data — trust these over your own reading:
+${known||"(none published)"}
+
+PAGE TEXT:
+${sc.text}`;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,
+        system:"You extract structured product data from the supplied page text. Output only minified JSON. Never invent values that are absent from the text.",
+        messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
+    const a=t.indexOf("{"), b=t.lastIndexOf("}");
+    if(a<0||b<=a) return {err:"couldn't read a product from that page"};
+    const o=JSON.parse(t.slice(a,b+1));
+    // Structured data wins over the model's reading of prose.
+    if(ld.nm)   o.nm=o.nm||ld.nm;
+    if(ld.sup)  o.sup=o.sup||ld.sup;
+    if(ld.msrp) o.msrp=ld.msrp;
+    return {ok:true, data:o, images:sc.images||[], src:sc.url, sku:ld.sku, ld:!!sc.product};
+  }catch(e){ return {err:(e&&e.message)||"extract failed"}; }
+}
+// Supplier image URLs expire, so anything imported is copied into our own R2 before
+// it is stored — the same rule the plant book already follows.
+async function goodsRehostImages(idBase,urls,max){
+  const out=[];
+  for(let i=0;i<Math.min(urls.length,max||3);i++){
+    try{ const up=await _uploadUrlToR2(idBase+"_"+i, urls[i]); if(up.ok&&up.url) out.push(up.url); }catch(e){}
+  }
+  return out;
+}
 // Natural-language search over a book. The catalogue is small enough to send whole,
 // so the model sees real rows and returns ids — no guessing at product names.
 async function goodsAISearch(q, rows, label){
@@ -6539,6 +6616,48 @@ function matSpecify(id){
   m.specSF=Math.max(0,Math.round(+String(v).replace(/[^0-9.]/g,"")||0));
   matSave(); renderMaterials();
   try{ _toast(m.specSF?("Specified "+m.specSF.toLocaleString()+" sf · "+fmtN(_matEarn(m)*m.specSF)+" to you"):"Removed from the project","#4C7B3D"); }catch(e){}
+}
+// Materials had no import at all — only the seeded demo rows. Same path as
+// furnishings; the difference is materials are priced per square foot.
+async function matImportURL(){
+  const url=prompt("Paste the supplier's product page URL:","");
+  if(url===null) return;
+  const u=String(url).trim(); if(!u) return;
+  if(!/^https?:\/\//i.test(u)){ alert("That doesn't look like a web address."); return; }
+  const host=u.replace(/^https?:\/\//,"").split("/")[0];
+  const cats=Array.from(new Set(MATERIALS.map(m=>m.cat))).concat(["Paving","Tile","Flagstone","Gravel","Boulder","Veneer","Decking"]);
+  try{ _toast("Reading "+host+"…","#6A4FA3"); }catch(e){}
+  const res=await goodsExtractFromURL(u,"landscape material / hardscape",
+    `{"nm":"","cat":"one of: ${Array.from(new Set(cats)).join(" | ")}","sup":"brand or supplier","fin":"finish e.g. Tumbled, Thermal, Matte","thick":"","sizes":"","slip":"slip rating if stated","heat":"","ada":"","method":"install method if stated","msrp":0,"unit":"the unit the price is in: sf | each | ton | pallet","tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`);
+  if(res.err){
+    alert(res.err==="needs-worker"
+      ? "The worker doesn't have the page-reading endpoint yet.\n\nDeploy worker-scrape.js to studioh-ai, then try again. Without it the import can only guess, so it is blocked."
+      : "Import failed: "+res.err);
+    return;
+  }
+  const o=res.data||{};
+  if(!o.nm){ alert("Couldn't find a product on that page."); return; }
+  const id="m"+Date.now().toString(36);
+  const tags=(o.tags||[]).map(x=>goodsAddTag(x)).filter(Boolean);
+  try{ _toast("Saving images…","#6A4FA3"); }catch(e){}
+  const imgs=await goodsRehostImages(id,res.images||[],3);
+  // A price scraped in $/ton or $/pallet is NOT $/sf — keep it, but never let it
+  // masquerade as the per-sf figure the estimate multiplies by area.
+  const perSf = String(o.unit||"").toLowerCase()==="sf";
+  MATERIALS.unshift({id,nm:o.nm,cat:o.cat||"Paving",fin:o.fin||"—",sup:o.sup||host,loc:"—",dist:0,
+    claimed:0,tags,cols:(o.cols&&o.cols.length?o.cols:["#B9AC97"]).slice(0,3),
+    imgs, img:imgs[0]||"",
+    msrp:perSf?(+o.msrp||0):0, cost:0, bill:0, comm:0, stock:0, lead:"—",
+    listPrice:+o.msrp||0, listUnit:(o.unit||"").toLowerCase(),
+    slip:o.slip||"—",thick:o.thick||"—",sizes:o.sizes||"—",heat:o.heat||"—",ada:o.ada||"—",
+    ship:"—",region:"—",offer:"—",method:o.method||"—",labour:"—",bed:"—",edge:"—",joint:"—",
+    inst:"—",csi:"",priced:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
+    srcUrl:res.src||u,sku:res.sku||"",specSF:0,
+    ai:[["alert","<b>Imported from "+escAttr(host)+".</b>"+(res.ld?" Name, supplier and price came from the page's published product data.":" Read from the page text.")
+      +(o.msrp&&!perSf?" Listed at $"+o.msrp+" per "+escAttr(o.unit||"unit")+" — convert to a square-foot price before claiming it.":"")
+      +" Add your cost and commission to claim it."]]});
+  matSave(); MAT_CAT="All"; matOpen(id);
+  try{ _toast("Imported "+o.nm+(imgs.length?" · "+imgs.length+" image"+(imgs.length>1?"s":""):""),"#4C7B3D"); }catch(e){}
 }
 function matFields(){ const o=(PREFS.matFields||null); return o||Object.assign({},MAT_FIELDS_DEFAULT); }
 function matSetField(k){ const f=matFields(); if(f[k]) delete f[k]; else f[k]=1;
@@ -6637,9 +6756,12 @@ function _matGrid(host){
            <div class="ft"><span onclick="event.stopPropagation();matAllFields(1);document.getElementById('mat-dd').classList.add('open')">Select all</span>
              <span onclick="event.stopPropagation();matAllFields(0);document.getElementById('mat-dd').classList.add('open')">Clear</span></div>
          </div></span>
-       <span class="gcols" title="Cards across">
-         <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
-         <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
+       <span class="sp-grp">
+         <button class="mchip pri" onclick="matImportURL()">${mi("link")}Add from URL</button>
+         <span class="gcols" title="Cards across">
+           <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
+           <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
+         </span>
        </span>
      </span></div>
    <div class="mbar">${cats.map(c=>`<button class="mchip ${MAT_CAT===c?"on":""}" onclick="matSetCat('${escAttr(c)}')">${escAttr(c)}</button>`).join("")}</div>
@@ -6979,40 +7101,37 @@ async function furImportURL(){
   if(url===null) return;
   const u=String(url).trim(); if(!u) return;
   if(!/^https?:\/\//i.test(u)){ alert("That doesn't look like a web address."); return; }
-  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
-  if(!ep){ alert("No worker connected — the URL import needs the AI backend."); return; }
-  try{ _toast("Reading "+u.replace(/^https?:\/\//,"").split("/")[0]+"…","#6A4FA3"); }catch(e){}
-  const prompt2=`Read this outdoor-furniture product page and return ONLY minified JSON, no prose:
-{"nm":"","cat":"one of: ${FUR_CATS.join(" | ")}","sup":"brand or retailer","frame":"","dims":"W x D x H with units","seat":"seat height or empty","weight":"","cushion":"","assembly":"","weather":"","maint":"","cover":"","warranty":"","msrp":0,"sale":0,"tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}
-Use "" or 0 for anything the page does not state. Never invent a price.
-URL: ${u}`;
-  try{
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1200,
-        system:"You extract structured product data from a web page. Output only minified JSON.",
-        messages:[{role:"user",content:prompt2}]})});
-    const d=await r.json();
-    let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
-    const a=t.indexOf("{"), b=t.lastIndexOf("}");
-    if(a<0||b<=a){ alert("Couldn't read that page."); return; }
-    const o=JSON.parse(t.slice(a,b+1));
-    if(!o.nm){ alert("Couldn't find a product on that page."); return; }
-    const id="f"+Date.now().toString(36);
-    const tags=(o.tags||[]).map(x=>goodsAddTag(x)).filter(Boolean);
-    FURNISHINGS.unshift({id,nm:o.nm,cat:FUR_CATS.indexOf(o.cat)>=0?o.cat:"Accessories",
-      sup:o.sup||"—",loc:"—",dist:0,claimed:0,tags,
-      cols:(o.cols&&o.cols.length?o.cols:["#8C7F6B"]).slice(0,3),
-      msrp:+o.msrp||0,sale:+o.sale||0,cost:0,comm:0,stock:0,lead:"—",
-      dims:o.dims||"—",seat:o.seat||"—",weight:o.weight||"—",frame:o.frame||"—",
-      cushion:o.cushion||"—",assembly:o.assembly||"—",weather:o.weather||"—",maint:o.maint||"—",
-      cover:o.cover||"—",warranty:o.warranty||"—",parts:"—",ship:"—",region:"—",offer:"—",
-      goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
-      srcUrl:u,specQty:0,
-      ai:[["alert","<b>Imported from "+escAttr(u.replace(/^https?:\/\//,"").split("/")[0])+".</b> Specs and list price came from the supplier's page. Add your trade cost and commission to claim it — until then it cannot be specified on a project."]]});
-    furSave(); FUR_CAT="All"; furOpen(id);
-    try{ _toast("Imported "+o.nm+" — add your cost and commission to claim it","#4C7B3D"); }catch(e){}
-  }catch(e){ alert("Import failed: "+((e&&e.message)||"error")); }
+  const host=u.replace(/^https?:\/\//,"").split("/")[0];
+  try{ _toast("Reading "+host+"…","#6A4FA3"); }catch(e){}
+  const res=await goodsExtractFromURL(u,"outdoor furniture",
+    `{"nm":"","cat":"one of: ${FUR_CATS.join(" | ")}","sup":"brand or retailer","frame":"","dims":"W x D x H with units","seat":"seat height or empty","weight":"","cushion":"","assembly":"","weather":"","maint":"","cover":"","warranty":"","msrp":0,"sale":0,"tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`);
+  if(res.err){
+    alert(res.err==="needs-worker"
+      ? "The worker doesn't have the page-reading endpoint yet.\n\nDeploy worker-scrape.js to studioh-ai, then try again. Without it the import can only guess, so it is blocked."
+      : "Import failed: "+res.err);
+    return;
+  }
+  const o=res.data||{};
+  if(!o.nm){ alert("Couldn't find a product on that page."); return; }
+  const id="f"+Date.now().toString(36);
+  const tags=(o.tags||[]).map(x=>goodsAddTag(x)).filter(Boolean);
+  try{ _toast("Saving images…","#6A4FA3"); }catch(e){}
+  const imgs=await goodsRehostImages(id,res.images||[],3);
+  FURNISHINGS.unshift({id,nm:o.nm,cat:FUR_CATS.indexOf(o.cat)>=0?o.cat:"Accessories",
+    sup:o.sup||host,loc:"—",dist:0,claimed:0,tags,
+    cols:(o.cols&&o.cols.length?o.cols:["#8C7F6B"]).slice(0,3),
+    imgs, img:imgs[0]||"",
+    msrp:+o.msrp||0,sale:+o.sale||0,cost:0,comm:0,stock:0,lead:"—",
+    dims:o.dims||"—",seat:o.seat||"—",weight:o.weight||"—",frame:o.frame||"—",
+    cushion:o.cushion||"—",assembly:o.assembly||"—",weather:o.weather||"—",maint:o.maint||"—",
+    cover:o.cover||"—",warranty:o.warranty||"—",parts:"—",ship:"—",region:"—",offer:"—",
+    goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
+    srcUrl:res.src||u,sku:res.sku||"",specQty:0,
+    ai:[["alert","<b>Imported from "+escAttr(host)+".</b>"+(res.ld?" Name, brand and price came from the page's published product data.":" Read from the page text.")+" Add your trade cost and commission to claim it — until then it cannot be specified on a project."]]});
+  furSave(); FUR_CAT="All"; furOpen(id);
+  try{ _toast("Imported "+o.nm+(imgs.length?" · "+imgs.length+" image"+(imgs.length>1?"s":""):"")+" — add cost and commission to claim","#4C7B3D"); }catch(e){}
 }
+
 // Turn a seeded/imported listing into a priced one you can actually specify.
 function furClaim(id){
   const f=furFind(id); if(!f) return;
