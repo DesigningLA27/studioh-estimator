@@ -30,6 +30,7 @@ export default {
     try {
       if (body.type === "scrape")   return json(await scrapeOne(body.url));
       if (body.type === "discover") return json(await discover(body.url, +body.limit || 60));
+      if (body.type === "pricelook") return json(await priceLook(body));
       if (body.type === "batch") {
         const urls = (body.urls || []).slice(0, 12);          // keep inside the CPU budget
         const out = [];
@@ -141,6 +142,107 @@ async function discover(url, limit) {
 
   return { ok: true, origin, source: url, title: pageTitle, count: found.length, products: found.slice(0, limit) };
 }
+
+// ── price lookup across YOUR suppliers ───────────────────────
+// Free web search is not available to a Worker — Bing serves a bot page, DuckDuckGo
+// a challenge, Google a consent wall. So this does not search the web at all: it
+// searches the supplier sites the designer actually buys from, using each site's own
+// search. Narrower on purpose, and the prices come from sources worth bidding off.
+//
+// It finds LIST prices only. A trade cost is an account-specific negotiated rate and
+// exists on no public page — every result carries its source and nothing auto-fills.
+
+// Most storefronts are one of a handful of platforms, so a search path usually just works.
+const SEARCH_PATHS = [
+  "/search?q=",                 // Shopify, many customs
+  "/?s=",                       // WooCommerce / WordPress
+  "/catalogsearch/result/?q=",  // Magento
+  "/search?search_query=",      // BigCommerce
+  "/search/?text=",
+];
+
+async function priceLook(b) {
+  const name = String(b.name || "").trim();
+  if (!name) return { ok: false, error: "no product name" };
+  const sites = (b.sites || []).map(x => String(x || "").trim()).filter(Boolean).slice(0, 6);
+  if (!sites.length) return { ok: false, error: "no supplier sites configured" };
+
+  const terms = name.replace(/[^\w\s.\-]/g, " ").replace(/\s+/g, " ").trim();
+  const cands = [], tried = [];
+
+  for (const site of sites) {
+    let origin;
+    try { origin = new URL(/^https?:\/\//i.test(site) ? site : "https://" + site).origin; }
+    catch (e) { continue; }
+
+    const hit = await searchSite(origin, terms);
+    tried.push({ site: origin.replace(/^https?:\/\//, ""), found: hit.length });
+    for (const u of hit.slice(0, 3)) {
+      const c = await priceFromPage(u);
+      if (c) cands.push(c);
+      if (cands.length >= 10) break;
+    }
+    if (cands.length >= 10) break;
+  }
+
+  // Prefer pages that publish real product data over ones we had to read prose from.
+  cands.sort((a, c) => (c.hasSchema - a.hasSchema) || (a.price - c.price));
+  return { ok: true, query: terms, tried, candidates: cands };
+}
+
+// Try each platform's search path until one returns product links.
+async function searchSite(origin, terms) {
+  const out = [], seen = new Set();
+  for (const path of SEARCH_PATHS) {
+    if (out.length) break;
+    const url = origin + path + encodeURIComponent(terms);
+    try {
+      const { html } = await getHtml(url);
+      const re = /href=["']([^"']*\/products?\/[^"']+)["']/gi;
+      let m;
+      while ((m = re.exec(html)) && out.length < 6) {
+        try {
+          const a = new URL(m[1], origin).href.split("#")[0].replace(/\?.*$/, "");
+          if (new URL(a).origin !== origin) continue;      // stay on the supplier's own site
+          if (seen.has(a)) continue;
+          seen.add(a); out.push(a);
+        } catch (e) {}
+      }
+    } catch (e) { /* wrong platform for this path — try the next */ }
+  }
+  return out;
+}
+
+async function priceFromPage(u) {
+  try {
+    const { html, finalUrl } = await getHtml(u);
+    const ld = collectJsonLd(html);
+    const prod = ld.find(isProduct);
+    const meta = collectMeta(html);
+    let price = 0, cur = "", title = "", unit = "";
+    if (prod) {
+      const off = [].concat(prod.offers || []).filter(Boolean)[0] || {};
+      price = num(off.price || off.lowPrice);
+      cur = off.priceCurrency || "";
+      title = String(prod.name || "").slice(0, 140);
+      unit = String(off.unitText || (off.priceSpecification && off.priceSpecification.unitText) || "").slice(0, 24);
+    }
+    if (!price && meta["product:price:amount"]) { price = num(meta["product:price:amount"]); cur = meta["product:price:currency"] || ""; }
+    if (!title) title = decodeEntities(firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i)).trim().slice(0, 140);
+    // Guess the unit from the page when the data does not say — the difference between
+    // $14/sf and $14/piece is the whole estimate.
+    if (!unit) {
+      const near = html.slice(0, 200000);
+      if (/per\s*(sq\.?\s*ft|square\s*foot)|\/\s*sq\.?\s*ft|\bsf\b/i.test(near)) unit = "sf";
+      else if (/per\s*(piece|each)|\/\s*ea\b/i.test(near)) unit = "each";
+      else if (/per\s*(ton|pallet|box|carton)/i.test(near)) unit = (near.match(/per\s*(ton|pallet|box|carton)/i) || [])[1] || "";
+    }
+    if (!(price > 0)) return null;
+    return { price, currency: cur || "USD", unit: unit.toLowerCase(), title,
+             url: finalUrl, host: new URL(finalUrl).host.replace(/^www\./, ""), hasSchema: !!prod };
+  } catch (e) { return null; }
+}
+function num(v) { const n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.]/g, "")); return isFinite(n) ? n : 0; }
 
 // ── parsing helpers ──────────────────────────────────────────
 function collectJsonLd(html) {

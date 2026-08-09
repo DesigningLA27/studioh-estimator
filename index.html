@@ -1950,6 +1950,34 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .rbar i{display:block;height:100%;border-radius:4px}
 .rbar i.bad{background:var(--v-high)} .rbar i.warn{background:var(--gold)}
 /* cautions — one bar showing the mix, so the card carries a shape not just a count */
+/* price sheet import */
+.ps-drop{display:flex;flex-direction:column;align-items:center;gap:11px;text-align:center;
+  border:1px dashed var(--br);border-radius:16px;padding:30px 22px;background:var(--surface2)}
+.ps-drop b{font-size:14px}
+.ps-drop>span{font-size:12.5px;color:var(--tl);max-width:420px;line-height:1.55}
+.ps-paste{width:100%;max-width:520px;min-height:96px;border:1px solid var(--br);border-radius:11px;
+  background:var(--card);color:var(--tx);font:inherit;font-size:12.5px;padding:10px 12px;resize:vertical;outline:0}
+.ps-paste:focus{border-color:var(--gm)}
+.ps-note{font-size:11.5px;color:var(--tl);line-height:1.55}
+.ps-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--tm);padding:2px 2px 10px}
+.ps-bar b{color:var(--tx)}
+.ps-bar .sp{margin-left:auto;display:flex;gap:6px}
+.ps-tbl{border:1px solid var(--br);border-radius:12px;overflow:hidden;max-height:52vh;overflow-y:auto;background:var(--card)}
+.ps-hd,.ps-row{display:grid;grid-template-columns:30px minmax(0,1.4fr) 92px minmax(0,1.2fr) 68px;gap:10px;
+  align-items:center;padding:8px 12px;font-size:12.5px}
+.ps-hd{position:sticky;top:0;background:var(--surface2);border-bottom:1px solid var(--br);z-index:1;
+  font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--tl)}
+.ps-row{border-top:1px solid var(--brl)}
+.ps-row.nomatch{opacity:.5}
+.ps-row .nm{font-weight:600;color:var(--tx);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ps-row .nm em{font-style:normal;color:var(--tl);font-size:10.5px;margin-left:7px}
+.ps-row .pr{font-weight:800;font-variant-numeric:tabular-nums}
+.ps-row .pr em{font-style:normal;font-weight:600;color:var(--tl);font-size:10.5px;margin-left:4px}
+.ps-row .mt{color:var(--gm);font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ps-row .mt i{color:var(--tl);font-weight:400;font-style:italic}
+.ps-row .was{font-size:11px;color:var(--tl);text-align:right;font-variant-numeric:tabular-nums}
+@media(max-width:640px){.ps-hd,.ps-row{grid-template-columns:26px minmax(0,1fr) 74px}
+  .ps-hd span:nth-child(n+4),.ps-row .mt,.ps-row .was{display:none}}
 /* product picker for collection / whole-site imports */
 .gpk-bar{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--tm);padding:2px 2px 10px}
 .gpk-bar b{color:var(--tx)}
@@ -2133,7 +2161,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v626</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v627</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6876,6 +6904,181 @@ async function _goodsImportOne(kind,url,host,quiet){
   return true;
 }
 
+// ── PRICE SHEET IMPORT ────────────────────────────────────────
+// The only reliable route to trade pricing. Suppliers do not publish it — they email
+// a price list to your account. This reads that list (PDF, CSV or pasted text),
+// matches rows to products you already hold, and NEVER writes a number without
+// showing you the row it came from first.
+let _psRows=[], _psBook="materials", _psSrc="";
+
+async function _psTextFromFile(file){
+  const nm=(file.name||"").toLowerCase();
+  if(/\.pdf$/.test(nm)){
+    const lib=await _ptLoadLib();
+    const buf=await file.arrayBuffer();
+    const doc=await lib.getDocument({data:new Uint8Array(buf)}).promise;
+    let out="";
+    for(let i=1;i<=Math.min(doc.numPages,30);i++){
+      const pg=await doc.getPage(i), tc=await pg.getTextContent();
+      // Rebuild lines from item positions — a price list is a table, and the row is
+      // the unit of meaning. Flattening to a word soup loses which price is whose.
+      const rows={};
+      tc.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0);
+        (rows[y]=rows[y]||[]).push({x:(it.transform&&it.transform[4])||0,s:it.str}); });
+      Object.keys(rows).sort((a,b)=>b-a).forEach(y=>{
+        out += rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim()+"\n"; });
+      out+="\n";
+    }
+    return out;
+  }
+  return await file.text();      // csv / tsv / txt
+}
+
+function openPriceSheet(book){
+  _psBook=book||"materials"; _psRows=[]; _psSrc="";
+  let d=document.getElementById("ps-modal"); if(d) d.remove();
+  d=document.createElement("div"); d.id="ps-modal"; d.className="lb-scrim on";
+  d.addEventListener("click",e=>{ if(e.target===d) closePriceSheet(); });
+  document.body.appendChild(d);
+  _psRender();
+}
+function closePriceSheet(){ const d=document.getElementById("ps-modal"); if(d) d.remove(); }
+function _psRender(){
+  const d=document.getElementById("ps-modal"); if(!d) return;
+  const lib=_psBook==="materials"?MATERIALS:FURNISHINGS;
+  const matched=_psRows.filter(r=>r.match).length;
+  const willSet=_psRows.filter(r=>r.match&&r.use).length;
+  d.innerHTML=`
+   <div class="lbx" style="width:min(860px,100%)" role="dialog" aria-modal="true">
+    <div class="lb-h"><span style="font-weight:800;font-size:15px">Import a price sheet</span>
+      <span class="lb-pos">${_psBook}</span>
+      <span class="lb-sp"><button class="lb-ico" onclick="closePriceSheet()"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>
+    <div class="st-b">
+      ${!_psRows.length?`
+        <div class="ps-drop">
+          <b>Upload the list your supplier sent</b>
+          <span>PDF, CSV or a spreadsheet exported as CSV. Or paste the rows below.</span>
+          <label class="btn">Choose file<input type="file" accept=".pdf,.csv,.tsv,.txt" style="display:none" onchange="psFile(this)"></label>
+          <textarea id="ps-paste" class="ps-paste" placeholder="…or paste rows here — product name, price, unit"></textarea>
+          <button class="btn btn-o" onclick="psReadPasted()">Read pasted rows</button>
+          <span class="ps-note">Nothing is written to your library until you review the matches.</span>
+        </div>`
+      :`
+        <div class="ps-bar"><b>${_psRows.length}</b> rows read${_psSrc?` from ${escAttr(_psSrc)}`:""}
+          · <b>${matched}</b> matched to your ${_psBook}
+          <span class="sp"><button class="pb-quick" onclick="psAll(1)">Use all</button>
+          <button class="pb-quick" onclick="psAll(0)">Use none</button></span></div>
+        <div class="ps-tbl">
+          <div class="ps-hd"><span></span><span>From the sheet</span><span>Price</span><span>Matches</span><span>Now</span></div>
+          ${_psRows.map((r,i)=>`
+            <div class="ps-row${r.match?"":" nomatch"}">
+              <span>${r.match?`<input type="checkbox" ${r.use?"checked":""} onchange="psToggle(${i})">`:""}</span>
+              <span class="nm">${escAttr(r.name)}${r.sku?`<em>${escAttr(r.sku)}</em>`:""}</span>
+              <span class="pr">${r.price?("$"+r.price.toFixed(2)):"—"}<em>${escAttr(r.unit||"")}</em></span>
+              <span class="mt">${r.match?escAttr(r.match.nm):`<i>no match in your library</i>`}</span>
+              <span class="was">${r.match?(_psBook==="materials"?(r.match.cost?("$"+(+r.match.cost).toFixed(2)):"—"):(r.match.cost?("$"+(+r.match.cost).toFixed(2)):"—")):""}</span>
+            </div>`).join("")}
+        </div>
+        <div class="ps-note">Prices land as your <b>cost</b>. Rows with no match are ignored — add the product first, or import it from the supplier's site.</div>`}
+    </div>
+    <div class="lb-f"><span class="lb-hint" id="ps-prog"></span>
+      <span class="lb-sp"><button class="btn btn-o" onclick="closePriceSheet()">Cancel</button>
+        ${_psRows.length?`<button class="btn" onclick="psApply()" ${willSet?"":"disabled"}>Set ${willSet} price${willSet===1?"":"s"}</button>`:""}</span></div>
+   </div>`;
+}
+async function psFile(input){
+  const f=input&&input.files&&input.files[0]; if(!f) return;
+  const pr=document.getElementById("ps-prog"); if(pr) pr.textContent="Reading "+f.name+"…";
+  try{
+    const txt=await _psTextFromFile(f);
+    _psSrc=f.name;
+    await _psExtract(txt);
+  }catch(e){ alert("Couldn't read that file: "+((e&&e.message)||"error")); }
+}
+async function psReadPasted(){
+  const el=document.getElementById("ps-paste"); const t=(el&&el.value||"").trim();
+  if(!t){ alert("Paste some rows first."); return; }
+  _psSrc="pasted rows"; await _psExtract(t);
+}
+async function _psExtract(text){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return; }
+  const pr=document.getElementById("ps-prog"); if(pr) pr.textContent="Reading the sheet…";
+  const body=text.slice(0,26000);
+  const prompt=`This is a supplier price list. Extract every priced line item.
+Output ONLY a minified JSON array, no prose:
+[{"name":"product name as written","sku":"code if any","price":0,"unit":"sf|each|ton|pallet|box|lf|"}]
+Rules:
+- price is a NUMBER in dollars, keep cents. Never invent one; skip a line with no price.
+- unit: what the price is PER. Read column headers and footnotes. "" if genuinely unstated.
+- ignore headers, totals, shipping, terms and page furniture.
+
+SHEET:
+${body}`;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:8000,
+        system:"You read supplier price lists into structured rows. Output only a minified JSON array. Never invent a price.",
+        messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
+    const a=t.indexOf("["); let arr=null;
+    if(a>=0){ const b=t.lastIndexOf("]");
+      if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+      if(!arr) arr=_salvageJsonObjects(t.slice(a)); }
+    if(!arr||!arr.length){ alert("Couldn't find any priced rows in that."); if(pr) pr.textContent=""; return; }
+    const lib=_psBook==="materials"?MATERIALS:FURNISHINGS;
+    _psRows=arr.map(o=>{
+      const name=String(o.name||"").trim();
+      const price=Math.round((+String(o.price==null?"":o.price).replace(/[^0-9.]/g,"")||0)*100)/100;
+      const row={name, sku:String(o.sku||"").trim(), price, unit:String(o.unit||"").toLowerCase().trim(), use:true};
+      row.match=_psMatch(name,row.sku,lib);
+      return row;
+    }).filter(r=>r.name&&r.price>0);
+    if(pr) pr.textContent="";
+    _psRender();
+  }catch(e){ alert("Couldn't read that sheet: "+((e&&e.message)||"error")); }
+}
+// Match on SKU first (exact and unambiguous), then on name similarity. A wrong match
+// writes a wrong price, so the bar is deliberately high and near-misses are dropped.
+function _psMatch(name,sku,lib){
+  const norm=x=>String(x||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+  if(sku){ const bySku=lib.find(m=>m.sku&&norm(m.sku)===norm(sku)); if(bySku) return bySku; }
+  const n=norm(name); if(!n) return null;
+  const exact=lib.find(m=>norm(m.nm)===n); if(exact) return exact;
+  const nw=new Set(n.split(" ").filter(w=>w.length>2));
+  let best=null,bestScore=0;
+  lib.forEach(m=>{
+    const mw=new Set(norm(m.nm).split(" ").filter(w=>w.length>2));
+    if(!mw.size||!nw.size) return;
+    let hit=0; nw.forEach(w=>{ if(mw.has(w)) hit++; });
+    const score=hit/Math.max(nw.size,mw.size);
+    if(score>bestScore){ bestScore=score; best=m; }
+  });
+  return bestScore>=0.6 ? best : null;
+}
+function psToggle(i){ if(_psRows[i]) _psRows[i].use=!_psRows[i].use; _psRender(); }
+function psAll(v){ _psRows.forEach(r=>{ if(r.match) r.use=!!v; }); _psRender(); }
+function psApply(){
+  let n=0, unitWarn=0;
+  _psRows.forEach(r=>{
+    if(!r.match||!r.use||!(r.price>0)) return;
+    r.match.cost=r.price;
+    if(r.unit && r.unit!=="sf" && _psBook==="materials") unitWarn++;
+    r.match.costUnit=r.unit||"";
+    r.match.priced=new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"});
+    if(_psBook==="materials" && r.match.msrp>0) r.match.claimed=1;
+    if(_psBook==="furnishings" && r.match.msrp>0) r.match.claimed=1;
+    n++;
+  });
+  if(_psBook==="materials") matSave(); else furSave();
+  closePriceSheet();
+  try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){}
+  let msg=n+" price"+(n===1?"":"s")+" set from "+(_psSrc||"the sheet");
+  if(unitWarn) msg+=" · "+unitWarn+" not per sf — check before specifying";
+  try{ _toast(msg, unitWarn?"#9B7B3A":"#4C7B3D"); }catch(e){}
+}
+
 function matFields(){ const o=(PREFS.matFields||null); return o||Object.assign({},MAT_FIELDS_DEFAULT); }
 function matSetField(k){ const f=matFields(); if(f[k]) delete f[k]; else f[k]=1;
   PREFS.matFields=f; prefsSave(); renderMaterials(); }
@@ -6975,6 +7178,7 @@ function _matGrid(host){
          </div></span>
        <span class="sp-grp">
          <button class="mchip pri" onclick="matImportURL()">${mi("link")}Add from URL</button>
+         <button class="mchip" onclick="openPriceSheet('materials')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
