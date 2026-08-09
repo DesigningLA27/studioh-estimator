@@ -2415,7 +2415,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v662</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v663</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6874,7 +6874,17 @@ const _SCRAPE_HELP="The page reader isn't deployed yet.\n\nIn Terminal:\n  cd st
 // colour. Only the last is a thing you put on a drawing, and they all live under
 // /products/. Rather than make you work that out, sample a couple of pages from each
 // URL shape and let the pages themselves say which layer is the real one.
-function _gpickShapeKey(u,tokCounts){
+// A size or a format in the page name is the sharpest single signal there is. On
+// glasstile "7-8-x-7-8-in-bermuda" carries thickness, sheet size and coverage;
+// "bronze-textura" is the same colour with none of it — and the two sit under the very
+// same /products/ path, so a URL prefix alone cannot tell them apart. That is why an
+// import that looked right still came back empty.
+const _GFMT=/(^|-)\d+(-\d+)*-x-\d+|(^|-)\d+x\d+|mosaic|offset|straight-set|blend|trim|liner|bullnose|quarter-round|v-cap|\bsheet\b/i;
+function _gpickIsFormat(u){
+  let last=""; try{ last=new URL(u).pathname.replace(/\/+$/,"").split("/").pop()||""; }catch(e){ last=String(u||""); }
+  return _GFMT.test(last);
+}
+function _gpickShapeKey(u,tokCounts,splitFmt){
   let path=""; try{ path=new URL(u).pathname; }catch(e){ path=String(u||""); }
   const segs=path.replace(/\/+$/,"").split("/").filter(Boolean);
   const last=segs.pop()||"";
@@ -6883,7 +6893,8 @@ function _gpickShapeKey(u,tokCounts){
   // A shared alphabetic prefix is only a real family if plenty of pages carry it —
   // "palette-" names 136 pages, so it is a layer; one-off words are not.
   const useTok = /^[a-z]{3,}$/.test(tok) && tokCounts && (tokCounts[dir+"|"+tok]||0)>=8;
-  return useTok ? dir+"/"+tok+"-*" : dir+"/*";
+  const base = useTok ? dir+"/"+tok+"-*" : dir+"/*";
+  return splitFmt ? base+(_gpickIsFormat(u)?" · size in the name":" · name only") : base;
 }
 function _gpickShapes(list){
   const counts={};
@@ -6894,8 +6905,21 @@ function _gpickShapes(list){
     const tok=(last.split("-")[0]||"").toLowerCase();
     if(/^[a-z]{3,}$/.test(tok)) counts[dir+"|"+tok]=(counts[dir+"|"+tok]||0)+1;
   });
+  // Split a path by that signal only when both halves are substantial — otherwise a
+  // handful of oddly named pages would become their own "layer".
+  const plain={};
+  list.forEach((x,i)=>{ const k=_gpickShapeKey(x.url,counts,false); (plain[k]=plain[k]||[]).push(i); });
+  const splitWorth={};
+  Object.keys(plain).forEach(k=>{
+    const withFmt=plain[k].filter(i=>_gpickIsFormat(list[i].url)).length;
+    splitWorth[k] = withFmt>=5 && (plain[k].length-withFmt)>=5;
+  });
   const groups={};
-  list.forEach((x,i)=>{ const k=_gpickShapeKey(x.url,counts); (groups[k]=groups[k]||[]).push(i); });
+  list.forEach((x,i)=>{
+    const base=_gpickShapeKey(x.url,counts,false);
+    const k=splitWorth[base]?_gpickShapeKey(x.url,counts,true):base;
+    (groups[k]=groups[k]||[]).push(i);
+  });
   return groups;
 }
 // What the samples say. Documents and a real description separate a product page from
@@ -6930,13 +6954,18 @@ async function _gpickAnalyse(){
                    .filter(x=>x.score>=0)
                    .sort((a,b)=>b.score-a.score);
   if(!shapes.length){ _goodsPickerRender(); return; }
-  // Richness ranks the layers, but the top score alone picks the wrong one: on
-  // glasstile "subway-*" (12 pages) edges out the main "/products/*" (257) on
-  // description length, and they are plainly the same layer — a family within it.
-  // So anything scoring near the top counts as the product layer; only a genuinely
-  // thinner shape, like the 136 colour chips, is left out.
-  const best=shapes[0].score;
-  shapes.forEach(x=>{ x.good = x.score >= best*0.75; });
+  // Where to draw the line is the whole question, and a fixed ratio gets it wrong: a
+  // five-page family that happens to score highest would exclude the 131-page layer
+  // right behind it. But the scores are not evenly spread — rich pages cluster, thin
+  // pages cluster, and there is a visible gulf between the two. So cut at the widest
+  // gap rather than at an arbitrary percentage of the top.
+  let cut=shapes.length, widest=0;
+  for(let i=1;i<shapes.length;i++){
+    const gap=shapes[i-1].score-shapes[i].score;
+    if(gap>widest){ widest=gap; cut=i; }
+  }
+  if(widest<3) cut=shapes.length;          // no real divide — they are all one layer
+  shapes.forEach((x,i)=>{ x.good = i<cut; });
   _gpick.shapes=shapes;
   _gpick.sel={};
   shapes.filter(x=>x.good).forEach(sh=>sh.idx.forEach(i=>{ _gpick.sel[i]=true; }));
