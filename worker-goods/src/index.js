@@ -64,6 +64,17 @@ export default {
             return json({ ok: false, error: "refused: would drop " + had + " items to " + b.data.length +
                           ". Pull first, or resend with force:true if this is deliberate.", had, sending: b.data.length }, 409);
           }
+          // Row counts alone do not catch the real loss: two tabs open, the stale one
+          // saves its pre-edit array over the edited one and every count still matches,
+          // so a rename or a price silently reverts. `base` is the savedAt the device
+          // last saw; if the stored copy has moved on since, that device is writing over
+          // work it never loaded.
+          const stored = (prev && prev.savedAt) || "";
+          if (stored && b.base !== undefined && b.base !== stored) {
+            return json({ ok: false, stale: true,
+              error: "refused: the server copy changed after this device loaded it. Pull first.",
+              storedAt: stored, sentBase: b.base || "" }, 409);
+          }
         }
 
         const rec = { savedAt: new Date().toISOString(), by: String(b.by || "").slice(0, 60), data: b.data };
