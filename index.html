@@ -1713,6 +1713,8 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mrail .rnone button{border:0;background:none;font:inherit;font-size:11.5px;font-weight:800;
   color:var(--gm);cursor:pointer;padding:0;text-decoration:underline}
 .prends b{font-weight:800;color:var(--gm);font-variant-numeric:tabular-nums}
+.csz{padding:12px 12px 2px}
+.csz input[type=range]{width:100%;accent-color:var(--gm)}
 .prsl.rail{margin:8px 6px 0}
 .mrail-tab{position:sticky;top:0;display:flex;align-items:center;gap:8px;border:1px solid var(--br);
   background:var(--card);color:var(--tm);border-radius:11px;padding:9px 13px;font:inherit;font-size:12.5px;
@@ -2577,7 +2579,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v689</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v690</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9715,6 +9717,37 @@ function matPriceDrag(which,val){
   if(na) na.value=MAT_PMIN||""; if(nb) nb.value=MAT_PMAX||"";
 }
 function matPriceCommit(){ renderMaterials(); }
+// ── CARD SIZE ─────────────────────────────────────────────────
+// The right minimum is a judgement made by eye, not a number I can guess — so it is a
+// setting you can drag until it looks right. The grid still chooses its own column
+// count; this only sets the floor below which a card is too thin to read.
+function matCardMin(){ const v=+PREFS.matCardMin; return (v>=200&&v<=460)?v:272; }
+function matCardSet(v,live){
+  const n=Math.max(200,Math.min(460,Math.round(+v||272)));
+  PREFS.matCardMin=n;
+  // Apply straight to the grid so it re-flows under your finger; only persist on release.
+  const g=document.querySelector("#view-materials .mgrid");
+  if(g) g.style.gridTemplateColumns=`repeat(auto-fill,minmax(${n}px,1fr))`;
+  const lab=document.getElementById("mat-cardlab");
+  if(lab){ const cols=g?getComputedStyle(g).gridTemplateColumns.split(" ").length:0;
+    lab.textContent=n+"px"+(cols?` · ${cols} across`:""); }
+  if(!live){ prefsSave(); renderMaterials(); }
+}
+function matCardSizeHTML(){
+  if(MAT_VIEW!=="cards") return "";
+  const n=matCardMin();
+  return `<span class="mdd sortdd">
+    <button class="mchip" onclick="event.stopPropagation();matDDToggle(event,'__csize')" title="Card size">${mi("ruler")}${mi("chev")}</button>
+    <div class="mddm${_matDD==="__csize"?" open":""}" onclick="event.stopPropagation()" style="width:250px">
+      <div class="hd">Card width <b id="mat-cardlab" style="float:right;color:var(--gm)">${n}px</b></div>
+      <div class="csz">
+        <input type="range" min="200" max="460" step="4" value="${n}"
+          oninput="matCardSet(this.value,1)" onchange="matCardSet(this.value)">
+      </div>
+      <div class="prends"><span>narrow</span><span>wide</span></div>
+      <div class="ft"><span onclick="event.stopPropagation();matCardSet(272)">Back to 272px</span></div>
+    </div></span>`;
+}
 // ── FILTER RAIL ───────────────────────────────────────────────
 // A header full of dropdowns hides which filters are on. A standing column shows all of
 // them at once, which is what a library of several hundred materials needs. It is the
@@ -10065,6 +10098,7 @@ function _matGrid(host){
          <button class="mchip pri${GOODS_URLBAR==="mat"?" on":""}" onclick="matImportURL()">${mi("link")}Add from URL</button>
          ${matToolsHTML()}
          ${matSortBarHTML()}
+         ${matCardSizeHTML()}
          <span class="gsp"></span>
          <span class="gcols" title="View">
            <button class="${MAT_VIEW==="cards"?"on":""}" onclick="matSetView('cards')" title="Cards">${mi("col4")}</button>
@@ -10088,7 +10122,7 @@ function _matGrid(host){
      <button onclick="matClearTags()">Clear</button></div>`:""}
    ${list.length?"":`<div class="gempty">${mi("box")}<b>Nothing matches</b>
      <span>${MAT_AI?"Try describing it differently, or clear the search.":nT?"No material carries every tag you picked.":"No material in this category yet."}</span></div>`}
-   ${MAT_VIEW==="list" ? matListHTML(list) : MAT_VIEW==="photos" ? matPhotosHTML(list) : `<div class="mgrid">${list.map(m=>{
+   ${MAT_VIEW==="list" ? matListHTML(list) : MAT_VIEW==="photos" ? matPhotosHTML(list) : `<div class="mgrid" style="grid-template-columns:repeat(auto-fill,minmax(${matCardMin()}px,1fr))">${list.map(m=>{
      const seeded=!goodsPriced(m), earn=_matEarn(m), r=[];
      if(F.colour) r.push(`<span class="fr">${mi("swatch")}Colour<b style="display:flex;gap:4px">${m.cols.map(c=>`<i class="msw" style="background:${c}"></i>`).join("")}</b></span>`);
      if(F.stock)  r.push(row("box","Available", seeded?"—":m.stock.toLocaleString()+" sf"));
