@@ -1857,6 +1857,8 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}
 .impb:hover{background:var(--gd)}
 .gwf{padding:9px 14px;border-top:1px solid var(--brl);font-size:11px;color:var(--tl)}
+.gwtext{padding:12px 14px;border-top:1px solid var(--brl);font-size:12.5px;color:var(--tm);line-height:1.6;
+  max-height:260px;overflow-y:auto;white-space:pre-wrap}
 @media(max-width:640px){ .gwr{flex-direction:column;align-items:stretch} }
 .gsearch:focus-within{border-color:var(--gm)}
 .gsearch>svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;color:var(--gm);flex:none}
@@ -2603,7 +2605,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v692</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v693</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9786,7 +9788,7 @@ function matCardSizeHTML(){
 // dealers" is a question about the world, and it is the question that starts every
 // specification — so it searches the web properly, and every result carries a button
 // that runs it straight through the importer.
-let GOODS_WEB=null, GOODS_WEBQ="", GOODS_WEBBUSY=false, GOODS_WEBKIND="mat";
+let GOODS_WEB=null, GOODS_WEBQ="", GOODS_WEBBUSY=false, GOODS_WEBKIND="mat", GOODS_WEBERR="", GOODS_WEBTEXT="";
 function goodsWebClear(){ GOODS_WEB=null; GOODS_WEBQ="";
   try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){} }
 async function goodsWebSearch(kind,q){
@@ -9797,26 +9799,43 @@ async function goodsWebSearch(kind,q){
   try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
   const where=(PREFS.defaults&&PREFS.defaults.location)||"Los Angeles / Orange County";
   const what=kind==="fur"?"outdoor furniture and site furnishings":"landscape materials and hardscape";
+  GOODS_WEBERR=""; GOODS_WEBTEXT="";
+  // Two calls, not one. Asking a model to search the web AND emit strict JSON in the
+  // same breath means the JSON shares its token budget with the search results and the
+  // citations, and any wobble in either loses the lot. So: search freely first, then
+  // convert that answer to JSON in a second, cheap call that cannot fail on length.
+  let prose="";
   try{
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1800,
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2600,
         tools:[{type:"web_search_20250305",name:"web_search",max_uses:5}],
-        system:`You research ${what} suppliers for a landscape architect working in ${where}. `+
-               `Search the web, then output ONLY a minified JSON array as your final message — no prose around it.`,
-        messages:[{role:"user",content:`Find: ${q}
-
-After searching, output ONLY minified JSON:
-[{"nm":"company or product name","url":"https://… the most useful page — a product or collection page where one exists, otherwise the site","what":"what they offer, max 14 words","where":"city, state or country","kind":"manufacturer|dealer|distributor"}]
-Up to 8. Prefer suppliers who serve ${where}. Only real URLs you saw in the search results — never a guessed address.`}]})});
+        system:`You research ${what} suppliers for a landscape architect working in ${where}. Be concrete: name the company, its website, where it is based, and what it actually supplies.`,
+        messages:[{role:"user",content:`Find: ${q}\n\nList up to 8, preferring suppliers who serve ${where}. For each give the company name, the most useful page on their site (a product or collection page if there is one), where they are based, and one line on what they offer.`}]})});
     const d=await r.json();
-    const t=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
-    const a=t.indexOf("["), b=t.lastIndexOf("]");
-    let arr=null;
-    if(a>=0&&b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
-    if(!arr) arr=_salvageJsonObjects(t.slice(Math.max(0,a)));
-    GOODS_WEB=(arr||[]).filter(o=>o&&o.url&&/^https?:/i.test(o.url)).slice(0,8);
-    if(!GOODS_WEB.length) GOODS_WEB=[];
-  }catch(e){ GOODS_WEB=[]; }
+    if(d && d.error){ GOODS_WEBERR=(d.error.message||d.error.type||"the search service refused"); }
+    prose=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n")||"");
+    GOODS_WEBTEXT=prose;
+  }catch(e){ GOODS_WEBERR=(e&&e.message)||"could not reach the search service"; }
+
+  if(prose){
+    try{
+      const r2=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1600,temperature:0,
+          system:"You turn a written answer into structured data. Output only a minified JSON array.",
+          messages:[{role:"user",content:`Turn this into JSON. Output ONLY minified JSON:
+[{"nm":"company or product name","url":"https://…","what":"what they offer, max 14 words","where":"city, state or country","kind":"manufacturer|dealer|distributor"}]
+Only entries that carry a real URL from the text. Never invent one.
+
+${prose}`}]})});
+      const d2=await r2.json();
+      const t=((d2.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+      const a2=t.indexOf("["), b2=t.lastIndexOf("]");
+      let arr=null;
+      if(a2>=0&&b2>a2){ try{ arr=JSON.parse(t.slice(a2,b2+1)); }catch(e){} }
+      if(!arr) arr=_salvageJsonObjects(t.slice(Math.max(0,a2)));
+      GOODS_WEB=(arr||[]).filter(o=>o&&o.url&&/^https?:/i.test(o.url)).slice(0,8);
+    }catch(e){ GOODS_WEB=[]; GOODS_WEBERR=GOODS_WEBERR||"could not read the results"; }
+  } else { GOODS_WEB=[]; }
   GOODS_WEBBUSY=false;
   try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
 }
@@ -9828,8 +9847,16 @@ function goodsWebHTML(kind){
   if(GOODS_WEBKIND!==kind) return "";
   if(GOODS_WEBBUSY) return `<div class="gres busy">${mi("spark")}<span>Searching the web for “${escAttr(GOODS_WEBQ)}”…</span></div>`;
   if(!GOODS_WEB) return "";
-  if(!GOODS_WEB.length) return `<div class="gres">${mi("spark")}<span>Nothing useful found for “${escAttr(GOODS_WEBQ)}”.</span>
-    <button onclick="goodsWebClear()">Clear</button></div>`;
+  if(!GOODS_WEB.length){
+    // An empty answer and a failed request look identical to you unless one of them says so.
+    return `<div class="gweb">
+      <div class="gwh">${mi("spark")}<b>${GOODS_WEBERR?"Search failed":"Nothing with a website found"}</b>
+        <span>for “${escAttr(GOODS_WEBQ)}”${GOODS_WEBERR?" — "+escAttr(GOODS_WEBERR):""}</span>
+        <button onclick="goodsWebClear()">Clear</button></div>
+      ${GOODS_WEBTEXT?`<div class="gwtext">${escAttr(GOODS_WEBTEXT).replace(/\n/g,"<br>")}</div>`:""}
+      <div class="gwf">${GOODS_WEBERR?"Try again — web search occasionally times out.":"Try naming the material and a place, e.g. “vein cut limestone dealers Southern California”."}</div>
+    </div>`;
+  }
   return `<div class="gweb">
     <div class="gwh">${mi("spark")}<b>${GOODS_WEB.length} found on the web</b>
       <span>for “${escAttr(GOODS_WEBQ)}”</span>
