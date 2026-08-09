@@ -2485,7 +2485,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v677</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v678</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7600,6 +7600,55 @@ ${blob}`}]})});
     try{ _toast(n+" item"+(n===1?"":"s")+" marked on sale","#9B7B3A"); }catch(e){}
   } finally { _saleBusy=false; }
 }
+// ── HOW MUCH OF IT ────────────────────────────────────────────
+// The paving area is the wrong quantity for most materials. Glass mosaic goes on a
+// waterline, a basin or a water wall — never across a patio — so the figure comes from
+// the estimate lines that describe that work, and if none of them are switched on the
+// honest answer is nothing, not 2,134 sf of patio.
+// LF lines carry a band height: waterline tile is a 6-inch course, so a linear foot is
+// half a square foot of tile.
+const MAT_AREA_SRC=[
+  { re:/glass.?(tile|mosaic)|mosaic|waterline|pool.?tile|submerged/i, what:"water and pool tiling",
+    lines:[["pool", /waterline tile/i,            0.5],
+           ["pool", /interior finish — full tile/i,1],
+           ["water",/basin finish — glass tile/i,  1],
+           ["water",/water veneer — glass tile/i,  1],
+           ["water",/coping — tile cap/i,         0.9]] },
+  { re:/\btile\b|porcelain/i, what:"tiled surfaces",
+    lines:[["water",/basin finish — porcelain tile/i,1],
+           ["water",/water veneer — porcelain tile/i,1],
+           ["pool", /interior finish — full tile/i,  1],
+           ["paving",/porcelain pavers/i,            1]] },
+  { re:/veneer|ledgestone/i, what:"wall veneer",
+    lines:[["walls",/veneer/i,1],["water",/water veneer — (stone|ledgestone)/i,1]] },
+  { re:/coping/i, what:"coping", lines:[["pool",/^coping/i,0.9]] },
+  { re:/deck/i,   what:"decking", lines:[["woodMetal",/deck/i,1]] },
+];
+// Sum only the lines that are actually switched on, because an unticked line is work
+// that is not in this project.
+function matAreaFromEstimate(m){
+  const hay=[m&&m.cat,m&&m.nm,m&&m.fin,(m&&m.tags||[]).join(" ")].filter(Boolean).join(" ");
+  const src=MAT_AREA_SRC.find(x=>x.re.test(hay));
+  if(!src) return null;                      // not a special case — the caller falls back to paving
+  let sf=0; const from=[];
+  src.lines.forEach(([catId,re,perUnit])=>{
+    const cs=S.cats&&S.cats[catId]; if(!cs||!cs.items) return;
+    cs.items.forEach(it=>{
+      if(!it||!it.checked) return;
+      if(!re.test(it.n||"")) return;
+      const q=+it.q||0; if(!(q>0)) return;
+      sf+=q*perUnit;
+      from.push(`${it.n} ${q.toLocaleString()} ${(it.u||"sf").toLowerCase()}`);
+    });
+  });
+  return {sf:Math.round(sf), from, what:src.what};
+}
+function matAreaAuto(m){
+  const est=matAreaFromEstimate(m);
+  if(est) return est;
+  let sf=0; try{ sf=Math.max(0,Math.round(secArea("paving"))); }catch(e){}
+  return {sf, from:sf?["paving area"]:[], what:"paving"};
+}
 // ── INSTALL RATE ──────────────────────────────────────────────
 // The install cost of a material is not a property of the material — it is a rate in
 // the Price Book, shared by everything of that type. So the item reads it from there,
@@ -9721,10 +9770,10 @@ function _matPanelHTML(){
       <div class="mp-row"><span>Thickness</span><b>${escAttr(m.thick)}</b></div>
       <div class="mp-row"><span>Distance</span><b>${m.dist} mi</b></div>
     </div>`;
-  // From the estimate, but a material rarely covers the whole paving area — so it is
-  // typed over here without touching the estimate itself.
-  const SFauto=(function(){ try{ return Math.max(0,Math.round(secArea("paving")))||640; }catch(e){ return 640; } })();
-  const SF=(+m.areaSF>0)?Math.round(+m.areaSF):SFauto;
+  // From the estimate lines that describe this kind of work — typed over here when you
+  // know better, without touching the estimate itself.
+  const AA=matAreaAuto(m);
+  const SF=(+m.areaSF>0)?Math.round(+m.areaSF):AA.sf;
   const earn=_matEarn(m), resale=matModel()==="resale", on=matpOn();
   return `
     ${on.earn?(matModel()==="fee"
@@ -9736,9 +9785,12 @@ function _matPanelHTML(){
           <span class="s">$${earn.toFixed(2)} per sf — ${resale?"you carry the invoice and the freight claim":"paid by the supplier on their invoice"}</span>
         </div>`):""}
     ${on.proj?`<div class="mp-card"><span class="k">On this project</span>
-      <div class="mp-row"><span>Area${(+m.areaSF>0)?" — yours":" — from the estimate"}</span>
+      <div class="mp-row"><span>Area${(+m.areaSF>0)?" — yours":""}</span>
         <b><input class="mp-num" type="number" step="10" min="0" value="${SF}"
           onchange="matSetArea('${m.id}',this.value)"> sf</b></div>
+      ${(+m.areaSF>0)?`<span class="s">Typed in. Clear it to go back to the estimate.</span>`
+        : AA.from.length ? `<span class="s">From the estimate — ${escAttr(AA.from.slice(0,2).join(", "))}${AA.from.length>2?" +"+(AA.from.length-2):""}</span>`
+        : `<span class="s" style="color:var(--gold)">Nothing in the estimate covers ${escAttr(AA.what)} yet — add the quantity here or switch that line on in the Estimate.</span>`}
       <div class="mp-row"><span>${resale?"You pay":"Client pays"}</span><b>${fmtN((resale?m.cost:m.msrp)*SF)}</b></div>
       ${resale?`<div class="mp-row"><span>You bill</span><b>${fmtN(m.bill*SF)}</b></div>`:""}
       ${matModel()==="fee"?"":`<div class="mp-hi"><span class="v">${fmtN(earn*SF)}</span><span class="l">you earn</span></div>`}
