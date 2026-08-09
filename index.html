@@ -1928,6 +1928,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gedit .ged input:focus{outline:none;border-color:var(--gm);background:var(--card)}
 .gedit h4{display:flex;align-items:center}
 .gedn{font-size:11px;color:var(--tl);line-height:1.55;padding-top:9px}
+.mkv .lnk{border:0;background:none;font:inherit;font-size:11.5px;font-weight:800;color:var(--gm);cursor:pointer;padding:0;text-decoration:underline}
 .gedn button{border:0;background:none;font:inherit;font-size:11px;font-weight:800;color:var(--gm);cursor:pointer;padding:0;text-decoration:underline}
 .gedb{display:flex;gap:7px;flex-wrap:wrap;padding-top:9px}
 .gedb button{border:1px solid var(--br);background:var(--card);font:inherit;font-size:11px;font-weight:700;
@@ -2462,7 +2463,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v674</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v675</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7376,7 +7377,7 @@ function goodsBrandFor(pageBrand,site){
 function goodsMaker(x){ return (x&&x.brand)||(x&&x.sup)||""; }
 // Priced = usable. Derived, never stored, so it cannot fall out of step with the
 // number on the card the way the old `claimed` flag did.
-function goodsPriced(x){ return !!x && ((+x.msrp>0)||(+x.cost>0)||(+x.bill>0)); }
+function goodsPriced(x){ return !!x && ((+x.msrp>0)||(+x.cost>0)||(+x.client>0)||(+x.designer>0)); }
 
 // ── COLOUR FROM THE PRODUCT PHOTO ─────────────────────────────
 // The model was asked to name a tile's colours from page text, which is why almost
@@ -7452,6 +7453,118 @@ async function goodsFillColours(book){
     (ok<todo.length?`\n\n${todo.length-ok} photo${todo.length-ok>1?"s were":" was"} unreadable — those keep the colours they had.`:""));
 }
 
+// ── THE FOUR PRICES ───────────────────────────────────────────
+// One product carries several numbers and they are not interchangeable. MSRP is the
+// published list. The client price is what this client pays — often list less a
+// discount the designer negotiated. The designer price is the rate the designer is
+// personally offered. The contractor price is the trade rate. Which of them lands in
+// an estimate is a decision made per brand, once, not per item every time.
+const GOODS_BASES=[["msrp","MSRP"],["client","Client price"],["designer","Designer price"],["cost","Contractor price"]];
+function goodsBasisTable(){ PREFS.goodsBasis=PREFS.goodsBasis||{sup:{},brand:{}};
+  PREFS.goodsBasis.sup=PREFS.goodsBasis.sup||{}; PREFS.goodsBasis.brand=PREFS.goodsBasis.brand||{};
+  return PREFS.goodsBasis; }
+function goodsBasisOf(x){
+  const t=goodsBasisTable();
+  if(x&&x.brand&&t.brand[x.brand]) return t.brand[x.brand];
+  if(x&&x.sup&&t.sup[x.sup])       return t.sup[x.sup];
+  return PREFS.goodsBasisDefault||"client";
+}
+function goodsBasisSetFor(kind,who,book){
+  const t=goodsBasisTable();
+  const cur=t[kind][who]||"";
+  const next=GOODS_BASES.map(b=>b[0]);
+  const i=next.indexOf(cur);
+  t[kind][who]=next[(i+1)%next.length];        // cycles through the four on each tap
+  prefsSave();
+  try{ book==="furnishings"?renderFurnishings():renderMaterials(); }catch(e){}
+  try{ _toast(who+" — estimates use the "+(GOODS_BASES.find(b=>b[0]===t[kind][who])||["","?"])[1].toLowerCase(),"#4C7B3D"); }catch(e){}
+}
+// A discount is entered as a percentage off MSRP, because that is how a supplier
+// quotes one — and the money figure follows from it rather than being typed twice.
+function goodsSalePrice(x){
+  const base=+((x&&x.msrp)||0), pct=+((x&&x.salePct)||0);
+  if(!(base>0&&pct>0)) return 0;
+  if(x.saleEnds){ const t=Date.parse(x.saleEnds); if(isFinite(t) && t<Date.now()) return 0; }
+  return Math.round(base*(1-pct/100)*100)/100;
+}
+function goodsSaleLive(x){ return goodsSalePrice(x)>0; }
+// The number an estimate should actually multiply by area.
+function goodsEstPrice(x){
+  if(!x) return 0;
+  const sale=goodsSalePrice(x);
+  const b=goodsBasisOf(x);
+  const v = b==="msrp" ? (+x.msrp||0)
+          : b==="designer" ? (+x.designer||+x.cost||+x.msrp||0)
+          : b==="cost" ? (+x.cost||0)
+          : (+x.client||+x.msrp||0);
+  // A live sale beats list, but never overrides a trade rate you were quoted directly.
+  if(sale>0 && (b==="msrp"||b==="client")) return Math.min(v||sale, sale);
+  return v;
+}
+// ── INSTALL RATE ──────────────────────────────────────────────
+// The install cost of a material is not a property of the material — it is a rate in
+// the Price Book, shared by everything of that type. So the item reads it from there,
+// and a rate typed here is written back so every similar material picks it up too.
+const MAT_PB_MATCH=[
+  [/porcelain/i,                 "paving", "Porcelain Pavers"],
+  [/travertine|limestone|sandstone|bluestone|slate|natural.?stone/i, "paving", "Natural Stone Paving"],
+  [/flagstone/i,                 "paving", "Natural Stone Paving"],
+  [/\bpaver/i,                   "paving", "Concrete Pavers"],
+  [/gravel|decomposed|\bdg\b/i,  "paving", "Gravel / Decomposed Granite"],
+  [/brick/i,                     "paving", "Brick Paving"],
+  [/concrete/i,                  "paving", "Concrete Flatwork"],
+  [/tile|mosaic|glass/i,         "paving", "Porcelain Pavers"],
+  [/veneer|wall/i,               "walls",  null],
+  [/deck/i,                      "woodMetal", null],
+];
+function matPBLine(m){
+  const hay=[m&&m.cat,m&&m.nm,m&&m.fin,(m&&m.tags||[]).join(" ")].filter(Boolean).join(" ");
+  for(const [re,catId,itemName] of MAT_PB_MATCH){
+    if(!re.test(hay)) continue;
+    const ci=PB.findIndex(c=>c&&c.id===catId); if(ci<0) continue;
+    const items=PB[ci].items||[];
+    let idx = itemName ? items.findIndex(it=>it&&it.n===itemName) : 0;
+    if(idx<0) idx=0;
+    if(!items[idx]) continue;
+    return {ci,idx,it:items[idx],cat:PB[ci].name};
+  }
+  return null;
+}
+// Mid of the book's low–high band is the working rate, the same figure the estimate uses.
+function matInstallRate(m){
+  const L=matPBLine(m); if(!L) return null;
+  const lo=+L.it.lo||0, hi=+L.it.hi||0, std=+L.it.std||0;
+  const rate = std>0 ? std : (lo&&hi ? Math.round((lo+hi)/2*100)/100 : (lo||hi||0));
+  return rate>0 ? {rate,lo,hi,line:L} : null;
+}
+async function matSetInstall(id){
+  const m=matFind(id); if(!m) return;
+  const L=matPBLine(m);
+  if(!L){ alert("No Price Book line matches this material yet.\n\nAdd one in the Price Book and it will show here."); return; }
+  const cur=matInstallRate(m);
+  const v=await appAsk({title:"Installed rate — "+L.it.n,
+    hint:`This is a Price Book rate, not a property of this material. Changing it changes the installed cost of every ${L.it.n.toLowerCase()} on every project.`,
+    type:"number", step:"0.5", min:0, prefix:"$", suffix:"/"+(L.it.u||"SF").toLowerCase(),
+    value:cur?cur.rate:"", ok:"Save to Price Book"});
+  if(v===null) return;
+  const n=Math.max(0,+String(v).replace(/[^0-9.]/g,"")||0);
+  if(!n) return;
+  L.it.std=n;                                  // std is what the book treats as the working figure
+  try{ pbSave(); }catch(e){}
+  try{ _cfgSchedulePush(); }catch(e){}
+  try{ renderMaterials(); }catch(e){}
+  try{ _toast(L.it.n+" set to $"+n+"/"+(L.it.u||"SF").toLowerCase()+" in the Price Book","#4C7B3D"); }catch(e){}
+}
+function matInstallHTML(m){
+  const r=matInstallRate(m);
+  const mat=goodsEstPrice(m);
+  if(!r) return `<div class="mkv"><span>Installed</span><b style="color:var(--tl)">no Price Book line</b></div>`;
+  const total=mat>0 ? mat+r.rate : 0;
+  return `<div class="mkv"><span>Labour — ${escAttr(r.line.it.n)}</span><b>$${r.rate.toFixed(2)}/sf</b></div>`+
+    (total?`<div class="mkv"><span>Installed — material + labour</span><b style="color:var(--gm)">$${total.toFixed(2)}/sf</b></div>`:"")+
+    `<div class="mkv"><span style="color:var(--tl);font-size:11.5px">From the Price Book${r.lo&&r.hi?` · book range $${r.lo}–$${r.hi}`:""}</span>
+      <b><button class="lnk" onclick="matSetInstall('${m.id}')">change</button></b></div>`;
+}
 // ── COMMISSION BY SUPPLIER / BRAND ────────────────────────────
 // You negotiate a rate with a company, not with a paving slab. So the rate lives on the
 // supplier or the brand and every one of their products inherits it — with the brand
@@ -7500,6 +7613,10 @@ function goodsSaveBook(book,force){
   try{ goodsPushNow(book,force).then(ok=>{ if(ok) try{ _toast("Saved to the server ✓","#4C7B3D"); }catch(e){} }); }catch(e){}
   try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
 }
+function goodsSetDate(book,id,field,el){
+  const x=goodsRow(book,id); if(!x) return;
+  x[field]=String(el&&el.value||""); goodsSaveBook(book);
+}
 function goodsSetNum(book,id,field,el){
   const x=goodsRow(book,id); if(!x) return;
   const raw=String(el&&el.value!=null?el.value:"").replace(/[^0-9.]/g,"");
@@ -7543,11 +7660,20 @@ function goodsPriceEditor(book,x){
   const num=(f,l,v)=>`<label class="ged"><span>${l}</span>
     <i>$</i><input type="number" step="0.01" min="0" value="${(+v||0)?(+v).toFixed(2):""}" placeholder="0.00"
       onchange="goodsSetNum('${book}','${x.id}','${f}',this)"><em>${unit}</em></label>`;
+  const basis=goodsBasisOf(x), basisNm=(GOODS_BASES.find(b=>b[0]===basis)||["","Client price"])[1];
+  const sale=goodsSalePrice(x);
   return `<div class="mblk gedit"><h4>${mi("tag")}Pricing</h4>
-    ${num("msrp", isMat?"MSRP — what the client pays":"MSRP", x.msrp)}
-    ${isMat?"":num("sale","Sale price",x.sale)}
-    ${num("cost", isMat?"Contractor cost — what you pay":"Your trade cost", x.cost)}
-    ${matModel()==="resale"?num("bill","You bill",x.bill):""}
+    ${num("msrp","MSRP — published list",x.msrp)}
+    ${num("client","Client price",x.client)}
+    ${num("designer","Designer price",x.designer)}
+    ${num("cost","Contractor price",x.cost)}
+    <label class="ged"><span>Discount off MSRP</span>
+      <input type="number" step="1" min="0" max="90" value="${+x.salePct||""}" placeholder="0"
+        onchange="goodsSetNum('${book}','${x.id}','salePct',this)"><em>%</em></label>
+    ${(+x.salePct>0)?`<label class="ged"><span>Discount ends</span>
+      <input type="date" value="${escAttr(x.saleEnds||"")}" style="width:132px;text-align:left"
+        onchange="goodsSetDate('${book}','${x.id}','saleEnds',this)"><em></em></label>`:""}
+    ${sale?`<div class="gedn" style="color:var(--gm);font-weight:700">Sale price ${unit==="/sf"?"$"+sale.toFixed(2)+"/sf":"$"+sale.toFixed(2)+" each"}${x.saleEnds?" · until "+escAttr(x.saleEnds):""}</div>`:""}
     <label class="ged"><span>Commission</span>
       <input type="number" step="0.5" min="0" max="100" value="${pct||""}" placeholder="0"
         onchange="goodsSetNum('${book}','${x.id}','comm',this)"><em>%</em></label>
@@ -7556,8 +7682,13 @@ function goodsPriceEditor(book,x){
       : d ? `Inherited from ${escAttr(d.who)} (${d.pct}% on every ${d.from==="brand"?"item of that brand":"item from that supplier"}).`
           : `No rate set for this supplier or brand yet.`}</div>
     <div class="gedb">
-      ${x.brand?`<button onclick="goodsCommSetFor('brand','${escAttr(x.brand)}','${book}')">${mi("spark")}Rate for all ${escAttr(x.brand)}</button>`:""}
-      ${x.sup?`<button onclick="goodsCommSetFor('sup','${escAttr(x.sup)}','${book}')">${mi("store")}Rate for all ${escAttr(x.sup)}</button>`:""}
+      ${x.brand?`<button onclick="goodsCommSetFor('brand','${escAttr(x.brand)}','${book}')">${mi("spark")}Commission for all ${escAttr(x.brand)}</button>`:""}
+      ${x.sup&&x.sup!==x.brand?`<button onclick="goodsCommSetFor('sup','${escAttr(x.sup)}','${book}')">${mi("store")}Commission for all ${escAttr(x.sup)}</button>`:""}
+    </div>
+    <div class="gedn" style="border-top:1px solid var(--brl);margin-top:10px;padding-top:10px">
+      Estimates use the <b style="color:var(--gm)">${escAttr(basisNm.toLowerCase())}</b> for everything from
+      ${escAttr(goodsMaker(x)||"this supplier")}.
+      <button onclick="goodsBasisSetFor('${x.brand?"brand":"sup"}','${escAttr(x.brand||x.sup)}','${book}')">change</button>
     </div>
     ${x.msrpAI?`<div class="gedn">${escAttr(goodsPriceSrc(x))} — type a real price over it and the flag clears.</div>`:""}
   </div>`;
@@ -9001,7 +9132,7 @@ function matListHTML(list){
 // Specifying starts from a budget far more often than from a category — "show me
 // paving under $15 a foot" is the real question. The presets are derived from what is
 // actually in the library, so they stay useful as the catalogue changes.
-function matPriceOf(m){ return (+((m&&m.msrp)||0)) || (+((m&&m.cost)||0)) || 0; }
+function matPriceOf(m){ return goodsEstPrice(m) || (+((m&&m.msrp)||0)) || (+((m&&m.cost)||0)) || 0; }
 // Bands are built from the priced rows in the current group, not hard-coded, so a
 // library of $4 mulch and one of $60 glass tile each get sensible steps.
 function matPriceBands(){
@@ -9206,7 +9337,7 @@ function goodsModel(){ try{ const v=(S.earn&&S.earn.model)||PREFS.defaults.goods
 const matModel=goodsModel;
 function _matEarn(m){ const md=matModel();
   if(md==="fee") return 0;                                  // a cost-plus fee earns nothing on the material
-  return md==="resale" ? (m.bill-m.cost) : (m.msrp*goodsCommOf(m)/100); }
+  return md==="resale" ? (goodsEstPrice(m)-(+m.cost||0)) : (goodsEstPrice(m)*goodsCommOf(m)/100); }
 function goodsSetModel(v){ try{ setEarn("model",v); }catch(e){ S.earn=S.earn||{}; S.earn.model=v; }
   try{ renderMaterials(); }catch(e){}
   try{ if(typeof renderFurnishings==="function") renderFurnishings(); }catch(e){}
@@ -9330,8 +9461,8 @@ function _matDetail(host){
         ${kv([["Category",m.cat],["Finish",m.fin],["Thickness",m.thick],["Sizes",m.sizes],
               ["Slip",m.slip],["ADA",m.ada],["Heat",m.heat]])}</div>
       <div class="mblk"><h4>${mi("layers")}Installation</h4>
-        ${kv([["Method",m.method],["Labour",m.labour],["Bedding",m.bed],["Edge restraint",m.edge],
-              ["Joint",m.joint],["Installed",m.inst]])}</div>
+        ${matInstallHTML(m)}
+        ${kv([["Method",m.method],["Bedding",m.bed],["Edge restraint",m.edge],["Joint",m.joint]])}</div>
       <div class="mblk"><h4>${mi("truck")}Supply</h4>
         <div class="mkv"><span>Brand</span><b>${escAttr(m.brand||"—")}</b></div>
         ${kv([["Supplier",m.sup],["Location",m.loc+" · "+m.dist+" mi"],
@@ -9564,7 +9695,7 @@ function furOnSale(f){ return +f.sale>0 && +f.sale < +f.msrp; }
 function furPrice(f){ return furOnSale(f) ? +f.sale : +f.msrp; }
 function _furEarn(f){ const md=goodsModel();
   if(md==="fee"||!goodsPriced(f)) return 0;
-  return md==="resale" ? (furPrice(f)-f.cost) : (furPrice(f)*goodsCommOf(f)/100); }
+  return md==="resale" ? (goodsEstPrice(f)-(+f.cost||0)) : (goodsEstPrice(f)*goodsCommOf(f)/100); }
 
 function furFields(){ const o=(PREFS.furFields||null); return o||Object.assign({},FUR_FIELDS_DEFAULT); }
 function furSetField(k){ const f=furFields(); if(f[k]) delete f[k]; else f[k]=1;
