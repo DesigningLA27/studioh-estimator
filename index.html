@@ -2170,7 +2170,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v630</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v631</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6778,6 +6778,93 @@ async function goodsFetchImages(book){
   try{ book==="materials"?matSave():furSave(); }catch(e){}
   try{ _toast("Images stored on your server","#4C7B3D"); }catch(e){}
 }
+// ── BRAND ─────────────────────────────────────────────────────
+// A product page says whatever that page happens to say — an internal acronym, a SKU
+// prefix, or nothing. The brand belongs to the SITE, not to the product, so resolve it
+// once from the home page and apply it to everything from that domain.
+// glasstile.com is the case in point: not one of its 118 product pages contains the
+// word "Oceanside", yet its home page is titled "Oceanside GlassTile".
+const _brandCache={};
+function _brandHost(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
+async function goodsBrandForHost(host,pageBrand){
+  host=String(host||"").replace(/^www\./,"");
+  if(!host) return null;
+  if(_brandCache[host]) return _brandCache[host];
+  const sc=await goodsScrape("https://"+host+"/");
+  if(!sc||sc.err) return (_brandCache[host]={brand:pageBrand||"",alt:[]});
+  const m=sc.meta||{}, site=m["og:site_name"]||"", title=sc.title||"";
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  // The heuristic answer first: a home-page <title> is nearly always the trading name,
+  // usually with the site name tacked on after a dash.
+  let brand=String(title).split(/\s+[–|—-]\s+/)[0].trim().slice(0,60);
+  let alt=[site,pageBrand,host.split(".")[0]].filter(Boolean);
+  if(ep){
+    try{
+      const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,
+          system:"You identify the company a website belongs to. Output only minified JSON. Use only names that appear in the supplied text — never a name you know from elsewhere.",
+          messages:[{role:"user",content:`What brand does this site sell under? Output ONLY minified JSON:
+{"brand":"the full public brand name a designer would recognise","alt":["other names, acronyms or abbreviations the site uses for itself"]}
+The brand must appear verbatim in the text below. If the text names the company only by an acronym, return that acronym as the brand.
+
+SITE: ${host}
+TITLE: ${title}
+og:site_name: ${site}
+BRAND ON A PRODUCT PAGE: ${pageBrand||"(none)"}
+
+PAGE TEXT:
+${String(sc.text||"").slice(0,4000)}`}]})});
+      const d=await r.json();
+      let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
+      const a=t.indexOf("{"), b=t.lastIndexOf("}");
+      if(a>=0&&b>a){ const o=JSON.parse(t.slice(a,b+1));
+        if(o.brand) brand=String(o.brand).trim().slice(0,60);
+        if(Array.isArray(o.alt)) alt=alt.concat(o.alt.map(x=>String(x).trim()).filter(Boolean)); }
+    }catch(e){}
+  }
+  // Everything the brand is also known by is worth keeping — it is what makes the row
+  // findable by whichever name you happen to type.
+  const seen={}, keep=[];
+  alt.concat([host]).forEach(x=>{ const k=String(x).toLowerCase();
+    if(!k||k===brand.toLowerCase()||seen[k]) return; seen[k]=1; keep.push(String(x)); });
+  return (_brandCache[host]={brand:brand||pageBrand||host, alt:keep.slice(0,6)});
+}
+// Repair what is already in the book. Groups by domain so a site is resolved once,
+// not once per product.
+async function goodsFixBrands(book){
+  const arr = book==="materials" ? MATERIALS : FURNISHINGS;
+  const hosts={};
+  arr.forEach(x=>{ if(!x||!x.srcUrl) return; const h=_brandHost(x.srcUrl); if(h) (hosts[h]=hosts[h]||[]).push(x); });
+  const keys=Object.keys(hosts);
+  if(!keys.length){ alert("Nothing here was imported from a URL, so there is no site to read a brand from."); return; }
+  try{ _toast("Reading "+keys.length+" supplier site"+(keys.length>1?"s":"")+"…","#6A4FA3"); }catch(e){}
+  const plan=[];
+  for(const h of keys){
+    const rows=hosts[h];
+    const res=await goodsBrandForHost(h,(rows[0]&&rows[0].sup)||"");
+    if(!res||!res.brand) continue;
+    const changing=rows.filter(x=>String(x.sup||"")!==res.brand);
+    plan.push({host:h,rows,res,changing:changing.length});
+  }
+  if(!plan.length){ alert("Couldn't read a brand from any of those sites."); return; }
+  const lines=plan.map(p=>`  ${p.host}\n    ${p.changing?`${(p.rows[0].sup||"—")} → ${p.res.brand}`:`${p.res.brand} (already correct)`}`+
+    (p.res.alt.length?`\n    also searchable as: ${p.res.alt.join(", ")}`:"")+
+    `\n    ${p.rows.length} item${p.rows.length>1?"s":""}`).join("\n\n");
+  if(!confirm(`Supplier names read from each site:\n\n${lines}\n\nApply?`)) return;
+  let n=0;
+  plan.forEach(p=>p.rows.forEach(x=>{
+    if(String(x.sup||"")!==p.res.brand) n++;
+    x.sup=p.res.brand;
+    x.supAlt=p.res.alt.slice();
+  }));
+  try{ book==="materials"?matSave():furSave(); }catch(e){}
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+  alert(`${n} item${n===1?"":"s"} renamed.\n\nThe old name still finds them — searching either name works.`);
+}
+// Every name a row answers to, for the plain-text search.
+function goodsAliasText(x){
+  return [x.sup,(x.supAlt||[]).join(" "),_brandHost(x.srcUrl||"")].filter(Boolean).join(" ");
+}
 // What to actually paint. `imgs` is the gallery, `img` the chosen primary.
 function goodsImgs(x){
   if(!x) return [];
@@ -7010,6 +7097,10 @@ async function _goodsImportOne(kind,url,host,quiet){
   if(!o.nm){ if(!quiet) alert("Couldn't find a product on that page."); return false; }
   const id=(isMat?"m":"f")+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
   const tags=(o.tags||[]).map(x=>goodsAddTag(x)).filter(Boolean);
+  // The site is asked once and the answer cached, so importing 118 products costs one
+  // extra page read, not 118.
+  let brand=null; try{ brand=await goodsBrandForHost(_brandHost(url)||host, o.sup||""); }catch(e){}
+  const sup=(brand&&brand.brand)||o.sup||host, supAlt=((brand&&brand.alt)||[]).slice();
   // Store the supplier's own links now so the row lands with a picture on it, and
   // copy them into R2 afterwards. Waiting on three uploads per product is what made
   // importing a hundred of them take so long, and it lost the picture when it failed.
@@ -7020,7 +7111,7 @@ async function _goodsImportOne(kind,url,host,quiet){
       +(extra||"")+" Add your cost and commission to claim it."]];
   if(isMat){
     const unit=String(o.unit||"").toLowerCase(), perSf=unit==="sf";
-    MATERIALS.unshift({id,nm:o.nm,cat:cats.indexOf(o.cat)>=0?o.cat:"Paving",fin:o.fin||"—",sup:o.sup||host,loc:"—",dist:0,
+    MATERIALS.unshift({id,nm:o.nm,cat:cats.indexOf(o.cat)>=0?o.cat:"Paving",fin:o.fin||"—",sup,supAlt,loc:"—",dist:0,
       claimed:0,tags,cols:(o.cols&&o.cols.length?o.cols:["#B9AC97"]).slice(0,3),imgs,img:imgs[0]||"",
       msrp:perSf?(+o.msrp||0):0,cost:0,bill:0,comm:0,stock:0,lead:"—",
       listPrice:+o.msrp||0,listUnit:unit,
@@ -7033,7 +7124,7 @@ async function _goodsImportOne(kind,url,host,quiet){
     else { try{ renderMaterials(); }catch(e){} }
   } else {
     FURNISHINGS.unshift({id,nm:o.nm,cat:FUR_CATS.indexOf(o.cat)>=0?o.cat:"Accessories",
-      sup:o.sup||host,loc:"—",dist:0,claimed:0,tags,
+      sup,supAlt,loc:"—",dist:0,claimed:0,tags,
       cols:(o.cols&&o.cols.length?o.cols:["#8C7F6B"]).slice(0,3),imgs,img:imgs[0]||"",
       msrp:+o.msrp||0,sale:+o.sale||0,cost:0,comm:0,stock:0,lead:"—",
       dims:o.dims||"—",seat:o.seat||"—",weight:o.weight||"—",frame:o.frame||"—",
@@ -7370,7 +7461,7 @@ function _matGrid(host){
     // every selected tag must be present — narrowing, not widening
     .filter(m=>!nT || tsel.every(t=>(m.tags||[]).indexOf(t)>=0))
     // literal text filter, live as you type; AI (below) replaces it when run
-    .filter(m=>!ql||!!MAT_AI||((m.nm+" "+m.cat+" "+m.sup+" "+m.fin+" "+(m.tags||[]).join(" ")).toLowerCase().indexOf(ql)>=0));
+    .filter(m=>!ql||!!MAT_AI||((m.nm+" "+m.cat+" "+m.sup+" "+m.fin+" "+(m.tags||[]).join(" ")+" "+goodsAliasText(m)).toLowerCase().indexOf(ql)>=0));
   if(MAT_AI){ const rank={}; MAT_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(m=>rank[m.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
   else list=list.slice().sort((a,b)=>(b.claimed-a.claimed) || (_matEarn(b)-_matEarn(a)));
@@ -7401,6 +7492,7 @@ function _matGrid(host){
          <button class="mchip" onclick="openPriceSheet('materials')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
          <button class="mchip" onclick="goodsEstimateUnpriced('materials')" title="AI market estimate for anything unpriced">${mi("spark")}Estimate</button>
          <button class="mchip" onclick="goodsFetchImages('materials')" title="Re-read the supplier page for anything with no picture">${mi("zoom")}Get images</button>
+         <button class="mchip" onclick="goodsFixBrands('materials')" title="Read each supplier site for its real brand name">${mi("store")}Fix brands</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
@@ -7774,7 +7866,7 @@ function _furGrid(host){
   let list=FURNISHINGS.filter(f=>FUR_CAT==="All"||f.cat===FUR_CAT)
     .filter(f=>!nT || tsel.every(t=>(f.tags||[]).indexOf(t)>=0))
     // literal text filter, live as you type; AI (below) replaces it when run
-    .filter(f=>!ql||!!FUR_AI||((f.nm+" "+f.cat+" "+f.sup+" "+f.frame+" "+(f.tags||[]).join(" ")).toLowerCase().indexOf(ql)>=0));
+    .filter(f=>!ql||!!FUR_AI||((f.nm+" "+f.cat+" "+f.sup+" "+f.frame+" "+(f.tags||[]).join(" ")+" "+goodsAliasText(f)).toLowerCase().indexOf(ql)>=0));
   if(FUR_AI){ const rank={}; FUR_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(f=>rank[f.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
   else list=list.slice().sort((a,b)=>(b.claimed-a.claimed) || (_furEarn(b)-_furEarn(a)));
@@ -7816,6 +7908,7 @@ function _furGrid(host){
          <button class="mchip" onclick="openPriceSheet('furnishings')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
          <button class="mchip" onclick="goodsEstimateUnpriced('furnishings')" title="AI market estimate for anything unpriced">${mi("spark")}Estimate</button>
          <button class="mchip" onclick="goodsFetchImages('furnishings')" title="Re-read the supplier page for anything with no picture">${mi("zoom")}Get images</button>
+         <button class="mchip" onclick="goodsFixBrands('furnishings')" title="Read each supplier site for its real brand name">${mi("store")}Fix brands</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
