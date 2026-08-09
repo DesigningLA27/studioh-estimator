@@ -2221,7 +2221,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v637</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v638</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7405,6 +7405,7 @@ async function goodsSyncBoot(){
   if(stranded) try{ _toast(stranded+" library items are only on this device — add your admin key in Settings to save them","#9B7B3A"); }catch(e){}
   else if(pushed) try{ _toast(pushed+" library items saved to the server ✓","#4C7B3D"); }catch(e){}
   try{ await goodsAutoBrands(); }catch(e){}
+  try{ await goodsAutoPrices(); }catch(e){}
 }
 try{ window.addEventListener("load",()=>setTimeout(()=>{ try{ goodsSyncBoot(); }catch(e){} }, 2500)); }catch(e){}
 
@@ -7513,7 +7514,14 @@ async function goodsAIPrice(book,ids){
   const rows=lib.filter(x=>ids.indexOf(x.id)>=0);
   if(!rows.length) return 0;
   const where=(PREFS.defaults&&PREFS.defaults.location)||"Los Angeles / Orange County";
-  const list=rows.map((x,i)=>`${i+1}. ${x.nm}${x.sup&&x.sup!=="—"?" — "+x.sup:""}${x.cat?" ("+x.cat+")":""}${x.fin&&x.fin!=="—"?", "+x.fin:""}`).join("\n");
+  // The more the model knows about the product, the tighter the range. Brand, size and
+  // thickness move a stone price more than the category does.
+  const bit=v=>(v&&v!=="—")?String(v):"";
+  const list=rows.map((x,i)=>{
+    const parts=[bit(goodsMaker(x)),bit(x.cat),bit(x.fin),bit(x.sizes),bit(x.thick),
+                 bit(x.dims),bit(x.frame),(x.tags||[]).slice(0,3).join(" ")].filter(Boolean);
+    return `${i+1}. ${x.nm}${parts.length?" — "+parts.join(", "):""}`;
+  }).join("\n");
   const prompt=`Typical MATERIAL-ONLY cost for these in ${where}, current market. Output ONLY a minified JSON array:
 [{"i":1,"lo":0,"hi":0,"unit":"sf|each|lf|ton","conf":"high|med|low","note":"max 12 words"}]
 lo/hi = realistic trade-to-retail range, numbers only, no labour or installation.
@@ -7553,10 +7561,43 @@ ${list}`;
     return n;
   }catch(e){ return 0; }
 }
+// Same rule as brand names: a library that needs you to find a button is a library
+// that stays empty. Anything with no price gets one in the background — flagged as an
+// AI estimate, replaced the moment a price sheet or a typed figure arrives.
+// aiTried stops a row the model could not price from being asked again on every load.
+let _priceBusy=false;
+async function goodsAutoPrices(){
+  if(_priceBusy) return; _priceBusy=true;
+  try{ await _goodsAutoPrices(); } finally{ _priceBusy=false; }
+}
+async function _goodsAutoPrices(){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return;
+  for(const book of ["materials","furnishings"]){
+    const lib=book==="materials"?MATERIALS:FURNISHINGS;
+    if(!Array.isArray(lib)) continue;
+    const todo=lib.filter(x=>x&&x.nm&&!(+x.msrp>0)&&!x.msrpAI&&!x.aiTried).map(x=>x.id);
+    if(!todo.length) continue;
+    try{ _toast("Estimating "+todo.length+" price"+(todo.length===1?"":"s")+"…","#9B7B3A"); }catch(e){}
+    let n=0;
+    for(let i=0;i<todo.length;i+=15){
+      const batch=todo.slice(i,i+15);
+      n+=await goodsAIPrice(book,batch);
+      // Mark the whole batch, not just what came back, or an unpriceable row is
+      // re-sent on every single load for ever.
+      batch.forEach(id=>{ const x=lib.find(r=>r&&r.id===id); if(x) x.aiTried=1; });
+      if(i+15<todo.length){ try{ _toast(`Estimating… ${Math.min(i+15,todo.length)}/${todo.length}`,"#9B7B3A"); }catch(e){} }
+    }
+    if(n){ goodsSaveBook(book);
+      try{ _toast(n+" price"+(n===1?"":"s")+" estimated — flagged as AI, tap one to type a real price","#9B7B3A"); }catch(e){} }
+    else { try{ book==="materials"?matSave():furSave(); }catch(e){} }
+  }
+}
 async function goodsEstimateUnpriced(book){
   const lib=book==="materials"?MATERIALS:FURNISHINGS;
   const todo=lib.filter(x=>!(x.msrp>0)).map(x=>x.id);
   if(!todo.length){ alert("Everything in this library already has a price."); return; }
+  todo.forEach(id=>{ const x=lib.find(r=>r&&r.id===id); if(x) delete x.aiTried; });   // an explicit retry
   if(!confirm("Estimate a market price for "+todo.length+" unpriced item"+(todo.length===1?"":"s")+"?\n\n"
     +"These are AI estimates from typical market rates, not supplier quotes. They are flagged everywhere they appear, and a real price from a supplier sheet always replaces them.")) return;
   try{ _toast("Estimating "+todo.length+" prices…","#6A4FA3"); }catch(e){}
@@ -7809,6 +7850,7 @@ const matSetModel=goodsSetModel;
 function renderMaterials(){
   const host=document.getElementById("mat-body"); if(!host) return;
   try{ goodsAutoBrands(); }catch(e){}
+  try{ goodsAutoPrices(); }catch(e){}
   document.body.classList.toggle("mat-detail", !!MAT_OPEN);
   if(MAT_OPEN){ _matDetail(host); } else { _matGrid(host); }
   try{ renderProSummary(); }catch(e){}
@@ -8225,6 +8267,7 @@ function furClaim(id){
 
 function renderFurnishings(){
   try{ goodsAutoBrands(); }catch(e){}
+  try{ goodsAutoPrices(); }catch(e){}
   const host=document.getElementById("fur-body"); if(!host) return;
   document.body.classList.toggle("mat-detail", !!FUR_OPEN);
   if(FUR_OPEN){ _furDetail(host); } else { _furGrid(host); }
