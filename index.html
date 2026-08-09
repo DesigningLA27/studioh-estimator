@@ -2236,7 +2236,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v640</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v641</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7032,9 +7032,13 @@ function goodsCommSetFor(kind,who,book){
 // A library you cannot correct by hand is a library you stop trusting. Nothing here is
 // scraped or inferred — it is what you type.
 function goodsRow(book,id){ return (book==="materials"?MATERIALS:FURNISHINGS).find(x=>x&&x.id===id)||null; }
-function goodsSaveBook(book){ try{ book==="materials"?matSave():furSave(); }catch(e){}
-  try{ goodsPushNow(book); }catch(e){}          // typed by hand — do not sit in a debounce
-  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){} }
+// An edit you typed reports whether it actually reached the server. "It autosaves"
+// is only worth anything if you can see it happen.
+function goodsSaveBook(book){
+  try{ book==="materials"?matSave():furSave(); }catch(e){}
+  try{ goodsPushNow(book).then(ok=>{ if(ok) try{ _toast("Saved to the server ✓","#4C7B3D"); }catch(e){} }); }catch(e){}
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
 function goodsSetNum(book,id,field,el){
   const x=goodsRow(book,id); if(!x) return;
   const raw=String(el&&el.value!=null?el.value:"").replace(/[^0-9.]/g,"");
@@ -7377,16 +7381,48 @@ try{
   window.addEventListener("pagehide",goodsFlushPending);
   document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") goodsFlushPending(); });
 }catch(e){}
+// A save must never be dropped on the floor. Two lines at the top of this function
+// used to do exactly that: a push while another was in flight simply returned, and so
+// did a device with no admin key — both without a word. The automatic brand and price
+// passes push constantly, so a rename typed at the wrong moment collided with one of
+// them and was thrown away. Now a collision QUEUES, and a missing key is said out loud.
+let _goodsPending={}, _goodsWaiters={}, _goodsNoKeyWarned=false;
 async function goodsPush(book,force,retry){
-  if(_goodsBusy[book]) return;
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
-  if(!key) return;                       // guest device — read-only, never prompt
+  if(!key){
+    if(!_goodsNoKeyWarned){ _goodsNoKeyWarned=true;
+      try{ _toast("Not saved — no admin key on this device. Settings → Master library access.","#B23F3C"); }catch(e){} }
+    _goodsLastErr[book]="no admin key on this device";
+    return false;
+  }
+  // Queued, and the caller waits for the real answer rather than being told "false"
+  // for a save that is about to happen.
+  if(_goodsBusy[book]){
+    _goodsPending[book]={force:!!force};
+    return new Promise(res=>{ (_goodsWaiters[book]=_goodsWaiters[book]||[]).push(res); });
+  }
   _goodsBusy[book]=true;
+  let out=false;
+  try{ out=await _goodsPushOnce(book,key,force,retry); }
+  finally{
+    _goodsBusy[book]=false;
+    const p=_goodsPending[book];
+    if(p){
+      _goodsPending[book]=null;
+      setTimeout(()=>{ goodsPush(book,p.force).then(r=>{
+        const w=_goodsWaiters[book]||[]; _goodsWaiters[book]=[]; w.forEach(f=>f(r));
+      }); },0);
+    } else {
+      const w=_goodsWaiters[book]||[]; _goodsWaiters[book]=[]; w.forEach(f=>f(out));
+    }
+  }
+  return out;
+}
+async function _goodsPushOnce(book,key,force,retry){
   let base=""; try{ base=localStorage.getItem("studioh_goods_"+book+"_at")||""; }catch(e){}
   const d=await _goodsCall({type:"savegoods",book,key,data:_goodsArr(book),by:"Studio H",base,force:!!force});
-  _goodsBusy[book]=false;
-  // Another tab or device saved after this one loaded. Take theirs rather than
-  // overwrite it, and say so — silently clobbering is how work disappears.
+  // Someone saved after this device loaded. Merge rather than discard either side,
+  // then write again on top of what the server actually holds.
   if(d.err&&d.stale&&!retry){
     _goodsLastErr[book]=d.err;
     const srv=await _goodsCall({type:"loadgoods",book});
@@ -7395,17 +7431,12 @@ async function goodsPush(book,force,retry){
       if(book==="materials"){ MATERIALS=merged; try{ localStorage.setItem("studioh_materials_v1",JSON.stringify(MATERIALS)); }catch(e){} }
       else { FURNISHINGS=merged; try{ localStorage.setItem("studioh_furnishings_v1",JSON.stringify(FURNISHINGS)); }catch(e){} }
       try{ localStorage.setItem("studioh_goods_"+book+"_at", srv.savedAt||""); }catch(e){}
-      return goodsPush(book,force,true);          // rebuilt on what the server really holds
+      return _goodsPushOnce(book,key,force,true);
     }
   }
   if(d.err){
-    // A save that fails must say so. This one failed silently, so an edit looked
-    // saved, and the next reload pulled the old copy back over it.
-    try{ _toast("Not saved — "+d.err,"#B23F3C"); }catch(e){}
-    // Keep the reason. "save failed" with no cause is useless when the usual cause is
-    // simply that this device's key does not match the server's.
     _goodsLastErr[book]=d.err;
-    if(/refused/.test(d.err)) try{ _toast("Not saved — "+d.err,"#B23F3C"); }catch(e){}
+    try{ _toast("Not saved — "+d.err,"#B23F3C"); }catch(e){}
     return false;
   }
   _goodsLastErr[book]="";
