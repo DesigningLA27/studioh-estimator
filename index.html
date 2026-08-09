@@ -2236,7 +2236,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v641</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v642</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7032,6 +7032,12 @@ function goodsCommSetFor(kind,who,book){
 // A library you cannot correct by hand is a library you stop trusting. Nothing here is
 // scraped or inferred — it is what you type.
 function goodsRow(book,id){ return (book==="materials"?MATERIALS:FURNISHINGS).find(x=>x&&x.id===id)||null; }
+// Background work saves the same way but says nothing — a "Saved ✓" per batch of
+// estimates would be fifteen toasts for one job.
+function goodsSaveQuiet(book){
+  try{ book==="materials"?matSave():furSave(); }catch(e){}
+  try{ goodsPushNow(book); }catch(e){}
+}
 // An edit you typed reports whether it actually reached the server. "It autosaves"
 // is only worth anything if you can see it happen.
 function goodsSaveBook(book){
@@ -7107,7 +7113,7 @@ function goodsPriceEditor(book,x){
 // site uses for ITSELF, so this can never overwrite a real third-party maker.
 let _brandsBusy=false;
 async function goodsAutoBrands(){
-  if(_brandsBusy) return; _brandsBusy=true;
+  if(!_goodsSynced||_brandsBusy) return; _brandsBusy=true;
   try{ await _goodsAutoBrands(); } finally{ _brandsBusy=false; }
 }
 async function _goodsAutoBrands(){
@@ -7130,8 +7136,8 @@ async function _goodsAutoBrands(){
         if(x.sup!==res.brand||x.brand!==b){ x.sup=res.brand; x.brand=b; x.supAlt=(res.alt||[]).slice(); changed++; }
       });
     }
-    if(changed){ goodsSaveBook(book);
-      try{ _toast(changed+" item"+(changed===1?"":"s")+" — brand resolved","#4C7B3D"); }catch(e){} }
+    if(changed){ goodsSaveQuiet(book);
+      try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){} }
   }
 }
 // Whatever a site publishes about itself, you know the name the industry uses. Typing
@@ -7474,6 +7480,7 @@ async function goodsSyncBoot(){
   }
   if(stranded) try{ _toast(stranded+" library items are only on this device — add your admin key in Settings to save them","#9B7B3A"); }catch(e){}
   else if(pushed) try{ _toast(pushed+" library items saved to the server ✓","#4C7B3D"); }catch(e){}
+  _goodsSynced=true;                                // server copy is in — safe to work on it
   try{ await goodsAutoBrands(); }catch(e){}
   try{ await goodsAutoPrices(); }catch(e){}
 }
@@ -7635,9 +7642,10 @@ ${list}`;
 // that stays empty. Anything with no price gets one in the background — flagged as an
 // AI estimate, replaced the moment a price sheet or a typed figure arrives.
 // aiTried stops a row the model could not price from being asked again on every load.
-let _priceBusy=false;
+let _priceBusy=false, _pricesRan=false, _goodsSynced=false;
 async function goodsAutoPrices(){
-  if(_priceBusy) return; _priceBusy=true;
+  if(!_goodsSynced||_pricesRan||_priceBusy) return;
+  _priceBusy=true; _pricesRan=true;                 // at most one pass per page load
   try{ await _goodsAutoPrices(); } finally{ _priceBusy=false; }
 }
 async function _goodsAutoPrices(){
@@ -7656,10 +7664,12 @@ async function _goodsAutoPrices(){
       // Mark the whole batch, not just what came back, or an unpriceable row is
       // re-sent on every single load for ever.
       batch.forEach(id=>{ const x=lib.find(r=>r&&r.id===id); if(x) x.aiTried=1; });
+      goodsSaveQuiet(book);
       try{ _prog("Estimating prices",Math.min(i+15,todo.length),todo.length); }catch(e){}
     }
-    if(n){ goodsSaveBook(book); try{ _progDone(n+" price"+(n===1?"":"s")+" estimated","#9B7B3A"); }catch(e){} }
-    else { try{ book==="materials"?matSave():furSave(); }catch(e){} try{ _progDone(); }catch(e){} }
+    goodsSaveQuiet(book);
+    try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+    try{ _progDone(n?(n+" price"+(n===1?"":"s")+" estimated"):"",n?"#9B7B3A":""); }catch(e){}
   }
 }
 async function goodsEstimateUnpriced(book){
