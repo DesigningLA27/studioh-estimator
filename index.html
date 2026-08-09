@@ -1761,9 +1761,14 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mcrumb button:hover{border-color:var(--gm);background:var(--brand-soft)}
 .mcrumb .sep{color:var(--tl)}
 /* Source link + delete, on every item */
-/* The maker, said first and said plainly. It is the name you write on a drawing. */
-.mbrand{display:block;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--gm);margin-bottom:4px}
+/* The maker, said first and said plainly. It is the name you write on a drawing, so it
+   leads — but in normal weight, with the product name carrying the bold beneath it. */
+.mcard .mkr{font-size:11.5px;font-weight:500;color:var(--tm);line-height:1.3;letter-spacing:.01em;margin-bottom:-6px}
+.mbrand{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--tm);
+  background:none;border:0;padding:0;margin-bottom:2px;font-family:inherit;cursor:pointer;text-align:left}
+.mbrand:hover{color:var(--gm)}
+.mbrand svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2.2;opacity:0;transition:opacity .13s}
+.mbrand:hover svg{opacity:.7}
 .msrc{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--gm);
   text-decoration:none;border:1px solid var(--br);background:var(--card);border-radius:11px;padding:8px 13px}
 .msrc:hover{border-color:var(--gm);background:var(--brand-soft)}
@@ -2200,7 +2205,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v633</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v634</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7064,14 +7069,17 @@ function goodsPriceEditor(book,x){
 // product. Any row that came from a URL but carries no brand gets resolved on load —
 // one page read per domain, cached, in the background. The only rewrite is a name the
 // site uses for ITSELF, so this can never overwrite a real third-party maker.
-let _brandsAuto=false;
+let _brandsBusy=false;
 async function goodsAutoBrands(){
-  if(_brandsAuto) return; _brandsAuto=true;
+  if(_brandsBusy) return; _brandsBusy=true;
+  try{ await _goodsAutoBrands(); } finally{ _brandsBusy=false; }
+}
+async function _goodsAutoBrands(){
   for(const book of ["materials","furnishings"]){
     const arr=book==="materials"?MATERIALS:FURNISHINGS;
     if(!Array.isArray(arr)) continue;
     const hosts={};
-    arr.forEach(x=>{ if(!x||!x.srcUrl||x.brand) return;
+    arr.forEach(x=>{ if(!x||!x.srcUrl||x.brand||x.brandOwn) return;
       const h=_brandHost(x.srcUrl); if(h) (hosts[h]=hosts[h]||[]).push(x); });
     let changed=0;
     for(const h of Object.keys(hosts)){
@@ -7079,6 +7087,7 @@ async function goodsAutoBrands(){
       try{ res=await goodsBrandForHost(h,(hosts[h][0]&&hosts[h][0].sup)||""); }catch(e){}
       if(!res||!res.brand) continue;
       hosts[h].forEach(x=>{
+        if(x.brandOwn) return;
         const b=goodsBrandFor(x.brand||x.sup||"",res);
         if(x.sup!==res.brand||x.brand!==b){ x.sup=res.brand; x.brand=b; x.supAlt=(res.alt||[]).slice(); changed++; }
       });
@@ -7086,6 +7095,28 @@ async function goodsAutoBrands(){
     if(changed){ goodsSaveBook(book);
       try{ _toast(changed+" item"+(changed===1?"":"s")+" — brand resolved","#4C7B3D"); }catch(e){} }
   }
+}
+// Whatever a site publishes about itself, you know the name the industry uses. Typing
+// it here sets it on every item that carries the old name and marks it yours, so the
+// background pass leaves it alone from then on.
+function goodsRenameBrand(book,cur){
+  const arr=book==="materials"?MATERIALS:FURNISHINGS;
+  const from=String(cur||"").trim();
+  const v=prompt("Brand name\n\nThis is the name you write on a drawing. Changing it here changes it on every item from this brand.", from);
+  if(v===null) return;
+  const to=String(v).trim(); if(!to||to===from) return;
+  let n=0;
+  arr.forEach(x=>{
+    if(!x) return;
+    const mine=(x.brand||x.sup||"");
+    if(mine!==from) return;
+    // Keep the old name searchable — you will type it again out of habit.
+    const alt=(x.supAlt||[]).slice();
+    if(from && alt.indexOf(from)<0) alt.push(from);
+    x.brand=to; x.brandOwn=1; x.supAlt=alt.slice(0,8); n++;
+  });
+  goodsSaveBook(book);
+  try{ _toast(n+" item"+(n===1?"":"s")+" — brand set to "+to,"#4C7B3D"); }catch(e){}
 }
 // Repair what is already in the book. Groups by domain so a site is resolved once,
 // not once per product.
@@ -7733,7 +7764,7 @@ const matSetModel=goodsSetModel;
 
 function renderMaterials(){
   const host=document.getElementById("mat-body"); if(!host) return;
-  if(!_brandsAuto) try{ goodsAutoBrands(); }catch(e){}
+  try{ goodsAutoBrands(); }catch(e){}
   document.body.classList.toggle("mat-detail", !!MAT_OPEN);
   if(MAT_OPEN){ _matDetail(host); } else { _matGrid(host); }
   try{ renderProSummary(); }catch(e){}
@@ -7816,8 +7847,9 @@ function _matGrid(host){
        <span class="img" style="${goodsImgStyle(shot,m.cols[0])}">
          <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}${m.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(m))}">AI price</span>`:""}</span>
          ${shot?`<span class="pop"><i style="background-image:url('${escAttr(shot)}')"></i></span>`:""}</span>
-       <span class="bd"><span class="nm">${escAttr(m.nm)}</span>
-         ${F.supplier?`<span class="sup">${mi("store")}${escAttr(goodsMaker(m))}${(m.brand&&m.sup&&m.brand!==m.sup)?` · via ${escAttr(m.sup)}`:""}${m.fin&&m.fin!=="—"?" · "+escAttr(m.fin):""}</span>`:""}
+       <span class="bd">${goodsMaker(m)?`<span class="mkr">${escAttr(goodsMaker(m))}</span>`:""}
+         <span class="nm">${escAttr(m.nm)}</span>
+         ${F.supplier?`<span class="sup">${mi("store")}${(m.brand&&m.sup&&m.brand!==m.sup)?`via ${escAttr(m.sup)}`:escAttr(m.sup||"")}${m.fin&&m.fin!=="—"?" · "+escAttr(m.fin):""}</span>`:""}
          ${(m.tags&&m.tags.length)?`<span class="tgs">${m.tags.slice(0,3).map(t=>`<i>${escAttr(t)}</i>`).join("")}${m.tags.length>3?`<i class="more">+${m.tags.length-3}</i>`:""}</span>`:""}
          ${r.join("")}
          ${F.earn?(seeded
@@ -7891,7 +7923,7 @@ function _matDetail(host){
        ${m.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(m.priced)}</span>`:""}</span>
    </div>
    <div class="mhd"><span>
-     <span class="mbrand">${escAttr(goodsMaker(m))||"Brand unknown"}</span>
+     <button class="mbrand" onclick="goodsRenameBrand('materials','${escAttr(goodsMaker(m))}')" title="Click to correct the brand name everywhere">${escAttr(goodsMaker(m))||"Set brand"}${mi("plus")}</button>
      <h3>${escAttr(m.nm)}</h3>
      <span class="sub">${mi("store")}${(m.brand&&m.sup&&m.brand!==m.sup)?`via ${escAttr(m.sup)}`:`${escAttr(m.sup||"—")}`}${m.loc&&m.loc!=="—"?", "+escAttr(m.loc):""}${m.dist?" · "+m.dist+" mi":""}</span></span></div>
    <div class="mtabs">${TABS.map(([k,l])=>`<button class="${MAT_TAB===k?"on":""}" onclick="matTab('${k}')">${l}</button>`).join("")}</div>
@@ -8148,6 +8180,7 @@ function furClaim(id){
 }
 
 function renderFurnishings(){
+  try{ goodsAutoBrands(); }catch(e){}
   const host=document.getElementById("fur-body"); if(!host) return;
   document.body.classList.toggle("mat-detail", !!FUR_OPEN);
   if(FUR_OPEN){ _furDetail(host); } else { _furGrid(host); }
@@ -8245,8 +8278,9 @@ function _furGrid(host){
          <span class="zoom">${mi("zoom")}</span>
          <span class="pop"><i style="${shot?`background-image:url('${escAttr(shot)}')`:`background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`}"></i></span>
        </span>
-       <span class="bd"><span class="nm">${escAttr(f.nm)}</span>
-         ${F.supplier?`<span class="sup">${mi("store")}${escAttr(goodsMaker(f))}${(f.brand&&f.sup&&f.brand!==f.sup)?` · via ${escAttr(f.sup)}`:""}</span>`:""}
+       <span class="bd">${goodsMaker(f)?`<span class="mkr">${escAttr(goodsMaker(f))}</span>`:""}
+         <span class="nm">${escAttr(f.nm)}</span>
+         ${F.supplier?`<span class="sup">${mi("store")}${(f.brand&&f.sup&&f.brand!==f.sup)?`via ${escAttr(f.sup)}`:escAttr(f.sup||"")}</span>`:""}
          ${(F.tags&&f.tags&&f.tags.length)?`<span class="tgs">${f.tags.slice(0,3).map(t=>`<i>${escAttr(t)}</i>`).join("")}${f.tags.length>3?`<i class="more">+${f.tags.length-3}</i>`:""}</span>`:""}
          ${r.join("")}
          ${F.earn?(seeded
@@ -8321,7 +8355,7 @@ function _furDetail(host){
        ${f.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(f.priced)}</span>`:""}</span>
    </div>
    <div class="mhd"><span>
-     <span class="mbrand">${escAttr(goodsMaker(f))||"Brand unknown"}</span>
+     <button class="mbrand" onclick="goodsRenameBrand('furnishings','${escAttr(goodsMaker(f))}')" title="Click to correct the brand name everywhere">${escAttr(goodsMaker(f))||"Set brand"}${mi("plus")}</button>
      <h3>${escAttr(f.nm)}</h3>
      <span class="sub">${mi("store")}${(f.brand&&f.sup&&f.brand!==f.sup)?`via ${escAttr(f.sup)}`:`${escAttr(f.sup||"—")}`}${f.loc&&f.loc!=="—"?", "+escAttr(f.loc):""}${f.dist?" · "+f.dist+" mi":""}</span></span></div>
    <div class="mtabs">${TABS.map(([k,l])=>`<button class="${FUR_TAB===k?"on":""}" onclick="furTab('${k}')">${l}</button>`).join("")}</div>
