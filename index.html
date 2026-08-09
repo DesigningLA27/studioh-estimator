@@ -1628,6 +1628,37 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mat-h > span:first-child{flex:1 1 100%}
 .mat-h .sp{margin-left:0;flex:1 1 100%;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .mbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:15px}
+/* Category groups. A flat row of every category stops working the moment a supplier
+   import adds forty of them, so the detail lives one click down instead. */
+.gbar{position:relative;z-index:20}
+.gbar .gw{position:relative}
+.grp{height:36px;padding:0 13px;border-radius:11px;border:1px solid var(--br);background:var(--card);
+  color:var(--tx);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px}
+.grp:hover{border-color:var(--gm)}
+.grp .n{font-size:10.5px;color:var(--tl);font-weight:700;font-variant-numeric:tabular-nums}
+.grp .cv{font-size:8px;color:var(--tl)}
+.grp.on{background:var(--gm);border-color:var(--gm);color:#fff}
+.grp.on .n,.grp.on .cv{color:rgba(255,255,255,.82)}
+.grp.sel{border-color:var(--gm);background:var(--brand-soft);color:var(--gm)}
+.grp.sel .n,.grp.sel .cv{color:var(--gm);opacity:.75}
+.gbar .dd{position:absolute;top:calc(100% + 7px);left:0;z-index:60;background:var(--card);
+  border:1px solid var(--br);border-radius:13px;padding:7px;min-width:236px;
+  box-shadow:0 20px 50px -14px rgba(0,0,0,.42);display:none}
+.gbar .gw.open .dd{display:block}
+.gbar .dd .hd{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tl);padding:6px 9px 5px}
+.gbar .dd .it{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:9px;
+  font-size:12.5px;color:var(--tx);cursor:pointer}
+.gbar .dd .it:hover{background:var(--surface2)}
+.gbar .dd .it.on{background:var(--brand-soft);color:var(--gm);font-weight:700}
+.gbar .dd .it .n{margin-left:auto;font-size:10.5px;color:var(--tl);font-variant-numeric:tabular-nums}
+.gcrumb{font-size:11.5px;color:var(--tl);font-weight:700;margin:-6px 0 13px;
+  display:flex;align-items:center;gap:8px}
+.gcrumb b{color:var(--tx)}
+.gcrumb button{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:7px;
+  padding:3px 9px;font:inherit;font-size:10.5px;font-weight:700;cursor:pointer}
+.gcrumb button:hover{border-color:var(--gm);color:var(--gm)}
 .mchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;background:var(--card);
   border:1px solid var(--br);border-radius:11px;padding:8px 13px;color:var(--tm);cursor:pointer}
 .mchip.on{border-color:var(--gm);color:var(--gm);background:var(--brand-soft)}
@@ -2236,7 +2267,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v646</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v647</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7893,6 +7924,75 @@ function matSetField(k){ const f=matFields(); if(f[k]) delete f[k]; else f[k]=1;
   PREFS.matFields=f; prefsSave(); renderMaterials(); }
 function matAllFields(on){ PREFS.matFields = on ? Object.fromEntries(MAT_FIELDS.map(f=>[f[0],1])) : {};
   prefsSave(); renderMaterials(); }
+// ── CATEGORY TAXONOMY ─────────────────────────────────────────
+// The same four groups the estimate itself is built from, so the library and the
+// Price Book share one vocabulary rather than each inventing its own. A category the
+// data does not use is never drawn, so the menu is only ever as big as the catalogue.
+const MAT_GROUPS=[
+  {id:"prep", nm:"Site prep",     cats:["Base & aggregate","Drainage","Geotextile","Edging & headers"]},
+  {id:"hard", nm:"Hardscape",     cats:["Paving","Tile","Natural stone","Flagstone","Concrete & pavers","Decking","Gravel","Boulder"]},
+  {id:"soft", nm:"Softscape",     cats:["Mulch","Soil & amendments","Synthetic turf","Seed & sod"]},
+  {id:"elem", nm:"Site elements", cats:["Veneer","Pool & water","Metal & glass","Lighting"]},
+];
+function matGroupOf(cat){
+  const c=String(cat||"");
+  for(const g of MAT_GROUPS){ if(g.cats.indexOf(c)>=0) return g.id; }
+  return "other";
+}
+// Counts come from the rows, never from the taxonomy — an empty category is not a
+// category as far as the menu is concerned.
+function matCatCounts(){
+  const n={}; MATERIALS.forEach(m=>{ if(!m) return; const c=m.cat||"—"; n[c]=(n[c]||0)+1; });
+  return n;
+}
+function matGroupCount(gid,counts){
+  if(gid==="other"){ let t=0; Object.keys(counts).forEach(c=>{ if(matGroupOf(c)==="other") t+=counts[c]; }); return t; }
+  const g=MAT_GROUPS.find(x=>x.id===gid); if(!g) return 0;
+  return g.cats.reduce((a,c)=>a+(counts[c]||0),0);
+}
+function matGroupCats(gid,counts){
+  if(gid==="other") return Object.keys(counts).filter(c=>matGroupOf(c)==="other").sort();
+  const g=MAT_GROUPS.find(x=>x.id===gid); if(!g) return [];
+  return g.cats.filter(c=>counts[c]>0);
+}
+// Group buttons, each opening its own categories. Clicking the group name selects it
+// straight away — the dropdown narrows, it is never a required step.
+function matGroupBarHTML(){
+  const counts=matCatCounts(), tot=MATERIALS.length;
+  const groups=MAT_GROUPS.concat([{id:"other",nm:"Other",cats:[]}])
+    .map(g=>({g, n:matGroupCount(g.id,counts), cats:matGroupCats(g.id,counts)}))
+    .filter(x=>x.n>0);
+  const btns=groups.map(({g,n,cats})=>{
+    const on = MAT_GRP===g.id, narrowed = on && MAT_CAT!=="All";
+    const items=cats.map(c=>`<div class="it ${MAT_CAT===c?"on":""}"
+        onclick="event.stopPropagation();matPick('${g.id}','${escAttr(c)}')">${escAttr(c)}<span class="n">${counts[c]}</span></div>`).join("");
+    return `<span class="gw${_matDD===g.id?" open":""}">
+      <button class="grp${narrowed?" sel":on?" on":""}" onclick="matDDToggle(event,'${g.id}')">
+        ${escAttr(g.nm)}<span class="n">${n}</span><span class="cv">▾</span></button>
+      <div class="dd">
+        <div class="hd">${escAttr(g.nm)} — narrow by</div>
+        <div class="it ${on&&MAT_CAT==="All"?"on":""}" onclick="event.stopPropagation();matPick('${g.id}','All')">All ${escAttr(g.nm.toLowerCase())}<span class="n">${n}</span></div>
+        ${items}
+      </div></span>`;
+  }).join("");
+  const path = MAT_CAT!=="All" ? MAT_CAT
+    : MAT_GRP ? (groups.find(x=>x.g.id===MAT_GRP)||{g:{nm:""}}).g.nm : "";
+  return `<div class="mbar gbar">
+    <button class="grp${(!MAT_GRP&&MAT_CAT==="All")?" on":""}" onclick="matPick('','All')">All<span class="n">${tot}</span></button>
+    ${btns}
+  </div>
+  ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b>
+     <button onclick="matPick('','All')">clear</button></div>`:""}`;
+}
+function matSetGroup(gid){ MAT_GRP=gid; MAT_CAT="All"; _matDD=""; renderMaterials(); }
+function matPick(gid,cat){ MAT_GRP=gid||""; MAT_CAT=cat||"All"; _matDD=""; renderMaterials(); }
+function matDDToggle(ev,gid){
+  if(ev) ev.stopPropagation();
+  _matDD = (_matDD===gid) ? "" : gid;
+  renderMaterials();
+}
+document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
+let MAT_GRP="", _matDD="";
 let MAT_CAT="All", MAT_OPEN=null, MAT_TAB="detail";
 // Tag filter, tag-search box, and the AI result set. AI results are held as an
 // ordered id list rather than a filtered array so the ranking it returns survives.
@@ -7925,6 +8025,14 @@ async function matAIGo(q){
   renderMaterials();
 }
 function matSetCat(c){ MAT_CAT=c; renderMaterials(); }
+// A group with no category chosen shows everything in that group; a category narrows
+// inside it. "All" clears both.
+function matInView(m){
+  if(!m) return false;
+  if(MAT_CAT!=="All") return m.cat===MAT_CAT;
+  if(MAT_GRP) return matGroupOf(m.cat)===MAT_GRP;
+  return true;
+}
 function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
@@ -7954,10 +8062,9 @@ function renderMaterials(){
 }
 function _matGrid(host){
   const F=matFields(), nF=Object.values(F).filter(Boolean).length;
-  const cats=["All"].concat(Array.from(new Set(MATERIALS.map(m=>m.cat))));
   const tsel=Object.keys(MAT_TAGS), nT=tsel.length, cols=goodsCols();
   const ql=(MAT_AIQ||"").trim().toLowerCase();
-  let list=MATERIALS.filter(m=>MAT_CAT==="All"||m.cat===MAT_CAT)
+  let list=MATERIALS.filter(m=>matInView(m))
     // every selected tag must be present — narrowing, not widening
     .filter(m=>!nT || tsel.every(t=>(m.tags||[]).indexOf(t)>=0))
     // literal text filter, live as you type; AI (below) replaces it when run
@@ -8001,7 +8108,7 @@ function _matGrid(host){
          </span>
        </span>
      </span></div>
-   <div class="mbar">${cats.map(c=>`<button class="mchip ${MAT_CAT===c?"on":""}" onclick="matSetCat('${escAttr(c)}')">${escAttr(c)}</button>`).join("")}</div>
+   ${matGroupBarHTML()}
    ${MAT_AIBUSY?`<div class="gres busy">${mi("spark")}<span>Searching the catalogue…</span></div>`:""}
    ${(MAT_AI&&!MAT_AIBUSY)?`<div class="gres">${mi("spark")}
      <span><b>${list.length} match${list.length===1?"":"es"}</b>${MAT_AI.why?" · "+escAttr(MAT_AI.why):""}</span>
@@ -8181,7 +8288,7 @@ function matpToggle(id){ const o=matpOn(); if(o[id]) delete o[id]; else o[id]=1;
 function matpReset(){ delete PREFS.matPanel; prefsSave(); renderMaterials(); renderCardsMenu(); }
 function _matLibPanel(){
   const resale=matModel()==="resale";
-  const inView=MATERIALS.filter(m=>MAT_CAT==="All"||m.cat===MAT_CAT);
+  const inView=MATERIALS.filter(m=>matInView(m));
   const claimed=inView.filter(m=>goodsPriced(m));
   const seeded=inView.length-claimed.length;
   const best=claimed.slice().sort((a,b)=>_matEarn(b)-_matEarn(a))[0];
