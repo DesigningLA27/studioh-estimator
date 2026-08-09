@@ -1945,6 +1945,8 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mlopt:last-child{border-bottom:0}
 .mlopt:hover{background:var(--surface2)}
 .mlopt.on{background:var(--brand-soft);color:var(--gm);font-weight:800}
+.mlopt.new{border-bottom:1px solid var(--br);color:var(--gm);font-weight:800}
+.mlopt.new .r{color:var(--gm)}
 .mlopt .n{flex:1}
 .mlopt .n .new{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   color:var(--gold);margin-left:8px}
@@ -2485,7 +2487,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v678</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v679</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7720,7 +7722,12 @@ function matPickLine(id,forBrand){
   h.innerHTML=`<div class="askc" style="width:min(520px,100%)">
     <div class="askt">Installation labour — ${escAttr(m.nm)}</div>
     <div class="askh">Which trade line prices installing this? Glass mosaic in a pool and porcelain paving on a patio are different work at different rates.</div>
-    <div class="mlopts">${opts.map(o=>`
+    <div class="mlopts">
+      <div class="mlopt new" onclick="matNewLine('${m.id}')">
+        <span class="n">＋ New trade line<i class="new">your own rate</i></span>
+        <span class="r">add</span>
+      </div>
+      ${opts.map(o=>`
       <div class="mlopt${cur&&cur.it&&cur.it.n===o.n?" on":""}" onclick="matApplyLine('${m.id}','${escAttr(o.cat)}','${escAttr(o.n)}',0)">
         <span class="n">${escAttr(o.n)}${o.isNew?`<i class="new">adds to your Price Book</i>`:""}</span>
         <span class="r">$${(+o.it.std|| Math.round(((+o.it.lo||0)+(+o.it.hi||0))/2))||0}/${(o.u||"SF").toLowerCase()}</span>
@@ -7732,6 +7739,44 @@ function matPickLine(id,forBrand){
     </div></div>`;
   document.body.appendChild(h);
   requestAnimationFrame(()=>h.classList.add("on"));
+}
+// The book cannot anticipate every trade. A rate you have been quoted for this job is
+// worth keeping, so it goes into the Price Book rather than onto this one material —
+// then it is there for the next project too.
+async function matNewLine(id){
+  const m=matFind(id); if(!m) return;
+  const guess=(m.cat==="Tile"?"Glass tile setting — ":"")+"";
+  const nm=await appAsk({title:"New trade line",
+    hint:"What is this work called? It joins your Price Book, so name it the way you would on a bid.",
+    value:guess, placeholder:"e.g. Glass mosaic — spa waterline", ok:"Next"});
+  if(nm===null) return;
+  const name=String(nm).trim(); if(!name) return;
+  const rt=await appAsk({title:"Rate for "+name,
+    hint:"Installed labour only — the material price is held on the item itself.",
+    type:"number", step:"0.5", min:0, prefix:"$", suffix:"/sf", value:"", ok:"Next"});
+  if(rt===null) return;
+  const rate=Math.max(0,+String(rt).replace(/[^0-9.]/g,"")||0);
+  if(!rate) return;
+  const secs=[["paving","Paving & Hardscape"],["walls","Masonry & Walls"],["woodMetal","Wood, Metal & Glass"],
+              ["water","Water Features"],["amenities","Specialty & Amenities"],["pool","Pool / Spa"]];
+  const which=await appAsk({title:"Which section?",
+    hint:"Where it sits in the Price Book and in the estimate: "+secs.map((x,i)=>(i+1)+" "+x[1]).join(" · "),
+    type:"number", min:1, max:secs.length, value:"1", ok:"Add to Price Book"});
+  if(which===null) return;
+  const sec=secs[Math.max(0,Math.min(secs.length-1,(+which||1)-1))];
+  const ci=PB.findIndex(c=>c&&c.id===sec[0]);
+  if(ci<0){ alert("That section is missing from your Price Book."); return; }
+  PB[ci].items=PB[ci].items||[];
+  if(!PB[ci].items.some(it=>it&&it.n===name)){
+    PB[ci].items.push({n:name,u:"SF",q:0,lo:Math.round(rate*0.75),hi:Math.round(rate*1.35),std:rate});
+  } else {
+    const it=PB[ci].items.find(x=>x&&x.n===name); it.std=rate;
+  }
+  try{ pbSave(); _cfgSchedulePush(); }catch(e){}
+  matApplyLine(id,sec[0],name,1);
+  const h=document.getElementById("mline"); if(h) h.remove();
+  matPickLine(id);                                  // reopen so the brand-wide button is right there
+  try{ _toast(name+" added at $"+rate+"/sf — it is in your Price Book now","#4C7B3D"); }catch(e){}
 }
 let _mlinePending=null;
 function matApplyLine(id,cat,item,quiet){
