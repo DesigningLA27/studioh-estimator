@@ -2133,7 +2133,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v623</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v624</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6388,6 +6388,7 @@ const MAT_ICONS={
   col4:'<rect x="2.5" y="4" width="3.8" height="16" rx="1.2"/><rect x="8.3" y="4" width="3.8" height="16" rx="1.2"/><rect x="14.1" y="4" width="3.8" height="16" rx="1.2"/><rect x="19.9" y="4" width="1.6" height="16" rx=".8"/>',
   zoom:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6M11 8.4v5.2M8.4 11h5.2"/>',
   link:'<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
+  cloud:'<path d="M7 18h9.5a3.5 3.5 0 0 0 .3-7A5.5 5.5 0 0 0 6.3 9.6 3.7 3.7 0 0 0 7 18Z"/><path d="M12 15v-5M9.5 12.5 12 10l2.5 2.5"/>',
   chair:'<path d="M6 11V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v5"/><path d="M4 11h16v4H4Z"/><path d="M6 15v5M18 15v5"/>',
 };
 function mi(n){ return `<svg viewBox="0 0 24 24">${MAT_ICONS[n]||""}</svg>`; }
@@ -6723,6 +6724,30 @@ async function _goodsCall(payload){
   }catch(e){ return {err:(e&&e.message)||"unreachable"}; }
 }
 function _goodsArr(book){ return book==="materials"?MATERIALS:FURNISHINGS; }
+// Manual sync, because "it saves automatically" is only reassuring when you can also
+// check. Reports what actually happened rather than failing quietly.
+async function goodsSyncNow(){
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){ alert("No admin key on this device — add it in Settings → Master library access."); return; }
+  try{ _toast("Syncing libraries…","#6A4FA3"); }catch(e){}
+  const lines=[];
+  for(const book of ["materials","furnishings"]){
+    const local=_goodsArr(book).length;
+    const srv=await _goodsCall({type:"loadgoods",book});
+    const remote=(srv&&!srv.err&&srv.found)?srv.count:0;
+    if(srv.err){ lines.push(book+": server unreachable ("+srv.err+")"); continue; }
+    if(local>=remote){
+      const ok=await goodsPush(book,local<remote);
+      lines.push(book+": "+(ok?("saved "+local+" to the server"):"save failed"));
+    } else {
+      await goodsPull(book,true);
+      lines.push(book+": pulled "+remote+" from the server (this device had "+local+")");
+    }
+  }
+  alert("Library sync\n\n"+lines.join("\n"));
+  try{ renderMaterials(); }catch(e){}
+  try{ renderFurnishings(); }catch(e){}
+}
 // Debounced per book, so importing 120 products is one upload rather than 120.
 function goodsSchedulePush(book){
   if(_goodsTimer[book]) clearTimeout(_goodsTimer[book]);
@@ -6944,6 +6969,7 @@ function _matGrid(host){
          </div></span>
        <span class="sp-grp">
          <button class="mchip pri" onclick="matImportURL()">${mi("link")}Add from URL</button>
+         <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
            <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
@@ -7352,6 +7378,7 @@ function _furGrid(host){
          </div></span>
        <span class="sp-grp">
          <button class="mchip pri" onclick="furImportURL()">${mi("link")}Add from URL</button>
+         <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
            <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
