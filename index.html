@@ -2487,7 +2487,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v679</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v680</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7628,6 +7628,41 @@ const MAT_AREA_SRC=[
 ];
 // Sum only the lines that are actually switched on, because an unticked line is work
 // that is not in this project.
+// The pool and water-feature sections are driven by builders, not by ticked line items —
+// which is why a sample project with a 32x16 pool reported no tile at all. The builder's
+// own breakdown is where the waterline band and the tiled finishes live, so read that too.
+function _matBuilderTile(){
+  const out=[];
+  try{
+    (S.pools||[]).forEach(p=>{
+      (poolLines(p)||[]).forEach(l=>{
+        if(!l||!(+l.qty>0)) return;
+        if(/waterline tile/i.test(l.label))            out.push({sf:+l.qty*0.5, from:`${l.label} ${l.qty} lf`});
+        else if(/interior finish — (glass|tile)/i.test(l.label)) out.push({sf:+l.qty, from:`${l.label} ${l.qty} sf`});
+        else if(/catch basin — tile/i.test(l.label))   out.push({sf:+l.qty, from:`${l.label} ${l.qty} sf`});
+      });
+    });
+  }catch(e){}
+  try{
+    const c=waterComponents();
+    (S.waterFeatures||[]).forEach(w=>{
+      if(!w||w.kind==="prefab") return;
+      const fin=((c.basinFinish&&(c.basinFinish[w.basinFinishIdx]||c.basinFinish[0]))||{}).n||"";
+      const ven=((c.veneer&&(c.veneer[w.venIdx]||c.veneer[0]))||{}).n||"";
+      const L=+w.basinLen||0, W=+w.basinWidth||0;
+      const perim=2*(L+W), depthFt=(+w.basinDepthIn||0)/12, raiseFt=(+w.basinRaiseIn||0)/12;
+      if(/glass|tile|mosaic/i.test(fin) && L>0 && W>0){
+        const shellSF=L*W + perim*(depthFt+raiseFt);
+        out.push({sf:Math.round(shellSF), from:`${w.title||"Water feature"} basin — ${fin} ${Math.round(shellSF)} sf`});
+      }
+      if(/glass|tile|mosaic/i.test(ven) && w.hasWall){
+        const wallSF=(+w.wallLen||0)*((+w.wallHeightIn||0)/12);
+        if(wallSF>0) out.push({sf:Math.round(wallSF), from:`${w.title||"Water feature"} wall — ${ven} ${Math.round(wallSF)} sf`});
+      }
+    });
+  }catch(e){}
+  return out;
+}
 function matAreaFromEstimate(m){
   const hay=[m&&m.cat,m&&m.nm,m&&m.fin,(m&&m.tags||[]).join(" ")].filter(Boolean).join(" ");
   const src=MAT_AREA_SRC.find(x=>x.re.test(hay));
@@ -7643,6 +7678,10 @@ function matAreaFromEstimate(m){
       from.push(`${it.n} ${q.toLocaleString()} ${(it.u||"sf").toLowerCase()}`);
     });
   });
+  // Water and pool tiling is the case the builders actually own.
+  if(/water and pool tiling/.test(src.what)){
+    _matBuilderTile().forEach(b=>{ if(b.sf>0){ sf+=b.sf; from.push(b.from); } });
+  }
   return {sf:Math.round(sf), from, what:src.what};
 }
 function matAreaAuto(m){
