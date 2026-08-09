@@ -1834,11 +1834,16 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 /* ── goods: AI search, tag picker, column switch, result banners ── */
 .gsearch{display:inline-flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--br);
   border-radius:999px;padding:5px 6px 5px 7px;min-width:320px}
-.gsearch .go.web{background:var(--card);border:1px solid var(--br);color:var(--tm)}
-.gsearch .go.web:hover{border-color:var(--gm);color:var(--gm)}
-.gsearch .go.web.on{background:var(--gm);border-color:var(--gm);color:#fff}
-.gsearch .go.web.busy{cursor:progress}
-.gsearch .go.web.busy svg{animation:websp 1.1s linear infinite;transform-origin:50% 50%}
+/* The two are one switch: whichever is lit is where Enter will look. */
+.sseg{display:inline-flex;gap:3px;background:var(--surface2);border-radius:999px;padding:3px;flex:none}
+.sseg .sg{border:0;background:none;color:var(--tm);font:inherit;font-size:11.5px;font-weight:700;
+  border-radius:999px;padding:5px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;
+  white-space:nowrap}
+.sseg .sg svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.1}
+.sseg .sg:hover{color:var(--tx)}
+.sseg .sg.on{background:var(--gm);color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.sseg .sg.busy{cursor:progress}
+.sseg .sg.busy svg{animation:websp 1.1s linear infinite;transform-origin:50% 50%}
 @keyframes websp{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.gsearch .go.web.busy svg{animation:none}}
 /* results from the web, each one a doorway into the importer */
@@ -2610,7 +2615,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v696</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v698</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6928,25 +6933,42 @@ function goodsTagMenuHTML(id,sel,fnToggle,fnClear,fnQuery,q){
 // One search box per book, not two. Typing filters literally and instantly, which is
 // what you want most of the time; the same text can then be handed to AI when a
 // literal match isn't enough. No mode to set beforehand and nothing to get stuck in.
+// Where am I searching — my library, or the whole web? That is a choice you make BEFORE
+// you type, not an action you pick afterwards. So the two are a switch: one is lit, the
+// other is not, and Enter runs whichever is lit.
+let GOODS_SMODE={mat:"book",fur:"book"};
+function goodsSetMode(kind,mode,id){
+  GOODS_SMODE[kind]=mode;
+  const el=document.getElementById(id), q=el?String(el.value||"").trim():"";
+  try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
+  // Already typed something? Then choosing a mode is also the instruction to run it.
+  if(q){ goodsRunSearch(kind,id,q); }
+  else { setTimeout(()=>{ const e2=document.getElementById(id); if(e2) e2.focus(); },20); }
+}
+function goodsRunSearch(kind,id,q){
+  const el=document.getElementById(id);
+  q=(q!=null?q:(el?el.value:"")) || "";
+  if(GOODS_SMODE[kind]==="web") goodsWebSearch(kind,q);
+  else (kind==="fur"?furAIGo:matAIGo)(q);
+}
 function goodsSearchBarHTML(o){
+  const kind=o.kind||"", mode=kind?GOODS_SMODE[kind]:"book";
+  const webBusy=kind&&GOODS_WEBKIND===kind&&GOODS_WEBBUSY;
+  const run=kind?`goodsRunSearch('${kind}','${o.id}')`:`${o.onAI}(document.getElementById('${o.id}').value)`;
   return `<span class="gsearch${o.cls?" "+o.cls:""}">
     <span class="mag">${mi("zoom")}</span>
-    <input id="${o.id}" placeholder="${escAttr(o.ph||"Search, or ask AI…")}" value="${escAttr(o.q||"")}"
+    <input id="${o.id}" placeholder="${escAttr(kind?(mode==="web"?"Search the web for suppliers and products…":"Search your library, or describe what you want…"):(o.ph||"Search, or ask AI…"))}" value="${escAttr(o.q||"")}"
       oninput="${o.onInput}(this.value)"
-      onkeydown="if(event.key==='Enter'){event.preventDefault();${o.onAI}(this.value)}">
+      onkeydown="if(event.key==='Enter'){event.preventDefault();${run}}">
     ${(o.q||o.ai)?`<button class="x" title="Clear" onclick="${o.onClear}()">${mi("x")}</button>`:""}
-    <button class="go${o.ai?" on":""}" title="Search this book in plain language"
-      onclick="${o.onAI}(document.getElementById('${o.id}').value)" ${o.busy?"disabled":""}>
-      ${o.busy?"…":mi("spark")+"This book"}</button>
-    ${o.kind?(()=>{
-      // Green the instant it is pressed and green for as long as its results are up.
-      // It used to collapse to a grey "…" while searching, which reads as nothing
-      // happened — the opposite of what a button pressed on a 30-second job should do.
-      const mine=GOODS_WEBKIND===o.kind, busy=mine&&GOODS_WEBBUSY, live=mine&&!!GOODS_WEB;
-      return `<button class="go web${(busy||live)?" on":""}${busy?" busy":""}"
-        title="Search the web for suppliers and products"
-        onclick="goodsWebGo('${o.kind}','${o.id}')">
-        ${mi("link")}${busy?"Searching…":"The web"}</button>`;})():""}
+    ${kind?`<span class="sseg">
+      <button class="sg${mode==="book"?" on":""}" onclick="goodsSetMode('${kind}','book','${o.id}')"
+        title="Search the materials you already have">${mi("spark")}This book</button>
+      <button class="sg${mode==="web"?" on":""}${webBusy?" busy":""}" onclick="goodsSetMode('${kind}','web','${o.id}')"
+        title="Search the web for suppliers and products">${mi("link")}${webBusy?"Searching…":"The web"}</button>
+    </span>`
+    :`<button class="go${o.ai?" on":""}" onclick="${o.onAI}(document.getElementById('${o.id}').value)" ${o.busy?"disabled":""}>
+       ${o.busy?"…":mi("spark")+"AI Search"}</button>`}
   </span>`;
 }
 // ── IMPORT FROM A SUPPLIER URL ────────────────────────────────
@@ -9813,22 +9835,41 @@ async function goodsWebSearch(kind,q){
   const where=(PREFS.defaults&&PREFS.defaults.location)||"Los Angeles / Orange County";
   const what=kind==="fur"?"outdoor furniture and site furnishings":"landscape materials and hardscape";
   GOODS_WEBERR=""; GOODS_WEBTEXT="";
+  // A web search takes 30-40 seconds. Without a moving indicator and a clock that is
+  // indistinguishable from a hang, so the bar runs for the whole job and counts up.
+  let _t0=Date.now(), _tick=null;
+  try{
+    _prog("Searching the web for “"+q+"”",0,0);
+    _tick=setInterval(()=>{ try{ _prog("Searching the web — "+Math.round((Date.now()-_t0)/1000)+"s",0,0); }catch(e){} },1000);
+  }catch(e){}
+  const _stop=()=>{ if(_tick){ clearInterval(_tick); _tick=null; } try{ _progDone(); }catch(e){} };
   // Two calls, not one. Asking a model to search the web AND emit strict JSON in the
   // same breath means the JSON shares its token budget with the search results and the
   // citations, and any wobble in either loses the lot. So: search freely first, then
   // convert that answer to JSON in a second, cheap call that cannot fail on length.
   let prose="";
-  try{
+  // Three searches rather than five: the answer is as good and it comes back in about
+  // half the time. And one retry, because a 40-second request that drops once is not a
+  // reason to make you type the query again.
+  const runSearch=async()=>{
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2600,
-        tools:[{type:"web_search_20250305",name:"web_search",max_uses:5}],
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2200,
+        tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}],
         system:`You research ${what} suppliers for a landscape architect working in ${where}. Be concrete: name the company, its website, where it is based, and what it actually supplies.`,
         messages:[{role:"user",content:`Find: ${q}\n\nList up to 8, preferring suppliers who serve ${where}. For each give the company name, the most useful page on their site (a product or collection page if there is one), where they are based, and one line on what they offer.`}]})});
+    if(!r.ok) throw new Error("the search service returned "+r.status);
     const d=await r.json();
-    if(d && d.error){ GOODS_WEBERR=(d.error.message||d.error.type||"the search service refused"); }
-    prose=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n")||"");
-    GOODS_WEBTEXT=prose;
-  }catch(e){ GOODS_WEBERR=(e&&e.message)||"could not reach the search service"; }
+    if(d && d.error) throw new Error(d.error.message||d.error.type||"the search service refused");
+    return ((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n")||"");
+  };
+  for(let attempt=0; attempt<2 && !prose; attempt++){
+    try{ prose=await runSearch(); GOODS_WEBERR=""; }
+    catch(e){
+      GOODS_WEBERR=(e&&e.message)||"could not reach the search service";
+      if(attempt===0){ try{ _prog("Search dropped — trying again",0,0); }catch(e2){} }
+    }
+  }
+  GOODS_WEBTEXT=prose;
 
   if(prose){
     try{
@@ -9853,6 +9894,7 @@ ${prose}`}]})});
     // report "nothing found" because a second model call had an off moment.
     if(!GOODS_WEB.length) GOODS_WEB=_webFromProse(prose);
   } else { GOODS_WEB=[]; }
+  _stop();
   GOODS_WEBBUSY=false;
   try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
 }
