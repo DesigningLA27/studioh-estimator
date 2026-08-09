@@ -71,6 +71,7 @@ async function scrapeOne(url) {
 
   const meta = collectMeta(html);
   const images = collectImages(html, finalUrl, product, meta);
+  const docs = collectDocs(html, finalUrl);
 
   return {
     ok: true,
@@ -82,6 +83,7 @@ async function scrapeOne(url) {
     meta: pick(meta, ["og:title","og:description","og:site_name","og:image","og:type",
                       "product:price:amount","product:price:currency","product:brand","description"]),
     images,
+    docs,
     text: readableText(html),
   };
 }
@@ -297,6 +299,47 @@ function collectImages(html, finalUrl, product, meta) {
     if (src) push(src.split(/[,\s]/)[0]);
   }
   return imgs.slice(0, 10);
+}
+// Spec sheets, warranties, install guides, usage charts — the documents a designer
+// actually needs at CD stage and cannot get from a product photo. Link text is kept as
+// the label, because "OGT_Warranty_COC.pdf" tells you far less than "Warranty" does.
+// Shopify appends a 32-char hash to uploaded files; nobody wants to read that.
+function tidyDocName(key) {
+  return decodeURIComponent((key.split("/").pop() || ""))
+    .replace(/\.pdf$/i, "")
+    .replace(/[_-][0-9a-f]{8,}(?:-[0-9a-f]{4,}){0,4}$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 90) || "Document";
+}
+function collectDocs(html, finalUrl) {
+  const out = [], seen = {};
+  const abs = u => { try { return new URL(u, finalUrl).href; } catch (e) { return null; } };
+  const re = /<a\b[^>]*href=["']([^"']+\.pdf(?:\?[^"']*)?)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(html)) && out.length < 12) {
+    const href = abs(m[1]); if (!href) continue;
+    const key = href.replace(/\?.*$/, "");
+    if (seen[key]) continue; seen[key] = 1;
+    let label = decodeEntities(m[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+    // "Download" names three different files on one page. A generic label is no label.
+    if (/^(download|click here|here|view|open|pdf|link|more|read more|learn more|get it)$/i.test(label)) label = "";
+    if (!label || label.length > 90) {
+      // Fall back to the file name, tidied — better than an empty row in the UI.
+      label = tidyDocName(key);
+    }
+    out.push({ url: href, label: label.slice(0, 90) });
+  }
+  // Bare hrefs with no anchor text (buttons, JS-driven links) still count.
+  const re2 = /href=["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi;
+  while ((m = re2.exec(html)) && out.length < 12) {
+    const href = abs(m[1]); if (!href) continue;
+    const key = href.replace(/\?.*$/, "");
+    if (seen[key]) continue; seen[key] = 1;
+    out.push({ url: href, label: tidyDocName(key) });
+  }
+  return out;
 }
 function readableText(html) {
   const t = html
