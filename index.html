@@ -1721,6 +1721,12 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mcard .pop i{display:block;width:100%;height:100%;border-radius:9px;background-size:contain;
   background-repeat:no-repeat;background-position:center;background-color:var(--surface2)}
 .mcard .img.tall:hover .pop{opacity:1;transform:translateX(-50%) scale(1)}
+/* Materials get the same uncropped preview. A paving tile is judged on its texture,
+   and a card crop of a 24×24 slab shows almost none of it. */
+#view-materials .mcard{overflow:visible;position:relative}
+#view-materials .mcard:hover{z-index:30}
+#view-materials .mcard .img{border-radius:15px 15px 0 0}
+.mcard .img:hover .pop{opacity:1;transform:translateX(-50%) scale(1)}
 /* No hover on a touch screen — the magnifier is the tap target there instead. */
 @media(hover:none){ .mcard .pop{display:none} .mcard .zoom{opacity:1} }
 .mcard{background:var(--card);border:1px solid var(--br);border-radius:16px;overflow:hidden;display:flex;
@@ -2164,7 +2170,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v628</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v629</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6637,24 +6643,137 @@ async function _gpickRun(){
   if(!picks.length) return;
   const go=document.getElementById("gpk-go"), pr=document.getElementById("gpk-prog");
   if(go){ go.disabled=true; go.textContent="Importing…"; }
-  let done=0, ok=0;
-  for(const x of picks){
-    if(pr) pr.textContent=`${done} of ${picks.length} · ${ok} imported`;
-    const r=await _goodsImportOne(_gpick.kind,x.url,_gpick.host,true);
-    done++; if(r) ok++;
+  let done=0, ok=0, idx=0;
+  // One product at a time meant 118 round trips end to end. Four at a time keeps well
+  // inside what a supplier site and the AI proxy will take, and cuts the wait to a quarter.
+  async function worker(){
+    while(true){
+      const i=idx++; if(i>=picks.length) return;
+      const r=await _goodsImportOne(_gpick.kind,picks[i].url,_gpick.host,true);
+      done++; if(r) ok++;
+      if(pr) pr.textContent=`${done} of ${picks.length} · ${ok} imported`;
+    }
   }
+  await Promise.all([0,0,0,0].map(worker));
   if(pr) pr.textContent=`Done — ${ok} of ${picks.length} imported`;
   if(go){ go.disabled=false; go.textContent="Close"; go.onclick=_goodsPickerClose; }
   try{ _toast(ok+" imported from "+_gpick.host,"#4C7B3D"); }catch(e){}
 }
-// Supplier image URLs expire, so anything imported is copied into our own R2 before
-// it is stored — the same rule the plant book already follows.
+// A page offers the same photo at half a dozen widths and pads the list with badges,
+// icons and lifestyle shots. Keep the widest copy of each distinct picture, since a
+// 320px thumbnail is useless on a 168px-tall card at 2× density.
+function goodsBestImages(urls,max){
+  const seen={}, order=[];
+  (urls||[]).forEach(u=>{
+    if(!u||!/^https?:/i.test(u)) return;
+    let f="",w=0;
+    try{ const p=new URL(u);
+      f=(p.pathname.split("/").pop()||"").toLowerCase();
+      w=+(p.searchParams.get("width")||p.searchParams.get("w")||0)||0;
+    }catch(e){ return; }
+    if(!f||/\.(svg|gif)$/i.test(f)) return;
+    if(/(logo|sprite|icon|badge|payment|placeholder|loading|hygienic|favicon)/i.test(f)) return;
+    const cur=seen[f];
+    if(!cur){ seen[f]={u,w}; order.push(f); return; }
+    // Same file, better copy: wider wins, and https beats http at equal width.
+    if(w>cur.w || (w===cur.w && /^https:/i.test(u) && !/^https:/i.test(cur.u))) seen[f]={u,w};
+  });
+  return order.map(f=>seen[f].u).slice(0,max||4);
+}
+// Anything served by our own worker is already in R2; anything else is still the
+// supplier's link and worth upgrading.
+function goodsIsOurs(u){
+  return !!u && typeof AI_PROXY_URL==="string" && !!AI_PROXY_URL && String(u).indexOf(AI_PROXY_URL)===0;
+}
+// Supplier image URLs expire, so anything imported is copied into our own R2 — the
+// same rule the plant book follows. But the copy is an UPGRADE, never a gate: the
+// supplier's own link is stored the moment it is read, so the picture is there
+// immediately, and a rehost that fails leaves a working image instead of a blank tile.
 async function goodsRehostImages(idBase,urls,max){
-  const out=[];
-  for(let i=0;i<Math.min(urls.length,max||3);i++){
-    try{ const up=await _uploadUrlToR2(idBase+"_"+i, urls[i]); if(up.ok&&up.url) out.push(up.url); }catch(e){}
+  const src=goodsBestImages(urls,max||3), out=[];
+  for(let i=0;i<src.length;i++){
+    try{ const up=await _uploadUrlToR2(idBase+"_"+i, src[i]); out.push(up.ok&&up.url?up.url:src[i]); }
+    catch(e){ out.push(src[i]); }
   }
   return out;
+}
+// Called after the row is already on screen. Each success swaps one link in place;
+// a failure changes nothing, so this can never take a picture away.
+async function goodsRehostLater(book,id){
+  const arr = book==="materials" ? MATERIALS : FURNISHINGS;
+  const row = arr.find(x=>x&&x.id===id);
+  if(!row||!Array.isArray(row.imgs)||!row.imgs.length) return;
+  let changed=false;
+  for(let i=0;i<row.imgs.length;i++){
+    const u=row.imgs[i];
+    if(!u||goodsIsOurs(u)) continue;
+    try{ const up=await _uploadUrlToR2(id+"_"+i,u);
+      if(up.ok&&up.url){ row.imgs[i]=up.url; changed=true; } }catch(e){}
+  }
+  if(!changed) return;
+  row.img=row.imgs[0]||row.img||"";
+  try{ book==="materials"?matSave():furSave(); }catch(e){}
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
+// Anything already imported without a picture can be repaired without re-importing
+// it: the row kept the page it came from, so re-read that page for images only and
+// leave every other field alone.
+let _gimgStop=false;
+function goodsFetchImagesStop(){ _gimgStop=true; }
+async function goodsFetchImages(book){
+  const arr = book==="materials" ? MATERIALS : FURNISHINGS;
+  const todo = arr.filter(x=>x && x.srcUrl && !goodsImg(x));
+  if(!todo.length){
+    const noSrc = arr.filter(x=>x && !x.srcUrl && !goodsImg(x)).length;
+    alert(noSrc
+      ? `Every imported item already has a picture.\n\n${noSrc} item${noSrc>1?"s were":" was"} added by hand rather than from a URL, so there is no page to read one from.`
+      : "Every item already has a picture.");
+    return;
+  }
+  if(!confirm(`${todo.length} item${todo.length>1?"s have":" has"} no picture.\n\nRe-read the supplier pages and pull the images in? Nothing else on the item is touched.`)) return;
+  _gimgStop=false;
+  let done=0, got=0, none=0;
+  const say=()=>{ try{ _toast(`Images ${done}/${todo.length} · ${got} found`,"#6A4FA3"); }catch(e){} };
+  say();
+  let idx=0;
+  async function worker(){
+    while(!_gimgStop){
+      const i=idx++; if(i>=todo.length) return;
+      const row=todo[i];
+      try{
+        const sc=await goodsScrape(row.srcUrl);
+        const imgs=(sc && !sc.err) ? goodsBestImages(sc.images||[],3) : [];
+        if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; got++; } else none++;
+      }catch(e){ none++; }
+      done++;
+      if(done%5===0){ say(); try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){} }
+    }
+  }
+  await Promise.all([0,0,0,0,0].map(worker));          // five pages at a time; the reader is a plain fetch
+  try{ book==="materials"?matSave():furSave(); }catch(e){}
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+  alert(`${got} of ${todo.length} now have pictures.` +
+    (none?`\n\n${none} page${none>1?"s":""} published no usable image — those stay on their colour swatch.`:"") +
+    `\n\nThey are showing the supplier's own links; copying them onto your server runs in the background.`);
+  // Upgrade to our own copies quietly, one row at a time, so a slow R2 never blocks the view.
+  for(const row of todo){ if(goodsImg(row)) await goodsRehostLater(book,row.id); }
+  try{ book==="materials"?matSave():furSave(); }catch(e){}
+}
+// What to actually paint. `imgs` is the gallery, `img` the chosen primary.
+function goodsImgs(x){
+  if(!x) return [];
+  const a=[];
+  if(x.img) a.push(x.img);
+  (Array.isArray(x.imgs)?x.imgs:[]).forEach(u=>{ if(u&&a.indexOf(u)<0) a.push(u); });
+  return a;
+}
+function goodsImg(x){ return goodsImgs(x)[0]||""; }
+// A photo when there is one, the colour swatch when there is not — the swatch was the
+// only visual these cards ever had, so it stays as the fallback rather than a grey box.
+function goodsImgStyle(url,fallback,fit){
+  return url
+    ? `background-image:url('${escAttr(url)}');background-size:${fit||"cover"};background-position:center;background-repeat:no-repeat;background-color:var(--surface2)`
+    : `background:${fallback}`;
 }
 // Natural-language search over a book. The catalogue is small enough to send whole,
 // so the model sees real rows and returns ids — no guessing at product names.
@@ -6872,7 +6991,10 @@ async function _goodsImportOne(kind,url,host,quiet){
   if(!o.nm){ if(!quiet) alert("Couldn't find a product on that page."); return false; }
   const id=(isMat?"m":"f")+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
   const tags=(o.tags||[]).map(x=>goodsAddTag(x)).filter(Boolean);
-  const imgs=await goodsRehostImages(id,res.images||[],3);
+  // Store the supplier's own links now so the row lands with a picture on it, and
+  // copy them into R2 afterwards. Waiting on three uploads per product is what made
+  // importing a hundred of them take so long, and it lost the picture when it failed.
+  const imgs=goodsBestImages(res.images||[],3);
   const src=res.src||url;
   const note=(extra)=>[["alert","<b>Imported from "+escAttr(host||"the supplier")+".</b>"
       +(res.ld?" Name, brand and price came from the page's own product data.":" Read from the page text.")
@@ -6903,6 +7025,7 @@ async function _goodsImportOne(kind,url,host,quiet){
     furSave(); if(!quiet){ FUR_CAT="All"; furOpen(id); }
     else { try{ renderFurnishings(); }catch(e){} }
   }
+  try{ setTimeout(()=>goodsRehostLater(isMat?"materials":"furnishings",id),0); }catch(e){}
   if(!quiet){ try{ _toast("Imported "+o.nm+(imgs.length?" · "+imgs.length+" image"+(imgs.length>1?"s":""):""),"#4C7B3D"); }catch(e){} }
   return true;
 }
@@ -7258,6 +7381,7 @@ function _matGrid(host){
          <button class="mchip pri" onclick="matImportURL()">${mi("link")}Add from URL</button>
          <button class="mchip" onclick="openPriceSheet('materials')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
          <button class="mchip" onclick="goodsEstimateUnpriced('materials')" title="AI market estimate for anything unpriced">${mi("spark")}Estimate</button>
+         <button class="mchip" onclick="goodsFetchImages('materials')" title="Re-read the supplier page for anything with no picture">${mi("zoom")}Get images</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
@@ -7289,9 +7413,11 @@ function _matGrid(host){
      if(F.price)  r.push((seeded && !m.msrpAI)
        ? `<span class="fr">${mi("tag")}Price<b style="color:var(--tl)">not listed</b></span>`
        : `<span class="fr">${mi("tag")}${m.msrpAI?"Est. price":(matModel()==="resale"?"You bill":"Client pays")}<b${m.msrpAI?' class="est"':''}>$${(matModel()==="resale"?m.bill:m.msrp).toFixed(2)}/sf</b></span>`);
+     const shot=goodsImg(m);
      return `<button class="mcard" onclick="matOpen('${m.id}')">
-       <span class="img" style="background:${m.cols[0]}">
-         <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}${m.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(m))}">AI price</span>`:""}</span></span>
+       <span class="img" style="${goodsImgStyle(shot,m.cols[0])}">
+         <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}${m.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(m))}">AI price</span>`:""}</span>
+         ${shot?`<span class="pop"><i style="background-image:url('${escAttr(shot)}')"></i></span>`:""}</span>
        <span class="bd"><span class="nm">${escAttr(m.nm)}</span>
          ${F.supplier?`<span class="sup">${mi("store")}${escAttr(m.sup)} · ${escAttr(m.fin)}</span>`:""}
          ${(m.tags&&m.tags.length)?`<span class="tgs">${m.tags.slice(0,3).map(t=>`<i>${escAttr(t)}</i>`).join("")}${m.tags.length>3?`<i class="more">+${m.tags.length-3}</i>`:""}</span>`:""}
@@ -7350,13 +7476,14 @@ function _matDetail(host){
               ["You earn","$"+_matEarn(a).toFixed(2)+"/sf"],["Lead time",a.lead]])}</button>`).join("")}</div>`
       :`<div class="mblk"><span style="font-size:12.5px;color:var(--tl)">No other claimed material in this category yet</span></div>`;
   }
+  const _shots=goodsImgs(m);
   host.innerHTML=`
    <div class="mcrumb"><button onclick="matBack()">${mi("back")}All materials</button>
      <span class="sep">${escAttr(m.cat)}</span>${mi("chev")}<span class="sep">${escAttr(m.nm)}</span></div>
    <div class="mshots">
-     <i style="background:${m.cols[0]}"></i>
-     <i style="background:${m.cols[1]||m.cols[0]}"></i>
-     <i style="background:${m.cols[2]||m.cols[0]}"></i>
+     <i style="${goodsImgStyle(_shots[0],m.cols[0])}"></i>
+     <i style="${goodsImgStyle(_shots[1],m.cols[1]||m.cols[0])}"></i>
+     <i style="${goodsImgStyle(_shots[2],m.cols[2]||m.cols[0])}"></i>
      <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}
        ${m.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(m.priced)}</span>`:""}</span>
    </div>
@@ -7669,6 +7796,7 @@ function _furGrid(host){
          <button class="mchip pri" onclick="furImportURL()">${mi("link")}Add from URL</button>
          <button class="mchip" onclick="openPriceSheet('furnishings')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
          <button class="mchip" onclick="goodsEstimateUnpriced('furnishings')" title="AI market estimate for anything unpriced">${mi("spark")}Estimate</button>
+         <button class="mchip" onclick="goodsFetchImages('furnishings')" title="Re-read the supplier page for anything with no picture">${mi("zoom")}Get images</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
@@ -7702,12 +7830,13 @@ function _furGrid(host){
        : sale
          ? `<span class="fr">${mi("tag")}MSRP<b class="was">${fmtN(f.msrp)}</b><span class="sale">${fmtN(f.sale)}</span></span>`
          : row("tag","MSRP",fmtN(f.msrp)));
+     const shot=goodsImg(f);
      return `<button class="mcard" onclick="furOpen('${f.id}')">
-       <span class="img tall" style="background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})">
+       <span class="img tall" style="${goodsImgStyle(shot,`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}">
          <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}
            ${sale?`<span class="mbadge sale">Sale</span>`:""}${f.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(f))}">AI price</span>`:""}</span>
          <span class="zoom">${mi("zoom")}</span>
-         <span class="pop"><i style="background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})"></i></span>
+         <span class="pop"><i style="${shot?`background-image:url('${escAttr(shot)}')`:`background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`}"></i></span>
        </span>
        <span class="bd"><span class="nm">${escAttr(f.nm)}</span>
          ${F.supplier?`<span class="sup">${mi("store")}${escAttr(f.sup)}</span>`:""}
@@ -7768,13 +7897,14 @@ function _furDetail(host){
               ["You earn",fmtN(_furEarn(a))+" ea"],["Lead time",a.lead]])}</button>`).join("")}</div>`
       :`<div class="mblk"><span style="font-size:12.5px;color:var(--tl)">No other claimed furnishing in this type yet</span></div>`;
   }
+  const _shots=goodsImgs(f);
   host.innerHTML=`
    <div class="mcrumb"><button onclick="furBack()">${mi("back")}All furnishings</button>
      <span class="sep">${escAttr(f.cat)}</span>${mi("chev")}<span class="sep">${escAttr(f.nm)}</span></div>
    <div class="mshots">
-     <i style="background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})"></i>
-     <i style="background:${f.cols[1]||f.cols[0]}"></i>
-     <i style="background:${f.cols[2]||f.cols[0]}"></i>
+     <i style="${goodsImgStyle(_shots[0],`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}"></i>
+     <i style="${goodsImgStyle(_shots[1],f.cols[1]||f.cols[0])}"></i>
+     <i style="${goodsImgStyle(_shots[2],f.cols[2]||f.cols[0])}"></i>
      <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}
        ${sale?`<span class="mbadge sale">Sale</span>`:""}
        ${f.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(f.priced)}</span>`:""}</span>
