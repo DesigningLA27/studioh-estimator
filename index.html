@@ -1950,6 +1950,20 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .rbar i{display:block;height:100%;border-radius:4px}
 .rbar i.bad{background:var(--v-high)} .rbar i.warn{background:var(--gold)}
 /* cautions — one bar showing the mix, so the card carries a shape not just a count */
+/* product picker for collection / whole-site imports */
+.gpk-bar{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--tm);padding:2px 2px 10px}
+.gpk-bar b{color:var(--tx)}
+.gpk-bar .sp{margin-left:auto;display:flex;gap:6px}
+.gpk-list{max-height:46vh;overflow-y:auto;border:1px solid var(--br);border-radius:12px;background:var(--card)}
+.gpk-row{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:9px 12px;
+  font-size:12.5px;cursor:pointer;border-top:1px solid var(--brl)}
+.gpk-row:first-child{border-top:0}
+.gpk-row:hover{background:var(--surface2)}
+.gpk-row.on{background:var(--brand-soft)}
+.gpk-row .nm{font-weight:600;color:var(--tx);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-transform:capitalize}
+.gpk-row .u{font-size:10.5px;color:var(--tl);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38%}
+.gpk-note{font-size:12px;color:var(--tl);line-height:1.55;padding:11px 2px 0}
 .cbar{display:flex;height:8px;border-radius:5px;overflow:hidden;background:var(--surface2);gap:1px;margin:2px 0 3px}
 .cbar i{display:block;height:100%}
 .icrows .who{font-size:10.5px;color:var(--tl);margin-left:8px;min-width:0;overflow:hidden;
@@ -2119,7 +2133,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v620</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v621</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6449,20 +6463,23 @@ function goodsSearchBarHTML(o){
 // The page fetch happens in the Worker: a browser fetch of a retail site is blocked
 // by CORS, and the model cannot browse. Without the Worker step the model is only
 // recalling the product from training data, which is worthless for real pricing.
-async function goodsScrape(url){
-  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
-  if(!ep) return {err:"No worker connected."};
+// Page reading lives in its own worker (studioh-scrape) — it holds no keys and
+// touches no storage, so a change there can never affect the plant book or projects.
+const SCRAPE_URL="https://studioh-scrape.warwick-cca.workers.dev";
+async function _scrapeCall(payload){
   try{
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"scrape",url})});
+    const r=await fetch(SCRAPE_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)});
+    if(!r.ok) return {err:"needs-worker"};
     const d=await r.json();
     if(d&&d.ok) return d;
-    // Older worker builds have no scrape endpoint — say so rather than silently
-    // falling back to a model that will invent the answer.
-    if(d&&d.error&&/model|required/i.test(d.error.message||d.error||"")) return {err:"needs-worker"};
-    return {err:(d&&(d.error||"couldn't read that page"))||"couldn't read that page"};
-  }catch(e){ return {err:(e&&e.message)||"fetch failed"}; }
+    return {err:(d&&d.error)||"couldn't read that page"};
+  }catch(e){ return {err:"needs-worker"}; }
 }
+async function goodsScrape(url){ return _scrapeCall({type:"scrape",url}); }
+// A supplier hands you a category link far more often than 40 product links, and a
+// bare domain more often than either. Both resolve to a product list.
+async function goodsDiscover(url,limit){ return _scrapeCall({type:"discover",url,limit:limit||60}); }
 // Pull the fields we can read straight out of schema.org rather than asking the
 // model for them — exact beats inferred whenever the site publishes it.
 function _ldFields(sc){
@@ -6512,6 +6529,91 @@ ${sc.text}`;
     if(ld.msrp) o.msrp=ld.msrp;
     return {ok:true, data:o, images:sc.images||[], src:sc.url, sku:ld.sku, ld:!!sc.product};
   }catch(e){ return {err:(e&&e.message)||"extract failed"}; }
+}
+// One entry point for all three shapes of link. A product page imports directly; a
+// collection or a domain resolves to a list you choose from, because importing 424
+// products unasked is not a favour.
+async function goodsImportFlow(kind){
+  const url=prompt("Paste a supplier link — a product page, a category page, or just the website:","");
+  if(url===null) return;
+  let u=String(url).trim(); if(!u) return;
+  if(!/^https?:\/\//i.test(u)) u="https://"+u.replace(/^\/+/,"");
+  const host=u.replace(/^https?:\/\//,"").split("/")[0];
+  try{ _toast("Reading "+host+"…","#6A4FA3"); }catch(e){}
+  const sc=await goodsScrape(u);
+  if(sc.err==="needs-worker"){ alert(_SCRAPE_HELP); return; }
+  // A page that publishes Product schema is a product; anything else, go looking.
+  if(!sc.err && sc.kind==="product"){ return _goodsImportOne(kind,u,host); }
+  try{ _toast("Looking for products…","#6A4FA3"); }catch(e){}
+  const dis=await goodsDiscover(u,120);
+  if(dis.err==="needs-worker"){ alert(_SCRAPE_HELP); return; }
+  if(dis.err||!dis.products||!dis.products.length){
+    if(!sc.err) return _goodsImportOne(kind,u,host);        // no list found — try it as a product anyway
+    alert("Couldn't find any products at "+host+".");
+    return;
+  }
+  _goodsPickerOpen(kind,dis,host);
+}
+const _SCRAPE_HELP="The page reader isn't deployed yet.\n\nIn Terminal:\n  cd studioh-estimator/worker-scrape\n  npx wrangler deploy\n\nUntil then an import could only guess at the details, so it is blocked rather than filled with invented data.";
+
+// Choose what to bring in. Nothing is imported until you press the button.
+let _gpick={kind:"",list:[],sel:{},host:""};
+function _goodsPickerOpen(kind,dis,host){
+  _gpick={kind,list:dis.products||[],sel:{},host};
+  _gpick.list.slice(0,24).forEach((x,i)=>{ _gpick.sel[i]=true; });   // a sane default, not all 424
+  let h=document.getElementById("gpick-lb");
+  if(!h){ h=document.createElement("div"); h.id="gpick-lb"; h.className="lb-scrim";
+    h.addEventListener("click",e=>{ if(e.target===h) _goodsPickerClose(); });
+    document.body.appendChild(h); }
+  _goodsPickerRender(); document.body.classList.add("lb-open");
+}
+function _goodsPickerClose(){ document.body.classList.remove("lb-open");
+  const h=document.getElementById("gpick-lb"); if(h) h.classList.remove("on"); }
+function _gpickToggle(i){ _gpick.sel[i]=!_gpick.sel[i]; _goodsPickerRender(); }
+function _gpickAll(v){ _gpick.list.forEach((x,i)=>{ _gpick.sel[i]=!!v; }); _goodsPickerRender(); }
+function _gpickName(x){ return (x.title||"").trim() ||
+  decodeURIComponent((x.url||"").split("/products/")[1]||"").replace(/[-_]+/g," ").replace(/\/$/,"") || x.url; }
+function _goodsPickerRender(){
+  const h=document.getElementById("gpick-lb"); if(!h) return;
+  const n=Object.values(_gpick.sel).filter(Boolean).length;
+  h.className="lb-scrim on";
+  h.innerHTML=`
+   <div class="lbx" style="width:min(680px,100%)" role="dialog" aria-modal="true">
+    <div class="lb-h"><span style="font-weight:800;font-size:15px">Found ${_gpick.list.length} products</span>
+      <span class="lb-pos">${escAttr(_gpick.host)}</span>
+      <span class="lb-sp"><button class="lb-ico" onclick="_goodsPickerClose()"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>
+    <div class="st-b">
+      <div class="gpk-bar"><b>${n}</b> selected
+        <span class="sp"><button class="pb-quick" onclick="_gpickAll(1)">Select all</button>
+        <button class="pb-quick" onclick="_gpickAll(0)">Clear</button></span></div>
+      <div class="gpk-list">${_gpick.list.map((x,i)=>`
+        <label class="gpk-row${_gpick.sel[i]?" on":""}">
+          <input type="checkbox" ${_gpick.sel[i]?"checked":""} onchange="_gpickToggle(${i})">
+          <span class="nm">${escAttr(_gpickName(x))}</span>
+          <span class="u">${escAttr((x.url||"").replace(/^https?:\/\/[^/]+/,""))}</span>
+        </label>`).join("")}</div>
+      <div class="gpk-note">Each one is fetched and read individually, so this takes about a second per product.
+        They arrive as <b>seeded</b> listings — specs and images only. Add your cost and commission to make one specifiable.</div>
+    </div>
+    <div class="lb-f"><span class="lb-hint" id="gpk-prog"></span>
+      <span class="lb-sp"><button class="btn btn-o" onclick="_goodsPickerClose()">Cancel</button>
+        <button class="btn" id="gpk-go" onclick="_gpickRun()" ${n?"":"disabled"}>Import ${n}</button></span></div>
+   </div>`;
+}
+async function _gpickRun(){
+  const picks=_gpick.list.filter((x,i)=>_gpick.sel[i]);
+  if(!picks.length) return;
+  const go=document.getElementById("gpk-go"), pr=document.getElementById("gpk-prog");
+  if(go){ go.disabled=true; go.textContent="Importing…"; }
+  let done=0, ok=0;
+  for(const x of picks){
+    if(pr) pr.textContent=`${done} of ${picks.length} · ${ok} imported`;
+    const r=await _goodsImportOne(_gpick.kind,x.url,_gpick.host,true);
+    done++; if(r) ok++;
+  }
+  if(pr) pr.textContent=`Done — ${ok} of ${picks.length} imported`;
+  if(go){ go.disabled=false; go.textContent="Close"; go.onclick=_goodsPickerClose; }
+  try{ _toast(ok+" imported from "+_gpick.host,"#4C7B3D"); }catch(e){}
 }
 // Supplier image URLs expire, so anything imported is copied into our own R2 before
 // it is stored — the same rule the plant book already follows.
@@ -6619,46 +6721,59 @@ function matSpecify(id){
 }
 // Materials had no import at all — only the seeded demo rows. Same path as
 // furnishings; the difference is materials are priced per square foot.
-async function matImportURL(){
-  const url=prompt("Paste the supplier's product page URL:","");
-  if(url===null) return;
-  const u=String(url).trim(); if(!u) return;
-  if(!/^https?:\/\//i.test(u)){ alert("That doesn't look like a web address."); return; }
-  const host=u.replace(/^https?:\/\//,"").split("/")[0];
-  const cats=Array.from(new Set(MATERIALS.map(m=>m.cat))).concat(["Paving","Tile","Flagstone","Gravel","Boulder","Veneer","Decking"]);
-  try{ _toast("Reading "+host+"…","#6A4FA3"); }catch(e){}
-  const res=await goodsExtractFromURL(u,"landscape material / hardscape",
-    `{"nm":"","cat":"one of: ${Array.from(new Set(cats)).join(" | ")}","sup":"brand or supplier","fin":"finish e.g. Tumbled, Thermal, Matte","thick":"","sizes":"","slip":"slip rating if stated","heat":"","ada":"","method":"install method if stated","msrp":0,"unit":"the unit the price is in: sf | each | ton | pallet","tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`);
-  if(res.err){
-    alert(res.err==="needs-worker"
-      ? "The worker doesn't have the page-reading endpoint yet.\n\nDeploy worker-scrape.js to studioh-ai, then try again. Without it the import can only guess, so it is blocked."
-      : "Import failed: "+res.err);
-    return;
-  }
+function matImportURL(){ return goodsImportFlow("mat"); }
+// One importer for both books. The only real difference is the unit: furnishings are
+// priced each, materials per square foot — and a price scraped in $/ton must never be
+// allowed to masquerade as the $/sf figure the estimate multiplies by area.
+async function _goodsImportOne(kind,url,host,quiet){
+  const isMat = kind==="mat";
+  const cats = isMat
+    ? Array.from(new Set(MATERIALS.map(m=>m.cat).concat(["Paving","Tile","Flagstone","Gravel","Boulder","Veneer","Decking"])))
+    : FUR_CATS;
+  const schema = isMat
+    ? `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or supplier","fin":"finish e.g. Tumbled, Thermal, Matte","thick":"","sizes":"","slip":"","heat":"","ada":"","method":"","msrp":0,"unit":"sf | each | ton | pallet | box","tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`
+    : `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or retailer","frame":"","dims":"W x D x H with units","seat":"","weight":"","cushion":"","assembly":"","weather":"","maint":"","cover":"","warranty":"","msrp":0,"sale":0,"tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`;
+  const res=await goodsExtractFromURL(url, isMat?"landscape material / hardscape":"outdoor furniture", schema);
+  if(res.err){ if(!quiet) alert(res.err==="needs-worker"?_SCRAPE_HELP:("Import failed: "+res.err)); return false; }
   const o=res.data||{};
-  if(!o.nm){ alert("Couldn't find a product on that page."); return; }
-  const id="m"+Date.now().toString(36);
+  if(!o.nm){ if(!quiet) alert("Couldn't find a product on that page."); return false; }
+  const id=(isMat?"m":"f")+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
   const tags=(o.tags||[]).map(x=>goodsAddTag(x)).filter(Boolean);
-  try{ _toast("Saving images…","#6A4FA3"); }catch(e){}
   const imgs=await goodsRehostImages(id,res.images||[],3);
-  // A price scraped in $/ton or $/pallet is NOT $/sf — keep it, but never let it
-  // masquerade as the per-sf figure the estimate multiplies by area.
-  const perSf = String(o.unit||"").toLowerCase()==="sf";
-  MATERIALS.unshift({id,nm:o.nm,cat:o.cat||"Paving",fin:o.fin||"—",sup:o.sup||host,loc:"—",dist:0,
-    claimed:0,tags,cols:(o.cols&&o.cols.length?o.cols:["#B9AC97"]).slice(0,3),
-    imgs, img:imgs[0]||"",
-    msrp:perSf?(+o.msrp||0):0, cost:0, bill:0, comm:0, stock:0, lead:"—",
-    listPrice:+o.msrp||0, listUnit:(o.unit||"").toLowerCase(),
-    slip:o.slip||"—",thick:o.thick||"—",sizes:o.sizes||"—",heat:o.heat||"—",ada:o.ada||"—",
-    ship:"—",region:"—",offer:"—",method:o.method||"—",labour:"—",bed:"—",edge:"—",joint:"—",
-    inst:"—",csi:"",priced:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
-    srcUrl:res.src||u,sku:res.sku||"",specSF:0,
-    ai:[["alert","<b>Imported from "+escAttr(host)+".</b>"+(res.ld?" Name, supplier and price came from the page's published product data.":" Read from the page text.")
-      +(o.msrp&&!perSf?" Listed at $"+o.msrp+" per "+escAttr(o.unit||"unit")+" — convert to a square-foot price before claiming it.":"")
-      +" Add your cost and commission to claim it."]]});
-  matSave(); MAT_CAT="All"; matOpen(id);
-  try{ _toast("Imported "+o.nm+(imgs.length?" · "+imgs.length+" image"+(imgs.length>1?"s":""):""),"#4C7B3D"); }catch(e){}
+  const src=res.src||url;
+  const note=(extra)=>[["alert","<b>Imported from "+escAttr(host||"the supplier")+".</b>"
+      +(res.ld?" Name, brand and price came from the page's own product data.":" Read from the page text.")
+      +(extra||"")+" Add your cost and commission to claim it."]];
+  if(isMat){
+    const unit=String(o.unit||"").toLowerCase(), perSf=unit==="sf";
+    MATERIALS.unshift({id,nm:o.nm,cat:cats.indexOf(o.cat)>=0?o.cat:"Paving",fin:o.fin||"—",sup:o.sup||host,loc:"—",dist:0,
+      claimed:0,tags,cols:(o.cols&&o.cols.length?o.cols:["#B9AC97"]).slice(0,3),imgs,img:imgs[0]||"",
+      msrp:perSf?(+o.msrp||0):0,cost:0,bill:0,comm:0,stock:0,lead:"—",
+      listPrice:+o.msrp||0,listUnit:unit,
+      slip:o.slip||"—",thick:o.thick||"—",sizes:o.sizes||"—",heat:o.heat||"—",ada:o.ada||"—",
+      ship:"—",region:"—",offer:"—",method:o.method||"—",labour:"—",bed:"—",edge:"—",joint:"—",
+      inst:"—",csi:"",priced:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
+      srcUrl:src,sku:res.sku||"",specSF:0,
+      ai:note(o.msrp&&!perSf?` Listed at $${o.msrp} per ${escAttr(unit||"unit")} — convert to a square-foot price before claiming.`:"")});
+    matSave(); if(!quiet){ MAT_CAT="All"; matOpen(id); }
+    else { try{ renderMaterials(); }catch(e){} }
+  } else {
+    FURNISHINGS.unshift({id,nm:o.nm,cat:FUR_CATS.indexOf(o.cat)>=0?o.cat:"Accessories",
+      sup:o.sup||host,loc:"—",dist:0,claimed:0,tags,
+      cols:(o.cols&&o.cols.length?o.cols:["#8C7F6B"]).slice(0,3),imgs,img:imgs[0]||"",
+      msrp:+o.msrp||0,sale:+o.sale||0,cost:0,comm:0,stock:0,lead:"—",
+      dims:o.dims||"—",seat:o.seat||"—",weight:o.weight||"—",frame:o.frame||"—",
+      cushion:o.cushion||"—",assembly:o.assembly||"—",weather:o.weather||"—",maint:o.maint||"—",
+      cover:o.cover||"—",warranty:o.warranty||"—",parts:"—",ship:"—",region:"—",offer:"—",
+      goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
+      srcUrl:src,sku:res.sku||"",specQty:0,ai:note("")});
+    furSave(); if(!quiet){ FUR_CAT="All"; furOpen(id); }
+    else { try{ renderFurnishings(); }catch(e){} }
+  }
+  if(!quiet){ try{ _toast("Imported "+o.nm+(imgs.length?" · "+imgs.length+" image"+(imgs.length>1?"s":""):""),"#4C7B3D"); }catch(e){} }
+  return true;
 }
+
 function matFields(){ const o=(PREFS.matFields||null); return o||Object.assign({},MAT_FIELDS_DEFAULT); }
 function matSetField(k){ const f=matFields(); if(f[k]) delete f[k]; else f[k]=1;
   PREFS.matFields=f; prefsSave(); renderMaterials(); }
@@ -7096,41 +7211,7 @@ function furSpecify(id){
 // Paste a supplier product page and let AI read it. Images, specs and list price come
 // back reliably; trade cost and commission almost never do — so an import lands as a
 // SEEDED listing until those are filled in, exactly like a supplier-seeded material.
-async function furImportURL(){
-  const url=prompt("Paste the supplier's product page URL:","");
-  if(url===null) return;
-  const u=String(url).trim(); if(!u) return;
-  if(!/^https?:\/\//i.test(u)){ alert("That doesn't look like a web address."); return; }
-  const host=u.replace(/^https?:\/\//,"").split("/")[0];
-  try{ _toast("Reading "+host+"…","#6A4FA3"); }catch(e){}
-  const res=await goodsExtractFromURL(u,"outdoor furniture",
-    `{"nm":"","cat":"one of: ${FUR_CATS.join(" | ")}","sup":"brand or retailer","frame":"","dims":"W x D x H with units","seat":"seat height or empty","weight":"","cushion":"","assembly":"","weather":"","maint":"","cover":"","warranty":"","msrp":0,"sale":0,"tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`);
-  if(res.err){
-    alert(res.err==="needs-worker"
-      ? "The worker doesn't have the page-reading endpoint yet.\n\nDeploy worker-scrape.js to studioh-ai, then try again. Without it the import can only guess, so it is blocked."
-      : "Import failed: "+res.err);
-    return;
-  }
-  const o=res.data||{};
-  if(!o.nm){ alert("Couldn't find a product on that page."); return; }
-  const id="f"+Date.now().toString(36);
-  const tags=(o.tags||[]).map(x=>goodsAddTag(x)).filter(Boolean);
-  try{ _toast("Saving images…","#6A4FA3"); }catch(e){}
-  const imgs=await goodsRehostImages(id,res.images||[],3);
-  FURNISHINGS.unshift({id,nm:o.nm,cat:FUR_CATS.indexOf(o.cat)>=0?o.cat:"Accessories",
-    sup:o.sup||host,loc:"—",dist:0,claimed:0,tags,
-    cols:(o.cols&&o.cols.length?o.cols:["#8C7F6B"]).slice(0,3),
-    imgs, img:imgs[0]||"",
-    msrp:+o.msrp||0,sale:+o.sale||0,cost:0,comm:0,stock:0,lead:"—",
-    dims:o.dims||"—",seat:o.seat||"—",weight:o.weight||"—",frame:o.frame||"—",
-    cushion:o.cushion||"—",assembly:o.assembly||"—",weather:o.weather||"—",maint:o.maint||"—",
-    cover:o.cover||"—",warranty:o.warranty||"—",parts:"—",ship:"—",region:"—",offer:"—",
-    goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
-    srcUrl:res.src||u,sku:res.sku||"",specQty:0,
-    ai:[["alert","<b>Imported from "+escAttr(host)+".</b>"+(res.ld?" Name, brand and price came from the page's published product data.":" Read from the page text.")+" Add your trade cost and commission to claim it — until then it cannot be specified on a project."]]});
-  furSave(); FUR_CAT="All"; furOpen(id);
-  try{ _toast("Imported "+o.nm+(imgs.length?" · "+imgs.length+" image"+(imgs.length>1?"s":""):"")+" — add cost and commission to claim","#4C7B3D"); }catch(e){}
-}
+function furImportURL(){ return goodsImportFlow("fur"); }
 
 // Turn a seeded/imported listing into a priced one you can actually specify.
 function furClaim(id){
