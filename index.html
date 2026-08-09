@@ -2508,7 +2508,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v681</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v682</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8831,7 +8831,7 @@ async function _goodsImportOne(kind,url,host,quiet){
     ? Array.from(new Set(MATERIALS.map(m=>m.cat).concat(["Paving","Tile","Flagstone","Gravel","Boulder","Veneer","Decking"])))
     : FUR_CATS;
   const schema = isMat
-    ? `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or supplier","fin":"finish e.g. Tumbled, Thermal, Matte","thick":"","sizes":"","slip":"","heat":"","ada":"","method":"","use":"outdoor | indoor | both | unknown — only if the page says, e.g. exterior, submerged, pool, frost, UV, interior only","csi":"MasterFormat section if the page states one, else \"\"","loc":"the supplier city and state if the page states one, e.g. Vista, CA","msrp":0,"unit":"sf | each | ton | pallet | box","tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`
+    ? `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or supplier","fin":"finish e.g. Tumbled, Thermal, Matte","thick":"","sizes":"","slip":"","heat":"","ada":"","method":"","use":"outdoor | indoor | both | unknown — only if the page says, e.g. exterior, submerged, pool, frost, UV, interior only","mat":"what it is made of, one of: Glass | Porcelain | Ceramic | Natural stone | Concrete | Terracotta | Brick | Metal | Wood | Composite | Gravel & aggregate | Turf | Other","csi":"MasterFormat section if the page states one, else \"\"","loc":"the supplier city and state if the page states one, e.g. Vista, CA","msrp":0,"unit":"sf | each | ton | pallet | box","tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`
     : `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or retailer","frame":"","dims":"W x D x H with units","seat":"","weight":"","cushion":"","assembly":"","weather":"","maint":"","cover":"","warranty":"","use":"outdoor | indoor | both | unknown — only if the page says, e.g. all-weather, UV stable, indoor use only","msrp":0,"sale":0,"tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`;
   const res=await goodsExtractFromURL(url, isMat?"landscape material / hardscape":"outdoor furniture", schema);
   if(res.err){ if(!quiet) alert(res.err==="needs-worker"?_SCRAPE_HELP:("Import failed: "+res.err)); return false; }
@@ -8862,6 +8862,7 @@ async function _goodsImportOne(kind,url,host,quiet){
       ship:"—",region:"—",offer:"—",method:o.method||"—",labour:"—",bed:"—",edge:"—",joint:"—",
       inst:"—",csi:String(o.csi||"").slice(0,20),priced:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
       use:String(o.use||"").toLowerCase().replace(/[^a-z]/g,"")||"",
+      mat:String(o.mat||"").trim(),
       srcUrl:src,sku:res.sku||"",docs:(res.docs||[]).slice(0,8),specSF:0,
       ai:note(o.msrp&&!perSf?` Listed at $${o.msrp} per ${escAttr(unit||"unit")} — convert to a square-foot price before claiming.`:"")});
     matSave(); if(!quiet){ MAT_CATS={}; MAT_GRP=""; matOpen(id); }
@@ -9265,14 +9266,16 @@ function matGroupBarHTML(){
   if(MAT_USE) path = (path?path+" · ":"") + (MAT_USE==="outdoor"?"Outdoor":"Indoor");
   if(MAT_SALE) path = (path?path+" · ":"") + "On sale";
   if(MAT_HUE) path = (path?path+" · ":"") + (MAT_HUES.find(x=>x[0]===MAT_HUE)||["","Colour"])[1];
+  if(MAT_KIND) path = (path?path+" · ":"") + MAT_KIND;
+  if(MAT_SIZE) path = (path?path+" · ":"") + MAT_SIZE.replace("x","×")+"″";
   return `<div class="mbar gbar">
     <button class="grp${(!MAT_GRP&&!sel.length)?" on":""}" onclick="matPick('','All')">All<span class="n">${tot}</span></button>
     ${btns}
     ${matUseBarHTML()}${matSaleBarHTML()}
-    <span class="gsp"></span>${matColourBarHTML()}${matPriceBarHTML()}${matSortBarHTML()}
+    <span class="gsp"></span>${matKindBarHTML()}${matSizeBarHTML()}${matColourBarHTML()}${matPriceBarHTML()}${matSortBarHTML()}
   </div>
   ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b> · ${MATERIALS.filter(matInView).length} of ${tot}
-     <button onclick="MAT_USE='';MAT_SALE=false;MAT_HUE='';matPick('','All');matSetPrice(0,0)">clear</button></div>`:""}`;
+     <button onclick="MAT_USE='';MAT_SALE=false;MAT_HUE='';MAT_KIND='';MAT_SIZE='';matPick('','All');matSetPrice(0,0)">clear</button></div>`:""}`;
 }
 // CSI and the supplier's city are both things a person would look up in seconds and
 // neither is on most product pages — which is exactly the sort of gap worth filling
@@ -9322,6 +9325,98 @@ ${list}`}]})});
     try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
     _progDone(n+" filled in","#4C7B3D");
   } finally { _specBusy=false; }
+}
+// ── MATERIAL & SIZE ───────────────────────────────────────────
+// "Tile" is a category, not a material. Glass, porcelain, stone and terracotta tile
+// behave differently, cost differently and are set by different trades — so what a
+// thing is MADE of is its own axis, separate from what it is FOR.
+const MAT_KINDS=["Glass","Porcelain","Ceramic","Natural stone","Concrete","Terracotta",
+                 "Brick","Metal","Wood","Composite","Gravel & aggregate","Turf","Other"];
+function goodsMat(x){ const v=(x&&x.mat)||""; return MAT_KINDS.indexOf(v)>=0?v:""; }
+let _matKindBusy=false;
+async function goodsFillMaterial(book){
+  if(_matKindBusy) return; _matKindBusy=true;
+  try{
+    const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+    if(!ep){ alert("No worker connected."); return; }
+    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    const todo=(arr||[]).filter(x=>x&&x.nm&&!goodsMat(x));
+    if(!todo.length){ alert("Everything already says what it is made of."); return; }
+    if(!confirm(`Work out what ${todo.length} item${todo.length===1?"":"s"} ${todo.length===1?"is":"are"} made of?\n\nGlass, porcelain, natural stone, concrete and so on — judged from the name, finish and tags already stored.`)) return;
+    let n=0; _prog("Reading materials",0,todo.length);
+    for(let i=0;i<todo.length;i+=40){
+      const batch=todo.slice(i,i+40);
+      const list=batch.map((x,k)=>`${k+1}. ${x.nm} — ${[goodsMaker(x),x.cat,x.fin,(x.tags||[]).join(" ")].filter(v=>v&&v!=="—").join(", ")}`).join("\n");
+      try{
+        const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1200,temperature:0,
+            system:"You identify what a building product is made of. Output only a minified JSON array.",
+            messages:[{role:"user",content:`What is each product made of? Output ONLY minified JSON:
+[{"i":1,"mat":"one of: ${MAT_KINDS.join(" | ")}"}]
+Use "Other" only when nothing fits. Never guess between two — pick the one the wording supports.
+
+PRODUCTS:
+${list}`}]})});
+        const d=await r.json();
+        let t=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+        const a=t.indexOf("["), b=t.lastIndexOf("]");
+        let out=null;
+        if(a>=0&&b>a){ try{ out=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+        if(!out) out=_salvageJsonObjects(t.slice(Math.max(0,a)));
+        (out||[]).forEach(o=>{ const x=batch[(o.i||0)-1]; if(!x) return;
+          const v=String(o.mat||"").trim();
+          if(MAT_KINDS.indexOf(v)>=0){ x.mat=v; n++; } });
+      }catch(e){}
+      _prog("Reading materials",Math.min(i+40,todo.length),todo.length);
+      goodsSaveQuiet(book);
+    }
+    try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+    _progDone(n+" identified","#4C7B3D");
+  } finally { _matKindBusy=false; }
+}
+// Sizes arrive as prose — `7/8" x 7/8" tile; 12 3/8" x 12 3/8" sheet` — so they have to
+// be read into real numbers before anyone can ask for a 12x24. Fractions and mixed
+// numbers are the norm in tile, and millimetres turn up on European stock.
+function matSizes(x){
+  const txt=String((x&&x.sizes)||"");
+  if(!txt) return [];
+  const num="(\\d+(?:\\s+\\d+\\/\\d+)?(?:\\.\\d+)?(?:\\/\\d+)?)";
+  const re=new RegExp(num+"\\s*[\"″']?\\s*[x×]\\s*"+num+"\\s*(mm|cm|\"|″)?","gi");
+  const val=t=>{ t=String(t).trim();
+    const mix=/^(\d+)\s+(\d+)\/(\d+)$/.exec(t); if(mix) return +mix[1]+(+mix[2]/+mix[3]);
+    const fr=/^(\d+)\/(\d+)$/.exec(t);            if(fr)  return +fr[1]/+fr[2];
+    return parseFloat(t)||0; };
+  const out=[]; let m;
+  while((m=re.exec(txt)) && out.length<6){
+    let a=val(m[1]), b=val(m[2]);
+    if(/mm/i.test(m[3]||"")){ a/=25.4; b/=25.4; }
+    else if(/cm/i.test(m[3]||"")){ a/=2.54; b/=2.54; }
+    if(a>0&&b>0) out.push({w:Math.min(a,b), h:Math.max(a,b)});
+  }
+  return out;
+}
+function matSizeLabel(s){
+  const f=n=>{ const r=Math.round(n*8)/8, w=Math.floor(r), fr=r-w;
+    const map={0:"",0.125:"⅛",0.25:"¼",0.375:"⅜",0.5:"½",0.625:"⅝",0.75:"¾",0.875:"⅞"};
+    return (w||!map[fr]?w:"")+(map[fr]||""); };
+  return `${f(s.w)}×${f(s.h)}″`;
+}
+// A designer asks for "a 12x24" and means either orientation, near enough.
+function matHasSize(x,w,h){
+  const want=[Math.min(w,h),Math.max(w,h)];
+  // Metric stock is sold under imperial names: 600x1200 mm IS the 24x48 everyone asks
+  // for, and it converts to 23⅝x47¼. So the tolerance scales with the dimension —
+  // proportional enough to catch that, tight enough that an 11⅜ is not a 12.
+  const tol=n=>Math.max(0.4,n*0.025);
+  return matSizes(x).some(s=>Math.abs(s.w-want[0])<=tol(want[0]) && Math.abs(s.h-want[1])<=tol(want[1]));
+}
+function matSizeOptions(){
+  const n={};
+  MATERIALS.forEach(m=>matSizes(m).forEach(s=>{
+    const k=Math.round(s.w*8)/8+"x"+Math.round(s.h*8)/8;
+    (n[k]=n[k]||{s,c:0}).c++;
+  }));
+  return Object.keys(n).map(k=>({k,...n[k]})).sort((a,b)=>b.c-a.c || a.s.w-b.s.w).slice(0,14);
 }
 // ── OUTDOOR / INDOOR ──────────────────────────────────────────
 // A tile showroom sells bathroom tile and pool tile from the same catalogue, and a
@@ -9395,6 +9490,43 @@ function matHueOf(m){
     if(a<b ? (h.h>=a&&h.h<b) : (h.h>=a||h.h<b)) return k;
   }
   return "grey";
+}
+function matKindBarHTML(){
+  const n={}; MATERIALS.forEach(m=>{ const k=goodsMat(m); if(k) n[k]=(n[k]||0)+1; });
+  const live=MAT_KINDS.filter(k=>n[k]);
+  if(!live.length) return "";
+  return `<span class="mdd sortdd">
+    <button class="mchip${MAT_KIND?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__kind')">
+      ${mi("cube")}${MAT_KIND?escAttr(MAT_KIND):"Made of"}${mi("chev")}</button>
+    <div class="mddm${_matDD==="__kind"?" open":""}">
+      <div class="hd">What it is made of</div>
+      <div class="it ${MAT_KIND?"":"on"}" onclick="event.stopPropagation();MAT_KIND='';renderMaterials()">Any material</div>
+      ${live.map(k=>`<div class="it ${MAT_KIND===k?"on":""}" onclick="event.stopPropagation();MAT_KIND=(MAT_KIND==='${escAttr(k)}'?'':'${escAttr(k)}');renderMaterials()">${escAttr(k)}<span class="n">${n[k]}</span></div>`).join("")}
+    </div></span>`;
+}
+function matSizeBarHTML(){
+  const opts=matSizeOptions();
+  if(!opts.length) return "";
+  return `<span class="mdd sortdd">
+    <button class="mchip${MAT_SIZE?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__size')">
+      ${mi("ruler")}${MAT_SIZE?escAttr(MAT_SIZE):"Size"}${mi("chev")}</button>
+    <div class="mddm${_matDD==="__size"?" open":""}">
+      <div class="hd">Available in</div>
+      <div class="it ${MAT_SIZE?"":"on"}" onclick="event.stopPropagation();MAT_SIZE='';renderMaterials()">Any size</div>
+      ${opts.map(o=>`<div class="it ${MAT_SIZE===o.k?"on":""}" onclick="event.stopPropagation();MAT_SIZE=(MAT_SIZE==='${o.k}'?'':'${o.k}');renderMaterials()">${escAttr(matSizeLabel(o.s))}<span class="n">${o.c}</span></div>`).join("")}
+      <div class="prange">
+        <input id="mat-sw" type="number" step="1" min="0" placeholder="w" onclick="event.stopPropagation()">
+        <span>×</span>
+        <input id="mat-sh" type="number" step="1" min="0" placeholder="h" onclick="event.stopPropagation()">
+        <button onclick="event.stopPropagation();matSizeTyped()">Find</button>
+      </div>
+    </div></span>`;
+}
+function matSizeTyped(){
+  const g=id=>{ const el=document.getElementById(id); return +(el&&el.value)||0; };
+  const w=g("mat-sw"), h=g("mat-sh");
+  MAT_SIZE = (w>0&&h>0) ? (Math.min(w,h)+"x"+Math.max(w,h)) : "";
+  _matDD=""; renderMaterials();
 }
 function matColourBarHTML(){
   const n={}; MATERIALS.forEach(m=>{ const k=matHueOf(m); n[k]=(n[k]||0)+1; });
@@ -9676,7 +9808,7 @@ function matDDToggle(ev,gid){
   renderMaterials();
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
-let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_HUE="";
+let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_HUE="", MAT_KIND="", MAT_SIZE="";
 let MAT_CATS={};
 let MAT_PMIN=0, MAT_PMAX=0, MAT_PEXCL=false;
 let MAT_SORT=(function(){ try{ return PREFS.matSort||"earn"; }catch(e){ return "earn"; } })();
@@ -9736,7 +9868,13 @@ function matInUse(m){
   const u=goodsUse(m);
   return MAT_USE==="outdoor" ? (u==="outdoor"||u==="both") : u===MAT_USE;
 }
-function matInView(m){ return matInGroup(m) && matInPrice(m) && matInUse(m) && (!MAT_SALE || goodsSaleLive(m)) && (!MAT_HUE || matHueOf(m)===MAT_HUE); }
+function matInSize(m){
+  if(!MAT_SIZE) return true;
+  const p=MAT_SIZE.split("x"); return matHasSize(m,+p[0],+p[1]);
+}
+function matInView(m){ return matInGroup(m) && matInPrice(m) && matInUse(m)
+  && (!MAT_SALE || goodsSaleLive(m)) && (!MAT_HUE || matHueOf(m)===MAT_HUE)
+  && (!MAT_KIND || goodsMat(m)===MAT_KIND) && matInSize(m); }
 function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
@@ -9807,6 +9945,7 @@ function _matGrid(host){
          <button class="mchip" onclick="goodsFillColours('materials')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
          <button class="mchip" onclick="goodsDropThin('materials')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsFillUse('materials')" title="Work out which items suit outdoor use">${mi("sun")}Outdoor sort</button>
+         <button class="mchip" onclick="goodsFillMaterial('materials')" title="Identify what each item is made of">${mi("cube")}Material type</button>
          <button class="mchip" onclick="goodsFillSpecs('materials')" title="Fill in CSI sections and supplier locations">${mi("list")}CSI &amp; location</button>
          <button class="mchip" onclick="goodsFindSales('materials')" title="Check supplier sites for current discounts">${mi("tag")}Find sales</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
@@ -10261,6 +10400,7 @@ function _furGrid(host){
          <button class="mchip" onclick="goodsFillColours('furnishings')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
          <button class="mchip" onclick="goodsDropThin('furnishings')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsFillUse('furnishings')" title="Work out which items suit outdoor use">${mi("sun")}Outdoor sort</button>
+         <button class="mchip" onclick="goodsFillMaterial('furnishings')" title="Identify what each item is made of">${mi("cube")}Material type</button>
          <button class="mchip" onclick="goodsFillSpecs('furnishings')" title="Fill in CSI sections and supplier locations">${mi("list")}CSI &amp; location</button>
          <button class="mchip" onclick="goodsFindSales('furnishings')" title="Check supplier sites for current discounts">${mi("tag")}Find sales</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
