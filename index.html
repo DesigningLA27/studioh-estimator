@@ -2236,7 +2236,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v645</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v646</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6925,6 +6925,9 @@ function goodsBrandFor(pageBrand,site){
 }
 // What to print as the maker. Falls back to the supplier only for display, never in storage.
 function goodsMaker(x){ return (x&&x.brand)||(x&&x.sup)||""; }
+// Priced = usable. Derived, never stored, so it cannot fall out of step with the
+// number on the card the way the old `claimed` flag did.
+function goodsPriced(x){ return !!x && ((+x.msrp>0)||(+x.cost>0)||(+x.bill>0)); }
 
 // ── COLOUR FROM THE PRODUCT PHOTO ─────────────────────────────
 // The model was asked to name a tile's colours from page text, which is why almost
@@ -7914,7 +7917,7 @@ async function matAIGo(q){
   MAT_AIQ=q; MAT_AIBUSY=true; renderMaterials();
   const rows=MATERIALS.map(m=>({id:m.id,nm:m.nm,cat:m.cat,fin:m.fin,sup:m.sup,tags:m.tags||[],
     slip:m.slip,heat:m.heat,thick:m.thick,sizes:m.sizes,lead:m.lead,
-    priced:m.claimed?1:0,msrp:m.claimed?m.msrp:null,comm:m.claimed?m.comm:null}));
+    priced:goodsPriced(m)?1:0,msrp:goodsPriced(m)?m.msrp:null,comm:goodsPriced(m)?goodsCommOf(m):null}));
   const r=await goodsAISearch(q,rows,"landscape materials");
   MAT_AIBUSY=false;
   if(r.err){ MAT_AI=null; try{ _toast(r.err,"#B23F3C"); }catch(e){} }
@@ -7961,7 +7964,7 @@ function _matGrid(host){
     .filter(m=>!ql||!!MAT_AI||((m.nm+" "+m.cat+" "+m.sup+" "+m.fin+" "+(m.tags||[]).join(" ")+" "+goodsAliasText(m)).toLowerCase().indexOf(ql)>=0));
   if(MAT_AI){ const rank={}; MAT_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(m=>rank[m.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
-  else list=list.slice().sort((a,b)=>(b.claimed-a.claimed) || (_matEarn(b)-_matEarn(a)));
+  else list=list.slice().sort((a,b)=>((goodsPriced(b)?1:0)-(goodsPriced(a)?1:0)) || (_matEarn(b)-_matEarn(a)));
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   host.innerHTML=`
    <div class="mat-h"><span><b>Materials</b>
@@ -8009,7 +8012,7 @@ function _matGrid(host){
    ${list.length?"":`<div class="gempty">${mi("box")}<b>Nothing matches</b>
      <span>${MAT_AI?"Try describing it differently, or clear the search.":nT?"No material carries every tag you picked.":"No material in this category yet."}</span></div>`}
    <div class="mgrid c${cols}">${list.map(m=>{
-     const seeded=!m.claimed, earn=_matEarn(m), r=[];
+     const seeded=!goodsPriced(m), earn=_matEarn(m), r=[];
      if(F.colour) r.push(`<span class="fr">${mi("swatch")}Colour<b style="display:flex;gap:4px">${m.cols.map(c=>`<i class="msw" style="background:${c}"></i>`).join("")}</b></span>`);
      if(F.stock)  r.push(row("box","Available", seeded?"—":m.stock.toLocaleString()+" sf"));
      if(F.lead)   r.push(row("clock","Lead time",m.lead));
@@ -8043,7 +8046,7 @@ function _matGrid(host){
 function matFind(id){ return MATERIALS.find(m=>m.id===id)||null; }
 function _matDetail(host){
   const m=matFind(MAT_OPEN); if(!m){ MAT_OPEN=null; return _matGrid(host); }
-  const seeded=!m.claimed;
+  const seeded=!goodsPriced(m);
   const kv=a=>a.filter(x=>x[1]&&x[1]!=="—").map(([k,v])=>`<div class="mkv"><span>${k}</span><b>${escAttr(v)}</b></div>`).join("");
   const TABS=[["detail","Detail"],["docs","Documents"],["used","Where used"],["alt","Alternatives"]];
   let body="";
@@ -8080,7 +8083,7 @@ function _matDetail(host){
       <div class="mkv"><span>Earned to date</span><b>—</b></div>
       <div class="mkv"><span style="color:var(--tl)">Fills in once you specify this on a project</span></div></div>`;
   } else {
-    const alts=MATERIALS.filter(x=>x.id!==m.id && x.cat===m.cat && x.claimed);
+    const alts=MATERIALS.filter(x=>x.id!==m.id && x.cat===m.cat && goodsPriced(x));
     body=alts.length?`<div class="mtwo">${alts.map(a=>`
       <button class="mblk" style="text-align:left;border:0;font:inherit;color:inherit;cursor:pointer" onclick="matOpen('${a.id}')">
         <h4>${mi("swap")}${escAttr(a.nm)}</h4>
@@ -8112,7 +8115,7 @@ function _matDetail(host){
 function _matPanelHTML(){
   if(!MAT_OPEN) return _matLibPanel();
   const m=matFind(MAT_OPEN); if(!m) return _matLibPanel();
-  const seeded=!m.claimed;
+  const seeded=!goodsPriced(m);
   if(seeded) return `
     <div class="mp-card"><span class="k">Not yet priced</span>
       <span class="big" style="font-size:19px;color:var(--tl)">No price yet</span>
@@ -8179,7 +8182,7 @@ function matpReset(){ delete PREFS.matPanel; prefsSave(); renderMaterials(); ren
 function _matLibPanel(){
   const resale=matModel()==="resale";
   const inView=MATERIALS.filter(m=>MAT_CAT==="All"||m.cat===MAT_CAT);
-  const claimed=inView.filter(m=>m.claimed);
+  const claimed=inView.filter(m=>goodsPriced(m));
   const seeded=inView.length-claimed.length;
   const best=claimed.slice().sort((a,b)=>_matEarn(b)-_matEarn(a))[0];
   const spec=MATERIALS.filter(m=>m.specSF>0);
@@ -8290,7 +8293,7 @@ function furFind(id){ return FURNISHINGS.find(f=>f.id===id)||null; }
 function furOnSale(f){ return +f.sale>0 && +f.sale < +f.msrp; }
 function furPrice(f){ return furOnSale(f) ? +f.sale : +f.msrp; }
 function _furEarn(f){ const md=goodsModel();
-  if(md==="fee"||!f.claimed) return 0;
+  if(md==="fee"||!goodsPriced(f)) return 0;
   return md==="resale" ? (furPrice(f)-f.cost) : (furPrice(f)*goodsCommOf(f)/100); }
 
 function furFields(){ const o=(PREFS.furFields||null); return o||Object.assign({},FUR_FIELDS_DEFAULT); }
@@ -8322,7 +8325,7 @@ async function furAIGo(q){
   FUR_AIQ=q; FUR_AIBUSY=true; renderFurnishings();
   const rows=FURNISHINGS.map(f=>({id:f.id,nm:f.nm,cat:f.cat,sup:f.sup,tags:f.tags||[],
     frame:f.frame,dims:f.dims,seat:f.seat,weather:f.weather,lead:f.lead,
-    priced:f.claimed?1:0,price:f.claimed?furPrice(f):null,onSale:furOnSale(f)?1:0}));
+    priced:goodsPriced(f)?1:0,price:goodsPriced(f)?furPrice(f):null,onSale:furOnSale(f)?1:0}));
   const r=await goodsAISearch(q,rows,"outdoor furniture and site furnishings");
   FUR_AIBUSY=false;
   if(r.err){ FUR_AI=null; try{ _toast(r.err,"#B23F3C"); }catch(e){} }
@@ -8330,7 +8333,7 @@ async function furAIGo(q){
   renderFurnishings();
 }
 function furSpecify(id){
-  const f=furFind(id); if(!f||!f.claimed) return;
+  const f=furFind(id); if(!f||!goodsPriced(f)) return;
   const v=prompt("How many of "+f.nm+" on this project?", f.specQty||"");
   if(v===null) return;
   f.specQty=Math.max(0,Math.round(+String(v).replace(/[^0-9.]/g,"")||0));
@@ -8352,10 +8355,10 @@ function furClaim(id){
   const comm=prompt("Your commission %, if the supplier pays one:", f.comm||"");
   if(comm===null) return;
   const num=v=>Math.max(0,+String(v).replace(/[^0-9.]/g,"")||0);
-  f.msrp=num(msrp); f.cost=num(cost); f.comm=num(comm);
-  if(f.msrp>0){ f.claimed=1; f.priced=new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}); }
+  f.msrp=num(msrp); f.cost=num(cost); f.comm=num(comm); f.commOwn=1;
+  if(f.msrp>0){ f.claimed=1; delete f.msrpAI; f.priced=new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}); }
   furSave(); renderFurnishings();
-  try{ _toast(f.claimed?"Claimed — it can be specified now":"Needs a list price to be claimed","#4C7B3D"); }catch(e){}
+  try{ _toast(goodsPriced(f)?"Priced — it can be specified now":"Needs a price before it can be specified","#4C7B3D"); }catch(e){}
 }
 
 function renderFurnishings(){
@@ -8376,7 +8379,7 @@ function _furGrid(host){
     .filter(f=>!ql||!!FUR_AI||((f.nm+" "+f.cat+" "+f.sup+" "+f.frame+" "+(f.tags||[]).join(" ")+" "+goodsAliasText(f)).toLowerCase().indexOf(ql)>=0));
   if(FUR_AI){ const rank={}; FUR_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(f=>rank[f.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
-  else list=list.slice().sort((a,b)=>(b.claimed-a.claimed) || (_furEarn(b)-_furEarn(a)));
+  else list=list.slice().sort((a,b)=>((goodsPriced(b)?1:0)-(goodsPriced(a)?1:0)) || (_furEarn(b)-_furEarn(a)));
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   const catCount=c=>FURNISHINGS.filter(f=>c==="All"||f.cat===c).length;
   host.innerHTML=`
@@ -8434,7 +8437,7 @@ function _furGrid(host){
    ${list.length?"":`<div class="gempty">${mi("box")}<b>Nothing matches</b>
      <span>${FUR_AI?"Try describing it differently, or clear the search.":nT?"Nothing carries every tag you picked.":"Nothing in this type yet — add one from a supplier URL."}</span></div>`}
    <div class="mgrid c${cols}">${list.map(f=>{
-     const seeded=!f.claimed, earn=_furEarn(f), sale=furOnSale(f), r=[];
+     const seeded=!goodsPriced(f), earn=_furEarn(f), sale=furOnSale(f), r=[];
      if(F.colour) r.push(`<span class="fr">${mi("swatch")}Colour<b style="display:flex;gap:4px">${f.cols.map(c=>`<i class="msw" style="background:${c}"></i>`).join("")}</b></span>`);
      if(F.dims)   r.push(row("ruler","Size",escAttr(f.dims)));
      if(F.frame)  r.push(row("cube","Frame",escAttr(f.frame)));
@@ -8472,7 +8475,7 @@ function _furGrid(host){
 }
 function _furDetail(host){
   const f=furFind(FUR_OPEN); if(!f){ FUR_OPEN=null; return _furGrid(host); }
-  const seeded=!f.claimed, sale=furOnSale(f);
+  const seeded=!goodsPriced(f), sale=furOnSale(f);
   const kv=a=>a.filter(x=>x[1]&&x[1]!=="—").map(([k,v])=>`<div class="mkv"><span>${k}</span><b>${escAttr(v)}</b></div>`).join("");
   const TABS=[["detail","Detail"],["docs","Documents"],["used","Where used"],["alt","Alternatives"]];
   let body="";
@@ -8510,7 +8513,7 @@ function _furDetail(host){
       <div class="mkv"><span>You earn here</span><b>${f.specQty?fmtN(_furEarn(f)*f.specQty):"—"}</b></div>
       <div class="mkv"><span style="color:var(--tl)">Across all projects once accounts land</span></div></div>`;
   } else {
-    const alts=FURNISHINGS.filter(x=>x.id!==f.id && x.cat===f.cat && x.claimed);
+    const alts=FURNISHINGS.filter(x=>x.id!==f.id && x.cat===f.cat && goodsPriced(x));
     body=alts.length?`<div class="mtwo">${alts.map(a=>`
       <button class="mblk" style="text-align:left;border:0;font:inherit;color:inherit;cursor:pointer" onclick="furOpen('${a.id}')">
         <h4>${mi("swap")}${escAttr(a.nm)}</h4>
@@ -8543,7 +8546,7 @@ function _furDetail(host){
 function _furPanelHTML(){
   if(!FUR_OPEN) return _furLibPanel();
   const f=furFind(FUR_OPEN); if(!f) return _furLibPanel();
-  const seeded=!f.claimed, sale=furOnSale(f), md=goodsModel(), resale=md==="resale";
+  const seeded=!goodsPriced(f), sale=furOnSale(f), md=goodsModel(), resale=md==="resale";
   if(seeded) return `
     <div class="mp-card"><span class="k">Not yet priced</span>
       <span class="big" style="font-size:19px;color:var(--tl)">No price yet</span>
@@ -8584,7 +8587,7 @@ function _furPanelHTML(){
 function _furLibPanel(){
   const md=goodsModel(), resale=md==="resale";
   const inView=FURNISHINGS.filter(f=>FUR_CAT==="All"||f.cat===FUR_CAT);
-  const claimed=inView.filter(f=>f.claimed);
+  const claimed=inView.filter(f=>goodsPriced(f));
   const seeded=inView.length-claimed.length;
   const best=claimed.slice().sort((a,b)=>_furEarn(b)-_furEarn(a))[0];
   const spec=FURNISHINGS.filter(f=>f.specQty>0);
