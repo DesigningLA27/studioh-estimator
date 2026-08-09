@@ -1834,6 +1834,30 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 /* ── goods: AI search, tag picker, column switch, result banners ── */
 .gsearch{display:inline-flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--br);
   border-radius:999px;padding:5px 6px 5px 7px;min-width:320px}
+.gsearch .go.web{background:var(--card);border:1px solid var(--br);color:var(--tm)}
+.gsearch .go.web:hover{border-color:var(--gm);color:var(--gm)}
+/* results from the web, each one a doorway into the importer */
+.gweb{border:1px solid var(--gm);border-radius:14px;overflow:hidden;margin-bottom:14px;background:var(--card)}
+.gwh{display:flex;align-items:center;gap:9px;background:var(--brand-soft);padding:10px 14px;font-size:12.5px;color:var(--gm)}
+.gwh b{font-weight:800}
+.gwh span{color:var(--tm);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gwh svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8}
+.gwh button{border:1px solid var(--gm);background:var(--card);color:var(--gm);border-radius:8px;
+  padding:4px 11px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}
+.gwr{display:flex;align-items:center;gap:14px;padding:11px 14px;border-top:1px solid var(--brl)}
+.gwr .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.gwr .t b{font-size:13px;font-weight:800}
+.gwr .t i{font-style:normal;font-size:12px;color:var(--tm)}
+.gwr .t em{font-style:normal;font-size:11px;color:var(--tl)}
+.gwr .a{display:flex;gap:7px;flex:none}
+.lnkb{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:9px;padding:7px 12px;
+  font-size:11.5px;font-weight:700;text-decoration:none}
+.lnkb:hover{border-color:var(--gm);color:var(--gm)}
+.impb{border:1px solid var(--gm);background:var(--gm);color:#fff;border-radius:9px;padding:7px 12px;
+  font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}
+.impb:hover{background:var(--gd)}
+.gwf{padding:9px 14px;border-top:1px solid var(--brl);font-size:11px;color:var(--tl)}
+@media(max-width:640px){ .gwr{flex-direction:column;align-items:stretch} }
 .gsearch:focus-within{border-color:var(--gm)}
 .gsearch>svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;color:var(--gm);flex:none}
 /* One box, two ways to use it: the magnifier says it filters as you type, the button
@@ -2579,7 +2603,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v691</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v692</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6906,7 +6930,10 @@ function goodsSearchBarHTML(o){
     ${(o.q||o.ai)?`<button class="x" title="Clear" onclick="${o.onClear}()">${mi("x")}</button>`:""}
     <button class="go${o.ai?" on":""}" title="Search this book in plain language"
       onclick="${o.onAI}(document.getElementById('${o.id}').value)" ${o.busy?"disabled":""}>
-      ${o.busy?"…":mi("spark")+"AI Search"}</button>
+      ${o.busy?"…":mi("spark")+"This book"}</button>
+    ${o.kind?`<button class="go web" title="Search the web for suppliers and products"
+      onclick="goodsWebGo('${o.kind}','${o.id}')" ${GOODS_WEBBUSY?"disabled":""}>
+      ${GOODS_WEBBUSY?"…":mi("link")+"The web"}</button>`:""}
   </span>`;
 }
 // ── IMPORT FROM A SUPPLIER URL ────────────────────────────────
@@ -9754,6 +9781,70 @@ function matCardSizeHTML(){
       <div class="ft"><span onclick="event.stopPropagation();delete PREFS.matCardMin;prefsSave();_matDD='';renderMaterials()">Back to ${MAT_CARD_DEFAULT}px</span></div>
     </div></span>`;
 }
+// ── SEARCH THE WEB ────────────────────────────────────────────
+// The library can only answer for what is already in it. "Find me vein cut limestone
+// dealers" is a question about the world, and it is the question that starts every
+// specification — so it searches the web properly, and every result carries a button
+// that runs it straight through the importer.
+let GOODS_WEB=null, GOODS_WEBQ="", GOODS_WEBBUSY=false, GOODS_WEBKIND="mat";
+function goodsWebClear(){ GOODS_WEB=null; GOODS_WEBQ="";
+  try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){} }
+async function goodsWebSearch(kind,q){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return; }
+  q=String(q||"").trim(); if(!q) return;
+  GOODS_WEBKIND=kind; GOODS_WEBQ=q; GOODS_WEBBUSY=true; GOODS_WEB=null;
+  try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
+  const where=(PREFS.defaults&&PREFS.defaults.location)||"Los Angeles / Orange County";
+  const what=kind==="fur"?"outdoor furniture and site furnishings":"landscape materials and hardscape";
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1800,
+        tools:[{type:"web_search_20250305",name:"web_search",max_uses:5}],
+        system:`You research ${what} suppliers for a landscape architect working in ${where}. `+
+               `Search the web, then output ONLY a minified JSON array as your final message — no prose around it.`,
+        messages:[{role:"user",content:`Find: ${q}
+
+After searching, output ONLY minified JSON:
+[{"nm":"company or product name","url":"https://… the most useful page — a product or collection page where one exists, otherwise the site","what":"what they offer, max 14 words","where":"city, state or country","kind":"manufacturer|dealer|distributor"}]
+Up to 8. Prefer suppliers who serve ${where}. Only real URLs you saw in the search results — never a guessed address.`}]})});
+    const d=await r.json();
+    const t=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+    const a=t.indexOf("["), b=t.lastIndexOf("]");
+    let arr=null;
+    if(a>=0&&b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+    if(!arr) arr=_salvageJsonObjects(t.slice(Math.max(0,a)));
+    GOODS_WEB=(arr||[]).filter(o=>o&&o.url&&/^https?:/i.test(o.url)).slice(0,8);
+    if(!GOODS_WEB.length) GOODS_WEB=[];
+  }catch(e){ GOODS_WEB=[]; }
+  GOODS_WEBBUSY=false;
+  try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
+}
+function goodsWebGo(kind,id){
+  const el=document.getElementById(id);
+  goodsWebSearch(kind, el?el.value:"");
+}
+function goodsWebHTML(kind){
+  if(GOODS_WEBKIND!==kind) return "";
+  if(GOODS_WEBBUSY) return `<div class="gres busy">${mi("spark")}<span>Searching the web for “${escAttr(GOODS_WEBQ)}”…</span></div>`;
+  if(!GOODS_WEB) return "";
+  if(!GOODS_WEB.length) return `<div class="gres">${mi("spark")}<span>Nothing useful found for “${escAttr(GOODS_WEBQ)}”.</span>
+    <button onclick="goodsWebClear()">Clear</button></div>`;
+  return `<div class="gweb">
+    <div class="gwh">${mi("spark")}<b>${GOODS_WEB.length} found on the web</b>
+      <span>for “${escAttr(GOODS_WEBQ)}”</span>
+      <button onclick="goodsWebClear()">Clear</button></div>
+    ${GOODS_WEB.map((o,i)=>`<div class="gwr">
+      <span class="t"><b>${escAttr(o.nm||"")}</b>
+        <i>${escAttr(o.what||"")}</i>
+        <em>${escAttr([o.where,o.kind].filter(Boolean).join(" · "))} · ${escAttr(_brandHost(o.url)||"")}</em></span>
+      <span class="a">
+        <a class="lnkb" href="${escAttr(o.url)}" target="_blank" rel="noopener">Open</a>
+        <button class="impb" onclick="goodsImportFlow('${kind}','${escAttr(o.url)}')">Import from here</button>
+      </span></div>`).join("")}
+    <div class="gwf">Import reads that site and offers you its products, the same as pasting the link yourself.</div>
+  </div>`;
+}
 // ── FILTER RAIL ───────────────────────────────────────────────
 // A header full of dropdowns hides which filters are on. A standing column shows all of
 // them at once, which is what a library of several hundred materials needs. It is the
@@ -10083,8 +10174,8 @@ function _matGrid(host){
    <div class="mat-h"><span><b>Materials</b>
      <small>${MATERIALS.length} products · ${new Set(MATERIALS.map(m=>m.sup)).size} suppliers · ${matModel()==="resale"?"resale model":"commission model"}</small></span>
      <span class="sp">
-       ${goodsSearchBarHTML({id:"mat-ai-in",q:MAT_AIQ,ai:MAT_AI,busy:MAT_AIBUSY,
-         ph:"Search materials, or ask AI…",onInput:"matQ",onAI:"matAIGo",onClear:"matAIClear"})}
+       ${goodsSearchBarHTML({id:"mat-ai-in",q:MAT_AIQ,ai:MAT_AI,busy:MAT_AIBUSY,kind:"mat",
+         ph:"Search your library, or the web…",onInput:"matQ",onAI:"matAIGo",onClear:"matAIClear"})}
        <span class="mdd">
          <button class="mchip ${nT?"on":""}" onclick="event.stopPropagation();document.getElementById('mat-tagdd').classList.toggle('open')">
            ${mi("list")}Tags${nT?`<span class="mcount">${nT}</span>`:""}${mi("chev")}</button>
@@ -10114,6 +10205,7 @@ function _matGrid(host){
        </span>
      </span></div>
    ${goodsUrlBarHTML("mat")}
+   ${goodsWebHTML("mat")}
    ${MAT_VIEW==="list"?matBulkBarHTML(list):""}
    <div class="mwrap${matRailOpen()?" rail-on":""}">
      ${matRailOpen()?matRailHTML():`<button class="mrail-tab" onclick="matRailToggle()">${mi("sliders")}<span>Filters</span>${matFilterCount()?`<i>${matFilterCount()}</i>`:""}</button>`}
@@ -10535,8 +10627,8 @@ function _furGrid(host){
    <div class="mat-h"><span><b>Site Furnishings</b>
      <small>${FURNISHINGS.length} products · ${new Set(FURNISHINGS.map(f=>f.sup)).size} suppliers · ${goodsModel()==="resale"?"resale model":goodsModel()==="fee"?"fee model":"commission model"}</small></span>
      <span class="sp">
-       ${goodsSearchBarHTML({id:"fur-ai-in",q:FUR_AIQ,ai:FUR_AI,busy:FUR_AIBUSY,
-         ph:"Search furnishings, or ask AI…",onInput:"furQ",onAI:"furAIGo",onClear:"furAIClear"})}
+       ${goodsSearchBarHTML({id:"fur-ai-in",q:FUR_AIQ,ai:FUR_AI,busy:FUR_AIBUSY,kind:"fur",
+         ph:"Search your library, or the web…",onInput:"furQ",onAI:"furAIGo",onClear:"furAIClear"})}
        <span class="mdd">
          <button class="mchip ${furCatList().length?"on":""}" onclick="event.stopPropagation();document.getElementById('fur-catdd').classList.toggle('open')">
            ${mi("cube")}${(()=>{const c=furCatList();return c.length?(c.length>1?c.length+" types":escAttr(c[0])):"All types";})()}${mi("chev")}</button>
@@ -10582,6 +10674,7 @@ function _furGrid(host){
        </span>
      </span></div>
    ${goodsUrlBarHTML("fur")}
+   ${goodsWebHTML("fur")}
    ${FUR_AIBUSY?`<div class="gres busy">${mi("spark")}<span>Searching the catalogue…</span></div>`:""}
    ${(FUR_AI&&!FUR_AIBUSY)?`<div class="gres">${mi("spark")}
      <span><b>${list.length} match${list.length===1?"":"es"}</b>${FUR_AI.why?" · "+escAttr(FUR_AI.why):""}</span>
