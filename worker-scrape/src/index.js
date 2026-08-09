@@ -29,7 +29,7 @@ export default {
 
     try {
       if (body.type === "scrape")   return json(await scrapeOne(body.url));
-      if (body.type === "discover") return json(await discover(body.url, +body.limit || 60));
+      if (body.type === "discover") return json(await discover(body.url, Math.min(+body.limit || 60, 3000)));
       if (body.type === "pricelook") return json(await priceLook(body));
       // Which pages on this site are the real products? Fetch a couple from each URL
       // shape and report only what it takes to judge richness — never the page text,
