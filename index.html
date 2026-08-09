@@ -2188,14 +2188,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   background:rgba(20,24,30,.8);color:#fff;display:none;place-items:center;font-style:normal}
 .gth:hover .fx{display:grid}
 .gth .fx svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2}
-.gth .mv{position:absolute;top:50%;transform:translateY(-50%);width:18px;height:26px;
-  background:rgba(20,24,30,.72);color:#fff;display:none;place-items:center;font-style:normal;
-  font-size:14px;font-weight:800;line-height:1}
-.gth .mv.l{left:0;border-radius:0 5px 5px 0}
-.gth .mv.r{right:0;border-radius:5px 0 0 5px}
-.gth:hover .mv{display:grid}
-.gth .mv.off{display:none!important}
-@media(hover:none){ .gth .fx,.gth .mv{display:grid} }
+.gth{touch-action:none;cursor:grab;transition:transform .12s,opacity .12s}
+.gth.dragging{cursor:grabbing;opacity:.75;transform:scale(1.06);z-index:5;
+  box-shadow:0 12px 28px -8px rgba(0,0,0,.6)}
+@media(hover:none){ .gth .fx{display:grid} }
 /* Framing editor */
 .gfrw{position:fixed;inset:0;z-index:430;background:rgba(10,13,18,.72);display:grid;place-items:center;
   padding:20px;opacity:0;transition:opacity .16s}
@@ -2455,7 +2451,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v670</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v671</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7799,18 +7795,57 @@ try{
   document.addEventListener("touchmove",_gframeMove,{passive:false});
   document.addEventListener("touchend",_gframeUp);
 }catch(e){}
-// Order matters on a spec sheet — the shot you lead with is the one a client sees.
-function goodsMovePhoto(ev,book,id,url,dir){
-  if(ev) ev.stopPropagation();
-  const x=goodsRow(book,id); if(!x) return;
-  const list=goodsImgs(x).slice();
-  const i=list.indexOf(url); if(i<0) return;
-  const j=i+dir; if(j<0||j>=list.length) return;
-  list[i]=list[j]; list[j]=url;
-  x.imgs=list; x.img=list[0]||"";
-  goodsSaveQuiet(book);
-  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+// Order matters on a spec sheet — the shot you lead with is the one a client sees, so
+// arranging them should feel like arranging photographs, not like operating a control.
+// One pointer handler covers mouse and touch; a press that never moves more than a few
+// pixels is a tap, and still promotes that photo to primary.
+let _gdrag=null;
+function goodsDragStart(ev,book,id){
+  const th=ev.currentTarget; if(!th) return;
+  _gdrag={book,id,el:th,strip:th.parentNode,from:+th.dataset.i,x:ev.clientX,y:ev.clientY,moved:false};
+  try{ th.setPointerCapture(ev.pointerId); }catch(e){}
 }
+function _gdragMove(ev){
+  if(!_gdrag) return;
+  const dx=ev.clientX-_gdrag.x, dy=ev.clientY-_gdrag.y;
+  if(!_gdrag.moved){
+    if(Math.abs(dx)+Math.abs(dy)<7) return;      // still a tap
+    _gdrag.moved=true;
+    _gdrag.el.classList.add("dragging");
+  }
+  if(ev.cancelable) ev.preventDefault();
+  // Reorder live so the gap follows your finger rather than jumping at the end.
+  const els=[..._gdrag.strip.querySelectorAll(".gth")];
+  const over=els.find(el=>{
+    if(el===_gdrag.el) return false;
+    const r=el.getBoundingClientRect();
+    return ev.clientX>=r.left && ev.clientX<=r.right && ev.clientY>=r.top-24 && ev.clientY<=r.bottom+24;
+  });
+  if(over){
+    const r=over.getBoundingClientRect();
+    const after = ev.clientX > r.left + r.width/2;
+    _gdrag.strip.insertBefore(_gdrag.el, after ? over.nextSibling : over);
+  }
+}
+function _gdragEnd(ev){
+  const d=_gdrag; _gdrag=null;
+  if(!d) return;
+  d.el.classList.remove("dragging");
+  const x=goodsRow(d.book,d.id); if(!x) return;
+  if(!d.moved){ goodsSetPrimary(d.book,d.id,d.el.dataset.u); return; }
+  const order=[...d.strip.querySelectorAll(".gth")].map(el=>el.dataset.u).filter(Boolean);
+  if(!order.length) return;
+  x.imgs=order; x.img=order[0]||"";
+  goodsSaveQuiet(d.book);
+  try{ d.book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
+try{
+  document.addEventListener("pointermove",_gdragMove,{passive:false});
+  document.addEventListener("pointerup",_gdragEnd);
+  document.addEventListener("pointercancel",_gdragEnd);
+}catch(e){}
+// Order matters on a spec sheet — the shot you lead with is the one a client sees.
+
 function goodsSetPrimary(book,id,url){
   const x=goodsRow(book,id); if(!x) return;
   const list=goodsImgs(x).slice();
@@ -7852,16 +7887,15 @@ function goodsPhotoStripHTML(book,x){
   const common=goodsCommonImages(book);
   return `<div class="gstrip">
     ${imgs.map((u,i)=>`<span class="gth${i===0?" pri":""}${goodsIsCommon(u,common)?" gen":""}"
+        data-i="${i}" data-u="${escAttr(u)}"
         style="${goodsShotStyle(x,u,"var(--surface2)")}"
-        onclick="goodsSetPrimary('${book}','${x.id}','${escAttr(u)}')"
-        title="${i===0?"Primary photo":"Use as the primary photo"}">
+        onpointerdown="goodsDragStart(event,'${book}','${x.id}')"
+        title="${i===0?"Primary photo — drag to reorder":"Drag to reorder, tap to make primary"}">
         ${i===0?`<i class="tag">Primary</i>`:""}
         ${goodsIsCommon(u,common)?`<i class="tag gen">On every product</i>`:""}
         ${x.fr&&x.fr[u]?`<i class="tag fr">Framed</i>`:""}
-        <i class="x" onclick="event.stopPropagation();goodsDropPhoto('${book}','${x.id}','${escAttr(u)}')" title="Remove">${mi("x")}</i>
-        <i class="fx" onclick="goodsFrameOpen(event,'${book}','${x.id}','${escAttr(u)}')" title="Zoom and pan">${mi("zoom")}</i>
-        <i class="mv l${i===0?" off":""}" onclick="goodsMovePhoto(event,'${book}','${x.id}','${escAttr(u)}',-1)" title="Move earlier">‹</i>
-        <i class="mv r${i===imgs.length-1?" off":""}" onclick="goodsMovePhoto(event,'${book}','${x.id}','${escAttr(u)}',1)" title="Move later">›</i>
+        <i class="x" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();goodsDropPhoto('${book}','${x.id}','${escAttr(u)}')" title="Remove">${mi("x")}</i>
+        <i class="fx" onpointerdown="event.stopPropagation()" onclick="goodsFrameOpen(event,'${book}','${x.id}','${escAttr(u)}')" title="Zoom and pan">${mi("zoom")}</i>
       </span>`).join("")}
     ${x.srcUrl?`<button class="gmore" onclick="goodsMorePhotos('${book}','${x.id}')">${mi("plus")}More from the page</button>`:""}
   </div>`;
