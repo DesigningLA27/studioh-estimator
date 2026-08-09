@@ -1662,6 +1662,14 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gbar .gsp{margin-left:auto}
 .gbar .sortdd{position:relative}
 .gbar .sortdd .mddm{right:0;left:auto}
+.prange{display:flex;align-items:center;gap:7px;padding:9px 10px 4px;border-top:1px solid var(--brl);margin-top:5px}
+.prange input{width:70px;border:1px solid var(--br);background:var(--surface2);color:var(--tx);
+  border-radius:8px;padding:6px 8px;font:inherit;font-size:12px;font-weight:700;text-align:right;
+  font-variant-numeric:tabular-nums}
+.prange input:focus{outline:none;border-color:var(--gm);background:var(--card)}
+.prange span{font-size:11.5px;color:var(--tl)}
+.prange button{margin-left:auto;border:1px solid var(--gm);background:var(--brand-soft);color:var(--gm);
+  border-radius:8px;padding:6px 11px;font:inherit;font-size:11.5px;font-weight:800;cursor:pointer}
 .mchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;background:var(--card);
   border:1px solid var(--br);border-radius:11px;padding:8px 13px;color:var(--tm);cursor:pointer}
 .mchip.on{border-color:var(--gm);color:var(--gm);background:var(--brand-soft)}
@@ -2291,7 +2299,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v652</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v653</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8067,15 +8075,77 @@ function matGroupBarHTML(){
         ${items}
       </div></span>`;
   }).join("");
-  const path = MAT_CAT!=="All" ? MAT_CAT
+  let path = MAT_CAT!=="All" ? MAT_CAT
     : MAT_GRP ? (groups.find(x=>x.g.id===MAT_GRP)||{g:{nm:""}}).g.nm : "";
+  if(MAT_PMIN||MAT_PMAX) path = (path?path+" · ":"") + matPriceLabel();
   return `<div class="mbar gbar">
     <button class="grp${(!MAT_GRP&&MAT_CAT==="All")?" on":""}" onclick="matPick('','All')">All<span class="n">${tot}</span></button>
     ${btns}
-    <span class="gsp"></span>${matSortBarHTML()}
+    <span class="gsp"></span>${matPriceBarHTML()}${matSortBarHTML()}
   </div>
-  ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b>
-     <button onclick="matPick('','All')">clear</button></div>`:""}`;
+  ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b> · ${MATERIALS.filter(matInView).length} of ${tot}
+     <button onclick="matPick('','All');matSetPrice(0,0)">clear</button></div>`:""}`;
+}
+// ── PRICE RANGE ───────────────────────────────────────────────
+// Specifying starts from a budget far more often than from a category — "show me
+// paving under $15 a foot" is the real question. The presets are derived from what is
+// actually in the library, so they stay useful as the catalogue changes.
+function matPriceOf(m){ return (+((m&&m.msrp)||0)) || (+((m&&m.cost)||0)) || 0; }
+// Bands are built from the priced rows in the current group, not hard-coded, so a
+// library of $4 mulch and one of $60 glass tile each get sensible steps.
+function matPriceBands(){
+  const vals=MATERIALS.filter(m=>matInGroup(m)).map(matPriceOf).filter(v=>v>0).sort((a,b)=>a-b);
+  if(vals.length<4) return [];
+  const at=q=>vals[Math.min(vals.length-1,Math.floor(q*vals.length))];
+  const round=v=>v>=40?Math.round(v/10)*10:v>=10?Math.round(v/5)*5:Math.round(v);
+  const cuts=[...new Set([round(at(0.25)),round(at(0.5)),round(at(0.75))])].filter(v=>v>0);
+  if(!cuts.length) return [];
+  const out=[[0,cuts[0]]];
+  for(let i=0;i<cuts.length-1;i++) out.push([cuts[i],cuts[i+1]]);
+  out.push([cuts[cuts.length-1],0]);
+  return out;
+}
+function matPriceLabel(){
+  const lo=MAT_PMIN, hi=MAT_PMAX;
+  if(!lo&&!hi) return "Any price";
+  if(lo&&hi) return `$${lo}–$${hi}`;
+  if(hi) return `Under $${hi}`;
+  return `$${lo}+`;
+}
+function matSetPrice(lo,hi,excl){
+  MAT_PMIN=Math.max(0,+lo||0); MAT_PMAX=Math.max(0,+hi||0);
+  if(MAT_PMIN&&MAT_PMAX&&MAT_PMIN>MAT_PMAX){ const t=MAT_PMIN; MAT_PMIN=MAT_PMAX; MAT_PMAX=t; }
+  MAT_PEXCL=!!excl;      // preset bands exclude their top edge; a typed range does not
+  _matDD=""; renderMaterials();
+}
+function matPriceInput(){
+  const g=id=>{ const el=document.getElementById(id); return el?el.value:""; };
+  matSetPrice(g("mat-pmin"),g("mat-pmax"));
+}
+function matPriceBarHTML(){
+  const on=!!(MAT_PMIN||MAT_PMAX), bands=matPriceBands();
+  const band=(lo,hi)=>{
+    const sel = MAT_PMIN===lo && MAT_PMAX===hi && MAT_PEXCL;
+    const lbl = lo&&hi ? `$${lo} – under $${hi}` : hi ? `Under $${hi}` : `$${lo} and up`;
+    return `<div class="it ${sel?"on":""}" onclick="event.stopPropagation();matSetPrice(${lo},${hi},1)">${lbl}</div>`;
+  };
+  return `<span class="mdd sortdd">
+    <button class="mchip${on?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__price')">
+      ${mi("tag")}${escAttr(matPriceLabel())}${mi("chev")}</button>
+    <div class="mddm${_matDD==="__price"?" open":""}" onclick="event.stopPropagation()">
+      <div class="hd">Price per unit</div>
+      <div class="it ${!on?"on":""}" onclick="event.stopPropagation();matSetPrice(0,0)">Any price</div>
+      ${bands.map(b=>band(b[0],b[1])).join("")}
+      <div class="prange">
+        <input id="mat-pmin" type="number" min="0" step="1" placeholder="min" value="${MAT_PMIN||""}"
+          onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter')matPriceInput()">
+        <span>to</span>
+        <input id="mat-pmax" type="number" min="0" step="1" placeholder="max" value="${MAT_PMAX||""}"
+          onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter')matPriceInput()">
+        <button onclick="event.stopPropagation();matPriceInput()">Apply</button>
+      </div>
+      ${on?`<div class="ft"><span onclick="event.stopPropagation();matSetPrice(0,0)">Clear price filter</span></div>`:""}
+    </div></span>`;
 }
 // ── SORT ──────────────────────────────────────────────────────
 // Filtering says which materials; sorting says which one to look at first. They are
@@ -8145,6 +8215,7 @@ function matDDToggle(ev,gid){
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
 let MAT_GRP="", _matDD="";
+let MAT_PMIN=0, MAT_PMAX=0, MAT_PEXCL=false;
 let MAT_SORT=(function(){ try{ return PREFS.matSort||"earn"; }catch(e){ return "earn"; } })();
 let MAT_CAT="All", MAT_OPEN=null, MAT_TAB="detail";
 // Tag filter, tag-search box, and the AI result set. AI results are held as an
@@ -8180,12 +8251,23 @@ async function matAIGo(q){
 function matSetCat(c){ MAT_CAT=c; renderMaterials(); }
 // A group with no category chosen shows everything in that group; a category narrows
 // inside it. "All" clears both.
-function matInView(m){
+function matInGroup(m){
   if(!m) return false;
   if(MAT_CAT!=="All") return m.cat===MAT_CAT;
   if(MAT_GRP) return matGroupOf(m.cat)===MAT_GRP;
   return true;
 }
+// A price range excludes anything with no price — an unpriced row cannot be said to
+// fall inside a budget, and showing it as if it did is the kind of thing that ends up
+// in a bid.
+function matInPrice(m){
+  if(!MAT_PMIN && !MAT_PMAX) return true;
+  const v=matPriceOf(m); if(!(v>0)) return false;
+  if(MAT_PMIN && v<MAT_PMIN) return false;
+  if(MAT_PMAX && (MAT_PEXCL ? v>=MAT_PMAX : v>MAT_PMAX)) return false;
+  return true;
+}
+function matInView(m){ return matInGroup(m) && matInPrice(m); }
 function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
