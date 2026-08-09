@@ -2236,7 +2236,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v644</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v645</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10183,8 +10183,9 @@ async function _cfgAutoPush(){
     const sd=await sr.json();
     const srvStamp=(sd&&sd.found&&sd.config&&sd.config.savedAt)||"";
     if(srvStamp && applied && srvStamp!==applied){
-      _toast("Pricing not auto-saved — another device published newer pricing. Use ☁ Pull pricing first.","#B23F3C");
-      _cfgPushBusy=false; return;
+      _cfgPushBusy=false;
+      if(!_cfgConflictAsked){ _cfgConflictAsked=true; setTimeout(()=>_cfgResolve(),200); }
+      return;
     }
     const cfg={ savedAt:new Date().toISOString(), data:{} };
     SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
@@ -10214,13 +10215,34 @@ function _renderPbSync(){
 // Watch for local edits without having to touch all 16 save paths.
 setInterval(()=>{ _renderPbSync(); if(_cfgDirty()) _cfgSchedulePush(); }, 30*1000);
 document.addEventListener("visibilitychange",()=>{ if(document.hidden && _cfgDirty()) _cfgAutoPush(); });
+// Two copies of the pricing differ and neither side may quietly win, so the choice is
+// yours — but it is offered once and settled in one tap, rather than repeated on every
+// load with instructions to go and find two buttons.
+let _cfgConflictAsked=false;
+async function _cfgResolve(){
+  const keep=confirm(
+    "Two copies of your pricing differ.\n\n"+
+    "The server has pricing this device has not seen, and this device has pricing the server has not seen.\n\n"+
+    "OK  — use the SERVER's pricing (discards this device's unsent pricing edits)\n"+
+    "Cancel — publish THIS DEVICE's pricing over the server's"
+  );
+  if(keep){
+    try{ localStorage.removeItem("studioh_cfg_fp"); }catch(e){}   // drop the dirty mark, then take theirs
+    await configLoad(false);
+  } else {
+    try{ await configPublish(); }catch(e){}
+  }
+  try{ _renderPbSync(); }catch(e){}
+}
 async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})}); const d=await r.json();
     if(d&&d.found&&d.config&&d.config.data){ const serverStamp=d.config.savedAt||""; let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
       if(serverStamp && serverStamp===applied && silent){ if(!_cfgSyncedFp()) _cfgMarkSynced(); return; } // already applied
       // Never let a silent pull discard price edits this device has not pushed yet.
       if(silent && _cfgDirty()){
-        _toast("This device has unsynced pricing. Newer pricing is on the server — publish or pull from the Price Book.","#9B7B3A");
+        if(_cfgConflictAsked) return;             // ask once per load, never nag
+        _cfgConflictAsked=true;
+        setTimeout(()=>_cfgResolve(),600);
         return;
       }
       Object.keys(d.config.data).forEach(k=>{ try{
