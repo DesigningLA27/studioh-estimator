@@ -2165,6 +2165,20 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gpk-dup{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   color:var(--gm);background:var(--brand-soft);border-radius:99px;padding:2px 7px;margin-left:7px}
 .gpk-none{padding:22px 4px;text-align:center;font-size:12.5px;color:var(--tl)}
+.gpk-scan{display:flex;align-items:center;gap:9px;background:var(--surface2);border-radius:10px;
+  padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--tm)}
+.gpk-scan svg{width:14px;height:14px;fill:none;stroke:var(--gm);stroke-width:1.8}
+.gpk-layers{border:1px solid var(--br);border-radius:12px;overflow:hidden;margin-bottom:11px}
+.gpk-lh{background:var(--surface2);padding:8px 12px;font-size:9.5px;font-weight:800;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--tl)}
+.gpk-lf{padding:8px 12px;font-size:11px;color:var(--tl);border-top:1px solid var(--brl)}
+.gpk-layer{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;padding:9px 12px;cursor:pointer;
+  border-top:1px solid var(--brl)}
+.gpk-layer:hover{background:var(--surface2)}
+.gpk-layer .k{font-size:12.5px;font-weight:800;color:var(--tx);font-family:ui-monospace,SFMono-Regular,monospace}
+.gpk-layer .s{font-size:11.5px;color:var(--tl);margin-left:auto}
+.gpk-layer.best .k{color:var(--gm)}
+.gpk-layer.thin{opacity:.6}
 .gpk-bar b{color:var(--tx)}
 .gpk-bar .sp{margin-left:auto;display:flex;gap:6px}
 .gpk-list{max-height:46vh;overflow-y:auto;border:1px solid var(--br);border-radius:12px;background:var(--card)}
@@ -2346,7 +2360,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v657</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v658</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6774,10 +6788,83 @@ async function goodsImportFlow(kind){
 }
 const _SCRAPE_HELP="The page reader isn't deployed yet.\n\nIn Terminal:\n  cd studioh-estimator/worker-scrape\n  npx wrangler deploy\n\nUntil then an import could only guess at the details, so it is blocked rather than filled with invented data.";
 
+// ── LAYER DETECTION ───────────────────────────────────────────
+// A supplier catalogue has layers: a colour chip, a colour in a finish, a format in a
+// colour. Only the last is a thing you put on a drawing, and they all live under
+// /products/. Rather than make you work that out, sample a couple of pages from each
+// URL shape and let the pages themselves say which layer is the real one.
+function _gpickShapeKey(u,tokCounts){
+  let path=""; try{ path=new URL(u).pathname; }catch(e){ path=String(u||""); }
+  const segs=path.replace(/\/+$/,"").split("/").filter(Boolean);
+  const last=segs.pop()||"";
+  const dir="/"+segs.join("/");
+  const tok=(last.split("-")[0]||"").toLowerCase();
+  // A shared alphabetic prefix is only a real family if plenty of pages carry it —
+  // "palette-" names 136 pages, so it is a layer; one-off words are not.
+  const useTok = /^[a-z]{3,}$/.test(tok) && tokCounts && (tokCounts[dir+"|"+tok]||0)>=8;
+  return useTok ? dir+"/"+tok+"-*" : dir+"/*";
+}
+function _gpickShapes(list){
+  const counts={};
+  list.forEach(x=>{
+    let path=""; try{ path=new URL(x.url).pathname; }catch(e){ return; }
+    const segs=path.replace(/\/+$/,"").split("/").filter(Boolean);
+    const last=segs.pop()||""; const dir="/"+segs.join("/");
+    const tok=(last.split("-")[0]||"").toLowerCase();
+    if(/^[a-z]{3,}$/.test(tok)) counts[dir+"|"+tok]=(counts[dir+"|"+tok]||0)+1;
+  });
+  const groups={};
+  list.forEach((x,i)=>{ const k=_gpickShapeKey(x.url,counts); (groups[k]=groups[k]||[]).push(i); });
+  return groups;
+}
+// What the samples say. Documents and a real description separate a product page from
+// a colour swatch far more reliably than photo count does — both layers on glasstile
+// carry nine images, but one has three spec PDFs and a 390-character description and
+// the other has one and 39.
+function _gpickScore(rows){
+  const ok=rows.filter(r=>r&&r.ok); if(!ok.length) return null;
+  const avg=f=>ok.reduce((a,r)=>a+(+f(r)||0),0)/ok.length;
+  const imgs=avg(r=>r.images), docs=avg(r=>r.docs), text=avg(r=>r.textLen),
+        desc=avg(r=>r.desc),  price=avg(r=>r.price>0?1:0);
+  // A size or format in the title is the single clearest sign of a specifiable product.
+  const fmt=ok.filter(r=>/\d+\s*(?:x|×)\s*\d+|\b\d+(?:\.\d+)?\s*(?:mm|cm|in|inch)\b|["″']/.test(r.name||"")).length/ok.length;
+  const score = Math.min(imgs/2,5) + docs*2 + Math.min(text/1000,8) + Math.min(desc/50,8) + price*5 + fmt*4;
+  return {score, imgs:Math.round(imgs), docs:Math.round(docs), desc:Math.round(desc),
+          priced:price>0.5, fmt:fmt>0.5};
+}
+async function _gpickAnalyse(){
+  const list=_gpick.list||[]; if(list.length<6) return;
+  const groups=_gpickShapes(list);
+  const keys=Object.keys(groups).sort((a,b)=>groups[b].length-groups[a].length).slice(0,6);
+  if(keys.length<2) return;                       // one shape — nothing to choose between
+  const probe=[], owner=[];
+  keys.forEach(k=>{ groups[k].slice(0,2).forEach(i=>{ probe.push(list[i].url); owner.push(k); }); });
+  _gpick.analysing=true; _goodsPickerRender();
+  const r=await _scrapeCall({type:"sample",urls:probe});
+  _gpick.analysing=false;
+  if(r.err||!r.results){ _goodsPickerRender(); return; }
+  const byKey={};
+  r.results.forEach((res,i)=>{ const k=owner[i]; (byKey[k]=byKey[k]||[]).push(res); });
+  const shapes=keys.map(k=>Object.assign({key:k,n:groups[k].length,idx:groups[k]}, _gpickScore(byKey[k])||{score:-1}))
+                   .filter(x=>x.score>=0)
+                   .sort((a,b)=>b.score-a.score);
+  if(!shapes.length){ _goodsPickerRender(); return; }
+  // Richness ranks the layers, but the top score alone picks the wrong one: on
+  // glasstile "subway-*" (12 pages) edges out the main "/products/*" (257) on
+  // description length, and they are plainly the same layer — a family within it.
+  // So anything scoring near the top counts as the product layer; only a genuinely
+  // thinner shape, like the 136 colour chips, is left out.
+  const best=shapes[0].score;
+  shapes.forEach(x=>{ x.good = x.score >= best*0.75; });
+  _gpick.shapes=shapes;
+  _gpick.sel={};
+  shapes.filter(x=>x.good).forEach(sh=>sh.idx.forEach(i=>{ _gpick.sel[i]=true; }));
+  _goodsPickerRender();
+}
 // Choose what to bring in. Nothing is imported until you press the button.
 let _gpick={kind:"",list:[],sel:{},host:""};
 function _goodsPickerOpen(kind,dis,host){
-  _gpick={kind,list:dis.products||[],sel:{},host,q:""};
+  _gpick={kind,list:dis.products||[],sel:{},host,q:"",shapes:null,analysing:false};
   // Nothing pre-selected. Selecting the first 24 of 423 by whatever order the sitemap
   // happened to return is how a library ends up full of colour-swatch pages instead of
   // the actual products — which is exactly what happened with glasstile.
@@ -6786,9 +6873,16 @@ function _goodsPickerOpen(kind,dis,host){
     h.addEventListener("click",e=>{ if(e.target===h) _goodsPickerClose(); });
     document.body.appendChild(h); }
   _goodsPickerRender(); document.body.classList.add("lb-open");
+  try{ _gpickAnalyse(); }catch(e){}
 }
 function _goodsPickerClose(){ document.body.classList.remove("lb-open");
   const h=document.getElementById("gpick-lb"); if(h) h.classList.remove("on"); }
+// Click a layer to take exactly that layer, nothing else.
+function _gpickPickLayer(si){
+  const sh=_gpick.shapes&&_gpick.shapes[si]; if(!sh) return;
+  _gpick.sel={}; sh.idx.forEach(i=>{ _gpick.sel[i]=true; });
+  _goodsPickerRender();
+}
 function _gpickToggle(i){ _gpick.sel[i]=!_gpick.sel[i]; _goodsPickerRender(); }
 // "Select all" now means all of what you are looking at, not all 423.
 function _gpickAll(v){ _gpickShown().forEach(({i})=>{ _gpick.sel[i]=!!v; }); _goodsPickerRender(); }
@@ -6824,6 +6918,16 @@ function _goodsPickerRender(keepFocus){
         <input id="gpk-q" type="search" placeholder="Filter these ${_gpick.list.length} pages — try a format or a colour" value="${escAttr(q)}"
           oninput="_gpickQ(this.value)">
       </div>
+      ${_gpick.analysing?`<div class="gpk-scan">${mi("spark")}<span>Reading a few pages to work out which are the real products…</span></div>`:""}
+      ${(_gpick.shapes&&!q)?`<div class="gpk-layers">
+        <div class="gpk-lh">Which pages are the real products — read from a sample of each</div>
+        ${_gpick.shapes.map((sh,si)=>`
+        <div class="gpk-layer${sh.good?" best":" thin"}" onclick="_gpickPickLayer(${si})">
+          <span class="k">${sh.good?"✓ ":"○ "}${escAttr(sh.key)}</span>
+          <span class="s">${sh.n} pages · ${sh.imgs} photos${sh.docs?` · ${sh.docs} doc${sh.docs===1?"":"s"}`:" · no documents"}${sh.fmt?" · format in the name":""}${sh.priced?" · priced":""}</span>
+        </div>`).join("")}
+        <div class="gpk-lf">Ticked layers are selected. Click one to take only that layer.</div>
+      </div>`:""}
       <div class="gpk-bar"><b>${n}</b> selected · showing ${shown.length}${q?" of "+_gpick.list.length:""}${nNew<shown.length?` · ${shown.length-nNew} already in your library`:""}
         <span class="sp"><button class="pb-quick" onclick="_gpickAll(1)">Select ${q?"these "+shown.length:"all"}</button>
         <button class="pb-quick" onclick="_gpickAll(0)">Clear</button></span></div>

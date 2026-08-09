@@ -31,6 +31,33 @@ export default {
       if (body.type === "scrape")   return json(await scrapeOne(body.url));
       if (body.type === "discover") return json(await discover(body.url, +body.limit || 60));
       if (body.type === "pricelook") return json(await priceLook(body));
+      // Which pages on this site are the real products? Fetch a couple from each URL
+      // shape and report only what it takes to judge richness — never the page text,
+      // which would be 14 KB a page for no reason.
+      if (body.type === "sample") {
+        const urls = (body.urls || []).slice(0, 14);
+        const out = [];
+        for (const u of urls) {
+          try {
+            const r = await scrapeOne(u);
+            if (!r.ok) { out.push({ url: u, ok: false }); continue; }
+            const p = r.product || {};
+            const off = [].concat(p.offers || []).filter(Boolean)[0] || {};
+            const price = +String(off.price || off.lowPrice || "").replace(/[^0-9.]/g, "") || 0;
+            out.push({
+              url: r.url, ok: true,
+              images: (r.images || []).length,
+              docs: (r.docs || []).length,
+              textLen: (r.text || "").length,
+              price,
+              isProduct: r.kind === "product",
+              name: (p.name || r.title || "").slice(0, 90),
+              desc: (p.description || (r.meta && r.meta["og:description"]) || "").length,
+            });
+          } catch (e) { out.push({ url: u, ok: false }); }
+        }
+        return json({ ok: true, results: out });
+      }
       if (body.type === "batch") {
         const urls = (body.urls || []).slice(0, 12);          // keep inside the CPU budget
         const out = [];
