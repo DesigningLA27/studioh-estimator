@@ -1724,10 +1724,13 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mddm .it{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer;
   font-size:12.5px;font-weight:600;color:var(--tx)}
 .mddm .it:hover{background:var(--surface2)}
-.mddm .bx{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--tl);display:grid;place-items:center;flex:none;color:#fff}
-.mddm .it.on .bx{background:var(--gm);border-color:var(--gm)}
-.mddm .it:not(.on) .bx svg{display:none}
-.mddm .bx svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round}
+/* No checkboxes. Tapping a row IS the switch — it fills in when it is on, and several
+   can be on at once. A 16px box next to a 200px row was a smaller target than the row
+   it described, which on an iPad is the wrong way round. */
+.mddm .it{position:relative;padding-left:12px}
+.mddm .it.on{background:var(--brand-soft);color:var(--gm);font-weight:800}
+.mddm .it.on::before{content:"";position:absolute;left:3px;top:7px;bottom:7px;width:3px;
+  border-radius:99px;background:var(--gm)}
 .mddm .ft{border-top:1px solid var(--brl);margin-top:5px;padding:8px 10px 4px;display:flex;gap:10px;
   font-size:11.5px;font-weight:700;color:var(--gm)}
 .mddm .ft span{cursor:pointer}
@@ -2453,7 +2456,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v672</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v673</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6761,7 +6764,7 @@ function goodsTagMenuHTML(id,sel,fnToggle,fnClear,fnQuery,q){
       oninput="event.stopPropagation();${fnQuery}(this.value)" onclick="event.stopPropagation()">
     <div class="tagl">${list.length?list.map(t=>`<div class="it ${sel[t]?"on":""}"
         onclick="event.stopPropagation();${fnToggle}('${escAttr(t)}')">
-        <span class="bx">${mi("check")}</span>${escAttr(t)}</div>`).join("")
+        ${escAttr(t)}</div>`).join("")
       :`<div class="it" style="color:var(--tl);cursor:default">No tag matches &ldquo;${escAttr(q||"")}&rdquo;</div>`}</div>
     <div class="ft"><span onclick="event.stopPropagation();${fnClear}()">Clear all</span></div>
   </div>`;
@@ -8328,7 +8331,7 @@ async function _goodsImportOne(kind,url,host,quiet){
       use:String(o.use||"").toLowerCase().replace(/[^a-z]/g,"")||"",
       srcUrl:src,sku:res.sku||"",docs:(res.docs||[]).slice(0,8),specSF:0,
       ai:note(o.msrp&&!perSf?` Listed at $${o.msrp} per ${escAttr(unit||"unit")} — convert to a square-foot price before claiming.`:"")});
-    matSave(); if(!quiet){ MAT_CAT="All"; matOpen(id); }
+    matSave(); if(!quiet){ MAT_CATS={}; MAT_GRP=""; matOpen(id); }
     else { try{ renderMaterials(); }catch(e){} }
   } else {
     FURNISHINGS.unshift({id,nm:o.nm,cat:FUR_CATS.indexOf(o.cat)>=0?o.cat:"Accessories",
@@ -8341,7 +8344,7 @@ async function _goodsImportOne(kind,url,host,quiet){
       goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
       use:String(o.use||"").toLowerCase().replace(/[^a-z]/g,"")||"",
       srcUrl:src,sku:res.sku||"",docs:(res.docs||[]).slice(0,8),specQty:0,ai:note("")});
-    furSave(); if(!quiet){ FUR_CAT="All"; furOpen(id); }
+    furSave(); if(!quiet){ FUR_CATS_SEL={}; furOpen(id); }
     else { try{ renderFurnishings(); }catch(e){} }
   }
   try{ setTimeout(()=>goodsRehostLater(isMat?"materials":"furnishings",id),0); }catch(e){}
@@ -8709,25 +8712,26 @@ function matGroupBarHTML(){
   const groups=MAT_GROUPS.concat([{id:"other",nm:"Other",cats:[]}])
     .map(g=>({g, n:matGroupCount(g.id,counts), cats:matGroupCats(g.id,counts)}))
     .filter(x=>x.n>0);
+  const sel=matCatList();
   const btns=groups.map(({g,n,cats})=>{
-    const on = MAT_GRP===g.id, narrowed = on && MAT_CAT!=="All";
-    const items=cats.map(c=>`<div class="it ${MAT_CAT===c?"on":""}"
+    const on = MAT_GRP===g.id, narrowed = on && sel.length>0;
+    const items=cats.map(c=>`<div class="it ${MAT_CATS[c]?"on":""}"
         onclick="event.stopPropagation();matPick('${g.id}','${escAttr(c)}')">${escAttr(c)}<span class="n">${counts[c]}</span></div>`).join("");
     return `<span class="gw${_matDD===g.id?" open":""}">
       <button class="grp${narrowed?" sel":on?" on":""}" onclick="matDDToggle(event,'${g.id}')">
         ${escAttr(g.nm)}<span class="n">${n}</span><span class="cv">▾</span></button>
       <div class="dd">
         <div class="hd">${escAttr(g.nm)} — narrow by</div>
-        <div class="it ${on&&MAT_CAT==="All"?"on":""}" onclick="event.stopPropagation();matPick('${g.id}','All')">All ${escAttr(g.nm.toLowerCase())}<span class="n">${n}</span></div>
+        <div class="it ${on&&!sel.length?"on":""}" onclick="event.stopPropagation();matPick('${g.id}','All')">All ${escAttr(g.nm.toLowerCase())}<span class="n">${n}</span></div>
         ${items}
       </div></span>`;
   }).join("");
-  let path = MAT_CAT!=="All" ? MAT_CAT
+  let path = sel.length ? (sel.length>2 ? sel.slice(0,2).join(" · ")+" +"+(sel.length-2) : sel.join(" · "))
     : MAT_GRP ? (groups.find(x=>x.g.id===MAT_GRP)||{g:{nm:""}}).g.nm : "";
   if(MAT_PMIN||MAT_PMAX) path = (path?path+" · ":"") + matPriceLabel();
   if(MAT_USE) path = (path?path+" · ":"") + (MAT_USE==="outdoor"?"Outdoor":"Indoor");
   return `<div class="mbar gbar">
-    <button class="grp${(!MAT_GRP&&MAT_CAT==="All")?" on":""}" onclick="matPick('','All')">All<span class="n">${tot}</span></button>
+    <button class="grp${(!MAT_GRP&&!sel.length)?" on":""}" onclick="matPick('','All')">All<span class="n">${tot}</span></button>
     ${btns}
     ${matUseBarHTML()}
     <span class="gsp"></span>${matPriceBarHTML()}${matSortBarHTML()}
@@ -8996,11 +9000,19 @@ function matSortBarHTML(){
     <div class="mddm${_matDD==="__sort"?" open":""}">
       <div class="hd">Sort by</div>
       ${MAT_SORTS.map(([k,l])=>`<div class="it ${MAT_SORT===k?"on":""}"
-        onclick="event.stopPropagation();matSetSort('${k}')"><span class="bx">${mi("check")}</span>${escAttr(l)}</div>`).join("")}
+        onclick="event.stopPropagation();matSetSort('${k}')">${escAttr(l)}</div>`).join("")}
     </div></span>`;
 }
-function matSetGroup(gid){ MAT_GRP=gid; MAT_CAT="All"; _matDD=""; renderMaterials(); }
-function matPick(gid,cat){ MAT_GRP=gid||""; MAT_CAT=cat||"All"; _matDD=""; renderMaterials(); }
+function matSetGroup(gid){ MAT_GRP=gid; MAT_CATS={}; _matDD=""; renderMaterials(); }
+// Tapping a category adds it; tapping it again takes it away. Several at once, because
+// "paving and flagstone but not tile" is an ordinary thing to want to look at.
+function matPick(gid,cat){
+  if(!cat||cat==="All"){ MAT_GRP=gid||""; MAT_CATS={}; _matDD=""; renderMaterials(); return; }
+  if(MAT_GRP!==gid){ MAT_GRP=gid||""; MAT_CATS={}; }
+  if(MAT_CATS[cat]) delete MAT_CATS[cat]; else MAT_CATS[cat]=1;
+  renderMaterials();                       // menu stays open — you are usually picking more than one
+}
+function matCatList(){ return Object.keys(MAT_CATS).filter(c=>MAT_CATS[c]); }
 function matDDToggle(ev,gid){
   if(ev) ev.stopPropagation();
   _matDD = (_matDD===gid) ? "" : gid;
@@ -9008,9 +9020,10 @@ function matDDToggle(ev,gid){
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
 let MAT_GRP="", _matDD="", MAT_USE="";
+let MAT_CATS={};
 let MAT_PMIN=0, MAT_PMAX=0, MAT_PEXCL=false;
 let MAT_SORT=(function(){ try{ return PREFS.matSort||"earn"; }catch(e){ return "earn"; } })();
-let MAT_CAT="All", MAT_OPEN=null, MAT_TAB="detail";
+let MAT_OPEN=null, MAT_TAB="detail";
 // Tag filter, tag-search box, and the AI result set. AI results are held as an
 // ordered id list rather than a filtered array so the ranking it returns survives.
 let MAT_TAGS={}, MAT_TAGQ="", MAT_AI=null, MAT_AIQ="", MAT_AIBUSY=false;
@@ -9041,12 +9054,13 @@ async function matAIGo(q){
   else MAT_AI={ids:r.ids,why:r.why};
   renderMaterials();
 }
-function matSetCat(c){ MAT_CAT=c; renderMaterials(); }
+function matSetCat(c){ MAT_CATS={}; if(c&&c!=="All") MAT_CATS[c]=1; renderMaterials(); }
 // A group with no category chosen shows everything in that group; a category narrows
 // inside it. "All" clears both.
 function matInGroup(m){
   if(!m) return false;
-  if(MAT_CAT!=="All") return m.cat===MAT_CAT;
+  const cs=matCatList();
+  if(cs.length) return cs.indexOf(m.cat)>=0;
   if(MAT_GRP) return matGroupOf(m.cat)===MAT_GRP;
   return true;
 }
@@ -9123,7 +9137,7 @@ function _matGrid(host){
          <div class="mddm" id="mat-dd">
            <div class="hd">Shown on every tile</div>
            ${MAT_FIELDS.map(([k,l,i])=>`<div class="it ${F[k]?"on":""}" onclick="event.stopPropagation();matSetField('${k}');document.getElementById('mat-dd').classList.add('open')">
-             <span class="bx">${mi("check")}</span>${mi(i)}${l}</div>`).join("")}
+             ${mi(i)}${l}</div>`).join("")}
            <div class="ft"><span onclick="event.stopPropagation();matAllFields(1);document.getElementById('mat-dd').classList.add('open')">Select all</span>
              <span onclick="event.stopPropagation();matAllFields(0);document.getElementById('mat-dd').classList.add('open')">Clear</span></div>
          </div></span>
@@ -9447,9 +9461,17 @@ function furSetField(k){ const f=furFields(); if(f[k]) delete f[k]; else f[k]=1;
 function furAllFields(on){ PREFS.furFields = on ? Object.fromEntries(FUR_FIELDS.map(f=>[f[0],1])) : {};
   prefsSave(); renderFurnishings(); }
 
-let FUR_CAT="All", FUR_OPEN=null, FUR_TAB="detail";
+let FUR_OPEN=null, FUR_TAB="detail";
+let FUR_CATS_SEL={};
 let FUR_TAGS={}, FUR_TAGQ="", FUR_AI=null, FUR_AIQ="", FUR_AIBUSY=false;
-function furSetCat(c){ FUR_CAT=c; renderFurnishings(); }
+// Same rule as materials: tap to include, tap again to drop, several at a time.
+function furSetCat(c){
+  if(!c||c==="All"){ FUR_CATS_SEL={}; renderFurnishings(); return; }
+  if(FUR_CATS_SEL[c]) delete FUR_CATS_SEL[c]; else FUR_CATS_SEL[c]=1;
+  renderFurnishings();
+}
+function furCatList(){ return Object.keys(FUR_CATS_SEL).filter(c=>FUR_CATS_SEL[c]); }
+function furCatOk(f){ const c=furCatList(); return !c.length || c.indexOf(f&&f.cat)>=0; }
 function furOpen(id){ FUR_OPEN=id; FUR_TAB="detail"; renderFurnishings(); }
 function furBack(){ FUR_OPEN=null; renderFurnishings(); }
 function furTab(t){ FUR_TAB=t; renderFurnishings(); }
@@ -9523,7 +9545,7 @@ function _furGrid(host){
   const F=furFields(), nF=Object.values(F).filter(Boolean).length;
   const tsel=Object.keys(FUR_TAGS), nT=tsel.length, cols=goodsCols();
   const ql=(FUR_AIQ||"").trim().toLowerCase();
-  let list=FURNISHINGS.filter(f=>FUR_CAT==="All"||f.cat===FUR_CAT)
+  let list=FURNISHINGS.filter(f=>furCatOk(f))
     .filter(f=>!nT || tsel.every(t=>(f.tags||[]).indexOf(t)>=0))
     // literal text filter, live as you type; AI (below) replaces it when run
     .filter(f=>!ql||!!FUR_AI||((f.nm+" "+f.cat+" "+f.sup+" "+f.frame+" "+(f.tags||[]).join(" ")+" "+goodsAliasText(f)).toLowerCase().indexOf(ql)>=0));
@@ -9539,14 +9561,14 @@ function _furGrid(host){
        ${goodsSearchBarHTML({id:"fur-ai-in",q:FUR_AIQ,ai:FUR_AI,busy:FUR_AIBUSY,
          ph:"Search furnishings, or ask AI…",onInput:"furQ",onAI:"furAIGo",onClear:"furAIClear"})}
        <span class="mdd">
-         <button class="mchip ${FUR_CAT!=="All"?"on":""}" onclick="event.stopPropagation();document.getElementById('fur-catdd').classList.toggle('open')">
-           ${mi("cube")}${FUR_CAT==="All"?"All types":escAttr(FUR_CAT)}${mi("chev")}</button>
+         <button class="mchip ${furCatList().length?"on":""}" onclick="event.stopPropagation();document.getElementById('fur-catdd').classList.toggle('open')">
+           ${mi("cube")}${(()=>{const c=furCatList();return c.length?(c.length>1?c.length+" types":escAttr(c[0])):"All types";})()}${mi("chev")}</button>
          <div class="mddm" id="fur-catdd" style="width:250px">
            <div class="hd">Furniture type</div>
-           <div class="it ${FUR_CAT==="All"?"on":""}" onclick="event.stopPropagation();furSetCat('All')">
-             <span class="bx">${mi("check")}</span>All furnishings<span class="ct">${catCount("All")}</span></div>
-           ${FUR_CATS.map(c=>`<div class="it ${FUR_CAT===c?"on":""}" onclick="event.stopPropagation();furSetCat('${escAttr(c)}')">
-             <span class="bx">${mi("check")}</span>${escAttr(c)}<span class="ct">${catCount(c)}</span></div>`).join("")}
+           <div class="it ${furCatList().length?"":"on"}" onclick="event.stopPropagation();furSetCat('All')">
+             All furnishings<span class="ct">${catCount("All")}</span></div>
+           ${FUR_CATS.map(c=>`<div class="it ${FUR_CATS_SEL[c]?"on":""}" onclick="event.stopPropagation();furSetCat('${escAttr(c)}')">
+             ${escAttr(c)}<span class="ct">${catCount(c)}</span></div>`).join("")}
          </div></span>
        <span class="mdd">
          <button class="mchip ${nT?"on":""}" onclick="event.stopPropagation();document.getElementById('fur-tagdd').classList.toggle('open')">
@@ -9559,7 +9581,7 @@ function _furGrid(host){
          <div class="mddm" id="fur-dd">
            <div class="hd">Shown on every tile</div>
            ${FUR_FIELDS.map(([k,l,i])=>`<div class="it ${F[k]?"on":""}" onclick="event.stopPropagation();furSetField('${k}');document.getElementById('fur-dd').classList.add('open')">
-             <span class="bx">${mi("check")}</span>${mi(i)}${l}</div>`).join("")}
+             ${mi(i)}${l}</div>`).join("")}
            <div class="ft"><span onclick="event.stopPropagation();furAllFields(1);document.getElementById('fur-dd').classList.add('open')">Select all</span>
              <span onclick="event.stopPropagation();furAllFields(0);document.getElementById('fur-dd').classList.add('open')">Clear</span></div>
          </div></span>
@@ -9738,7 +9760,7 @@ function _furPanelHTML(){
 }
 function _furLibPanel(){
   const md=goodsModel(), resale=md==="resale";
-  const inView=FURNISHINGS.filter(f=>FUR_CAT==="All"||f.cat===FUR_CAT);
+  const inView=FURNISHINGS.filter(f=>furCatOk(f));
   const claimed=inView.filter(f=>goodsPriced(f));
   const seeded=inView.length-claimed.length;
   const best=claimed.slice().sort((a,b)=>_furEarn(b)-_furEarn(a))[0];
