@@ -1744,6 +1744,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 :root[data-theme="dark"] .mbadge{background:var(--gm)}
 .mbadge.seed{background:rgba(255,255,255,.94);color:#3A3F38}
 .mbadge.n{background:var(--card);color:var(--tm);border:1px solid var(--br);box-shadow:none}
+/* An AI-estimated price must never be mistaken for a quoted one. */
+.mbadge.ai{background:var(--gold);color:#fff}
+.mcard .fr b.est{color:var(--gold)}
 /* detail */
 .mcrumb{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--tl);font-weight:700;margin-bottom:14px;flex-wrap:wrap}
 .mcrumb button{border:1px solid var(--br);background:var(--card);font:inherit;font-size:12.5px;font-weight:700;
@@ -2161,7 +2164,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v627</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v628</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6904,6 +6907,78 @@ async function _goodsImportOne(kind,url,host,quiet){
   return true;
 }
 
+// ── AI PRICE ESTIMATE ─────────────────────────────────────────
+// Supplier sites mostly do not publish prices, and free web search is unavailable to
+// the worker. But a market range is still far more useful than $0 when you are pricing
+// at concept — so ask for one, store it as a RANGE with a confidence, and flag it
+// everywhere it appears. Same treatment the plant book already gives AI prices: never
+// silent, never mistaken for a quoted number.
+async function goodsAIPrice(book,ids){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return 0; }
+  const lib=book==="materials"?MATERIALS:FURNISHINGS;
+  const rows=lib.filter(x=>ids.indexOf(x.id)>=0);
+  if(!rows.length) return 0;
+  const where=(PREFS.defaults&&PREFS.defaults.location)||"Los Angeles / Orange County";
+  const list=rows.map((x,i)=>`${i+1}. ${x.nm}${x.sup&&x.sup!=="—"?" — "+x.sup:""}${x.cat?" ("+x.cat+")":""}${x.fin&&x.fin!=="—"?", "+x.fin:""}`).join("\n");
+  const prompt=`Typical MATERIAL-ONLY cost for these in ${where}, current market. Output ONLY a minified JSON array:
+[{"i":1,"lo":0,"hi":0,"unit":"sf|each|lf|ton","conf":"high|med|low","note":"max 12 words"}]
+lo/hi = realistic trade-to-retail range, numbers only, no labour or installation.
+Use conf "low" when the product is obscure or the range is very wide. Skip nothing — give your best range for every line.
+
+${book==="materials"?"MATERIALS":"FURNISHINGS"}:
+${list}`;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2500,
+        system:"You are a landscape construction cost reference. Output only a minified JSON array.",
+        messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
+    const a2=t.indexOf("["); let arr=null;
+    if(a2>=0){ const b2=t.lastIndexOf("]");
+      if(b2>a2){ try{ arr=JSON.parse(t.slice(a2,b2+1)); }catch(e){} }
+      if(!arr) arr=_salvageJsonObjects(t.slice(a2)); }
+    if(!arr||!arr.length) return 0;
+    let n=0;
+    arr.forEach(o=>{
+      const x=rows[(o.i||0)-1]; if(!x) return;
+      const lo=+o.lo||0, hi=+o.hi||0; if(!(lo>0&&hi>0)) return;
+      const mid=Math.round((lo+hi)/2*100)/100;
+      const perSf=String(o.unit||"").toLowerCase()==="sf";
+      // Materials are multiplied by area, so only a per-sf figure may fill msrp.
+      if(book==="materials" && !perSf){ x.aiUnit=String(o.unit||"").toLowerCase(); }
+      else { x.msrp=mid; }
+      x.aiLo=lo; x.aiHi=hi; x.aiConf=String(o.conf||"").toLowerCase();
+      x.aiNote=String(o.note||"").slice(0,80);
+      x.aiUnit=String(o.unit||"").toLowerCase();
+      x.msrpAI=true;                       // the flag everything else keys off
+      x.priced="AI estimate";
+      n++;
+    });
+    if(book==="materials") matSave(); else furSave();
+    return n;
+  }catch(e){ return 0; }
+}
+async function goodsEstimateUnpriced(book){
+  const lib=book==="materials"?MATERIALS:FURNISHINGS;
+  const todo=lib.filter(x=>!(x.msrp>0)).map(x=>x.id);
+  if(!todo.length){ alert("Everything in this library already has a price."); return; }
+  if(!confirm("Estimate a market price for "+todo.length+" unpriced item"+(todo.length===1?"":"s")+"?\n\n"
+    +"These are AI estimates from typical market rates, not supplier quotes. They are flagged everywhere they appear, and a real price from a supplier sheet always replaces them.")) return;
+  try{ _toast("Estimating "+todo.length+" prices…","#6A4FA3"); }catch(e){}
+  let n=0;
+  for(let i=0;i<todo.length;i+=15) n+=await goodsAIPrice(book,todo.slice(i,i+15));
+  try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){}
+  try{ _toast(n+" price"+(n===1?"":"s")+" estimated — flagged as AI","#4C7B3D"); }catch(e){}
+}
+// A one-line, honest description of where a price came from.
+function goodsPriceSrc(x){
+  if(!x) return "";
+  if(x.msrpAI) return "AI estimate"+(x.aiLo&&x.aiHi?` · $${x.aiLo}–$${x.aiHi}`:"")+(x.aiConf?` · ${x.aiConf} confidence`:"");
+  if(x.priced) return "Priced "+x.priced;
+  return "";
+}
 // ── PRICE SHEET IMPORT ────────────────────────────────────────
 // The only reliable route to trade pricing. Suppliers do not publish it — they email
 // a price list to your account. This reads that list (PDF, CSV or pasted text),
@@ -7064,6 +7139,9 @@ function psApply(){
   _psRows.forEach(r=>{
     if(!r.match||!r.use||!(r.price>0)) return;
     r.match.cost=r.price;
+    // A quoted number supersedes an estimate — drop the flag so it stops reading as one.
+    if(r.match.msrpAI){ r.match.msrpAI=false; delete r.match.aiLo; delete r.match.aiHi;
+      delete r.match.aiConf; delete r.match.aiNote; }
     if(r.unit && r.unit!=="sf" && _psBook==="materials") unitWarn++;
     r.match.costUnit=r.unit||"";
     r.match.priced=new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"});
@@ -7179,6 +7257,7 @@ function _matGrid(host){
        <span class="sp-grp">
          <button class="mchip pri" onclick="matImportURL()">${mi("link")}Add from URL</button>
          <button class="mchip" onclick="openPriceSheet('materials')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
+         <button class="mchip" onclick="goodsEstimateUnpriced('materials')" title="AI market estimate for anything unpriced">${mi("spark")}Estimate</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
@@ -7207,12 +7286,12 @@ function _matGrid(host){
      if(F.thick)  r.push(row("layers","Thickness",m.thick));
      if(F.heat)   r.push(row("sun","Heat",m.heat));
      if(F.ship)   r.push(row("truck","Shipping",m.ship));
-     if(F.price)  r.push(seeded ? `<span class="fr">${mi("tag")}Price<b style="color:var(--tl)">not listed</b></span>`
-                                : row("tag", matModel()==="resale"?"You bill":"Client pays",
-                                      "$"+(matModel()==="resale"?m.bill:m.msrp).toFixed(2)+"/sf"));
+     if(F.price)  r.push((seeded && !m.msrpAI)
+       ? `<span class="fr">${mi("tag")}Price<b style="color:var(--tl)">not listed</b></span>`
+       : `<span class="fr">${mi("tag")}${m.msrpAI?"Est. price":(matModel()==="resale"?"You bill":"Client pays")}<b${m.msrpAI?' class="est"':''}>$${(matModel()==="resale"?m.bill:m.msrp).toFixed(2)}/sf</b></span>`);
      return `<button class="mcard" onclick="matOpen('${m.id}')">
        <span class="img" style="background:${m.cols[0]}">
-         <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}</span></span>
+         <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}${m.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(m))}">AI price</span>`:""}</span></span>
        <span class="bd"><span class="nm">${escAttr(m.nm)}</span>
          ${F.supplier?`<span class="sup">${mi("store")}${escAttr(m.sup)} · ${escAttr(m.fin)}</span>`:""}
          ${(m.tags&&m.tags.length)?`<span class="tgs">${m.tags.slice(0,3).map(t=>`<i>${escAttr(t)}</i>`).join("")}${m.tags.length>3?`<i class="more">+${m.tags.length-3}</i>`:""}</span>`:""}
@@ -7588,6 +7667,8 @@ function _furGrid(host){
          </div></span>
        <span class="sp-grp">
          <button class="mchip pri" onclick="furImportURL()">${mi("link")}Add from URL</button>
+         <button class="mchip" onclick="openPriceSheet('furnishings')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
+         <button class="mchip" onclick="goodsEstimateUnpriced('furnishings')" title="AI market estimate for anything unpriced">${mi("spark")}Estimate</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
@@ -7615,15 +7696,16 @@ function _furGrid(host){
      if(F.lead)   r.push(row("clock","Lead time",escAttr(f.lead)));
      if(F.dist)   r.push(row("pin","Distance",f.dist?f.dist+" mi":"—"));
      if(F.ship)   r.push(row("truck","Freight",escAttr(f.ship)));
-     if(F.price)  r.push(seeded
+     if(F.price)  r.push((seeded && !f.msrpAI)
        ? `<span class="fr">${mi("tag")}MSRP<b style="color:var(--tl)">not listed</b></span>`
+       : f.msrpAI ? `<span class="fr">${mi("tag")}Est. price<b class="est">${fmtN(f.msrp)}</b></span>`
        : sale
          ? `<span class="fr">${mi("tag")}MSRP<b class="was">${fmtN(f.msrp)}</b><span class="sale">${fmtN(f.sale)}</span></span>`
          : row("tag","MSRP",fmtN(f.msrp)));
      return `<button class="mcard" onclick="furOpen('${f.id}')">
        <span class="img tall" style="background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})">
          <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}
-           ${sale?`<span class="mbadge sale">Sale</span>`:""}</span>
+           ${sale?`<span class="mbadge sale">Sale</span>`:""}${f.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(f))}">AI price</span>`:""}</span>
          <span class="zoom">${mi("zoom")}</span>
          <span class="pop"><i style="background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})"></i></span>
        </span>
