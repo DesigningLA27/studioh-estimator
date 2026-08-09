@@ -2118,6 +2118,14 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   .ps-hd span:nth-child(n+4),.ps-row .mt,.ps-row .was{display:none}}
 /* product picker for collection / whole-site imports */
 .gpk-bar{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--tm);padding:2px 2px 10px}
+.gpk-find{padding:0 0 10px}
+.gpk-find input{width:100%;border:1px solid var(--br);background:var(--surface2);color:var(--tx);
+  border-radius:10px;padding:10px 13px;font:inherit;font-size:13px}
+.gpk-find input:focus{outline:none;border-color:var(--gm);background:var(--card)}
+.gpk-row.dup{opacity:.55}
+.gpk-dup{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--gm);background:var(--brand-soft);border-radius:99px;padding:2px 7px;margin-left:7px}
+.gpk-none{padding:22px 4px;text-align:center;font-size:12.5px;color:var(--tl)}
 .gpk-bar b{color:var(--tx)}
 .gpk-bar .sp{margin-left:auto;display:flex;gap:6px}
 .gpk-list{max-height:46vh;overflow-y:auto;border:1px solid var(--br);border-radius:12px;background:var(--card)}
@@ -2299,7 +2307,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v653</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v654</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6730,8 +6738,10 @@ const _SCRAPE_HELP="The page reader isn't deployed yet.\n\nIn Terminal:\n  cd st
 // Choose what to bring in. Nothing is imported until you press the button.
 let _gpick={kind:"",list:[],sel:{},host:""};
 function _goodsPickerOpen(kind,dis,host){
-  _gpick={kind,list:dis.products||[],sel:{},host};
-  _gpick.list.slice(0,24).forEach((x,i)=>{ _gpick.sel[i]=true; });   // a sane default, not all 424
+  _gpick={kind,list:dis.products||[],sel:{},host,q:""};
+  // Nothing pre-selected. Selecting the first 24 of 423 by whatever order the sitemap
+  // happened to return is how a library ends up full of colour-swatch pages instead of
+  // the actual products — which is exactly what happened with glasstile.
   let h=document.getElementById("gpick-lb");
   if(!h){ h=document.createElement("div"); h.id="gpick-lb"; h.className="lb-scrim";
     h.addEventListener("click",e=>{ if(e.target===h) _goodsPickerClose(); });
@@ -6741,12 +6751,29 @@ function _goodsPickerOpen(kind,dis,host){
 function _goodsPickerClose(){ document.body.classList.remove("lb-open");
   const h=document.getElementById("gpick-lb"); if(h) h.classList.remove("on"); }
 function _gpickToggle(i){ _gpick.sel[i]=!_gpick.sel[i]; _goodsPickerRender(); }
-function _gpickAll(v){ _gpick.list.forEach((x,i)=>{ _gpick.sel[i]=!!v; }); _goodsPickerRender(); }
+// "Select all" now means all of what you are looking at, not all 423.
+function _gpickAll(v){ _gpickShown().forEach(({i})=>{ _gpick.sel[i]=!!v; }); _goodsPickerRender(); }
+function _gpickQ(v){ _gpick.q=v||""; _goodsPickerRender(true); }
+// Typing "offset" or "bermuda" is the difference between importing the right 40 pages
+// and the wrong 118.
+function _gpickShown(){
+  const q=(_gpick.q||"").trim().toLowerCase();
+  return _gpick.list.map((x,i)=>({x,i}))
+    .filter(({x})=>!q || (_gpickName(x)+" "+(x.url||"")).toLowerCase().indexOf(q)>=0);
+}
+// A page already in the book should not be silently imported twice.
+function _gpickHave(){
+  const arr=_gpick.kind==="mat"?MATERIALS:FURNISHINGS, h={};
+  (arr||[]).forEach(r=>{ if(r&&r.srcUrl) h[String(r.srcUrl).replace(/[?#].*$/,"")]=1; });
+  return h;
+}
 function _gpickName(x){ return (x.title||"").trim() ||
   decodeURIComponent((x.url||"").split("/products/")[1]||"").replace(/[-_]+/g," ").replace(/\/$/,"") || x.url; }
-function _goodsPickerRender(){
+function _goodsPickerRender(keepFocus){
   const h=document.getElementById("gpick-lb"); if(!h) return;
   const n=Object.values(_gpick.sel).filter(Boolean).length;
+  const shown=_gpickShown(), have=_gpickHave(), q=_gpick.q||"";
+  const nNew=shown.filter(({x})=>!have[String(x.url||"").replace(/[?#].*$/,"")]).length;
   h.className="lb-scrim on";
   h.innerHTML=`
    <div class="lbx" style="width:min(680px,100%)" role="dialog" aria-modal="true">
@@ -6754,22 +6781,29 @@ function _goodsPickerRender(){
       <span class="lb-pos">${escAttr(_gpick.host)}</span>
       <span class="lb-sp"><button class="lb-ico" onclick="_goodsPickerClose()"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>
     <div class="st-b">
-      <div class="gpk-bar"><b>${n}</b> selected
-        <span class="sp"><button class="pb-quick" onclick="_gpickAll(1)">Select all</button>
+      <div class="gpk-find">
+        <input id="gpk-q" type="search" placeholder="Filter these ${_gpick.list.length} pages — try a format or a colour" value="${escAttr(q)}"
+          oninput="_gpickQ(this.value)">
+      </div>
+      <div class="gpk-bar"><b>${n}</b> selected · showing ${shown.length}${q?" of "+_gpick.list.length:""}${nNew<shown.length?` · ${shown.length-nNew} already in your library`:""}
+        <span class="sp"><button class="pb-quick" onclick="_gpickAll(1)">Select ${q?"these "+shown.length:"all"}</button>
         <button class="pb-quick" onclick="_gpickAll(0)">Clear</button></span></div>
-      <div class="gpk-list">${_gpick.list.map((x,i)=>`
-        <label class="gpk-row${_gpick.sel[i]?" on":""}">
+      <div class="gpk-list">${shown.map(({x,i})=>{
+        const dup=!!have[String(x.url||"").replace(/[?#].*$/,"")];
+        return `<label class="gpk-row${_gpick.sel[i]?" on":""}${dup?" dup":""}">
           <input type="checkbox" ${_gpick.sel[i]?"checked":""} onchange="_gpickToggle(${i})">
-          <span class="nm">${escAttr(_gpickName(x))}</span>
+          <span class="nm">${escAttr(_gpickName(x))}${dup?`<i class="gpk-dup">in library</i>`:""}</span>
           <span class="u">${escAttr((x.url||"").replace(/^https?:\/\/[^/]+/,""))}</span>
-        </label>`).join("")}</div>
+        </label>`;}).join("") || `<div class="gpk-none">Nothing matches “${escAttr(q)}”.</div>`}</div>
       <div class="gpk-note">Each one is fetched and read individually, so this takes about a second per product.
-        They arrive as <b>seeded</b> listings — specs and images only. Add your cost and commission to make one specifiable.</div>
+        Nothing is selected to begin with — filter to what you actually want rather than taking the first few dozen the site happens to list.</div>
     </div>
     <div class="lb-f"><span class="lb-hint" id="gpk-prog"></span>
       <span class="lb-sp"><button class="btn btn-o" onclick="_goodsPickerClose()">Cancel</button>
         <button class="btn" id="gpk-go" onclick="_gpickRun()" ${n?"":"disabled"}>Import ${n}</button></span></div>
    </div>`;
+  if(keepFocus){ const el=document.getElementById("gpk-q");
+    if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } }
 }
 async function _gpickRun(){
   const picks=_gpick.list.filter((x,i)=>_gpick.sel[i]);
@@ -6831,7 +6865,7 @@ function goodsIsOurs(u){
 // supplier's own link is stored the moment it is read, so the picture is there
 // immediately, and a rehost that fails leaves a working image instead of a blank tile.
 async function goodsRehostImages(idBase,urls,max){
-  const src=goodsBestImages(urls,max||3), out=[];
+  const src=goodsBestImages(urls,max||6), out=[];
   for(let i=0;i<src.length;i++){
     try{ const up=await _uploadUrlToR2(idBase+"_"+i, src[i]); out.push(up.ok&&up.url?up.url:src[i]); }
     catch(e){ out.push(src[i]); }
@@ -6897,7 +6931,7 @@ async function goodsFetchImages(book){
       const row=todo[i];
       try{
         const sc=await goodsScrape(row.srcUrl);
-        const imgs=(sc && !sc.err) ? goodsBestImages(sc.images||[],3) : [];
+        const imgs=(sc && !sc.err) ? goodsBestImages(sc.images||[],6) : [];
         if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; got++; } else none++;
       }catch(e){ none++; }
       done++; say();
@@ -7670,7 +7704,7 @@ async function _goodsImportOne(kind,url,host,quiet){
   // Store the supplier's own links now so the row lands with a picture on it, and
   // copy them into R2 afterwards. Waiting on three uploads per product is what made
   // importing a hundred of them take so long, and it lost the picture when it failed.
-  const imgs=goodsBestImages(res.images||[],3);
+  const imgs=goodsBestImages(res.images||[],6);
   const src=res.src||url;
   const note=(extra)=>[["alert","<b>Imported from "+escAttr(host||"the supplier")+".</b>"
       +(res.ld?" Name, brand and price came from the page's own product data.":" Read from the page text.")
