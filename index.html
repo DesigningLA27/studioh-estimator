@@ -1756,6 +1756,21 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mcard .fr{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--tm)}
 .mcard .fr svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;color:var(--tl);flex:none}
 .mcard .fr b{margin-left:auto;font-weight:800;color:var(--tx);font-variant-numeric:tabular-nums}
+/* One running bar for long jobs, bottom centre, out of the way of the cards. */
+#_prog{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(14px);z-index:300;
+  display:flex;align-items:center;gap:12px;min-width:280px;max-width:min(520px,92vw);
+  background:var(--card);border:1px solid var(--br);border-radius:13px;padding:11px 15px;
+  box-shadow:0 18px 44px -14px rgba(0,0,0,.45);opacity:0;pointer-events:none;
+  transition:opacity .22s,transform .22s;font-size:12.5px}
+#_prog.on{opacity:1;transform:translateX(-50%) translateY(0)}
+#_prog .pl{font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#_prog .pt{flex:1;min-width:90px;height:5px;border-radius:99px;background:var(--brl);overflow:hidden;position:relative}
+#_prog .pt i{display:block;height:100%;border-radius:99px;background:var(--gm);
+  transition:width .3s ease;width:0}
+#_prog.indet .pt i{width:38%!important;position:absolute;animation:_progslide 1.15s ease-in-out infinite}
+@keyframes _progslide{0%{left:-40%}100%{left:100%}}
+#_prog .pn{font-size:11.5px;font-weight:800;color:var(--tl);font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){#_prog.indet .pt i{animation:none;width:100%!important;left:0}}
 .msw{width:11px;height:11px;border-radius:4px;display:block;flex:none}
 .mcard .foot{margin-top:auto;display:flex;align-items:baseline;gap:8px;padding-top:10px;border-top:1px solid var(--brl)}
 .mcard .foot .v{font-size:17px;font-weight:800;color:var(--v-ok);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
@@ -2221,7 +2236,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v638</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v639</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6810,7 +6825,7 @@ async function goodsFetchImages(book){
   else if(!confirm(`${todo.length} item${todo.length>1?"s have":" has"} no picture.\n\nRe-read the supplier pages and pull the images in? Nothing else on the item is touched.`)) return;
   _gimgStop=false;
   let done=0, got=0, none=0;
-  const say=()=>{ try{ _toast(`Images ${done}/${todo.length} · ${got} found`,"#6A4FA3"); }catch(e){} };
+  const say=()=>{ try{ _prog("Reading supplier pages",done,todo.length); }catch(e){} };
   say();
   let idx=0;
   async function worker(){
@@ -6822,8 +6837,8 @@ async function goodsFetchImages(book){
         const imgs=(sc && !sc.err) ? goodsBestImages(sc.images||[],3) : [];
         if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; got++; } else none++;
       }catch(e){ none++; }
-      done++;
-      if(done%5===0){ say(); try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){} }
+      done++; say();
+      if(done%5===0){ try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){} }
     }
   }
   await Promise.all([0,0,0,0,0].map(worker));          // five pages at a time; the reader is a plain fetch
@@ -6839,10 +6854,10 @@ async function goodsFetchImages(book){
     if(_gimgStop) break;
     if(!goodsImg(row)) continue;
     await goodsRehostLater(book,row.id); up++;
-    if(up%10===0){ try{ _toast(`Copying to your server — ${up}/${todo.length}`,"#6A4FA3"); }catch(e){} }
+    try{ _prog("Copying images to your server",up,todo.length); }catch(e){}
   }
   try{ book==="materials"?matSave():furSave(); }catch(e){}
-  try{ _toast("Images stored on your server","#4C7B3D"); }catch(e){}
+  try{ _progDone("Images stored on your server","#4C7B3D"); }catch(e){}
 }
 // ── BRAND ─────────────────────────────────────────────────────
 // A product page says whatever that page happens to say — an internal acronym, a SKU
@@ -6972,15 +6987,15 @@ async function goodsFillColours(book){
       : "Every item with a picture already has its colours read from it.");
     return;
   }
-  try{ _toast("Reading colours from "+todo.length+" photo"+(todo.length>1?"s":"")+"…","#6A4FA3"); }catch(e){}
+  try{ _prog("Reading colours from photos",0,todo.length); }catch(e){}
   let ok=0, done=0;
   for(const x of todo){
     if(await goodsColourRow(book,x)) ok++;
     done++;
-    if(done%15===0){ try{ _toast(`Colours ${done}/${todo.length}`,"#6A4FA3"); }catch(e){}
-      try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){} }
+    try{ _prog("Reading colours from photos",done,todo.length); }catch(e){}
+    if(done%15===0){ try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){} }
   }
-  goodsSaveBook(book);
+  goodsSaveBook(book); try{ _progDone(); }catch(e){}
   alert(`${ok} of ${todo.length} now show their real colours.`+
     (ok<todo.length?`\n\n${todo.length-ok} photo${todo.length-ok>1?"s were":" was"} unreadable — those keep the colours they had.`:""));
 }
@@ -7063,7 +7078,7 @@ function goodsPriceEditor(book,x){
   const num=(f,l,v)=>`<label class="ged"><span>${l}</span>
     <i>$</i><input type="number" step="0.01" min="0" value="${(+v||0)?(+v).toFixed(2):""}" placeholder="0.00"
       onchange="goodsSetNum('${book}','${x.id}','${f}',this)"><em>${unit}</em></label>`;
-  return `<div class="mblk gedit"><h4>${mi("tag")}Pricing${x.msrpAI?`<span class="mbadge ai" style="margin-left:auto">AI estimate</span>`:""}</h4>
+  return `<div class="mblk gedit"><h4>${mi("tag")}Pricing</h4>
     ${num("msrp", isMat?"List / client pays":"MSRP", x.msrp)}
     ${isMat?"":num("sale","Sale price",x.sale)}
     ${num("cost","Your cost",x.cost)}
@@ -7101,7 +7116,9 @@ async function _goodsAutoBrands(){
     let changed=0;
     for(const h of Object.keys(hosts)){
       let res=null;
+      try{ _prog("Reading "+h,0,0); }catch(e){}
       try{ res=await goodsBrandForHost(h,(hosts[h][0]&&hosts[h][0].sup)||""); }catch(e){}
+      try{ _progDone(); }catch(e){}
       if(!res||!res.brand) continue;
       hosts[h].forEach(x=>{
         if(x.brandOwn) return;
@@ -7578,7 +7595,7 @@ async function _goodsAutoPrices(){
     if(!Array.isArray(lib)) continue;
     const todo=lib.filter(x=>x&&x.nm&&!(+x.msrp>0)&&!x.msrpAI&&!x.aiTried).map(x=>x.id);
     if(!todo.length) continue;
-    try{ _toast("Estimating "+todo.length+" price"+(todo.length===1?"":"s")+"…","#9B7B3A"); }catch(e){}
+    try{ _prog("Estimating prices",0,todo.length); }catch(e){}
     let n=0;
     for(let i=0;i<todo.length;i+=15){
       const batch=todo.slice(i,i+15);
@@ -7586,11 +7603,10 @@ async function _goodsAutoPrices(){
       // Mark the whole batch, not just what came back, or an unpriceable row is
       // re-sent on every single load for ever.
       batch.forEach(id=>{ const x=lib.find(r=>r&&r.id===id); if(x) x.aiTried=1; });
-      if(i+15<todo.length){ try{ _toast(`Estimating… ${Math.min(i+15,todo.length)}/${todo.length}`,"#9B7B3A"); }catch(e){} }
+      try{ _prog("Estimating prices",Math.min(i+15,todo.length),todo.length); }catch(e){}
     }
-    if(n){ goodsSaveBook(book);
-      try{ _toast(n+" price"+(n===1?"":"s")+" estimated — flagged as AI, tap one to type a real price","#9B7B3A"); }catch(e){} }
-    else { try{ book==="materials"?matSave():furSave(); }catch(e){} }
+    if(n){ goodsSaveBook(book); try{ _progDone(n+" price"+(n===1?"":"s")+" estimated","#9B7B3A"); }catch(e){} }
+    else { try{ book==="materials"?matSave():furSave(); }catch(e){} try{ _progDone(); }catch(e){} }
   }
 }
 async function goodsEstimateUnpriced(book){
@@ -7931,7 +7947,7 @@ function _matGrid(host){
      const shot=goodsImg(m);
      return `<button class="mcard" onclick="matOpen('${m.id}')">
        <span class="img" style="${goodsImgStyle(shot,m.cols[0])}">
-         <span class="tl">${seeded?`<span class="mbadge seed">No price</span>`:""}${m.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(m))}">AI price</span>`:""}</span>
+         <span class="tl"></span>
          ${shot?`<span class="pop"><i style="background-image:url('${escAttr(shot)}')"></i></span>`:""}</span>
        <span class="bd">${goodsMaker(m)?`<span class="mkr">${escAttr(goodsMaker(m))}</span>`:""}
          <span class="nm">${escAttr(m.nm)}</span>
@@ -8005,8 +8021,7 @@ function _matDetail(host){
      <i style="${goodsImgStyle(_shots[0],m.cols[0])}"></i>
      <i style="${goodsImgStyle(_shots[1],m.cols[1]||m.cols[0])}"></i>
      <i style="${goodsImgStyle(_shots[2],m.cols[2]||m.cols[0])}"></i>
-     <span class="tl">${seeded?`<span class="mbadge seed">No price</span>`:""}
-       ${m.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(m.priced)}</span>`:""}</span>
+     <span class="tl">${(m.priced&&!m.msrpAI)?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(m.priced)}</span>`:""}</span>
    </div>
    <div class="mhd"><span>
      <button class="mbrand" onclick="goodsRenameBrand('materials','${escAttr(goodsMaker(m))}')" title="Click to correct the brand name everywhere">${escAttr(goodsMaker(m))||"Set brand"}${mi("plus")}</button>
@@ -8360,8 +8375,7 @@ function _furGrid(host){
      const shot=goodsImg(f);
      return `<button class="mcard" onclick="furOpen('${f.id}')">
        <span class="img tall" style="${goodsImgStyle(shot,`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}">
-         <span class="tl">${seeded?`<span class="mbadge seed">No price</span>`:""}
-           ${sale?`<span class="mbadge sale">Sale</span>`:""}${f.msrpAI?`<span class="mbadge ai" title="${escAttr(goodsPriceSrc(f))}">AI price</span>`:""}</span>
+         <span class="tl">${sale?`<span class="mbadge sale">Sale</span>`:""}</span>
          <span class="zoom">${mi("zoom")}</span>
          <span class="pop"><i style="${shot?`background-image:url('${escAttr(shot)}')`:`background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`}"></i></span>
        </span>
@@ -8437,9 +8451,8 @@ function _furDetail(host){
      <i style="${goodsImgStyle(_shots[0],`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}"></i>
      <i style="${goodsImgStyle(_shots[1],f.cols[1]||f.cols[0])}"></i>
      <i style="${goodsImgStyle(_shots[2],f.cols[2]||f.cols[0])}"></i>
-     <span class="tl">${seeded?`<span class="mbadge seed">No price</span>`:""}
-       ${sale?`<span class="mbadge sale">Sale</span>`:""}
-       ${f.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(f.priced)}</span>`:""}</span>
+     <span class="tl">${sale?`<span class="mbadge sale">Sale</span>`:""}
+       ${(f.priced&&!f.msrpAI)?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(f.priced)}</span>`:""}</span>
    </div>
    <div class="mhd"><span>
      <button class="mbrand" onclick="goodsRenameBrand('furnishings','${escAttr(goodsMaker(f))}')" title="Click to correct the brand name everywhere">${escAttr(goodsMaker(f))||"Set brand"}${mi("plus")}</button>
@@ -9782,6 +9795,28 @@ function stSetAdminKey(v){
 function stClearAdminKey(){
   if(!confirm("Sign out of the master library on this device?\n\nYou keep working, but nothing will save to the server until you enter the key again.")) return;
   stSetAdminKey("");
+}
+// A long job needs one bar that moves, not a toast every few seconds asking to be
+// re-read. Determinate where the total is known, indeterminate where it is not.
+function _prog(label,done,total){
+  let el=document.getElementById("_prog");
+  if(!el){
+    el=document.createElement("div"); el.id="_prog"; el.className="noprint";
+    el.innerHTML='<span class="pl"></span><span class="pt"><i></i></span><span class="pn"></span>';
+    document.body.appendChild(el);
+  }
+  el.classList.add("on");
+  el.querySelector(".pl").textContent=label||"Working…";
+  const n=+done||0, t=+total||0;
+  const pct=t>0 ? Math.max(2,Math.min(100,Math.round(n/t*100))) : 0;
+  el.classList.toggle("indet",!(t>0));
+  el.querySelector("i").style.width=(t>0?pct:100)+"%";
+  el.querySelector(".pn").textContent=t>0 ? n+" / "+t : "";
+}
+function _progDone(msg,col){
+  const el=document.getElementById("_prog");
+  if(el){ el.classList.remove("on"); setTimeout(()=>{ try{ el.remove(); }catch(e){} },400); }
+  if(msg) try{ _toast(msg,col); }catch(e){}
 }
 function _toast(msg,col){ try{ let t=document.getElementById("_toast"); if(t) t.remove(); t=document.createElement("div"); t.id="_toast";
   t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100000;background:"+(col||"#4C7B3D")+";color:#fff;padding:.6rem 1.05rem;border-radius:10px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.3);opacity:0;transition:opacity .2s";
