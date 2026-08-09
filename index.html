@@ -2181,6 +2181,33 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gth:hover .x{display:grid}
 .gth .x svg{width:9px;height:9px;fill:none;stroke:currentColor;stroke-width:2.6}
 @media(hover:none){ .gth .x{display:grid} }
+.gth .tag.fr{background:var(--gold);color:#231a06;left:auto;right:3px;bottom:3px}
+.gth .fx{position:absolute;left:3px;top:3px;width:17px;height:17px;border-radius:5px;
+  background:rgba(20,24,30,.8);color:#fff;display:none;place-items:center;font-style:normal}
+.gth:hover .fx{display:grid}
+.gth .fx svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2}
+.gth .mv{position:absolute;top:50%;transform:translateY(-50%);width:18px;height:26px;
+  background:rgba(20,24,30,.72);color:#fff;display:none;place-items:center;font-style:normal;
+  font-size:14px;font-weight:800;line-height:1}
+.gth .mv.l{left:0;border-radius:0 5px 5px 0}
+.gth .mv.r{right:0;border-radius:5px 0 0 5px}
+.gth:hover .mv{display:grid}
+.gth .mv.off{display:none!important}
+@media(hover:none){ .gth .fx,.gth .mv{display:grid} }
+/* Framing editor */
+.gfrw{position:fixed;inset:0;z-index:430;background:rgba(10,13,18,.72);display:grid;place-items:center;
+  padding:20px;opacity:0;transition:opacity .16s}
+.gfrw.on{opacity:1}
+.gfrc{width:min(520px,100%);background:var(--card);border:1px solid var(--br);border-radius:16px;
+  padding:20px;box-shadow:0 30px 70px -20px rgba(0,0,0,.6)}
+.gfrt{font-size:15px;font-weight:800;color:var(--tx)}
+.gfrh{font-size:12.5px;color:var(--tm);line-height:1.55;margin-top:6px}
+.gfri{height:190px;border-radius:12px;margin-top:14px;background-repeat:no-repeat;
+  background-color:var(--surface2);border:1px solid var(--br);cursor:grab;touch-action:none}
+.gfri:active{cursor:grabbing}
+.gfrz{display:flex;align-items:center;gap:12px;margin-top:13px;font-size:12px;color:var(--tm)}
+.gfrz input{flex:1;accent-color:var(--gm)}
+.gfrz b{font-variant-numeric:tabular-nums;color:var(--tx);width:44px;text-align:right}
 .gmore{border:1px dashed var(--br);background:var(--card);color:var(--tm);border-radius:9px;
   height:56px;padding:0 13px;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;
   display:inline-flex;align-items:center;gap:7px}
@@ -2415,7 +2442,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v663</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v664</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7085,6 +7112,20 @@ async function _gpickRun(){
     _goodsPickerClose();
   }
   try{ _toast(ok+" imported from "+host,"#4C7B3D"); }catch(e){}
+  // Say plainly how many of those pages had nothing on them. "Imported" is not the
+  // same as "useful", and only you can decide whether a photo-only listing earns a slot.
+  const _bk=kind==="mat"?"materials":"furnishings";
+  const _lib=_bk==="materials"?MATERIALS:FURNISHINGS;
+  const thin=made.filter(id=>{ const x=_lib.find(r=>r&&r.id===id); return x&&goodsThin(x); });
+  if(thin.length) setTimeout(()=>{
+    if(confirm(`${ok} imported, but ${thin.length} of them carry no specification — no thickness, size, finish or price on the page.\n\nDelete those ${thin.length} now?`)){
+      const ids=thin.slice();
+      if(_bk==="materials") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
+      else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
+      goodsSaveBook(_bk,true);
+      try{ _toast(ids.length+" removed","#B23F3C"); }catch(e){}
+    }
+  },700);
   // Pricing runs on afterwards against the progress bar, so it never holds the dialog
   // open — you can carry on looking at what just landed.
   const book=kind==="mat"?"materials":"furnishings";
@@ -7594,6 +7635,136 @@ function goodsCommonImages(book){
 function goodsIsCommon(u,common){
   try{ return !!common[(new URL(u).pathname.split("/").pop()||"").toLowerCase()]; }catch(e){ return false; }
 }
+// Some supplier pages carry a full specification; some carry a photo and a name and
+// nothing else. Both import "successfully", which is misleading — so a row that came
+// back with no specification at all says so, and can be cleared out in one action.
+function goodsThin(x){
+  if(!x) return false;
+  const has=v=>!!v && v!=="—";
+  if(has(x.thick)||has(x.sizes)||has(x.slip)||has(x.method)||has(x.ada)||has(x.heat)) return false;
+  if(has(x.dims)||has(x.frame)||has(x.weight)||has(x.cushion)) return false;   // furnishings
+  if(+x.msrp>0 && !x.msrpAI) return false;                                     // a real published price counts
+  return true;
+}
+function goodsThinCount(book){
+  const arr=book==="materials"?MATERIALS:FURNISHINGS;
+  return (arr||[]).filter(x=>x&&x.srcUrl&&goodsThin(x)).length;
+}
+async function goodsDropThin(book){
+  const arr=book==="materials"?MATERIALS:FURNISHINGS;
+  const thin=(arr||[]).filter(x=>x&&x.srcUrl&&goodsThin(x));
+  if(!thin.length){ alert("Every imported item carries a specification."); return; }
+  const names=thin.slice(0,4).map(x=>x.nm).join(", ");
+  if(!confirm(`${thin.length} item${thin.length===1?"":"s"} came in with no specification at all — no thickness, size, finish or published price.\n\n${names}${thin.length>4?` and ${thin.length-4} more`:""}\n\nDelete them?`)) return;
+  const ids=thin.map(x=>x.id);
+  if(book==="materials") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
+  else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
+  goodsSaveBook(book,true);
+  try{ _toast(ids.length+" removed","#B23F3C"); }catch(e){}
+}
+// ── FRAMING ───────────────────────────────────────────────────
+// A supplier's photo is composed for their page, not for a 118px card. The tile you
+// care about is often a strip across the middle of a pool shot, and the crop lands on
+// water. Zoom and pan are stored per image so the card, the hero and the strip all
+// show the same chosen framing.
+function goodsFrameOf(x,url){
+  const f=x&&x.fr&&x.fr[url];
+  return f ? {z:+f.z||100, x:+f.x||50, y:+f.y||50} : {z:100,x:50,y:50};
+}
+function goodsShotStyle(x,url,fallback){
+  if(!url) return `background:${fallback}`;
+  const f=goodsFrameOf(x,url);
+  return `background-image:url('${escAttr(url)}');background-size:${f.z}% auto;`+
+         `background-position:${f.x}% ${f.y}%;background-repeat:no-repeat;background-color:var(--surface2)`;
+}
+let _gframe={book:"",id:"",url:"",z:100,x:50,y:50,drag:null};
+function goodsFrameOpen(ev,book,id,url){
+  if(ev) ev.stopPropagation();
+  const row=goodsRow(book,id); if(!row) return;
+  const f=goodsFrameOf(row,url);
+  _gframe={book,id,url,z:f.z,x:f.x,y:f.y,drag:null};
+  let h=document.getElementById("gfr");
+  if(!h){ h=document.createElement("div"); h.id="gfr"; h.className="gfrw";
+    h.addEventListener("click",e=>{ if(e.target===h) goodsFrameClose(); });
+    document.body.appendChild(h); }
+  goodsFrameRender(); requestAnimationFrame(()=>h.classList.add("on"));
+}
+function goodsFrameClose(){ const h=document.getElementById("gfr");
+  if(h){ h.classList.remove("on"); setTimeout(()=>{ try{ h.remove(); }catch(e){} },160); } }
+function goodsFrameSet(k,v){ _gframe[k]=+v; goodsFrameApply(); }
+function goodsFrameApply(){
+  const el=document.getElementById("gfr-img"); if(!el) return;
+  el.style.backgroundSize=_gframe.z+"% auto";
+  el.style.backgroundPosition=_gframe.x+"% "+_gframe.y+"%";
+  const z=document.getElementById("gfr-z"); if(z) z.textContent=Math.round(_gframe.z)+"%";
+}
+function goodsFrameReset(){ _gframe.z=100; _gframe.x=50; _gframe.y=50;
+  const r=document.getElementById("gfr-zr"); if(r) r.value=100; goodsFrameApply(); }
+function goodsFrameSave(){
+  const row=goodsRow(_gframe.book,_gframe.id); if(!row) return goodsFrameClose();
+  row.fr=row.fr||{};
+  if(_gframe.z===100 && _gframe.x===50 && _gframe.y===50) delete row.fr[_gframe.url];
+  else row.fr[_gframe.url]={z:Math.round(_gframe.z),x:Math.round(_gframe.x),y:Math.round(_gframe.y)};
+  goodsSaveQuiet(_gframe.book);
+  goodsFrameClose();
+  try{ _gframe.book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
+// Dragging moves the picture behind a fixed window, so the direction has to be
+// inverted — pulling the image left shows what is to its right.
+function _gframeDown(e){
+  const p=e.touches?e.touches[0]:e;
+  _gframe.drag={sx:p.clientX,sy:p.clientY,x:_gframe.x,y:_gframe.y};
+}
+function _gframeMove(e){
+  if(!_gframe.drag) return;
+  if(e.cancelable) e.preventDefault();
+  const p=e.touches?e.touches[0]:e, el=document.getElementById("gfr-img"); if(!el) return;
+  const w=el.clientWidth||1, h=el.clientHeight||1;
+  const over=Math.max(1,(_gframe.z-100)/100);
+  _gframe.x=Math.max(0,Math.min(100,_gframe.drag.x - (p.clientX-_gframe.drag.sx)/w*100/over));
+  _gframe.y=Math.max(0,Math.min(100,_gframe.drag.y - (p.clientY-_gframe.drag.sy)/h*100/over));
+  goodsFrameApply();
+}
+function _gframeUp(){ _gframe.drag=null; }
+function goodsFrameRender(){
+  const h=document.getElementById("gfr"); if(!h) return;
+  h.innerHTML=`<div class="gfrc" onclick="event.stopPropagation()">
+    <div class="gfrt">Frame this photo</div>
+    <div class="gfrh">Drag to move it. Zoom in to crop. This is how it appears on the card and at the top of the item.</div>
+    <div id="gfr-img" class="gfri"
+      onmousedown="_gframeDown(event)" ontouchstart="_gframeDown(event)"
+      style="background-image:url('${escAttr(_gframe.url)}');background-size:${_gframe.z}% auto;background-position:${_gframe.x}% ${_gframe.y}%"></div>
+    <div class="gfrz">
+      <span>Zoom</span>
+      <input id="gfr-zr" type="range" min="100" max="320" step="1" value="${_gframe.z}"
+        oninput="goodsFrameSet('z',this.value)">
+      <b id="gfr-z">${Math.round(_gframe.z)}%</b>
+    </div>
+    <div class="askb">
+      <button class="c" onclick="goodsFrameReset()">Reset</button>
+      <button class="c" onclick="goodsFrameClose()">Cancel</button>
+      <button class="o" onclick="goodsFrameSave()">Save framing</button>
+    </div></div>`;
+  goodsFrameApply();
+}
+try{
+  document.addEventListener("mousemove",_gframeMove);
+  document.addEventListener("mouseup",_gframeUp);
+  document.addEventListener("touchmove",_gframeMove,{passive:false});
+  document.addEventListener("touchend",_gframeUp);
+}catch(e){}
+// Order matters on a spec sheet — the shot you lead with is the one a client sees.
+function goodsMovePhoto(ev,book,id,url,dir){
+  if(ev) ev.stopPropagation();
+  const x=goodsRow(book,id); if(!x) return;
+  const list=goodsImgs(x).slice();
+  const i=list.indexOf(url); if(i<0) return;
+  const j=i+dir; if(j<0||j>=list.length) return;
+  list[i]=list[j]; list[j]=url;
+  x.imgs=list; x.img=list[0]||"";
+  goodsSaveQuiet(book);
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
 function goodsSetPrimary(book,id,url){
   const x=goodsRow(book,id); if(!x) return;
   const list=goodsImgs(x).slice();
@@ -7635,12 +7806,16 @@ function goodsPhotoStripHTML(book,x){
   const common=goodsCommonImages(book);
   return `<div class="gstrip">
     ${imgs.map((u,i)=>`<span class="gth${i===0?" pri":""}${goodsIsCommon(u,common)?" gen":""}"
-        style="background-image:url('${escAttr(u)}')"
+        style="${goodsShotStyle(x,u,"var(--surface2)")}"
         onclick="goodsSetPrimary('${book}','${x.id}','${escAttr(u)}')"
         title="${i===0?"Primary photo":"Use as the primary photo"}">
         ${i===0?`<i class="tag">Primary</i>`:""}
         ${goodsIsCommon(u,common)?`<i class="tag gen">On every product</i>`:""}
+        ${x.fr&&x.fr[u]?`<i class="tag fr">Framed</i>`:""}
         <i class="x" onclick="event.stopPropagation();goodsDropPhoto('${book}','${x.id}','${escAttr(u)}')" title="Remove">${mi("x")}</i>
+        <i class="fx" onclick="goodsFrameOpen(event,'${book}','${x.id}','${escAttr(u)}')" title="Zoom and pan">${mi("zoom")}</i>
+        <i class="mv l${i===0?" off":""}" onclick="goodsMovePhoto(event,'${book}','${x.id}','${escAttr(u)}',-1)" title="Move earlier">‹</i>
+        <i class="mv r${i===imgs.length-1?" off":""}" onclick="goodsMovePhoto(event,'${book}','${x.id}','${escAttr(u)}',1)" title="Move later">›</i>
       </span>`).join("")}
     ${x.srcUrl?`<button class="gmore" onclick="goodsMorePhotos('${book}','${x.id}')">${mi("plus")}More from the page</button>`:""}
   </div>`;
@@ -8808,6 +8983,7 @@ function _matGrid(host){
          <button class="mchip" onclick="goodsFetchImages('materials')" title="Re-read the supplier page for anything with no picture">${mi("zoom")}Get images</button>
          <button class="mchip" onclick="goodsFixBrands('materials')" title="Read each supplier site for its real brand name">${mi("store")}Fix brands</button>
          <button class="mchip" onclick="goodsFillColours('materials')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
+         <button class="mchip" onclick="goodsDropThin('materials')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="View">
            <button class="${MAT_VIEW!=="list"&&cols===2?"on":""}" onclick="matSetView('cards');goodsSetCols(2)">${mi("col2")}</button>
@@ -8844,7 +9020,7 @@ function _matGrid(host){
        : `<span class="fr">${mi("tag")}${m.msrpAI?"Est. price":(matModel()==="resale"?"You bill":"Client pays")}<b${m.msrpAI?' class="est"':''}>$${(matModel()==="resale"?m.bill:m.msrp).toFixed(2)}/sf</b></span>`);
      const shot=goodsImg(m);
      return `<button class="mcard" onclick="matOpen('${m.id}')">
-       <span class="img" style="${goodsImgStyle(shot,m.cols[0])}"${shot?` onclick="goodsPhotoTap(event,'materials','${m.id}')"`:""}>
+       <span class="img" style="${goodsShotStyle(m,shot,m.cols[0])}"${shot?` onclick="goodsPhotoTap(event,'materials','${m.id}')"`:""}>
          <span class="tl"></span>
          ${shot?`<span class="pop"><i style="background-image:url('${escAttr(shot)}')"></i></span>`:""}</span>
        <span class="bd">${goodsMaker(m)?`<span class="mkr">${escAttr(goodsMaker(m))}</span>`:""}
@@ -8915,9 +9091,9 @@ function _matDetail(host){
    <div class="macts">${goodsSourceBtn(m)}
      <span class="sp"><button class="mdel" onclick="goodsDelete('materials','${m.id}')">${mi("trash")}Delete</button></span></div>
    <div class="mshots${_shots.length?" tap":""}">
-     <i style="${goodsImgStyle(_shots[0],m.cols[0])}" ${_shots[0]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',0)"`:""}></i>
-     <i style="${goodsImgStyle(_shots[1],m.cols[1]||m.cols[0])}" ${_shots[1]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',1)"`:""}></i>
-     <i style="${goodsImgStyle(_shots[2],m.cols[2]||m.cols[0])}" ${_shots[2]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',2)"`:""}></i>
+     <i style="${goodsShotStyle(m,_shots[0],m.cols[0])}" ${_shots[0]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',0)"`:""}></i>
+     <i style="${goodsShotStyle(m,_shots[1],m.cols[1]||m.cols[0])}" ${_shots[1]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',1)"`:""}></i>
+     <i style="${goodsShotStyle(m,_shots[2],m.cols[2]||m.cols[0])}" ${_shots[2]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',2)"`:""}></i>
      <span class="tl">${(m.priced&&!m.msrpAI)?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(m.priced)}</span>`:""}</span>
    </div>
    ${goodsPhotoStripHTML("materials",m)}
@@ -9242,6 +9418,7 @@ function _furGrid(host){
          <button class="mchip" onclick="goodsFetchImages('furnishings')" title="Re-read the supplier page for anything with no picture">${mi("zoom")}Get images</button>
          <button class="mchip" onclick="goodsFixBrands('furnishings')" title="Read each supplier site for its real brand name">${mi("store")}Fix brands</button>
          <button class="mchip" onclick="goodsFillColours('furnishings')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
+         <button class="mchip" onclick="goodsDropThin('furnishings')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
@@ -9278,7 +9455,7 @@ function _furGrid(host){
          : row("tag","MSRP",fmtN(f.msrp)));
      const shot=goodsImg(f);
      return `<button class="mcard" onclick="furOpen('${f.id}')">
-       <span class="img tall" style="${goodsImgStyle(shot,`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}"${shot?` onclick="goodsPhotoTap(event,'furnishings','${f.id}')"`:""}>
+       <span class="img tall" style="${goodsShotStyle(f,shot,`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}"${shot?` onclick="goodsPhotoTap(event,'furnishings','${f.id}')"`:""}>
          <span class="tl">${sale?`<span class="mbadge sale">Sale</span>`:""}</span>
          <span class="pop"><i style="${shot?`background-image:url('${escAttr(shot)}')`:`background:linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`}"></i></span>
        </span>
@@ -9350,9 +9527,9 @@ function _furDetail(host){
    <div class="macts">${goodsSourceBtn(f)}
      <span class="sp"><button class="mdel" onclick="goodsDelete('furnishings','${f.id}')">${mi("trash")}Delete</button></span></div>
    <div class="mshots${_shots.length?" tap":""}">
-     <i style="${goodsImgStyle(_shots[0],`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}" ${_shots[0]?`onclick="goodsPhotoOpen(event,'furnishings','${f.id}',0)"`:""}></i>
-     <i style="${goodsImgStyle(_shots[1],f.cols[1]||f.cols[0])}" ${_shots[1]?`onclick="goodsPhotoOpen(event,'furnishings','${f.id}',1)"`:""}></i>
-     <i style="${goodsImgStyle(_shots[2],f.cols[2]||f.cols[0])}" ${_shots[2]?`onclick="goodsPhotoOpen(event,'furnishings','${f.id}',2)"`:""}></i>
+     <i style="${goodsShotStyle(f,_shots[0],`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}" ${_shots[0]?`onclick="goodsPhotoOpen(event,'furnishings','${f.id}',0)"`:""}></i>
+     <i style="${goodsShotStyle(f,_shots[1],f.cols[1]||f.cols[0])}" ${_shots[1]?`onclick="goodsPhotoOpen(event,'furnishings','${f.id}',1)"`:""}></i>
+     <i style="${goodsShotStyle(f,_shots[2],f.cols[2]||f.cols[0])}" ${_shots[2]?`onclick="goodsPhotoOpen(event,'furnishings','${f.id}',2)"`:""}></i>
      <span class="tl">${sale?`<span class="mbadge sale">Sale</span>`:""}
        ${(f.priced&&!f.msrpAI)?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(f.priced)}</span>`:""}</span>
    </div>
