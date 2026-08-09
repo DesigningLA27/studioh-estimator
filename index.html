@@ -1982,6 +1982,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gbasis button:hover{border-color:var(--gm);color:var(--gm)}
 .gbasis button.on{background:var(--gm);border-color:var(--gm);color:#fff}
 .mp-row.pick{background:var(--brand-soft);margin:0 -13px;padding-left:13px;padding-right:13px;border-radius:8px}
+.mp-row s{color:var(--tl);font-weight:600;margin-right:4px}
 .mp-row .use{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   color:var(--gm);margin-left:7px}
 .mp-num{width:74px;border:1px solid var(--br);background:var(--surface2);color:var(--tx);border-radius:7px;
@@ -2535,7 +2536,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v685</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v686</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7576,15 +7577,14 @@ function goodsSaleLive(x){ return goodsSalePrice(x)>0; }
 // The number an estimate should actually multiply by area.
 function goodsEstPrice(x){
   if(!x) return 0;
-  const sale=goodsSalePrice(x);
   const b=goodsBasisOf(x);
-  const v = b==="msrp" ? (+x.msrp||0)
-          : b==="designer" ? (+x.designer||+x.cost||+x.msrp||0)
-          : b==="cost" ? (+x.cost||0)
-          : (+x.client||+x.msrp||0);
-  // A live sale beats list, but never overrides a trade rate you were quoted directly.
-  if(sale>0 && (b==="msrp"||b==="client")) return Math.min(v||sale, sale);
-  return v;
+  // A discount off MSRP discounts MSRP — nothing else. Client, designer and contractor
+  // prices are already negotiated figures; letting the sale undercut them meant the
+  // panel said "client price, in estimates" beside $32.50 and then quietly used $28.
+  if(b==="msrp"){ const sale=goodsSalePrice(x); return sale>0 ? sale : (+x.msrp||0); }
+  if(b==="designer") return (+x.designer||+x.cost||+x.msrp||0);
+  if(b==="cost")     return (+x.cost||0);
+  return (+x.client||+x.msrp||0);
 }
 // ── SALES ─────────────────────────────────────────────────────
 // A supplier announces a sale; they do not publish one. It is a strip across the top
@@ -10178,10 +10178,13 @@ function _matPanelHTML(){
       // Spell out which of the four is feeding the estimate, because "Installed" is that
       // number plus labour and nothing else — and until now you had to infer it.
       return `<div class="mp-card"><span class="k">Price</span>
-      ${rows.filter(([k,l,v])=>v>0||k===basis).map(([k,l,v])=>`
-        <div class="mp-row${k===basis?" pick":""}"><span>${l}${k===basis?' <i class="use">in estimates</i>':""}</span>
-          <b${(k==="msrp"&&m.msrpAI)?' style="color:var(--gold)"':''}>${v>0?"$"+v.toFixed(2)+"/sf":"—"}</b></div>`).join("")}
-      ${sale?`<div class="mp-row"><span>Sale — ${m.salePct}% off list</span><b style="color:var(--gm)">$${sale.toFixed(2)}/sf</b></div>`:""}
+      ${rows.filter(([k,l,v])=>v>0||k===basis).map(([k,l,v])=>{
+        const eff = (k==="msrp"&&sale>0) ? sale : v;      // MSRP is the only one a discount touches
+        return `<div class="mp-row${k===basis?" pick":""}"><span>${l}${k===basis?' <i class="use">in estimates</i>':""}</span>
+          <b${(k==="msrp"&&m.msrpAI)?' style="color:var(--gold)"':''}>${v>0?
+            ((k==="msrp"&&sale>0)?`<s>$${v.toFixed(2)}</s> $${eff.toFixed(2)}/sf`:"$"+v.toFixed(2)+"/sf")
+            :"—"}</b></div>`;}).join("")}
+      ${sale?`<div class="mp-row"><span>Discount — ${m.salePct}% off MSRP${m.saleEnds?", to "+escAttr(m.saleEnds):""}</span><b style="color:var(--gm)">applies to MSRP only</b></div>`:""}
       ${r?`<div class="mp-row"><span>Labour — ${escAttr(r.line.it.n)}</span><b>$${r.rate.toFixed(2)}/sf</b></div>
            <div class="mp-row"><span>Installed</span><b style="color:var(--gm)">$${(used+r.rate).toFixed(2)}/sf</b></div>
            <span class="s">Installed = the ${escAttr((GOODS_BASES.find(x=>x[0]===basis)||["","client price"])[1].toLowerCase())} ($${used.toFixed(2)}) plus labour ($${r.rate.toFixed(2)}).</span>`
