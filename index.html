@@ -2338,7 +2338,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v655</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v656</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7165,15 +7165,15 @@ function goodsCommSetFor(kind,who,book){
 function goodsRow(book,id){ return (book==="materials"?MATERIALS:FURNISHINGS).find(x=>x&&x.id===id)||null; }
 // Background work saves the same way but says nothing — a "Saved ✓" per batch of
 // estimates would be fifteen toasts for one job.
-function goodsSaveQuiet(book){
+function goodsSaveQuiet(book,force){
   try{ book==="materials"?matSave():furSave(); }catch(e){}
-  try{ goodsPushNow(book); }catch(e){}
+  try{ goodsPushNow(book,force); }catch(e){}
 }
 // An edit you typed reports whether it actually reached the server. "It autosaves"
 // is only worth anything if you can see it happen.
-function goodsSaveBook(book){
+function goodsSaveBook(book,force){
   try{ book==="materials"?matSave():furSave(); }catch(e){}
-  try{ goodsPushNow(book).then(ok=>{ if(ok) try{ _toast("Saved to the server ✓","#4C7B3D"); }catch(e){} }); }catch(e){}
+  try{ goodsPushNow(book,force).then(ok=>{ if(ok) try{ _toast("Saved to the server ✓","#4C7B3D"); }catch(e){} }); }catch(e){}
   try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
 }
 function goodsSetNum(book,id,field,el){
@@ -7202,7 +7202,7 @@ function goodsDelete(book,id){
   else if(!confirm(`Delete ${x.nm}?\n\nThis removes it from the library on every device.`)) return;
   arr.splice(i,1);
   if(book==="materials") MAT_OPEN=null; else FUR_OPEN=null;
-  goodsSaveBook(book);
+  goodsSaveBook(book,true);
   try{ _toast("Deleted "+x.nm,"#B23F3C"); }catch(e){}
 }
 // Every imported row remembers the page it came from; this is the one-click way back to
@@ -7574,9 +7574,9 @@ function goodsSchedulePush(book){
 // Something you typed goes up immediately. Waiting four seconds meant a rename
 // followed by a reload was simply gone — and the reload then pulled the old copy
 // back down over it, which reads as the app undoing your work.
-function goodsPushNow(book){
+function goodsPushNow(book,force){
   if(_goodsTimer[book]){ clearTimeout(_goodsTimer[book]); _goodsTimer[book]=null; }
-  return goodsPush(book);
+  return goodsPush(book,force);
 }
 // Leaving the page must not strand a pending upload either.
 function goodsFlushPending(){
@@ -7651,7 +7651,11 @@ async function _goodsPushOnce(book,key,force,retry){
   }
   if(d.err){
     _goodsLastErr[book]=d.err;
-    try{ _toast("Not saved — "+d.err,"#B23F3C"); }catch(e){}
+    // A refusal means this device and the server now disagree, and the next reload
+    // will quietly put the old rows back. That deserves more than a toast at the
+    // bottom of the screen that scrolls away while you are looking elsewhere.
+    if(/refused/i.test(d.err)) alert("Not saved.\n\n"+d.err+"\n\nThis device still shows your change, but the server does not — reloading would undo it.");
+    else try{ _toast("Not saved — "+d.err,"#B23F3C"); }catch(e){}
     return false;
   }
   _goodsLastErr[book]="";
@@ -8179,7 +8183,7 @@ function matSelDelete(){
     `\nThis removes them from the library on every device.`)) return;
   MATERIALS=MATERIALS.filter(m=>ids.indexOf(m.id)<0);
   MAT_SEL={};
-  goodsSaveBook("materials");
+  goodsSaveBook("materials",true);      // you confirmed the count — the wipe-guard steps aside
   try{ _toast(ids.length+" deleted","#B23F3C"); }catch(e){}
 }
 function matSelCategory(){
