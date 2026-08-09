@@ -1659,6 +1659,37 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gcrumb button{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:7px;
   padding:3px 9px;font:inherit;font-size:10.5px;font-weight:700;cursor:pointer}
 .gcrumb button:hover{border-color:var(--gm);color:var(--gm)}
+/* List view — one line per product, for managing rather than choosing. */
+.mbulk{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--brand-soft);
+  border:1px solid var(--gm);border-radius:12px;padding:9px 13px;margin-bottom:12px;
+  font-size:12.5px;color:var(--gm);font-weight:700}
+.mbulk b{font-size:14px}
+.mbulk .sp{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+.mbulk button{border:1px solid var(--gm);background:var(--card);color:var(--gm);border-radius:9px;
+  padding:6px 11px;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}
+.mbulk button:hover{background:var(--gm);color:#fff}
+.mbulk button.del{border-color:#B23F3C;color:#B23F3C}
+.mbulk button.del:hover{background:#B23F3C;color:#fff}
+.mlist{border:1px solid var(--br);border-radius:14px;overflow:hidden;background:var(--card)}
+.mlh,.mlr{display:grid;grid-template-columns:34px 40px minmax(0,2.2fr) minmax(0,1.2fr) minmax(0,1fr) 84px 64px;
+  gap:10px;align-items:center;padding:8px 12px}
+.mlh{background:var(--surface2);font-size:10px;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--tl);border-bottom:1px solid var(--br)}
+.mlr{border-bottom:1px solid var(--brl);cursor:pointer;font-size:12.5px}
+.mlr:last-child{border-bottom:0}
+.mlr:hover{background:var(--surface2)}
+.mlr.on{background:var(--brand-soft)}
+.mlh .r,.mlr .r{text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
+.mlr .r.est{color:var(--gold)}
+.mlr .th{width:40px;height:30px;border-radius:6px;display:block;background-size:cover;background-position:center}
+.mlr .nm{font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mlr .br,.mlr .ct{color:var(--tm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.mlh .c,.mlr .c{display:grid;place-items:center}
+.mlr input,.mlh input{width:16px;height:16px;accent-color:var(--gm);cursor:pointer}
+@media(max-width:820px){
+  .mlh,.mlr{grid-template-columns:30px 34px minmax(0,2fr) minmax(0,1fr) 74px}
+  .mlh span:nth-child(5),.mlr .ct,.mlh span:nth-child(7),.mlr .r:last-child{display:none}
+}
 .gbar .gsp{margin-left:auto}
 .gbar .sortdd{position:relative}
 .gbar .sortdd .mddm{right:0;left:auto}
@@ -2307,7 +2338,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v654</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v655</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8120,6 +8151,87 @@ function matGroupBarHTML(){
   ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b> · ${MATERIALS.filter(matInView).length} of ${tot}
      <button onclick="matPick('','All');matSetPrice(0,0)">clear</button></div>`:""}`;
 }
+// ── LIST VIEW & BULK ACTIONS ──────────────────────────────────
+// Cards are for choosing a material; a list is for managing a catalogue. Deleting a
+// supplier's 118 pages one card at a time is not a thing anyone should have to do.
+let MAT_VIEW=(function(){ try{ return PREFS.matView==="list"?"list":"cards"; }catch(e){ return "cards"; } })();
+let MAT_SEL={};
+function matSetView(v){ MAT_VIEW=(v==="list")?"list":"cards";
+  try{ PREFS.matView=MAT_VIEW; prefsSave(); }catch(e){}
+  if(MAT_VIEW!=="list") MAT_SEL={};
+  renderMaterials(); }
+function matSelCount(){ return Object.keys(MAT_SEL).filter(k=>MAT_SEL[k]).length; }
+function matSelToggle(id,ev){ if(ev) ev.stopPropagation();
+  if(MAT_SEL[id]) delete MAT_SEL[id]; else MAT_SEL[id]=1; renderMaterials(); }
+// "All" means everything the current filters leave on screen — that is the whole point
+// of filtering first and acting second.
+function matSelAll(on,ids){ if(on) (ids||[]).forEach(id=>{ MAT_SEL[id]=1; }); else MAT_SEL={};
+  renderMaterials(); }
+function matSelDelete(){
+  const ids=Object.keys(MAT_SEL).filter(k=>MAT_SEL[k]);
+  if(!ids.length) return;
+  const rows=MATERIALS.filter(m=>ids.indexOf(m.id)>=0);
+  const brands=[...new Set(rows.map(m=>goodsMaker(m)||"—"))];
+  const spec=rows.filter(m=>+m.specSF>0).length;
+  if(!confirm(`Delete ${ids.length} material${ids.length===1?"":"s"}?\n\n`+
+    `${brands.slice(0,3).join(", ")}${brands.length>3?` and ${brands.length-3} more`:""}\n`+
+    (spec?`\n${spec} of them ${spec===1?"is":"are"} specified on this project.\n`:"")+
+    `\nThis removes them from the library on every device.`)) return;
+  MATERIALS=MATERIALS.filter(m=>ids.indexOf(m.id)<0);
+  MAT_SEL={};
+  goodsSaveBook("materials");
+  try{ _toast(ids.length+" deleted","#B23F3C"); }catch(e){}
+}
+function matSelCategory(){
+  const ids=Object.keys(MAT_SEL).filter(k=>MAT_SEL[k]); if(!ids.length) return;
+  const all=[...new Set(MAT_GROUPS.reduce((a,g)=>a.concat(g.cats),[]).concat(MATERIALS.map(m=>m.cat)))].filter(Boolean).sort();
+  const v=prompt("Move "+ids.length+" material"+(ids.length===1?"":"s")+" to which category?\n\n"+all.join(", "), "");
+  if(v===null) return; const c=String(v).trim(); if(!c) return;
+  MATERIALS.forEach(m=>{ if(ids.indexOf(m.id)>=0) m.cat=c; });
+  MAT_SEL={}; goodsSaveBook("materials");
+  try{ _toast(ids.length+" moved to "+c,"#4C7B3D"); }catch(e){}
+}
+function matSelComm(){
+  const ids=Object.keys(MAT_SEL).filter(k=>MAT_SEL[k]); if(!ids.length) return;
+  const v=prompt("Commission % on "+ids.length+" selected material"+(ids.length===1?"":"s")+":","");
+  if(v===null) return;
+  const n=Math.max(0,Math.min(100,+String(v).replace(/[^0-9.]/g,"")||0));
+  MATERIALS.forEach(m=>{ if(ids.indexOf(m.id)>=0){ m.comm=n; m.commOwn=1; } });
+  MAT_SEL={}; goodsSaveBook("materials");
+  try{ _toast(ids.length+" set to "+n+"%","#4C7B3D"); }catch(e){}
+}
+function matBulkBarHTML(list){
+  const n=matSelCount(); if(!n) return "";
+  return `<div class="mbulk"><b>${n}</b> selected
+    <span class="sp">
+      <button onclick="matSelAll(1,${JSON.stringify(list.map(m=>m.id)).replace(/"/g,"&quot;")})">Select all ${list.length} shown</button>
+      <button onclick="matSelCategory()">Set category</button>
+      <button onclick="matSelComm()">Set commission</button>
+      <button class="del" onclick="matSelDelete()">Delete ${n}</button>
+      <button onclick="matSelAll(0)">Clear</button>
+    </span></div>`;
+}
+function matListHTML(list){
+  const ids=JSON.stringify(list.map(m=>m.id)).replace(/"/g,"&quot;");
+  const allOn=list.length&&list.every(m=>MAT_SEL[m.id]);
+  return `<div class="mlist">
+    <div class="mlh">
+      <span class="c"><input type="checkbox" ${allOn?"checked":""} onchange="matSelAll(this.checked?1:0,${ids})"></span>
+      <span></span><span>Product</span><span>Brand</span><span>Category</span>
+      <span class="r">Price</span><span class="r">Comm</span></div>
+    ${list.map(m=>{
+      const on=!!MAT_SEL[m.id], shot=goodsImg(m), pr=matPriceOf(m);
+      return `<div class="mlr${on?" on":""}" onclick="matOpen('${m.id}')">
+        <span class="c" onclick="matSelToggle('${m.id}',event)"><input type="checkbox" ${on?"checked":""} onclick="matSelToggle('${m.id}',event)"></span>
+        <span class="th" style="${goodsImgStyle(shot,(m.cols&&m.cols[0])||"var(--surface2)")}"></span>
+        <span class="nm">${escAttr(m.nm)}</span>
+        <span class="br">${escAttr(goodsMaker(m))}</span>
+        <span class="ct">${escAttr(m.cat||"—")}</span>
+        <span class="r${m.msrpAI?" est":""}">${pr>0?"$"+pr.toFixed(2):"—"}</span>
+        <span class="r">${goodsCommOf(m)?goodsCommOf(m)+"%":"—"}</span>
+      </div>`;}).join("")}
+  </div>`;
+}
 // ── PRICE RANGE ───────────────────────────────────────────────
 // Specifying starts from a budget far more often than from a category — "show me
 // paving under $15 a foot" is the real question. The presets are derived from what is
@@ -8371,13 +8483,15 @@ function _matGrid(host){
          <button class="mchip" onclick="goodsFixBrands('materials')" title="Read each supplier site for its real brand name">${mi("store")}Fix brands</button>
          <button class="mchip" onclick="goodsFillColours('materials')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
-         <span class="gcols" title="Cards across">
-           <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
-           <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
+         <span class="gcols" title="View">
+           <button class="${MAT_VIEW!=="list"&&cols===2?"on":""}" onclick="matSetView('cards');goodsSetCols(2)">${mi("col2")}</button>
+           <button class="${MAT_VIEW!=="list"&&cols===4?"on":""}" onclick="matSetView('cards');goodsSetCols(4)">${mi("col4")}</button>
+           <button class="${MAT_VIEW==="list"?"on":""}" onclick="matSetView('list')" title="List — select and edit many at once">${mi("list")}</button>
          </span>
        </span>
      </span></div>
    ${matGroupBarHTML()}
+   ${MAT_VIEW==="list"?matBulkBarHTML(list):""}
    ${MAT_AIBUSY?`<div class="gres busy">${mi("spark")}<span>Searching the catalogue…</span></div>`:""}
    ${(MAT_AI&&!MAT_AIBUSY)?`<div class="gres">${mi("spark")}
      <span><b>${list.length} match${list.length===1?"":"es"}</b>${MAT_AI.why?" · "+escAttr(MAT_AI.why):""}</span>
@@ -8387,7 +8501,7 @@ function _matGrid(host){
      <button onclick="matClearTags()">Clear</button></div>`:""}
    ${list.length?"":`<div class="gempty">${mi("box")}<b>Nothing matches</b>
      <span>${MAT_AI?"Try describing it differently, or clear the search.":nT?"No material carries every tag you picked.":"No material in this category yet."}</span></div>`}
-   <div class="mgrid c${cols}">${list.map(m=>{
+   ${MAT_VIEW==="list" ? matListHTML(list) : `<div class="mgrid c${cols}">${list.map(m=>{
      const seeded=!goodsPriced(m), earn=_matEarn(m), r=[];
      if(F.colour) r.push(`<span class="fr">${mi("swatch")}Colour<b style="display:flex;gap:4px">${m.cols.map(c=>`<i class="msw" style="background:${c}"></i>`).join("")}</b></span>`);
      if(F.stock)  r.push(row("box","Available", seeded?"—":m.stock.toLocaleString()+" sf"));
@@ -8417,7 +8531,7 @@ function _matGrid(host){
              ? `<span class="foot"><span class="l">Fee model · no material earnings</span></span>`
              : `<span class="foot"><span class="v">${matModel()==="resale"?((m.bill-m.cost)/m.bill*100).toFixed(0)+"%":goodsCommOf(m)+"%"}</span>
                 <span class="l">${matModel()==="resale"?"margin":"commission"} · $${earn.toFixed(2)}/sf</span></span>`):""}
-       </span></button>`;}).join("")}</div>`;
+       </span></button>`;}).join("")}</div>`}`;
 }
 function matFind(id){ return MATERIALS.find(m=>m.id===id)||null; }
 function _matDetail(host){
