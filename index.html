@@ -1984,6 +1984,12 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   border:1px solid var(--br);border-radius:11px;padding:9px 12px;color:var(--tm);cursor:pointer}
 .mp-file svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;color:var(--tl)}
 .mp-file:hover{color:var(--gm);border-color:var(--gm)}
+.mp-file{cursor:pointer;text-decoration:none;position:relative}
+.mp-file i{font-style:normal;margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--tl)}
+.mp-file.has i{color:var(--gm)}
+.mp-file.add{border-style:dashed;color:var(--tm)}
+.mp-file.add:hover{border-color:var(--gm)}
 /* ── PROJECT INSIGHTS ─────────────────────────────────────────
    One board holding every card about a project. Cards read from the same
    computed data the summary panel uses — there is no second cost model here. */
@@ -2456,7 +2462,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v673</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v674</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7538,9 +7544,9 @@ function goodsPriceEditor(book,x){
     <i>$</i><input type="number" step="0.01" min="0" value="${(+v||0)?(+v).toFixed(2):""}" placeholder="0.00"
       onchange="goodsSetNum('${book}','${x.id}','${f}',this)"><em>${unit}</em></label>`;
   return `<div class="mblk gedit"><h4>${mi("tag")}Pricing</h4>
-    ${num("msrp", isMat?"List / client pays":"MSRP", x.msrp)}
+    ${num("msrp", isMat?"MSRP — what the client pays":"MSRP", x.msrp)}
     ${isMat?"":num("sale","Sale price",x.sale)}
-    ${num("cost","Your cost",x.cost)}
+    ${num("cost", isMat?"Contractor cost — what you pay":"Your trade cost", x.cost)}
     ${matModel()==="resale"?num("bill","You bill",x.bill):""}
     <label class="ged"><span>Commission</span>
       <input type="number" step="0.5" min="0" max="100" value="${pct||""}" placeholder="0"
@@ -7981,6 +7987,65 @@ function goodsDocsHTML(x){
   return docs.map(d=>`<a class="mdoc" href="${escAttr(d.url)}" target="_blank" rel="noopener">
     ${mi("doc")}<span>${escAttr(d.label||"Document")}</span><i>PDF</i></a>`).join("");
 }
+// ── FILES ─────────────────────────────────────────────────────
+// These four were mockup furniture — labels with nothing behind them, so "Cut sheet"
+// did not open the cut sheet the page actually publishes. Now a document the supplier
+// published opens it; a slot with nothing in it invites you to add your own.
+const GOODS_SLOTS=[
+  ["cut",  "Cut sheet",      "doc",   /cut.?sheet|spec|technical|data.?sheet|usage|catalog/i],
+  ["cad",  "CAD detail",     "cad",   /\.dwg|\.dxf|cad|detail/i],
+  ["tex",  "Render texture", "swatch",/texture|tileable|seamless/i],
+];
+function goodsSlotDoc(x,re){
+  const docs=(x&&Array.isArray(x.docs))?x.docs:[];
+  return docs.find(d=>d&&d.url&&re.test((d.label||"")+" "+d.url))||null;
+}
+function goodsFilesHTML(book,x){
+  const own=x.files||{};
+  const rows=GOODS_SLOTS.map(([k,label,icon,re])=>{
+    const mine=own[k], auto=mine?null:goodsSlotDoc(x,re);
+    const url=mine?mine.url:(auto?auto.url:"");
+    const note=mine?"yours":(auto?("from "+escAttr(_brandHost(x.srcUrl||"")||"the supplier")):"");
+    return url
+      ? `<a class="mp-file has" href="${escAttr(url)}" target="_blank" rel="noopener">${mi(icon)}${label}<i>${note}</i></a>`
+      : `<label class="mp-file add">${mi(icon)}${label}<i>add</i>
+           <input type="file" hidden onchange="goodsAddFile(this,'${book}','${x.id}','${k}')"></label>`;
+  }).join("");
+  // The render texture is just the product photo at full size — say so rather than
+  // pretending it is a separate asset nobody has.
+  const tex=goodsImg(x);
+  return `<div class="mp-files">${rows}
+    ${tex?`<a class="mp-file has" href="${escAttr(tex)}" target="_blank" rel="noopener">${mi("swatch")}Product photo<i>full size</i></a>`:""}
+    <span class="mp-file ${x.csi?"has":""}" onclick="goodsEditCSI('${book}','${x.id}')">${mi("list")}CSI ${escAttr(x.csi||"—")}<i>${x.csi?"edit":"set"}</i></span>
+  </div>`;
+}
+async function goodsAddFile(input,book,id,slot){
+  const f=input&&input.files&&input.files[0]; if(input) input.value="";
+  if(!f) return;
+  const x=goodsRow(book,id); if(!x) return;
+  if(f.size>4*1024*1024){ alert("That file is "+(f.size/1048576).toFixed(1)+" MB. Keep it under 4 MB."); return; }
+  try{ _prog("Saving "+f.name,0,0); }catch(e){}
+  const data=await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(""); r.readAsDataURL(f); });
+  let url="";
+  if(data){ try{ const up=await _uploadImageR2("doc_"+id+"_"+slot+"_"+Date.now().toString(36), data);
+    if(up.ok&&up.url) url=up.url; }catch(e){} }
+  try{ _progDone(); }catch(e){}
+  if(!url){ alert("Couldn't store that file. Check your admin key in Settings."); return; }
+  x.files=x.files||{};
+  x.files[slot]={url,name:f.name};
+  goodsSaveQuiet(book);
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+  try{ _toast(f.name+" attached","#4C7B3D"); }catch(e){}
+}
+async function goodsEditCSI(book,id){
+  const x=goodsRow(book,id); if(!x) return;
+  const v=await appAsk({title:"CSI section", hint:"The MasterFormat number this goes under on a specification. Paving is 32 14 00; unit paving 32 14 13; tiling 09 30 00.",
+    value:x.csi||"", placeholder:"32 14 40", ok:"Save"});
+  if(v===null) return;
+  x.csi=String(v).trim().slice(0,20);
+  goodsSaveQuiet(book);
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
 // What to actually paint. `imgs` is the gallery, `img` the chosen primary.
 function goodsImgs(x){
   if(!x) return [];
@@ -8298,7 +8363,7 @@ async function _goodsImportOne(kind,url,host,quiet){
     ? Array.from(new Set(MATERIALS.map(m=>m.cat).concat(["Paving","Tile","Flagstone","Gravel","Boulder","Veneer","Decking"])))
     : FUR_CATS;
   const schema = isMat
-    ? `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or supplier","fin":"finish e.g. Tumbled, Thermal, Matte","thick":"","sizes":"","slip":"","heat":"","ada":"","method":"","use":"outdoor | indoor | both | unknown — only if the page says, e.g. exterior, submerged, pool, frost, UV, interior only","msrp":0,"unit":"sf | each | ton | pallet | box","tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`
+    ? `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or supplier","fin":"finish e.g. Tumbled, Thermal, Matte","thick":"","sizes":"","slip":"","heat":"","ada":"","method":"","use":"outdoor | indoor | both | unknown — only if the page says, e.g. exterior, submerged, pool, frost, UV, interior only","csi":"MasterFormat section if the page states one, else \"\"","loc":"the supplier city and state if the page states one, e.g. Vista, CA","msrp":0,"unit":"sf | each | ton | pallet | box","tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`
     : `{"nm":"","cat":"one of: ${cats.join(" | ")}","sup":"brand or retailer","frame":"","dims":"W x D x H with units","seat":"","weight":"","cushion":"","assembly":"","weather":"","maint":"","cover":"","warranty":"","use":"outdoor | indoor | both | unknown — only if the page says, e.g. all-weather, UV stable, indoor use only","msrp":0,"sale":0,"tags":["2-5 lowercase-hyphenated"],"cols":["#hex","#hex"]}`;
   const res=await goodsExtractFromURL(url, isMat?"landscape material / hardscape":"outdoor furniture", schema);
   if(res.err){ if(!quiet) alert(res.err==="needs-worker"?_SCRAPE_HELP:("Import failed: "+res.err)); return false; }
@@ -8321,13 +8386,13 @@ async function _goodsImportOne(kind,url,host,quiet){
       +(extra||"")+" Add a price to use it on a project."]];
   if(isMat){
     const unit=String(o.unit||"").toLowerCase(), perSf=unit==="sf";
-    MATERIALS.unshift({id,nm:o.nm,cat:cats.indexOf(o.cat)>=0?o.cat:"Paving",fin:o.fin||"—",sup,supAlt,brand,loc:"—",dist:0,
+    MATERIALS.unshift({id,nm:o.nm,cat:cats.indexOf(o.cat)>=0?o.cat:"Paving",fin:o.fin||"—",sup,supAlt,brand,loc:String(o.loc||"").slice(0,60)||"—",dist:0,
       claimed:0,tags,cols:(o.cols&&o.cols.length?o.cols:["#B9AC97"]).slice(0,3),imgs,img:imgs[0]||"",
       msrp:perSf?(+o.msrp||0):0,cost:0,bill:0,comm:0,stock:0,lead:"—",
       listPrice:+o.msrp||0,listUnit:unit,
       slip:o.slip||"—",thick:o.thick||"—",sizes:o.sizes||"—",heat:o.heat||"—",ada:o.ada||"—",
       ship:"—",region:"—",offer:"—",method:o.method||"—",labour:"—",bed:"—",edge:"—",joint:"—",
-      inst:"—",csi:"",priced:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
+      inst:"—",csi:String(o.csi||"").slice(0,20),priced:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
       use:String(o.use||"").toLowerCase().replace(/[^a-z]/g,"")||"",
       srcUrl:src,sku:res.sku||"",docs:(res.docs||[]).slice(0,8),specSF:0,
       ai:note(o.msrp&&!perSf?` Listed at $${o.msrp} per ${escAttr(unit||"unit")} — convert to a square-foot price before claiming.`:"")});
@@ -8738,6 +8803,55 @@ function matGroupBarHTML(){
   </div>
   ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b> · ${MATERIALS.filter(matInView).length} of ${tot}
      <button onclick="MAT_USE='';matPick('','All');matSetPrice(0,0)">clear</button></div>`:""}`;
+}
+// CSI and the supplier's city are both things a person would look up in seconds and
+// neither is on most product pages — which is exactly the sort of gap worth filling
+// from what is already known rather than leaving as an em dash forever.
+let _specBusy=false;
+async function goodsFillSpecs(book){
+  if(_specBusy) return; _specBusy=true;
+  try{
+    const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+    if(!ep){ alert("No worker connected."); return; }
+    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    const need=x=>x&&x.nm&&(!x.csi||!x.loc||x.loc==="—");
+    const todo=(arr||[]).filter(need);
+    if(!todo.length){ alert("Every item already has a CSI section and a supplier location."); return; }
+    if(!confirm(`Fill in the CSI section and supplier location for ${todo.length} item${todo.length===1?"":"s"}?\n\nCSI comes from the product type; the location is where that supplier is based. Anything already filled in is left alone.`)) return;
+    let n=0;
+    _prog("Filling CSI and locations",0,todo.length);
+    for(let i=0;i<todo.length;i+=30){
+      const batch=todo.slice(i,i+30);
+      const list=batch.map((x,k)=>`${k+1}. ${x.nm} — ${[goodsMaker(x),x.cat,x.fin].filter(v=>v&&v!=="—").join(", ")}${x.srcUrl?" ("+_brandHost(x.srcUrl)+")":""}`).join("\n");
+      try{
+        const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1600,temperature:0,
+            system:"You are a construction specification reference. Output only a minified JSON array.",
+            messages:[{role:"user",content:`For each product give the CSI MasterFormat section it is specified under, and the city and state the BRAND is based in. Output ONLY minified JSON:
+[{"i":1,"csi":"32 14 13","loc":"Vista, CA"}]
+Use "" for anything you are not confident about — a wrong section on a specification is worse than a blank one.
+
+${book==="materials"?"MATERIALS":"FURNISHINGS"}:
+${list}`}]})});
+        const d=await r.json();
+        let t=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+        const a=t.indexOf("["), b=t.lastIndexOf("]");
+        let out=null;
+        if(a>=0&&b>a){ try{ out=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+        if(!out) out=_salvageJsonObjects(t.slice(Math.max(0,a)));
+        (out||[]).forEach(o=>{
+          const x=batch[(o.i||0)-1]; if(!x) return;
+          const csi=String(o.csi||"").trim(), loc=String(o.loc||"").trim();
+          if(csi && !x.csi){ x.csi=csi.slice(0,20); n++; }
+          if(loc && (!x.loc||x.loc==="—")){ x.loc=loc.slice(0,60); n++; }
+        });
+      }catch(e){}
+      _prog("Filling CSI and locations",Math.min(i+30,todo.length),todo.length);
+      goodsSaveQuiet(book);
+    }
+    try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+    _progDone(n+" filled in","#4C7B3D");
+  } finally { _specBusy=false; }
 }
 // ── OUTDOOR / INDOOR ──────────────────────────────────────────
 // A tile showroom sells bathroom tile and pool tile from the same catalogue, and a
@@ -9150,6 +9264,7 @@ function _matGrid(host){
          <button class="mchip" onclick="goodsFillColours('materials')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
          <button class="mchip" onclick="goodsDropThin('materials')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsFillUse('materials')" title="Work out which items suit outdoor use">${mi("sun")}Outdoor sort</button>
+         <button class="mchip" onclick="goodsFillSpecs('materials')" title="Fill in CSI sections and supplier locations">${mi("list")}CSI &amp; location</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="View">
            <button class="${MAT_VIEW!=="list"&&cols===2?"on":""}" onclick="matSetView('cards');goodsSetCols(2)">${mi("col2")}</button>
@@ -9304,20 +9419,16 @@ function _matPanelHTML(){
       ${matModel()==="commission"?`<span class="s">Your specification does not change what the client pays.</span>`:""}
     </div>`:""}
     ${on.price?`<div class="mp-card"><span class="k">Price</span>
-      <div class="mp-row"><span>MSRP</span><b>$${m.msrp.toFixed(2)}/sf</b></div>
-      <div class="mp-row"><span>Contractor</span><b>$${m.cost.toFixed(2)}/sf</b></div>
+      <div class="mp-row"><span>MSRP — client pays</span><b${m.msrpAI?' style="color:var(--gold)"':''}>$${(+m.msrp||0).toFixed(2)}/sf</b></div>
+      <div class="mp-row"><span>Contractor cost</span><b>$${(+m.cost||0).toFixed(2)}/sf</b></div>
       <div class="mp-row"><span>Installed</span><b>${escAttr(m.inst)}</b></div>
+      <span class="s">Both are edited in the Pricing block on the left.</span>
     </div>`:""}
     <button class="btn btn-o" style="width:100%;justify-content:center" onclick="matSpecify('${m.id}')">${m.specSF?"Change quantity":"Specify on this project"}</button>
     ${m.specSF?`<div class="mp-card"><span class="k">On this project</span>
       <div class="mp-row"><span>Specified</span><b>${(+m.specSF).toLocaleString()} sf</b></div>
       <div class="mp-hi"><span class="v">${fmtN(_matEarn(m)*m.specSF)}</span><span class="l">you earn</span></div></div>`:""}
-    ${on.files?`<div class="mp-files">
-      <span class="mp-file">${mi("doc")}Cut sheet</span>
-      <span class="mp-file">${mi("cad")}CAD detail</span>
-      <span class="mp-file">${mi("swatch")}Render texture</span>
-      <span class="mp-file">${mi("list")}CSI ${escAttr(m.csi)}</span>
-    </div>`:""}`;
+    ${on.files?goodsFilesHTML("materials",m):""}`;
 }
 // The catalogue view gets its own panel — the library at a glance and what the
 // specified materials are earning, rather than the project cost cards.
@@ -9594,6 +9705,7 @@ function _furGrid(host){
          <button class="mchip" onclick="goodsFillColours('furnishings')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
          <button class="mchip" onclick="goodsDropThin('furnishings')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
          <button class="mchip" onclick="goodsFillUse('furnishings')" title="Work out which items suit outdoor use">${mi("sun")}Outdoor sort</button>
+         <button class="mchip" onclick="goodsFillSpecs('furnishings')" title="Fill in CSI sections and supplier locations">${mi("list")}CSI &amp; location</button>
          <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
