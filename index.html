@@ -1709,6 +1709,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mrail .ri.sub{padding-left:18px;font-size:12px}
 .mrail .ri .n{margin-left:auto;font-size:10.5px;color:var(--tl);font-variant-numeric:tabular-nums}
 .mrail .ri.on .n{color:var(--gm)}
+.mrail .rnone{font-size:11.5px;color:var(--tl);line-height:1.55;padding:4px 8px}
+.mrail .rnone button{border:0;background:none;font:inherit;font-size:11.5px;font-weight:800;
+  color:var(--gm);cursor:pointer;padding:0;text-decoration:underline}
+.prends b{font-weight:800;color:var(--gm);font-variant-numeric:tabular-nums}
 .prsl.rail{margin:8px 6px 0}
 .mrail-tab{position:sticky;top:0;display:flex;align-items:center;gap:8px;border:1px solid var(--br);
   background:var(--card);color:var(--tm);border-radius:11px;padding:9px 13px;font:inherit;font-size:12.5px;
@@ -1902,6 +1906,8 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mcard .pop i{display:block;width:100%;height:100%;border-radius:9px;background-size:contain;
   background-repeat:no-repeat;background-position:center;background-color:var(--surface2)}
 .mcard .img.tall:hover .pop{opacity:1;transform:translateX(-50%) scale(1)}
+.mcard .img.pop-below .pop{bottom:auto;top:calc(100% + 9px)}
+.mcard .img.pop-below:hover .pop{transform:translateX(-50%) scale(1)}
 /* Materials get the same uncropped preview. A paving tile is judged on its texture,
    and a card crop of a 24×24 slab shows almost none of it. */
 #view-materials .mcard{overflow:visible;position:relative}
@@ -2571,7 +2577,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v688</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v689</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8443,6 +8449,19 @@ function goodsPhotoStripHTML(book,x){
     ${x.srcUrl?`<button class="gmore" onclick="goodsMorePhotos('${book}','${x.id}')">${mi("plus")}More from the page</button>`:""}
   </div>`;
 }
+// The uncropped preview is anchored above the card, which works everywhere except the
+// top row — where it ran off the top of the pane and got clipped. Measure once on
+// hover and drop it below instead when there is not room.
+try{
+  document.addEventListener("mouseover",function(e){
+    const img=e.target&&e.target.closest?e.target.closest(".mcard .img"):null;
+    if(!img) return;
+    const pop=img.querySelector(".pop"); if(!pop) return;
+    const need=pop.offsetHeight||236;
+    const r=img.getBoundingClientRect();
+    img.classList.toggle("pop-below", r.top < need+20);
+  },true);
+}catch(e){}
 // ── PHOTO VIEWER ──────────────────────────────────────────────
 // The uncropped preview was hover-only, and an iPad has no hover — the magnifier that
 // replaced it on touch was decoration with nothing behind it.
@@ -9313,9 +9332,9 @@ function matCrumbHTML(list){
     .map(g=>({g,n:matGroupCount(g.id,counts)})).filter(x=>x.n>0);
   let path = sel.length ? (sel.length>2 ? sel.slice(0,2).join(" · ")+" +"+(sel.length-2) : sel.join(" · "))
     : MAT_GRP ? (groups.find(x=>x.g.id===MAT_GRP)||{g:{nm:""}}).g.nm : "";
-  if(MAT_KIND) path = (path?path+" · ":"") + MAT_KIND;
-  if(MAT_HUE)  path = (path?path+" · ":"") + (MAT_HUES.find(x=>x[0]===MAT_HUE)||["","Colour"])[1];
-  if(MAT_SIZE) path = (path?path+" · ":"") + MAT_SIZE.replace("x","×")+"″";
+  const kk=_selList(MAT_KINDSEL); if(kk.length) path=(path?path+" · ":"")+kk.join("/");
+  const hh=_selList(MAT_HUESEL);  if(hh.length) path=(path?path+" · ":"")+hh.map(k=>(MAT_HUES.find(x=>x[0]===k)||["",k])[1]).join("/");
+  const ss=_selList(MAT_SIZESEL); if(ss.length) path=(path?path+" · ":"")+ss.map(k=>k.replace("x","×")+"″").join("/");
   if(MAT_PMIN||MAT_PMAX) path = (path?path+" · ":"") + matPriceLabel();
   if(MAT_SALE) path = (path?path+" · ":"") + "On sale";
   if(MAT_USE)  path = (path?path+" · ":"") + (MAT_USE==="outdoor"?"Outdoor":"Indoor");
@@ -9515,13 +9534,6 @@ ${list}`}]})});
   } finally { _useBusy=false; }
 }
 function matSetUse(u){ MAT_USE=(MAT_USE===u)?"":u; renderMaterials(); }
-function matSaleBarHTML(){
-  const n=MATERIALS.filter(m=>goodsSaleLive(m)).length;
-  // Shown even at zero, so it is discoverable before there is anything on sale — a
-  // filter you only meet once it already applies is a filter you never find.
-  return `<button class="grp sale${MAT_SALE?" on":""}${n?"":" empty"}" onclick="MAT_SALE=!MAT_SALE;renderMaterials()"
-    title="${n?"Currently discounted":"Nothing is discounted yet — run Find sales"}">On sale<span class="n">${n}</span></button>`;
-}
 // Colour is the filter a designer reaches for first and the one the library never had.
 // Swatches come from the photos, so the bands are the real colours in the catalogue.
 const MAT_HUES=[["warm","Warm",[15,55]],["yellow","Sand",[40,70]],["green","Green",[70,165]],
@@ -9535,65 +9547,6 @@ function matHueOf(m){
     if(a<b ? (h.h>=a&&h.h<b) : (h.h>=a||h.h<b)) return k;
   }
   return "grey";
-}
-function matKindBarHTML(){
-  const n={}; MATERIALS.forEach(m=>{ const k=goodsMat(m); if(k) n[k]=(n[k]||0)+1; });
-  const live=MAT_KINDS.filter(k=>n[k]);
-  if(!live.length) return "";
-  return `<span class="mdd sortdd">
-    <button class="mchip${MAT_KIND?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__kind')">
-      ${mi("cube")}${MAT_KIND?escAttr(MAT_KIND):"Made of"}${mi("chev")}</button>
-    <div class="mddm${_matDD==="__kind"?" open":""}">
-      <div class="hd">What it is made of</div>
-      <div class="it ${MAT_KIND?"":"on"}" onclick="event.stopPropagation();MAT_KIND='';renderMaterials()">Any material</div>
-      ${live.map(k=>`<div class="it ${MAT_KIND===k?"on":""}" onclick="event.stopPropagation();MAT_KIND=(MAT_KIND==='${escAttr(k)}'?'':'${escAttr(k)}');renderMaterials()">${escAttr(k)}<span class="n">${n[k]}</span></div>`).join("")}
-    </div></span>`;
-}
-function matSizeBarHTML(){
-  const opts=matSizeOptions();
-  if(!opts.length) return "";
-  return `<span class="mdd sortdd">
-    <button class="mchip${MAT_SIZE?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__size')">
-      ${mi("ruler")}${MAT_SIZE?escAttr(MAT_SIZE):"Size"}${mi("chev")}</button>
-    <div class="mddm${_matDD==="__size"?" open":""}">
-      <div class="hd">Available in</div>
-      <div class="it ${MAT_SIZE?"":"on"}" onclick="event.stopPropagation();MAT_SIZE='';renderMaterials()">Any size</div>
-      ${opts.map(o=>`<div class="it ${MAT_SIZE===o.k?"on":""}" onclick="event.stopPropagation();MAT_SIZE=(MAT_SIZE==='${o.k}'?'':'${o.k}');renderMaterials()">${escAttr(matSizeLabel(o.s))}<span class="n">${o.c}</span></div>`).join("")}
-      <div class="prange">
-        <input id="mat-sw" type="number" step="1" min="0" placeholder="w" onclick="event.stopPropagation()">
-        <span>×</span>
-        <input id="mat-sh" type="number" step="1" min="0" placeholder="h" onclick="event.stopPropagation()">
-        <button onclick="event.stopPropagation();matSizeTyped()">Find</button>
-      </div>
-    </div></span>`;
-}
-function matSizeTyped(){
-  const g=id=>{ const el=document.getElementById(id); return +(el&&el.value)||0; };
-  const w=g("mat-sw"), h=g("mat-sh");
-  MAT_SIZE = (w>0&&h>0) ? (Math.min(w,h)+"x"+Math.max(w,h)) : "";
-  _matDD=""; renderMaterials();
-}
-function matColourBarHTML(){
-  const n={}; MATERIALS.forEach(m=>{ const k=matHueOf(m); n[k]=(n[k]||0)+1; });
-  const live=MAT_HUES.filter(([k])=>n[k]);
-  if(live.length<2) return "";
-  return `<span class="mdd sortdd">
-    <button class="mchip${MAT_HUE?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__hue')">
-      ${mi("swatch")}${MAT_HUE?escAttr((MAT_HUES.find(x=>x[0]===MAT_HUE)||["","Colour"])[1]):"Colour"}${mi("chev")}</button>
-    <div class="mddm${_matDD==="__hue"?" open":""}">
-      <div class="hd">Colour</div>
-      <div class="it ${MAT_HUE?"":"on"}" onclick="event.stopPropagation();MAT_HUE='';renderMaterials()">Any colour</div>
-      ${live.map(([k,l])=>`<div class="it ${MAT_HUE===k?"on":""}" onclick="event.stopPropagation();MAT_HUE=(MAT_HUE==='${k}'?'':'${k}');renderMaterials()">
-        <i class="hsw h-${k}"></i>${l}<span class="n">${n[k]}</span></div>`).join("")}
-    </div></span>`;
-}
-function matUseBarHTML(){
-  const n=MATERIALS.filter(m=>goodsUse(m)).length;
-  if(!n) return "";
-  const out=MATERIALS.filter(m=>{const u=goodsUse(m);return u==="outdoor"||u==="both";}).length;
-  const ind=MATERIALS.filter(m=>{const u=goodsUse(m);return u==="indoor";}).length;
-  return `<button class="grp${MAT_USE==="outdoor"?" on":""}" onclick="matSetUse('outdoor')" title="Rated for exterior use">Outdoor<span class="n">${out}</span></button>`+
-         (ind?`<button class="grp${MAT_USE==="indoor"?" on":""}" onclick="matSetUse('indoor')" title="Interior only">Indoor<span class="n">${ind}</span></button>`:"");
 }
 // ── LIST VIEW & BULK ACTIONS ──────────────────────────────────
 // Cards are for choosing a material; a list is for managing a catalogue. Deleting a
@@ -9746,8 +9699,13 @@ function matPriceDrag(which,val){
   MAT_PMAX=(hi>=B.hi)?0:Math.round(hi);
   MAT_PEXCL=false;
   // Label and track move with the thumb; the list redraws when you let go.
+  // Live feedback while dragging: the band label, and how many materials survive it.
+  // Recounting is cheap; redrawing the whole grid on every pixel is not, so that waits
+  // for you to let go.
   const el=document.getElementById("mat-prlabel");
-  if(el) el.textContent = (!MAT_PMIN&&!MAT_PMAX) ? "Any price" : matPriceLabel();
+  if(el) el.textContent = (!MAT_PMIN&&!MAT_PMAX) ? "" : " · "+matPriceLabel();
+  const c=document.getElementById("mat-prcount");
+  if(c){ const n=MATERIALS.filter(matInView).length; c.textContent=n+" material"+(n===1?"":"s"); }
   const f=document.getElementById("mat-prfill");
   if(f){ const span=Math.max(1,B.hi-B.lo);
     f.style.left=((lo-B.lo)/span*100)+"%"; f.style.right=((B.hi-hi)/span*100)+"%"; }
@@ -9757,34 +9715,6 @@ function matPriceDrag(which,val){
   if(na) na.value=MAT_PMIN||""; if(nb) nb.value=MAT_PMAX||"";
 }
 function matPriceCommit(){ renderMaterials(); }
-function matPriceBarHTML(){
-  const on=!!(MAT_PMIN||MAT_PMAX), B=matPriceBounds();
-  const lo=MAT_PMIN||B.lo, hi=MAT_PMAX||B.hi, span=Math.max(1,B.hi-B.lo);
-  return `<span class="mdd sortdd">
-    <button class="mchip${on?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__price')">
-      ${mi("tag")}${escAttr(matPriceLabel())}${mi("chev")}</button>
-    <div class="mddm${_matDD==="__price"?" open":""}" onclick="event.stopPropagation()" style="width:290px">
-      <div class="hd">Price per unit <b id="mat-prlabel" style="float:right;color:var(--gm)">${escAttr(matPriceLabel())}</b></div>
-      <div class="prsl">
-        <span class="tr"></span><span class="fill" id="mat-prfill"
-          style="left:${(lo-B.lo)/span*100}%;right:${(B.hi-hi)/span*100}%"></span>
-        <input id="mat-prlo" type="range" min="${B.lo}" max="${B.hi}" step="1" value="${lo}"
-          oninput="matPriceDrag('lo',this.value)" onchange="matPriceCommit()">
-        <input id="mat-prhi" type="range" min="${B.lo}" max="${B.hi}" step="1" value="${hi}"
-          oninput="matPriceDrag('hi',this.value)" onchange="matPriceCommit()">
-      </div>
-      <div class="prends"><span>$${B.lo}</span><span>$${B.hi}</span></div>
-      <div class="prange">
-        <input id="mat-pmin" type="number" min="0" step="1" placeholder="min" value="${MAT_PMIN||""}"
-          onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter')matPriceInput()">
-        <span>to</span>
-        <input id="mat-pmax" type="number" min="0" step="1" placeholder="max" value="${MAT_PMAX||""}"
-          onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter')matPriceInput()">
-        <button onclick="event.stopPropagation();matPriceInput()">Apply</button>
-      </div>
-      ${on?`<div class="ft"><span onclick="event.stopPropagation();matSetPrice(0,0)">Any price</span></div>`:""}
-    </div></span>`;
-}
 // ── FILTER RAIL ───────────────────────────────────────────────
 // A header full of dropdowns hides which filters are on. A standing column shows all of
 // them at once, which is what a library of several hundred materials needs. It is the
@@ -9799,12 +9729,12 @@ function matRailToggle(){ PREFS.matRail=matRailOpen()?"closed":"open"; prefsSave
 function matFilterCount(){
   let n=0;
   n+=matCatList().length; if(MAT_GRP&&!matCatList().length) n++;
-  if(MAT_KIND) n++; if(MAT_HUE) n++; if(MAT_SIZE) n++;
+  n+=_selList(MAT_KINDSEL).length + _selList(MAT_HUESEL).length + _selList(MAT_SIZESEL).length;
   if(MAT_PMIN||MAT_PMAX) n++; if(MAT_SALE) n++; if(MAT_USE) n++;
   return n;
 }
 function matClearAll(){
-  MAT_GRP=""; MAT_CATS={}; MAT_KIND=""; MAT_HUE=""; MAT_SIZE="";
+  MAT_GRP=""; MAT_CATS={}; MAT_KINDSEL={}; MAT_HUESEL={}; MAT_SIZESEL={};
   MAT_PMIN=0; MAT_PMAX=0; MAT_PEXCL=false; MAT_SALE=false; MAT_USE="";
   renderMaterials();
 }
@@ -9823,7 +9753,7 @@ function matRailHTML(){
   const nOut=MATERIALS.filter(m=>{const u=goodsUse(m);return u==="outdoor"||u==="both";}).length;
   const nIn=MATERIALS.filter(m=>goodsUse(m)==="indoor").length;
   const B=matPriceBounds(), plo=MAT_PMIN||B.lo, phi=MAT_PMAX||B.hi, span=Math.max(1,B.hi-B.lo);
-  const nF=matFilterCount();
+  const nF=matFilterCount(), list_n=MATERIALS.filter(matInView).length;
   return `<div class="mrail">
     <div class="rh"><b>Filters</b>${nF?`<span class="rc">${nF}</span>`:""}
       ${nF?`<button class="rx" onclick="matClearAll()">Clear</button>`:""}
@@ -9837,18 +9767,22 @@ function matRailHTML(){
         `<div class="ri sub${MAT_CATS[c]?" on":""}" onclick="matPick('${g.id}','${escAttr(c)}')">${escAttr(c)}<span class="n">${counts[c]}</span></div>`).join(""):"")
     ).join("")}
 
-    ${Object.keys(kinds).length?`<div class="rg">Made of</div>
-      ${MAT_KINDS.filter(k=>kinds[k]).map(k=>_railItem(MAT_KIND===k,k,kinds[k],`MAT_KIND=(MAT_KIND==='${escAttr(k)}'?'':'${escAttr(k)}');renderMaterials()`)).join("")}`:""}
+    <div class="rg">Made of</div>
+    ${Object.keys(kinds).length
+      ? MAT_KINDS.filter(k=>kinds[k]).map(k=>_railItem(!!MAT_KINDSEL[k],k,kinds[k],`_selToggle(MAT_KINDSEL,'${escAttr(k)}')`)).join("")
+      : `<div class="rnone">Not read yet — <button onclick="goodsFillMaterial('materials')">work it out</button></div>`}
 
     <div class="rg">Colour</div>
     ${MAT_HUES.filter(([k])=>hues[k]).map(([k,l])=>
-      `<div class="ri${MAT_HUE===k?" on":""}" onclick="MAT_HUE=(MAT_HUE==='${k}'?'':'${k}');renderMaterials()">
+      `<div class="ri${MAT_HUESEL[k]?" on":""}" onclick="_selToggle(MAT_HUESEL,'${k}')">
         <i class="hsw h-${k}"></i>${l}<span class="n">${hues[k]}</span></div>`).join("")}
 
-    ${sizes.length?`<div class="rg">Size</div>
-      ${sizes.map(o=>_railItem(MAT_SIZE===o.k,matSizeLabel(o.s),o.c,`MAT_SIZE=(MAT_SIZE==='${o.k}'?'':'${o.k}');renderMaterials()`)).join("")}`:""}
+    <div class="rg">Size</div>
+    ${sizes.length
+      ? sizes.map(o=>_railItem(!!MAT_SIZESEL[o.k],matSizeLabel(o.s),o.c,`_selToggle(MAT_SIZESEL,'${o.k}')`)).join("")
+      : `<div class="rnone">No sizes on file — imports carry them when the page states one</div>`}
 
-    <div class="rg">Price${(MAT_PMIN||MAT_PMAX)?` · ${escAttr(matPriceLabel())}`:""}</div>
+    <div class="rg">Price<span id="mat-prlabel">${(MAT_PMIN||MAT_PMAX)?` · ${escAttr(matPriceLabel())}`:""}</span></div>
     <div class="prsl rail">
       <span class="tr"></span><span class="fill" id="mat-prfill"
         style="left:${(plo-B.lo)/span*100}%;right:${(B.hi-phi)/span*100}%"></span>
@@ -9857,7 +9791,7 @@ function matRailHTML(){
       <input id="mat-prhi" type="range" min="${B.lo}" max="${B.hi}" step="1" value="${phi}"
         oninput="matPriceDrag('hi',this.value)" onchange="matPriceCommit()">
     </div>
-    <div class="prends"><span>$${B.lo}</span><span>$${B.hi}</span></div>
+    <div class="prends"><span>$${B.lo}</span><b id="mat-prcount">${list_n} material${list_n===1?"":"s"}</b><span>$${B.hi}</span></div>
 
     <div class="rg">Also</div>
     ${_railItem(MAT_SALE,"On sale",nSale,"MAT_SALE=!MAT_SALE;renderMaterials()")}
@@ -9993,7 +9927,12 @@ function matDDToggle(ev,gid){
   renderMaterials();
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
-let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_HUE="", MAT_KIND="", MAT_SIZE="";
+let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false;
+// Sets, not single values — "blue or neutral", "12x24 or 24x24" is the ordinary way a
+// designer narrows a catalogue, and one-at-a-time made every one of these a dead end.
+let MAT_HUESEL={}, MAT_KINDSEL={}, MAT_SIZESEL={};
+function _selList(o){ return Object.keys(o).filter(k=>o[k]); }
+function _selToggle(o,k){ if(o[k]) delete o[k]; else o[k]=1; renderMaterials(); }
 let MAT_CATS={};
 let MAT_PMIN=0, MAT_PMAX=0, MAT_PEXCL=false;
 let MAT_SORT=(function(){ try{ return PREFS.matSort||"earn"; }catch(e){ return "earn"; } })();
@@ -10054,12 +9993,13 @@ function matInUse(m){
   return MAT_USE==="outdoor" ? (u==="outdoor"||u==="both") : u===MAT_USE;
 }
 function matInSize(m){
-  if(!MAT_SIZE) return true;
-  const p=MAT_SIZE.split("x"); return matHasSize(m,+p[0],+p[1]);
+  const sel=_selList(MAT_SIZESEL); if(!sel.length) return true;
+  return sel.some(k=>{ const p=k.split("x"); return matHasSize(m,+p[0],+p[1]); });
 }
+function matInHue(m){ const sel=_selList(MAT_HUESEL); return !sel.length || sel.indexOf(matHueOf(m))>=0; }
+function matInKind(m){ const sel=_selList(MAT_KINDSEL); return !sel.length || sel.indexOf(goodsMat(m))>=0; }
 function matInView(m){ return matInGroup(m) && matInPrice(m) && matInUse(m)
-  && (!MAT_SALE || goodsSaleLive(m)) && (!MAT_HUE || matHueOf(m)===MAT_HUE)
-  && (!MAT_KIND || goodsMat(m)===MAT_KIND) && matInSize(m); }
+  && (!MAT_SALE || goodsSaleLive(m)) && matInHue(m) && matInKind(m) && matInSize(m); }
 function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
