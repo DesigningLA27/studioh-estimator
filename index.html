@@ -1836,6 +1836,8 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   border-radius:999px;padding:5px 6px 5px 7px;min-width:320px}
 .gsearch .go.web{background:var(--card);border:1px solid var(--br);color:var(--tm)}
 .gsearch .go.web:hover{border-color:var(--gm);color:var(--gm)}
+.gsearch .go.web.on{background:var(--gm);border-color:var(--gm);color:#fff}
+.gsearch .go.web[disabled]{opacity:.75;cursor:default}
 /* results from the web, each one a doorway into the importer */
 .gweb{border:1px solid var(--gm);border-radius:14px;overflow:hidden;margin-bottom:14px;background:var(--card)}
 .gwh{display:flex;align-items:center;gap:9px;background:var(--brand-soft);padding:10px 14px;font-size:12.5px;color:var(--gm)}
@@ -2605,7 +2607,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v693</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v695</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6933,9 +6935,10 @@ function goodsSearchBarHTML(o){
     <button class="go${o.ai?" on":""}" title="Search this book in plain language"
       onclick="${o.onAI}(document.getElementById('${o.id}').value)" ${o.busy?"disabled":""}>
       ${o.busy?"…":mi("spark")+"This book"}</button>
-    ${o.kind?`<button class="go web" title="Search the web for suppliers and products"
+    ${o.kind?`<button class="go web${(GOODS_WEBKIND===o.kind&&(GOODS_WEBBUSY||GOODS_WEB))?" on":""}"
+      title="Search the web for suppliers and products"
       onclick="goodsWebGo('${o.kind}','${o.id}')" ${GOODS_WEBBUSY?"disabled":""}>
-      ${GOODS_WEBBUSY?"…":mi("link")+"The web"}</button>`:""}
+      ${(GOODS_WEBBUSY&&GOODS_WEBKIND===o.kind)?"Searching…":mi("link")+"The web"}</button>`:""}
   </span>`;
 }
 // ── IMPORT FROM A SUPPLIER URL ────────────────────────────────
@@ -9834,10 +9837,47 @@ ${prose}`}]})});
       if(a2>=0&&b2>a2){ try{ arr=JSON.parse(t.slice(a2,b2+1)); }catch(e){} }
       if(!arr) arr=_salvageJsonObjects(t.slice(Math.max(0,a2)));
       GOODS_WEB=(arr||[]).filter(o=>o&&o.url&&/^https?:/i.test(o.url)).slice(0,8);
-    }catch(e){ GOODS_WEB=[]; GOODS_WEBERR=GOODS_WEBERR||"could not read the results"; }
+    }catch(e){ GOODS_WEB=[]; }
+    // If the structuring step gives nothing but the search plainly found sites, take the
+    // links out of the prose directly. A search that found eight suppliers should never
+    // report "nothing found" because a second model call had an off moment.
+    if(!GOODS_WEB.length) GOODS_WEB=_webFromProse(prose);
   } else { GOODS_WEB=[]; }
   GOODS_WEBBUSY=false;
   try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
+}
+// Last-resort reader: every distinct site in the answer, with whatever name sits
+// nearest to it. Crude, but it cannot fail the way a JSON round-trip can.
+function _webFromProse(txt){
+  const out=[], seen={};
+  const re=/https?:\/\/[^\s<>)\]"']+/g;
+  let m;
+  while((m=re.exec(txt)) && out.length<8){
+    let url=m[0].replace(/[.,;:]+$/,"");
+    let host=""; try{ host=new URL(url).hostname.replace(/^www\./,""); }catch(e){ continue; }
+    if(seen[host]) continue; seen[host]=1;
+    // Walk back through the lines for the nearest heading. The bold text immediately
+    // before a link is usually a label — "Product page:", "Website:" — not the company.
+    const LABEL=/^(product page|website|url|link|site|location|based|address|what they|offers?|specialt)/i;
+    const lines=txt.slice(0,m.index).split("\n");
+    let nm="";
+    for(let k=lines.length-1;k>=0 && k>lines.length-14;k--){
+      let t=lines[k].replace(/https?:\/\/\S+/g,"").trim();
+      if(!t) continue;
+      t=t.replace(/\[([^\]]*)\]\([^)]*\)/g,"$1")   // markdown links become their text
+         .replace(/[*_`#]/g,"")                       // then all emphasis marks
+         .replace(/^\s*\d+[.)]\s*/,"").replace(/^\s*[-•]\s*/,"")
+         .replace(/[:：]\s*$/,"").trim();
+      if(!t || t.length<3 || t.length>60) continue;
+      if(LABEL.test(t)) continue;
+      nm=t; break;
+    }
+    // And the sentence around it says what they do.
+    const after=txt.slice(m.index, m.index+260).replace(/https?:\/\/\S+/,"").replace(/\s+/g," ").trim();
+    out.push({nm:(nm||host).trim(), url,
+      what:after.slice(0,90), where:"", kind:""});
+  }
+  return out;
 }
 function goodsWebGo(kind,id){
   const el=document.getElementById(id);
