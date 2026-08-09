@@ -2133,7 +2133,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v621</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v622</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6707,8 +6707,70 @@ let MATERIALS=(function(){ try{ const s=localStorage.getItem("studioh_materials_
   ai:[["alert","<b>Seeded from the supplier's catalogue.</b> Pricing is not published until they claim the listing."],
       ["alert","<b>Dark stone gets hot.</b> Not around a pool deck or anywhere barefoot in full sun."]]},
 ];
+// ── GOODS STORAGE ─────────────────────────────────────────────
+// Materials and Furnishings each hold their own key on the server rather than riding
+// in the shared config blob. In the blob a settings change re-uploaded every material,
+// and a stale price book on one device blocked a materials import on another — two
+// things with nothing to do with each other. localStorage stays as the local cache.
+const GOODS_URL="https://studioh-goods.warwick-cca.workers.dev";
+let _goodsTimer={}, _goodsBusy={};
+async function _goodsCall(payload){
+  try{
+    const r=await fetch(GOODS_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)});
+    const d=await r.json();
+    return (d&&d.ok)?d:{err:(d&&d.error)||"failed"};
+  }catch(e){ return {err:(e&&e.message)||"unreachable"}; }
+}
+function _goodsArr(book){ return book==="materials"?MATERIALS:FURNISHINGS; }
+// Debounced per book, so importing 120 products is one upload rather than 120.
+function goodsSchedulePush(book){
+  if(_goodsTimer[book]) clearTimeout(_goodsTimer[book]);
+  _goodsTimer[book]=setTimeout(()=>{ _goodsTimer[book]=null; goodsPush(book); }, 4000);
+}
+async function goodsPush(book,force){
+  if(_goodsBusy[book]) return;
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key) return;                       // guest device — read-only, never prompt
+  _goodsBusy[book]=true;
+  const d=await _goodsCall({type:"savegoods",book,key,data:_goodsArr(book),by:"Studio H",force:!!force});
+  _goodsBusy[book]=false;
+  if(d.err){
+    // The worker refuses a write that would wipe a populated book — surface it rather
+    // than retrying into a data loss.
+    if(/refused/.test(d.err)) try{ _toast("Not saved — "+d.err,"#B23F3C"); }catch(e){}
+    return false;
+  }
+  try{ localStorage.setItem("studioh_goods_"+book+"_at", d.savedAt||""); }catch(e){}
+  return true;
+}
+async function goodsPull(book,silent){
+  const d=await _goodsCall({type:"loadgoods",book});
+  if(d.err){ if(!silent) alert("Couldn't load "+book+": "+d.err); return false; }
+  if(!d.found||!d.data.length){ return false; }
+  if(book==="materials"){ MATERIALS=d.data; MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
+    try{ localStorage.setItem("studioh_materials_v1", JSON.stringify(MATERIALS)); }catch(e){}
+    try{ renderMaterials(); }catch(e){} }
+  else { FURNISHINGS=d.data; FURNISHINGS.forEach(f=>{ if(f.specQty==null) f.specQty=0; });
+    try{ localStorage.setItem("studioh_furnishings_v1", JSON.stringify(FURNISHINGS)); }catch(e){}
+    try{ renderFurnishings(); }catch(e){} }
+  try{ localStorage.setItem("studioh_goods_"+book+"_at", d.savedAt||""); }catch(e){}
+  if(!silent) try{ _toast("Loaded "+d.count+" from the server","#4C7B3D"); }catch(e){}
+  return true;
+}
+// On boot: take the server's copy if it has one, otherwise push whatever this device
+// holds so the first run after this change moves the existing library up rather than
+// stranding it in the old config blob.
+async function goodsSyncBoot(){
+  for(const book of ["materials","furnishings"]){
+    const got=await goodsPull(book,true);
+    if(!got && _goodsArr(book).length) await goodsPush(book);
+  }
+}
+try{ window.addEventListener("load",()=>setTimeout(()=>{ try{ goodsSyncBoot(); }catch(e){} }, 2500)); }catch(e){}
+
 function matSave(){ try{ localStorage.setItem("studioh_materials_v1", JSON.stringify(MATERIALS)); }catch(e){}
-  try{ _cfgSchedulePush(); }catch(e){} }
+  goodsSchedulePush("materials"); }
 MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
 function matSpecify(id){
   const m=matFind(id); if(!m||!m.claimed) return;
@@ -7151,7 +7213,7 @@ let FURNISHINGS=(function(){ try{ const s=localStorage.getItem("studioh_furnishi
   ai:[["alert","<b>Seeded from the supplier's catalogue.</b> Specification and images are theirs; pricing is not published until they claim the listing."]]},
 ];
 function furSave(){ try{ localStorage.setItem("studioh_furnishings_v1", JSON.stringify(FURNISHINGS)); }catch(e){}
-  try{ _cfgSchedulePush(); }catch(e){} }
+  goodsSchedulePush("furnishings"); }
 FURNISHINGS.forEach(f=>{ if(f.specQty==null) f.specQty=0; });
 function furFind(id){ return FURNISHINGS.find(f=>f.id===id)||null; }
 // A sale price, when the supplier lists one, is what the client actually pays — so
@@ -8941,9 +9003,9 @@ setTimeout(()=>{ try{ Promise.resolve(masterBookLoad(true)).then(()=>{
 window.addEventListener("load", ()=>{ setTimeout(()=>{ try{ if(typeof renderPlantBook==="function"&&document.getElementById("plantbook-body")) renderPlantBook(); }catch(e){} }, 600); });
 setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
-// Materials and Furnishings ride in this bundle too — they were previously local-only,
-// so clearing browser data destroyed them with no server copy to fall back on.
-const SHARED_CFG_KEYS=["studioh_materials_v1","studioh_furnishings_v1","studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+// Materials and Furnishings moved OUT of this bundle into studioh-goods — see
+// goodsPush/goodsPull. They grow without limit; everything left here is small.
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
