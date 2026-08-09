@@ -2165,6 +2165,27 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gpk-dup{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   color:var(--gm);background:var(--brand-soft);border-radius:99px;padding:2px 7px;margin-left:7px}
 .gpk-none{padding:22px 4px;text-align:center;font-size:12.5px;color:var(--tl)}
+/* Photo strip — pick the primary, drop the supplier's banner shots. */
+.gstrip{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 4px}
+.gth{position:relative;width:74px;height:56px;border-radius:9px;background-size:cover;
+  background-position:center;background-color:var(--surface2);border:2px solid transparent;cursor:pointer;
+  display:block;flex:none}
+.gth:hover{border-color:var(--gm)}
+.gth.pri{border-color:var(--gm);box-shadow:0 0 0 2px var(--brand-soft)}
+.gth.gen{opacity:.62}
+.gth .tag{position:absolute;left:3px;bottom:3px;font-style:normal;font-size:8px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;background:var(--gm);color:#fff;border-radius:4px;padding:2px 5px}
+.gth .tag.gen{background:rgba(20,24,30,.86);color:#fff;left:3px;bottom:3px}
+.gth .x{position:absolute;right:3px;top:3px;width:17px;height:17px;border-radius:5px;
+  background:rgba(20,24,30,.8);color:#fff;display:none;place-items:center;font-style:normal}
+.gth:hover .x{display:grid}
+.gth .x svg{width:9px;height:9px;fill:none;stroke:currentColor;stroke-width:2.6}
+@media(hover:none){ .gth .x{display:grid} }
+.gmore{border:1px dashed var(--br);background:var(--card);color:var(--tm);border-radius:9px;
+  height:56px;padding:0 13px;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px}
+.gmore:hover{border-color:var(--gm);color:var(--gm)}
+.gmore svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2}
 .askw{position:fixed;inset:0;z-index:420;background:rgba(10,13,18,.62);display:grid;place-items:center;
   padding:20px;opacity:0;transition:opacity .16s;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
 .askw.on{opacity:1}
@@ -2394,7 +2415,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v660</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v661</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7068,7 +7089,7 @@ function goodsIsOurs(u){
 // supplier's own link is stored the moment it is read, so the picture is there
 // immediately, and a rehost that fails leaves a working image instead of a blank tile.
 async function goodsRehostImages(idBase,urls,max){
-  const src=goodsBestImages(urls,max||6), out=[];
+  const src=goodsBestImages(urls,max||8), out=[];
   for(let i=0;i<src.length;i++){
     try{ const up=await _uploadUrlToR2(idBase+"_"+i, src[i]); out.push(up.ok&&up.url?up.url:src[i]); }
     catch(e){ out.push(src[i]); }
@@ -7134,7 +7155,7 @@ async function goodsFetchImages(book){
       const row=todo[i];
       try{
         const sc=await goodsScrape(row.srcUrl);
-        const imgs=(sc && !sc.err) ? goodsBestImages(sc.images||[],6) : [];
+        const imgs=(sc && !sc.err) ? goodsBestImages(sc.images||[],8) : [];
         if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; got++; } else none++;
       }catch(e){ none++; }
       done++; say();
@@ -7518,6 +7539,77 @@ async function goodsFixBrands(book){
 // Every name a row answers to, for the plain-text search.
 function goodsAliasText(x){
   return [x.sup,x.brand,(x.supAlt||[]).join(" "),_brandHost(x.srcUrl||"")].filter(Boolean).join(" ");
+}
+// ── PHOTO MANAGEMENT ──────────────────────────────────────────
+// A supplier reuses the same banner on every product page — a backsplash shot, a
+// showroom photo, a hygiene badge. On one page you cannot tell those from the product;
+// across the whole book they are obvious, because they are the files that appear over
+// and over. So the library itself decides which pictures are generic.
+function goodsCommonImages(book){
+  const arr=book==="materials"?MATERIALS:FURNISHINGS;
+  const rows=(arr||[]).filter(x=>x&&Array.isArray(x.imgs)&&x.imgs.length);
+  if(rows.length<8) return {};
+  const file=u=>{ try{ return (new URL(u).pathname.split("/").pop()||"").toLowerCase(); }catch(e){ return ""; } };
+  const n={};
+  rows.forEach(x=>{ const seen={};
+    x.imgs.forEach(u=>{ const f=file(u); if(!f||seen[f]) return; seen[f]=1; n[f]=(n[f]||0)+1; }); });
+  const out={}, cut=Math.max(5,Math.round(rows.length*0.25));
+  Object.keys(n).forEach(f=>{ if(n[f]>=cut) out[f]=n[f]; });
+  return out;
+}
+function goodsIsCommon(u,common){
+  try{ return !!common[(new URL(u).pathname.split("/").pop()||"").toLowerCase()]; }catch(e){ return false; }
+}
+function goodsSetPrimary(book,id,url){
+  const x=goodsRow(book,id); if(!x) return;
+  const list=goodsImgs(x).slice();
+  const i=list.indexOf(url); if(i<0) return;
+  list.splice(i,1); list.unshift(url);
+  x.imgs=list; x.img=url;
+  goodsSaveQuiet(book);
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
+function goodsDropPhoto(book,id,url){
+  const x=goodsRow(book,id); if(!x) return;
+  const list=goodsImgs(x).filter(u=>u!==url);
+  x.imgs=list; x.img=list[0]||"";
+  goodsSaveQuiet(book);
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+}
+// Re-read the page and take everything it offers, so a photo the importer skipped can
+// still be chosen later.
+async function goodsMorePhotos(book,id){
+  const x=goodsRow(book,id); if(!x||!x.srcUrl){ alert("This item was added by hand, so there is no page to read photos from."); return; }
+  try{ _prog("Reading "+_brandHost(x.srcUrl),0,0); }catch(e){}
+  const sc=await goodsScrape(x.srcUrl);
+  try{ _progDone(); }catch(e){}
+  if(sc.err){ alert("Couldn't read that page: "+sc.err); return; }
+  const found=goodsBestImages(sc.images||[],12);
+  const have=goodsImgs(x);
+  const added=found.filter(u=>have.indexOf(u)<0);
+  if(!added.length){ alert("Nothing new — every photo on that page is already here."); return; }
+  x.imgs=have.concat(added);
+  goodsSaveQuiet(book);
+  try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
+  try{ _toast(added.length+" more photo"+(added.length===1?"":"s"),"#4C7B3D"); }catch(e){}
+  for(let i=0;i<x.imgs.length;i++){ if(!goodsIsOurs(x.imgs[i])) { await goodsRehostLater(book,id); break; } }
+}
+// The strip under the hero: every photo on the item, which one is the primary, and a
+// way to drop the ones that are the supplier's banner rather than the product.
+function goodsPhotoStripHTML(book,x){
+  const imgs=goodsImgs(x); if(!imgs.length) return "";
+  const common=goodsCommonImages(book);
+  return `<div class="gstrip">
+    ${imgs.map((u,i)=>`<span class="gth${i===0?" pri":""}${goodsIsCommon(u,common)?" gen":""}"
+        style="background-image:url('${escAttr(u)}')"
+        onclick="goodsSetPrimary('${book}','${x.id}','${escAttr(u)}')"
+        title="${i===0?"Primary photo":"Use as the primary photo"}">
+        ${i===0?`<i class="tag">Primary</i>`:""}
+        ${goodsIsCommon(u,common)?`<i class="tag gen">On every product</i>`:""}
+        <i class="x" onclick="event.stopPropagation();goodsDropPhoto('${book}','${x.id}','${escAttr(u)}')" title="Remove">${mi("x")}</i>
+      </span>`).join("")}
+    ${x.srcUrl?`<button class="gmore" onclick="goodsMorePhotos('${book}','${x.id}')">${mi("plus")}More from the page</button>`:""}
+  </div>`;
 }
 // ── PHOTO VIEWER ──────────────────────────────────────────────
 // The uncropped preview was hover-only, and an iPad has no hover — the magnifier that
@@ -7928,7 +8020,7 @@ async function _goodsImportOne(kind,url,host,quiet){
   // Store the supplier's own links now so the row lands with a picture on it, and
   // copy them into R2 afterwards. Waiting on three uploads per product is what made
   // importing a hundred of them take so long, and it lost the picture when it failed.
-  const imgs=goodsBestImages(res.images||[],6);
+  const imgs=goodsBestImages(res.images||[],8);
   const src=res.src||url;
   const note=(extra)=>[["alert","<b>Imported from "+escAttr(host||"the supplier")+".</b>"
       +(res.ld?" Name, brand and price came from the page's own product data.":" Read from the page text.")
@@ -8790,6 +8882,7 @@ function _matDetail(host){
      <i style="${goodsImgStyle(_shots[2],m.cols[2]||m.cols[0])}" ${_shots[2]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',2)"`:""}></i>
      <span class="tl">${(m.priced&&!m.msrpAI)?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(m.priced)}</span>`:""}</span>
    </div>
+   ${goodsPhotoStripHTML("materials",m)}
    <div class="mhd"><span>
      <button class="mbrand" onclick="goodsRenameBrand('materials','${escAttr(goodsMaker(m))}')" title="Click to correct the brand name everywhere">${escAttr(goodsMaker(m))||"Set brand"}${mi("plus")}</button>
      <h3>${escAttr(m.nm)}</h3>
@@ -9225,6 +9318,7 @@ function _furDetail(host){
      <span class="tl">${sale?`<span class="mbadge sale">Sale</span>`:""}
        ${(f.priced&&!f.msrpAI)?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(f.priced)}</span>`:""}</span>
    </div>
+   ${goodsPhotoStripHTML("furnishings",f)}
    <div class="mhd"><span>
      <button class="mbrand" onclick="goodsRenameBrand('furnishings','${escAttr(goodsMaker(f))}')" title="Click to correct the brand name everywhere">${escAttr(goodsMaker(f))||"Set brand"}${mi("plus")}</button>
      <h3>${escAttr(f.nm)}</h3>
