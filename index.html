@@ -1761,6 +1761,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mcrumb button:hover{border-color:var(--gm);background:var(--brand-soft)}
 .mcrumb .sep{color:var(--tl)}
 /* Source link + delete, on every item */
+/* The maker, said first and said plainly. It is the name you write on a drawing. */
+.mbrand{display:block;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--gm);margin-bottom:4px}
 .msrc{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--gm);
   text-decoration:none;border:1px solid var(--br);background:var(--card);border-radius:11px;padding:8px 13px}
 .msrc:hover{border-color:var(--gm);background:var(--brand-soft)}
@@ -2197,7 +2200,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v632</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v633</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7057,6 +7060,33 @@ function goodsPriceEditor(book,x){
     ${x.msrpAI?`<div class="gedn">${escAttr(goodsPriceSrc(x))} — type a real price over it and the flag clears.</div>`:""}
   </div>`;
 }
+// Nobody should have to find and press a maintenance button to see who makes a
+// product. Any row that came from a URL but carries no brand gets resolved on load —
+// one page read per domain, cached, in the background. The only rewrite is a name the
+// site uses for ITSELF, so this can never overwrite a real third-party maker.
+let _brandsAuto=false;
+async function goodsAutoBrands(){
+  if(_brandsAuto) return; _brandsAuto=true;
+  for(const book of ["materials","furnishings"]){
+    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    if(!Array.isArray(arr)) continue;
+    const hosts={};
+    arr.forEach(x=>{ if(!x||!x.srcUrl||x.brand) return;
+      const h=_brandHost(x.srcUrl); if(h) (hosts[h]=hosts[h]||[]).push(x); });
+    let changed=0;
+    for(const h of Object.keys(hosts)){
+      let res=null;
+      try{ res=await goodsBrandForHost(h,(hosts[h][0]&&hosts[h][0].sup)||""); }catch(e){}
+      if(!res||!res.brand) continue;
+      hosts[h].forEach(x=>{
+        const b=goodsBrandFor(x.brand||x.sup||"",res);
+        if(x.sup!==res.brand||x.brand!==b){ x.sup=res.brand; x.brand=b; x.supAlt=(res.alt||[]).slice(); changed++; }
+      });
+    }
+    if(changed){ goodsSaveBook(book);
+      try{ _toast(changed+" item"+(changed===1?"":"s")+" — brand resolved","#4C7B3D"); }catch(e){} }
+  }
+}
 // Repair what is already in the book. Groups by domain so a site is resolved once,
 // not once per product.
 async function goodsFixBrands(book){
@@ -7299,6 +7329,7 @@ async function goodsSyncBoot(){
   }
   if(stranded) try{ _toast(stranded+" library items are only on this device — add your admin key in Settings to save them","#9B7B3A"); }catch(e){}
   else if(pushed) try{ _toast(pushed+" library items saved to the server ✓","#4C7B3D"); }catch(e){}
+  try{ await goodsAutoBrands(); }catch(e){}
 }
 try{ window.addEventListener("load",()=>setTimeout(()=>{ try{ goodsSyncBoot(); }catch(e){} }, 2500)); }catch(e){}
 
@@ -7702,6 +7733,7 @@ const matSetModel=goodsSetModel;
 
 function renderMaterials(){
   const host=document.getElementById("mat-body"); if(!host) return;
+  if(!_brandsAuto) try{ goodsAutoBrands(); }catch(e){}
   document.body.classList.toggle("mat-detail", !!MAT_OPEN);
   if(MAT_OPEN){ _matDetail(host); } else { _matGrid(host); }
   try{ renderProSummary(); }catch(e){}
@@ -7812,7 +7844,8 @@ function _matDetail(host){
         ${kv([["Method",m.method],["Labour",m.labour],["Bedding",m.bed],["Edge restraint",m.edge],
               ["Joint",m.joint],["Installed",m.inst]])}</div>
       <div class="mblk"><h4>${mi("truck")}Supply</h4>
-        ${kv([["Brand",m.brand||""],["Supplier",m.sup],["Location",m.loc+" · "+m.dist+" mi"],
+        <div class="mkv"><span>Brand</span><b>${escAttr(m.brand||"—")}</b></div>
+        ${kv([["Supplier",m.sup],["Location",m.loc+" · "+m.dist+" mi"],
               ["Available",seeded?"":m.stock.toLocaleString()+" sf"],["Lead time",m.lead],
               ["Shipping",m.ship],["Region",m.region],["Offer",m.offer]])}</div>
       ${goodsPriceEditor("materials",m)}
@@ -7857,8 +7890,10 @@ function _matDetail(host){
      <span class="tl">${seeded?`<span class="mbadge seed">Seeded</span>`:`<span class="mbadge">${mi("check")}Claimed</span>`}
        ${m.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(m.priced)}</span>`:""}</span>
    </div>
-   <div class="mhd"><span><h3>${escAttr(m.nm)}</h3>
-     <span class="sub">${mi("store")}${escAttr(goodsMaker(m))}${(m.brand&&m.sup&&m.brand!==m.sup)?` · via ${escAttr(m.sup)}`:""}${m.loc&&m.loc!=="—"?", "+escAttr(m.loc):""}${m.dist?" · "+m.dist+" mi":""}</span></span></div>
+   <div class="mhd"><span>
+     <span class="mbrand">${escAttr(goodsMaker(m))||"Brand unknown"}</span>
+     <h3>${escAttr(m.nm)}</h3>
+     <span class="sub">${mi("store")}${(m.brand&&m.sup&&m.brand!==m.sup)?`via ${escAttr(m.sup)}`:`${escAttr(m.sup||"—")}`}${m.loc&&m.loc!=="—"?", "+escAttr(m.loc):""}${m.dist?" · "+m.dist+" mi":""}</span></span></div>
    <div class="mtabs">${TABS.map(([k,l])=>`<button class="${MAT_TAB===k?"on":""}" onclick="matTab('${k}')">${l}</button>`).join("")}</div>
    ${body}`;
 }
@@ -8237,7 +8272,8 @@ function _furDetail(host){
         ${kv([["Assembly",f.assembly],["Weather",f.weather],["Maintenance",f.maint],
               ["Cover",f.cover],["Warranty",f.warranty],["Replacement parts",f.parts]])}</div>
       <div class="mblk"><h4>${mi("truck")}Supply</h4>
-        ${kv([["Brand",f.brand||""],["Supplier",f.sup],["Location",f.dist?f.loc+" · "+f.dist+" mi":f.loc],
+        <div class="mkv"><span>Brand</span><b>${escAttr(f.brand||"—")}</b></div>
+        ${kv([["Supplier",f.sup],["Location",f.dist?f.loc+" · "+f.dist+" mi":f.loc],
               ["In stock",seeded?"":f.stock+" units"],["Lead time",f.lead],
               ["Freight",f.ship],["Region",f.region],["Offer",f.offer]])}</div>
       ${goodsPriceEditor("furnishings",f)}
@@ -8284,8 +8320,10 @@ function _furDetail(host){
        ${sale?`<span class="mbadge sale">Sale</span>`:""}
        ${f.priced?`<span class="mbadge n">${mi("clock")}Priced ${escAttr(f.priced)}</span>`:""}</span>
    </div>
-   <div class="mhd"><span><h3>${escAttr(f.nm)}</h3>
-     <span class="sub">${mi("store")}${escAttr(goodsMaker(f))}${(f.brand&&f.sup&&f.brand!==f.sup)?` · via ${escAttr(f.sup)}`:""}${f.loc&&f.loc!=="—"?", "+escAttr(f.loc):""}${f.dist?" · "+f.dist+" mi":""}</span></span></div>
+   <div class="mhd"><span>
+     <span class="mbrand">${escAttr(goodsMaker(f))||"Brand unknown"}</span>
+     <h3>${escAttr(f.nm)}</h3>
+     <span class="sub">${mi("store")}${(f.brand&&f.sup&&f.brand!==f.sup)?`via ${escAttr(f.sup)}`:`${escAttr(f.sup||"—")}`}${f.loc&&f.loc!=="—"?", "+escAttr(f.loc):""}${f.dist?" · "+f.dist+" mi":""}</span></span></div>
    <div class="mtabs">${TABS.map(([k,l])=>`<button class="${FUR_TAB===k?"on":""}" onclick="furTab('${k}')">${l}</button>`).join("")}</div>
    ${body}`;
 }
