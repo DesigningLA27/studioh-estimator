@@ -1866,7 +1866,21 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .impb{border:1px solid var(--gm);background:var(--gm);color:#fff;border-radius:9px;padding:7px 12px;
   font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}
 .impb:hover{background:var(--gd)}
-.gwf{padding:9px 14px;border-top:1px solid var(--brl);font-size:11px;color:var(--tl)}
+.gwf{padding:10px 14px;border-top:1px solid var(--brl);font-size:11px;color:var(--tl);
+  display:flex;align-items:center;gap:12px}
+.gwf span{flex:1}
+.gwmore{border:1px solid var(--gm);background:var(--card);color:var(--gm);border-radius:9px;
+  padding:7px 13px;font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap}
+.gwmore:hover{background:var(--brand-soft)}
+.gwi{width:64px;height:48px;border-radius:8px;flex:none;background:var(--surface2);
+  background-size:cover;background-position:center;display:grid;place-items:center;
+  border:1px solid var(--br)}
+.gwi svg{width:16px;height:16px;fill:none;stroke:var(--tl);stroke-width:1.6}
+.gwr .t b{display:flex;align-items:center;gap:9px}
+.gwr .t .mi{text-decoration:none;font-size:10px;font-weight:800;letter-spacing:.04em;
+  color:var(--gm);background:var(--brand-soft);border-radius:99px;padding:2px 8px;flex:none}
+.lnkb{display:inline-flex;align-items:center;gap:6px}
+.lnkb svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2}
 .gwtext{padding:12px 14px;border-top:1px solid var(--brl);font-size:12.5px;color:var(--tm);line-height:1.6;
   max-height:260px;overflow-y:auto;white-space:pre-wrap}
 @media(max-width:640px){ .gwr{flex-direction:column;align-items:stretch} }
@@ -2627,7 +2641,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v699</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v700</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9833,18 +9847,23 @@ function matCardSizeHTML(){
 // dealers" is a question about the world, and it is the question that starts every
 // specification — so it searches the web properly, and every result carries a button
 // that runs it straight through the importer.
-let GOODS_WEB=null, GOODS_WEBQ="", GOODS_WEBBUSY=false, GOODS_WEBKIND="mat", GOODS_WEBERR="", GOODS_WEBTEXT="";
+let GOODS_WEB=null, GOODS_WEBQ="", GOODS_WEBBUSY=false, GOODS_WEBKIND="mat", GOODS_WEBERR="", GOODS_WEBTEXT="", GOODS_WEBSEEN=[];
 function goodsWebClear(){ GOODS_WEB=null; GOODS_WEBQ="";
   try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){} }
-async function goodsWebSearch(kind,q){
+async function goodsWebSearch(kind,q,more){
   if(GOODS_WEBBUSY) return;
+  const prev = more ? (GOODS_WEB||[]).slice() : null;
+  if(!more) GOODS_WEBSEEN=[];
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep){ alert("No worker connected."); return; }
   q=String(q||"").trim();
   if(!q){ alert("Type what you are looking for first — a material, a finish, a brand."); return; }
   GOODS_WEBKIND=kind; GOODS_WEBQ=q; GOODS_WEBBUSY=true; GOODS_WEB=null;
   try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
-  const where=(PREFS.defaults&&PREFS.defaults.location)||"Los Angeles / Orange County";
+  // The project's own address beats a firm-wide default: a job in Palm Springs should
+  // not be shown Santa Monica yards first. Falls back to the firm's patch.
+  const where=(S.pi&&(S.pi.address||S.pi.city))
+    || (PREFS.defaults&&PREFS.defaults.location) || "Los Angeles / Orange County";
   const what=kind==="fur"?"outdoor furniture and site furnishings":"landscape materials and hardscape";
   GOODS_WEBERR=""; GOODS_WEBTEXT="";
   // A real web search takes 30-40 seconds — long enough that it has to be owned rather
@@ -9865,7 +9884,9 @@ async function goodsWebSearch(kind,q){
       body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2200,
         tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}],
         system:`You research ${what} suppliers for a landscape architect working in ${where}. Be concrete: name the company, its website, where it is based, and what it actually supplies.`,
-        messages:[{role:"user",content:`Find: ${q}\n\nList up to 8, preferring suppliers who serve ${where}. For each give the company name, the most useful page on their site (a product or collection page if there is one), where they are based, and one line on what they offer.`}]})});
+        messages:[{role:"user",content:`Find: ${q}\n\nList up to 8${GOODS_WEBSEEN.length?", EXCLUDING these already found: "+GOODS_WEBSEEN.join(", "):""}.
+Nearest first — a supplier close to ${where} means shorter lead times and cheaper freight, which matters more than brand prestige. Include local yards and distributors, not only national brands.
+For each give the company name, the most useful page on their site (a product or collection page if there is one), the city and state they are based in, and one line on what they offer.`}]})});
     if(!r.ok) throw new Error("the search service returned "+r.status);
     const d=await r.json();
     if(d && d.error) throw new Error(d.error.message||d.error.type||"the search service refused");
@@ -9905,12 +9926,73 @@ ${prose}`}]})});
     // report "nothing found" because a second model call had an off moment.
     if(!GOODS_WEB.length) GOODS_WEB=_webFromProse(prose);
   } else { GOODS_WEB=[]; }
+  if(more && Array.isArray(prev)) GOODS_WEB=prev.concat(GOODS_WEB.filter(o=>!prev.some(x=>_brandHost(x.url)===_brandHost(o.url))));
+  GOODS_WEBSEEN=GOODS_WEB.map(o=>_brandHost(o.url)).filter(Boolean);
+  try{ await _webDistances(GOODS_WEB); }catch(e){}      // order by how far they really are
+  try{ _webThumbs(GOODS_WEB,kind); }catch(e){}          // and fill in a picture each
   _stop();
   GOODS_WEBBUSY=false;
   try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
 }
 // Last-resort reader: every distinct site in the answer, with whatever name sits
 // nearest to it. Crude, but it cannot fail the way a JSON round-trip can.
+// Real distance, geocoded from the city each supplier gave, against the project's own
+// coordinates. Cached per city so a second search costs nothing.
+const _geoCache={};
+function _geoOne(place){
+  return new Promise(res=>{
+    const k=String(place||"").toLowerCase().trim();
+    if(!k) return res(null);
+    if(_geoCache[k]!==undefined) return res(_geoCache[k]);
+    if(!(window.google&&google.maps&&google.maps.Geocoder)) return res(null);
+    try{
+      new google.maps.Geocoder().geocode({address:place},(r,st)=>{
+        let out=null;
+        if(st==="OK"&&r&&r[0]){ const L=r[0].geometry.location;
+          out={lat:(typeof L.lat==="function"?L.lat():L.lat), lng:(typeof L.lng==="function"?L.lng():L.lng)}; }
+        _geoCache[k]=out; res(out);
+      });
+    }catch(e){ res(null); }
+  });
+}
+function _miles(a,b){
+  const R=3958.8, t=Math.PI/180;
+  const dLat=(b.lat-a.lat)*t, dLng=(b.lng-a.lng)*t;
+  const x=Math.sin(dLat/2)**2 + Math.cos(a.lat*t)*Math.cos(b.lat*t)*Math.sin(dLng/2)**2;
+  return Math.round(2*R*Math.asin(Math.sqrt(x)));
+}
+async function _webDistances(list){
+  const from=(S.pi&&S.pi.lat&&S.pi.lng)?{lat:+S.pi.lat,lng:+S.pi.lng}:null;
+  if(!from||!list||!list.length) return;
+  for(const o of list){
+    const place=String(o.where||"").split(/[·;(]/)[0].trim();   // "Orange County, CA · branches"
+    if(!place) continue;
+    const g=await _geoOne(place);
+    if(g) o.mi=_miles(from,g);
+  }
+  list.sort((a,b)=>((a.mi==null?9999:a.mi)-(b.mi==null?9999:b.mi)));
+}
+// One hero image per supplier, read from their own page. Fired without blocking, so the
+// list appears at once and the pictures arrive after.
+async function _webThumbs(list,kind){
+  if(!list||!list.length) return;
+  let idx=0;
+  const work=async()=>{
+    while(true){
+      const i=idx++; if(i>=list.length) return;
+      const o=list[i];
+      try{
+        const sc=await goodsScrape(o.url);
+        if(sc&&!sc.err){
+          const m=sc.meta||{};
+          o.img=m["og:image"]||m["twitter:image"]||goodsBestImages(sc.images||[],1)[0]||"";
+          if(o.img){ try{ (kind==="fur"?renderFurnishings:renderMaterials)(); }catch(e){} }
+        }
+      }catch(e){}
+    }
+  };
+  await Promise.all([0,0,0].map(work));
+}
 function _webFromProse(txt){
   const out=[], seen={};
   const re=/https?:\/\/[^\s<>)\]"']+/g;
@@ -9998,14 +10080,18 @@ function goodsWebHTML(kind){
       <span>for “${escAttr(GOODS_WEBQ)}”</span>
       <button onclick="goodsWebClear()">Clear</button></div>
     ${GOODS_WEB.map((o,i)=>`<div class="gwr">
-      <span class="t"><b>${escAttr(o.nm||"")}</b>
+      <span class="gwi" style="${o.img?`background-image:url('${escAttr(o.img)}')`:""}">${o.img?"":mi("box")}</span>
+      <span class="t"><b>${escAttr(o.nm||"")}${o.mi!=null?`<u class="mi">${o.mi} mi</u>`:""}</b>
         <i>${escAttr(o.what||"")}</i>
         <em>${escAttr([o.where,o.kind].filter(Boolean).join(" · "))} · ${escAttr(_brandHost(o.url)||"")}</em></span>
       <span class="a">
-        <a class="lnkb" href="${escAttr(o.url)}" target="_blank" rel="noopener">Open</a>
+        <a class="lnkb" href="${escAttr(o.url)}" target="_blank" rel="noopener">${mi("link")}Visit site</a>
         <button class="impb" onclick="goodsImportFlow('${kind}','${escAttr(o.url)}')">Import from here</button>
       </span></div>`).join("")}
-    <div class="gwf">Import reads that site and offers you its products, the same as pasting the link yourself.</div>
+    <div class="gwf">
+      <span>Nearest first${(S.pi&&S.pi.lat)?" — measured from the project address":", by what the search reported"}. Import reads that site and offers you its products.</span>
+      <button class="gwmore" onclick="goodsWebSearch('${kind}',${JSON.stringify(GOODS_WEBQ).replace(/"/g,"&quot;")},1)">Find more suppliers</button>
+    </div>
   </div>`;
 }
 // ── FILTER RAIL ───────────────────────────────────────────────
