@@ -1659,6 +1659,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gcrumb button{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:7px;
   padding:3px 9px;font:inherit;font-size:10.5px;font-weight:700;cursor:pointer}
 .gcrumb button:hover{border-color:var(--gm);color:var(--gm)}
+.gbar .gsp{margin-left:auto}
+.gbar .sortdd{position:relative}
+.gbar .sortdd .mddm{right:0;left:auto}
 .mchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;background:var(--card);
   border:1px solid var(--br);border-radius:11px;padding:8px 13px;color:var(--tm);cursor:pointer}
 .mchip.on{border-color:var(--gm);color:var(--gm);background:var(--brand-soft)}
@@ -2267,7 +2270,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v647</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v648</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7980,9 +7983,69 @@ function matGroupBarHTML(){
   return `<div class="mbar gbar">
     <button class="grp${(!MAT_GRP&&MAT_CAT==="All")?" on":""}" onclick="matPick('','All')">All<span class="n">${tot}</span></button>
     ${btns}
+    <span class="gsp"></span>${matSortBarHTML()}
   </div>
   ${path?`<div class="gcrumb">Showing <b>${escAttr(path)}</b>
      <button onclick="matPick('','All')">clear</button></div>`:""}`;
+}
+// ── SORT ──────────────────────────────────────────────────────
+// Filtering says which materials; sorting says which one to look at first. They are
+// different questions, so this sits beside the groups rather than inside them.
+const MAT_SORTS=[
+  ["earn",  "Best earning"],
+  ["plo",   "Price: low to high"],
+  ["phi",   "Price: high to low"],
+  ["comm",  "Commission %"],
+  ["colour","Colour"],
+  ["brand", "Brand A–Z"],
+  ["name",  "Name A–Z"],
+  ["new",   "Recently added"],
+];
+function matSortLabel(){ const f=MAT_SORTS.find(x=>x[0]===MAT_SORT); return f?f[1]:"Best earning"; }
+function matSetSort(k){ MAT_SORT=k; _matDD=""; try{ PREFS.matSort=k; prefsSave(); }catch(e){} renderMaterials(); }
+// Hue, so a library sorts into bands of colour the way a sample board is laid out.
+// Near-greys have no meaningful hue, so they collect at the end instead of scattering
+// themselves through the colours at whatever hue rounding noise gives them.
+function _hueOf(hex){
+  const m=/^#?([0-9a-f]{6})$/i.exec(String(hex||"")); if(!m) return {h:999,l:0,grey:true};
+  const v=parseInt(m[1],16), r=(v>>16&255)/255, g=(v>>8&255)/255, b=(v&255)/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn, l=(mx+mn)/2;
+  if(d<0.06) return {h:999,l,grey:true};
+  let h;
+  if(mx===r) h=((g-b)/d)%6; else if(mx===g) h=(b-r)/d+2; else h=(r-g)/d+4;
+  h*=60; if(h<0) h+=360;
+  return {h,l,grey:false};
+}
+function matSortList(list){
+  const price=m=>(+m.msrp||+m.cost||0);
+  const arr=list.slice();
+  const unpricedLast=(a,b)=>((goodsPriced(b)?1:0)-(goodsPriced(a)?1:0));
+  const byName=(a,b)=>String(a.nm||"").localeCompare(String(b.nm||""));
+  switch(MAT_SORT){
+    case "plo":   return arr.sort((a,b)=>unpricedLast(a,b) || (price(a)-price(b)) || byName(a,b));
+    case "phi":   return arr.sort((a,b)=>unpricedLast(a,b) || (price(b)-price(a)) || byName(a,b));
+    case "comm":  return arr.sort((a,b)=>(goodsCommOf(b)-goodsCommOf(a)) || byName(a,b));
+    case "brand": return arr.sort((a,b)=>String(goodsMaker(a)).localeCompare(String(goodsMaker(b))) || byName(a,b));
+    case "name":  return arr.sort(byName);
+    case "new":   return arr.slice();                       // MATERIALS is already newest-first
+    case "colour": return arr.sort((a,b)=>{
+      const x=_hueOf((a.cols||[])[0]), y=_hueOf((b.cols||[])[0]);
+      if(x.grey!==y.grey) return x.grey?1:-1;               // colours first, greys after
+      if(x.grey) return (x.l-y.l) || byName(a,b);           // greys by dark → light
+      return (x.h-y.h) || (x.l-y.l) || byName(a,b);
+    });
+    default:      return arr.sort((a,b)=>unpricedLast(a,b) || (_matEarn(b)-_matEarn(a)));
+  }
+}
+function matSortBarHTML(){
+  return `<span class="mdd sortdd">
+    <button class="mchip${MAT_SORT!=="earn"?" on":""}" onclick="event.stopPropagation();matDDToggle(event,'__sort')">
+      ${mi("list")}${escAttr(matSortLabel())}${mi("chev")}</button>
+    <div class="mddm${_matDD==="__sort"?" open":""}">
+      <div class="hd">Sort by</div>
+      ${MAT_SORTS.map(([k,l])=>`<div class="it ${MAT_SORT===k?"on":""}"
+        onclick="event.stopPropagation();matSetSort('${k}')"><span class="bx">${mi("check")}</span>${escAttr(l)}</div>`).join("")}
+    </div></span>`;
 }
 function matSetGroup(gid){ MAT_GRP=gid; MAT_CAT="All"; _matDD=""; renderMaterials(); }
 function matPick(gid,cat){ MAT_GRP=gid||""; MAT_CAT=cat||"All"; _matDD=""; renderMaterials(); }
@@ -7993,6 +8056,7 @@ function matDDToggle(ev,gid){
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
 let MAT_GRP="", _matDD="";
+let MAT_SORT=(function(){ try{ return PREFS.matSort||"earn"; }catch(e){ return "earn"; } })();
 let MAT_CAT="All", MAT_OPEN=null, MAT_TAB="detail";
 // Tag filter, tag-search box, and the AI result set. AI results are held as an
 // ordered id list rather than a filtered array so the ranking it returns survives.
@@ -8071,7 +8135,7 @@ function _matGrid(host){
     .filter(m=>!ql||!!MAT_AI||((m.nm+" "+m.cat+" "+m.sup+" "+m.fin+" "+(m.tags||[]).join(" ")+" "+goodsAliasText(m)).toLowerCase().indexOf(ql)>=0));
   if(MAT_AI){ const rank={}; MAT_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(m=>rank[m.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
-  else list=list.slice().sort((a,b)=>((goodsPriced(b)?1:0)-(goodsPriced(a)?1:0)) || (_matEarn(b)-_matEarn(a)));
+  else list=matSortList(list);
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   host.innerHTML=`
    <div class="mat-h"><span><b>Materials</b>
