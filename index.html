@@ -2236,7 +2236,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v643</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v644</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7396,10 +7396,20 @@ let _goodsPending={}, _goodsWaiters={}, _goodsNoKeyWarned=false;
 async function goodsPush(book,force,retry){
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   if(!key){
-    if(!_goodsNoKeyWarned){ _goodsNoKeyWarned=true;
-      try{ _toast("Not saved — no admin key on this device. Settings → Master library access.","#B23F3C"); }catch(e){} }
-    _goodsLastErr[book]="no admin key on this device";
-    return false;
+    // Ask for it once, here, at the moment it is needed. Sending someone to Settings
+    // while their edit sits unsaved is how an edit gets lost.
+    if(!_goodsNoKeyWarned){
+      _goodsNoKeyWarned=true;
+      const k=prompt("This device has no admin key, so nothing can be saved to the server.\n\nPaste your Studio H admin key to save now — it is remembered on this device.","");
+      if(k&&k.trim()){
+        key=k.trim();
+        try{ localStorage.setItem("studioh_admin_key",key); }catch(e){}
+        _goodsNoKeyWarned=false;
+      } else {
+        try{ _toast("Not saved — no admin key on this device. Settings → Master library access.","#B23F3C"); }catch(e){}
+      }
+    }
+    if(!key){ _goodsLastErr[book]="no admin key on this device"; return false; }
   }
   // Queued, and the caller waits for the real answer rather than being told "false"
   // for a save that is about to happen.
@@ -10034,7 +10044,7 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H"})}); const d=await r.json();
     if(d&&d.ok){ try{ await _saveConfigSilent(); }catch(e){}   // also save favorites, prefs & pricing to the server
       _toast("Published to master ✓ ("+total+" plants)"); }
-    else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try Publish again."); }
+    else if(d&&/authoriz/i.test(d.error||"")){ alert("Wrong admin key. Check it in Settings → Master library access, then try again."); }
     else { alert("Publish failed: "+((d&&d.error)||"error")); }
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
 }
@@ -10101,7 +10111,7 @@ async function restoreBackup(key){ const ep=(typeof AI_PROXY_URL!=="undefined"&&
   const akey=_adminKey(); if(!akey) return;
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"restorebackup",key:akey,backup:key})}); const d=await r.json();
     if(d&&d.ok&&d.book){ plantBookMerge(d.book,"overwrite"); plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); const m=document.getElementById("bk-modal"); if(m) m.remove(); alert("Restored ✓ — the master book is back to that version."); }
-    else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try again."); }
+    else if(d&&/authoriz/i.test(d.error||"")){ alert("Wrong admin key. Check it in Settings → Master library access, then try again."); }
     else alert("Restore failed: "+((d&&d.error)||"error"));
   }catch(e){ alert("Restore failed."); }
 }
@@ -10124,7 +10134,7 @@ async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
   const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json();
     if(d&&d.ok){ try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} _cfgMarkSynced(); alert("Pricing published to master ✓"); }
-    else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} alert("Wrong admin key — cleared it. Try again."); }
+    else if(d&&/authoriz/i.test(d.error||"")){ alert("Wrong admin key. Check it in Settings → Master library access, then try again."); }
     else alert("Publish failed: "+((d&&d.error)||"error"));
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
 }
@@ -11473,7 +11483,7 @@ async function _rpGenerate(zid, stage){
       _plRender();
       if(typeof _toast==="function") _toast("✓ Rendering added");
       setTimeout(()=>{ const m=document.getElementById("rp-modal"); if(m) m.remove(); },800);
-    } else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} setSt("Wrong admin key — cleared it, try again.","#B23F3C"); }
+    } else if(d&&/authoriz/i.test(d.error||"")){ setSt("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
     else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
     else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
   }catch(e){ setSt("Failed ("+((e&&e.message)||"error")+").","#B23F3C"); }
@@ -11541,7 +11551,7 @@ async function _rpCustomGenerate(zid){
       _plRender();
       if(typeof _toast==="function") _toast("✓ Rendering added");
       setTimeout(()=>{ const m=document.getElementById("rp-modal"); if(m) m.remove(); },800);
-    } else if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} setSt("Wrong admin key — cleared it, try again.","#B23F3C"); }
+    } else if(d&&/authoriz/i.test(d.error||"")){ setSt("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
     else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
     else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
   }catch(e){ setSt("Failed ("+((e&&e.message)||"error")+").","#B23F3C"); }
@@ -19604,7 +19614,7 @@ async function _cloudSaveBidRun(name, targetId){
     _busy(targetId?"Updating project…":"Saving project…");
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebid",key,id:targetId||undefined,name,addr:(S.pi&&S.pi.address)||"",bid})}); const d=await r.json();
     if(!(d&&d.ok)){ _done();
-      if(d&&/authoriz/i.test(d.error||"")){ try{ localStorage.removeItem("studioh_admin_key"); }catch(e){} _toast("Wrong admin key — cleared it. Try Save again.","#B23F3C"); }
+      if(d&&/authoriz/i.test(d.error||"")){ _toast("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
       else _toast("Save failed: "+((d&&d.error)||"error"),"#B23F3C");
       return; }
     const wasUpdate=!!targetId;
