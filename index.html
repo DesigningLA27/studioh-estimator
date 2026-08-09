@@ -1854,6 +1854,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gwh svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8}
 .gwh button{border:1px solid var(--gm);background:var(--card);color:var(--gm);border-radius:8px;
   padding:4px 11px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}
+.gwh .tier{display:inline-flex;gap:2px;background:var(--card);border:1px solid var(--gm);
+  border-radius:99px;padding:2px;flex:none}
+.gwh .tier button{border:0;background:none;border-radius:99px;padding:4px 11px;font-size:10.5px;color:var(--tm)}
+.gwh .tier button.on{background:var(--gm);color:#fff}
 .gwr{display:flex;align-items:center;gap:14px;padding:11px 14px;border-top:1px solid var(--brl)}
 .gwr .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .gwr .t b{font-size:13px;font-weight:800}
@@ -2641,7 +2645,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v700</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v702</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9848,6 +9852,18 @@ function matCardSizeHTML(){
 // specification — so it searches the web properly, and every result carries a button
 // that runs it straight through the importer.
 let GOODS_WEB=null, GOODS_WEBQ="", GOODS_WEBBUSY=false, GOODS_WEBKIND="mat", GOODS_WEBERR="", GOODS_WEBTEXT="", GOODS_WEBSEEN=[];
+// Asking for "suppliers near me" surfaces brokers and closeout yards — cheap stock, no
+// technical data. What actually gets specified is a narrower set: the Bedrosians and
+// Walker Zangers, manufacturers and architectural showrooms with trade programmes. That
+// is the default now, and the wider net is one tap away rather than the only option.
+let GOODS_WEBTIER="spec";
+function goodsWebTier(t){
+  GOODS_WEBTIER=t;
+  try{ PREFS.webTier=t; prefsSave(); }catch(e){}
+  if(GOODS_WEBQ) goodsWebSearch(GOODS_WEBKIND,GOODS_WEBQ);
+  else { try{ GOODS_WEBKIND==="fur"?renderFurnishings():renderMaterials(); }catch(e){} }
+}
+try{ if(PREFS.webTier==="all") GOODS_WEBTIER="all"; }catch(e){}
 function goodsWebClear(){ GOODS_WEB=null; GOODS_WEBQ="";
   try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){} }
 async function goodsWebSearch(kind,q,more){
@@ -9884,9 +9900,19 @@ async function goodsWebSearch(kind,q,more){
       body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2200,
         tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}],
         system:`You research ${what} suppliers for a landscape architect working in ${where}. Be concrete: name the company, its website, where it is based, and what it actually supplies.`,
-        messages:[{role:"user",content:`Find: ${q}\n\nList up to 8${GOODS_WEBSEEN.length?", EXCLUDING these already found: "+GOODS_WEBSEEN.join(", "):""}.
-Nearest first — a supplier close to ${where} means shorter lead times and cheaper freight, which matters more than brand prestige. Include local yards and distributors, not only national brands.
-For each give the company name, the most useful page on their site (a product or collection page if there is one), the city and state they are based in, and one line on what they offer.`}]})});
+        messages:[{role:"user",content:`Find: ${q}${GOODS_WEBSEEN.length?`\n\nEXCLUDE these, already found: ${GOODS_WEBSEEN.join(", ")}`:""}
+
+${GOODS_WEBTIER==="spec"
+? `Return companies of the same calibre as Bedrosians, Walker Zanger, Daltile, Thompson Building Materials and QDI Surfaces — established manufacturers, architectural showrooms and trade distributors a landscape architect would actually specify from.
+
+What that means: a real showroom or slab yard, a trade or designer programme, named collections with published technical data, architectural reps, and stock or reliable lead times. Include the firms named above where they carry the product.
+
+Exclude entirely: closeout and discount outlets, "tile for less" style retailers, marketplaces, general builders' merchants, and small brokers whose pitch is price rather than product.
+
+Near ${where} is a bonus, not a requirement — calibre first, then proximity.`
+: `List real suppliers of any size, nearest to ${where} first — local yards and independent distributors included.`}
+
+Up to 8. For each give the company name, the most useful page on their site (a product or collection page where one exists), the city and state they are based in, one line on what they offer, and whether they are a manufacturer, distributor or showroom.`}]})});
     if(!r.ok) throw new Error("the search service returned "+r.status);
     const d=await r.json();
     if(d && d.error) throw new Error(d.error.message||d.error.type||"the search service refused");
@@ -10078,6 +10104,12 @@ function goodsWebHTML(kind){
   return `<div class="gweb">
     <div class="gwh">${mi("spark")}<b>${GOODS_WEB.length} found on the web</b>
       <span>for “${escAttr(GOODS_WEBQ)}”</span>
+      <span class="tier">
+        <button class="${GOODS_WEBTIER==="spec"?"on":""}" onclick="goodsWebTier('spec')"
+          title="Manufacturers, architectural showrooms and trade distributors">Trade &amp; showroom</button>
+        <button class="${GOODS_WEBTIER==="all"?"on":""}" onclick="goodsWebTier('all')"
+          title="Any supplier, nearest first">Everyone</button>
+      </span>
       <button onclick="goodsWebClear()">Clear</button></div>
     ${GOODS_WEB.map((o,i)=>`<div class="gwr">
       <span class="gwi" style="${o.img?`background-image:url('${escAttr(o.img)}')`:""}">${o.img?"":mi("box")}</span>
