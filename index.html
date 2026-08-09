@@ -1290,6 +1290,14 @@ body:not(.sp-on) #sp-open{display:grid}
 .pf-fld{display:flex;flex-direction:column;gap:6px;min-width:0}
 .pf-lbl{font-size:.66rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--tm)}
 .pf-lbl .mut{font-weight:500;text-transform:none;letter-spacing:0;color:var(--tl)}
+.pf-gps{flex:none;width:30px;height:30px;border-radius:9px;border:1px solid var(--br);background:var(--card);
+  color:var(--gm);display:grid;place-items:center;cursor:pointer;padding:0}
+.pf-gps:hover{border-color:var(--gm);background:var(--brand-soft)}
+.pf-gps svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.pf-gps.busy{opacity:.6;pointer-events:none}
+.pf-gps.busy svg{animation:pfspin 1.1s linear infinite}
+@keyframes pfspin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.pf-gps.busy svg{animation:none}}
 .pf-box{display:flex;align-items:center;height:42px;border:1px solid var(--br);border-radius:10px;background:var(--card);padding:0 13px;gap:8px;transition:border-color .12s,box-shadow .12s}
 .pf-box:focus-within{border-color:var(--gm);box-shadow:0 0 0 3px var(--brand-soft)}
 .pf-box input{flex:1;min-width:0;border:none;background:none;font:inherit;font-size:.95rem;color:var(--tx);outline:none}
@@ -2527,7 +2535,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v684</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v685</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -3134,7 +3142,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
     <div class="pf-grid c3" style="margin-bottom:16px">
       <label class="pf-fld"><span class="pf-lbl">Client Name</span><span class="pf-box"><input id="pi-client" placeholder="Jane Smith" oninput="updatePI('client',this.value)"></span></label>
       <label class="pf-fld"><span class="pf-lbl">Project Name</span><span class="pf-box"><input id="pi-project" placeholder="Smith Residence — Backyard" oninput="updatePI('project',this.value)"></span></label>
-      <label class="pf-fld"><span class="pf-lbl">Address</span><span class="pf-box"><input id="pi-address" placeholder="Start typing address…" autocomplete="off"></span></label>
+      <label class="pf-fld"><span class="pf-lbl">Address</span><span class="pf-box"><input id="pi-address" placeholder="Start typing address…" autocomplete="off">
+        <button type="button" class="pf-gps" id="pi-gps" onclick="piUseLocation()" title="Use where I am now">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3.2M12 18.8V22M22 12h-3.2M5.2 12H2"/><circle cx="12" cy="12" r="8"/></svg></button></span></label>
     </div>
     <div class="pf-grid c3" style="margin-bottom:16px">
       <label class="pf-fld"><span class="pf-lbl">Date</span><span class="pf-box"><input id="pi-date" type="date" oninput="updatePI('date',this.value)"></span></label>
@@ -19543,6 +19553,65 @@ function initMap(){
   }
 }
 
+// On site with the client, standing in their front garden, typing an address into an
+// iPad is the worst moment in the whole flow. GPS lands mid-street rather than on a
+// door, so this offers the nearest few addresses to choose from rather than picking
+// one — a wrong address quietly seeds the wrong climate zone and the wrong site data.
+function piGpsBusy(on,msg){
+  const b=document.getElementById("pi-gps");
+  if(b){ b.classList.toggle("busy",!!on); b.title=msg||"Use where I am now"; }
+}
+function piUseLocation(){
+  if(!navigator.geolocation){ alert("This device will not share its location."); return; }
+  if(!(window.google&&google.maps&&google.maps.Geocoder)){ alert("Maps is still loading — try again in a moment."); return; }
+  piGpsBusy(true,"Finding you…");
+  try{ _prog("Finding where you are",0,0); }catch(e){}
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const ll={lat:pos.coords.latitude,lng:pos.coords.longitude};
+    new google.maps.Geocoder().geocode({location:ll},(res,status)=>{
+      piGpsBusy(false); try{ _progDone(); }catch(e){}
+      if(status!=="OK"||!res||!res.length){ alert("Couldn't turn that location into an address."); return; }
+      // Street addresses only — a geocoder happily returns the county otherwise.
+      const cands=res.filter(r=>(r.types||[]).some(t=>t==="street_address"||t==="premise"||t==="subpremise"))
+                     .slice(0,5);
+      const list=(cands.length?cands:res.slice(0,3));
+      if(list.length===1){ _piTakeAddress(list[0]); return; }
+      _piAddressChoice(list, Math.round(pos.coords.accuracy||0));
+    });
+  }, err=>{
+    piGpsBusy(false); try{ _progDone(); }catch(e){}
+    alert(err && err.code===1
+      ? "Location is blocked for this site.\n\nSafari → the ⓐA menu in the address bar → Website Settings → Location → Allow."
+      : "Couldn't get a location fix. Try again outdoors.");
+  }, {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
+}
+function _piTakeAddress(r){
+  try{ _applyPlace(r); }catch(e){}
+  const el=document.getElementById("pi-address");
+  if(el) el.value=r.formatted_address||"";   // _applyPlace already updates state and the map
+  try{ _toast("Address set — "+(r.formatted_address||""),"#4C7B3D"); }catch(e){}
+}
+function _piAddressChoice(list,acc){
+  let h=document.getElementById("pigps");
+  if(h) h.remove();
+  h=document.createElement("div"); h.id="pigps"; h.className="askw";
+  h.addEventListener("click",e=>{ if(e.target===h) h.remove(); });
+  window._piCands=list;
+  h.innerHTML=`<div class="askc" style="width:min(460px,100%)">
+    <div class="askt">Which address are you at?</div>
+    <div class="askh">Nearest to where you are standing${acc?` — accurate to about ${acc} m`:""}.</div>
+    <div class="mlopts">${list.map((r,i)=>`
+      <div class="mlopt" onclick="_piPick(${i})"><span class="n">${escAttr(r.formatted_address||"")}</span></div>`).join("")}</div>
+    <div class="askb"><button class="c" onclick="document.getElementById('pigps').remove()">Cancel</button></div>
+  </div>`;
+  document.body.appendChild(h);
+  requestAnimationFrame(()=>h.classList.add("on"));
+}
+function _piPick(i){
+  const r=(window._piCands||[])[i];
+  const h=document.getElementById("pigps"); if(h) h.remove();
+  if(r) _piTakeAddress(r);
+}
 function onPlaceSelected(){
   const place=autocomplete.getPlace();
   _applyPlace(place);
