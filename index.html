@@ -2133,7 +2133,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v624</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v625</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6714,7 +6714,7 @@ let MATERIALS=(function(){ try{ const s=localStorage.getItem("studioh_materials_
 // and a stale price book on one device blocked a materials import on another — two
 // things with nothing to do with each other. localStorage stays as the local cache.
 const GOODS_URL="https://studioh-goods.warwick-cca.workers.dev";
-let _goodsTimer={}, _goodsBusy={};
+let _goodsTimer={}, _goodsBusy={}, _goodsLastErr={};
 async function _goodsCall(payload){
   try{
     const r=await fetch(GOODS_URL,{method:"POST",headers:{"Content-Type":"application/json"},
@@ -6738,7 +6738,11 @@ async function goodsSyncNow(){
     if(srv.err){ lines.push(book+": server unreachable ("+srv.err+")"); continue; }
     if(local>=remote){
       const ok=await goodsPush(book,local<remote);
-      lines.push(book+": "+(ok?("saved "+local+" to the server"):"save failed"));
+      lines.push(book+": "+(ok?("saved "+local+" to the server")
+        :("SAVE FAILED — "+(_goodsLastErr[book]||"unknown")
+          +(/not authoris/i.test(_goodsLastErr[book]||"")
+            ? "\n     The key on this device does not match the one set on the server."
+            : ""))));
     } else {
       await goodsPull(book,true);
       lines.push(book+": pulled "+remote+" from the server (this device had "+local+")");
@@ -6761,11 +6765,13 @@ async function goodsPush(book,force){
   const d=await _goodsCall({type:"savegoods",book,key,data:_goodsArr(book),by:"Studio H",force:!!force});
   _goodsBusy[book]=false;
   if(d.err){
-    // The worker refuses a write that would wipe a populated book — surface it rather
-    // than retrying into a data loss.
+    // Keep the reason. "save failed" with no cause is useless when the usual cause is
+    // simply that this device's key does not match the server's.
+    _goodsLastErr[book]=d.err;
     if(/refused/.test(d.err)) try{ _toast("Not saved — "+d.err,"#B23F3C"); }catch(e){}
     return false;
   }
+  _goodsLastErr[book]="";
   try{ localStorage.setItem("studioh_goods_"+book+"_at", d.savedAt||""); }catch(e){}
   return true;
 }
