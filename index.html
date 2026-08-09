@@ -2170,7 +2170,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v629</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v630</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6722,15 +6722,26 @@ let _gimgStop=false;
 function goodsFetchImagesStop(){ _gimgStop=true; }
 async function goodsFetchImages(book){
   const arr = book==="materials" ? MATERIALS : FURNISHINGS;
-  const todo = arr.filter(x=>x && x.srcUrl && !goodsImg(x));
+  const fromURL = arr.filter(x=>x && x.srcUrl);
+  let todo = fromURL.filter(x=>!goodsImg(x));
   if(!todo.length){
     const noSrc = arr.filter(x=>x && !x.srcUrl && !goodsImg(x)).length;
-    alert(noSrc
-      ? `Every imported item already has a picture.\n\n${noSrc} item${noSrc>1?"s were":" was"} added by hand rather than from a URL, so there is no page to read one from.`
-      : "Every item already has a picture.");
-    return;
+    if(!fromURL.length){
+      alert(noSrc
+        ? `Nothing here was imported from a URL, so there is no page to read a picture from.\n\n${noSrc} item${noSrc>1?"s were":" was"} added by hand.`
+        : "Every item already has a picture.");
+      return;
+    }
+    // Imports made before v629 kept whichever links happened to upload, duplicates and
+    // all, and stopped at three — so a page's installation shots were often crowded out
+    // by two copies of the same product swatch. Re-reading fixes those rows.
+    if(!confirm(`All ${fromURL.length} imported item${fromURL.length>1?"s have":" has"} a picture already.\n\n`+
+      `Re-read every supplier page anyway and replace the images with the best ones on the page? `+
+      `Earlier imports often saved the same photo two or three times and dropped the installation shots.`+
+      (noSrc?`\n\n(${noSrc} hand-added item${noSrc>1?"s have":" has"} no page to read — those are skipped.)`:""))) return;
+    todo = fromURL;
   }
-  if(!confirm(`${todo.length} item${todo.length>1?"s have":" has"} no picture.\n\nRe-read the supplier pages and pull the images in? Nothing else on the item is touched.`)) return;
+  else if(!confirm(`${todo.length} item${todo.length>1?"s have":" has"} no picture.\n\nRe-read the supplier pages and pull the images in? Nothing else on the item is touched.`)) return;
   _gimgStop=false;
   let done=0, got=0, none=0;
   const say=()=>{ try{ _toast(`Images ${done}/${todo.length} · ${got} found`,"#6A4FA3"); }catch(e){} };
@@ -6752,12 +6763,20 @@ async function goodsFetchImages(book){
   await Promise.all([0,0,0,0,0].map(worker));          // five pages at a time; the reader is a plain fetch
   try{ book==="materials"?matSave():furSave(); }catch(e){}
   try{ book==="materials"?renderMaterials():renderFurnishings(); }catch(e){}
-  alert(`${got} of ${todo.length} now have pictures.` +
-    (none?`\n\n${none} page${none>1?"s":""} published no usable image — those stay on their colour swatch.`:"") +
-    `\n\nThey are showing the supplier's own links; copying them onto your server runs in the background.`);
+  const shots=todo.reduce((n,r)=>n+((r.imgs||[]).length),0);
+  alert(`${got} of ${todo.length} read · ${shots} picture${shots===1?"":"s"} in total.` +
+    (none?`\n\n${none} page${none>1?"s":""} published no usable image — those keep what they had.`:"") +
+    `\n\nThey are showing the supplier's own links right now; copying them onto your server runs in the background and can take a few minutes. Leave this tab open.`);
   // Upgrade to our own copies quietly, one row at a time, so a slow R2 never blocks the view.
-  for(const row of todo){ if(goodsImg(row)) await goodsRehostLater(book,row.id); }
+  let up=0;
+  for(const row of todo){
+    if(_gimgStop) break;
+    if(!goodsImg(row)) continue;
+    await goodsRehostLater(book,row.id); up++;
+    if(up%10===0){ try{ _toast(`Copying to your server — ${up}/${todo.length}`,"#6A4FA3"); }catch(e){} }
+  }
   try{ book==="materials"?matSave():furSave(); }catch(e){}
+  try{ _toast("Images stored on your server","#4C7B3D"); }catch(e){}
 }
 // What to actually paint. `imgs` is the gallery, `img` the chosen primary.
 function goodsImgs(x){
