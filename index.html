@@ -2645,7 +2645,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v706</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v707</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16030,10 +16030,15 @@ function paletteBarHTML(zi){
 // palette, compact when a zone has a dozen species and you want to compare them.
 function plantRowView(){ const v=PREFS.plantRowView; return (v==="cards"||v==="dense")?v:"rows"; }
 function setPlantRowView(v){ PREFS.plantRowView=v; prefsSave(); try{ plantRefresh(); }catch(e){} }
-const _shrubOpen={};
+const _shrubOpen={}, _gcOpen={};
 function toggleShrubOpen(zi,i,ev){
   if(ev && ev.target && ev.target.closest && ev.target.closest("input,button,.stepper")) return;
   const k=zi+":"+i; _shrubOpen[k]=!_shrubOpen[k];
+  try{ plantRefresh(); }catch(e){}
+}
+function toggleGcOpen(zi,i,ev){
+  if(ev && ev.target && ev.target.closest && ev.target.closest("input,button,.stepper,a")) return;
+  const k=zi+":"+i; _gcOpen[k]=!_gcOpen[k];
   try{ plantRefresh(); }catch(e){}
 }
 function plantViewBarHTML(){
@@ -16626,15 +16631,35 @@ function renderPlantingBuilder(){
       <div style="font-size:.62rem;color:var(--tm)">~${money(d.costEa||0)}/yr · ~${Math.round(d.galEa||0).toLocaleString()} gal</div></div>`;
 
     if(view==="cards"){
-      return `<div style="border:1px solid var(--br);border-radius:12px;background:#fff;overflow:hidden">
-        <div style="padding:.6rem .7rem;border-bottom:1px solid var(--brl)">${idLine}</div>
-        <div style="padding:.6rem .7rem;display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem">
+      // A card is 268px wide. The row's identity line — name, four badges and a delete
+      // all competing on one line — was never going to fit, which is why the badges
+      // landed on top of the botanical name. In a card the name gets its own line and
+      // the badges get theirs. The sourcing note goes INSIDE the card too; rendering it
+      // after the closing div made it a sibling in the grid, which is what threw the
+      // whole layout out.
+      return `<div style="border:1px solid var(--br);border-radius:12px;background:#fff;overflow:hidden;position:relative;min-width:0">
+        <div style="padding:.6rem .7rem;border-bottom:1px solid var(--brl)">
+          <div style="display:flex;gap:.55rem;align-items:flex-start;min-width:0">
+            <img src="${escAttr(plantImgOf(db)||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA;flex:none">
+            <div style="flex:1;min-width:0;padding-right:22px">
+              <b style="font-size:.84rem;font-weight:800;line-height:1.25;display:block">${escAttr(db.c||r.pid)}</b>
+              <i style="font-style:italic;font-size:.7rem;color:var(--tl);display:block;line-height:1.3">${escAttr(bn)}</i>
+            </div>
+          </div>
+          <div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;margin-top:.45rem">
+            <span style="font-size:.6rem;font-weight:700;background:var(--surface2);color:var(--tm);border-radius:6px;padding:.12rem .4rem;white-space:nowrap">${db.w}′W × ${db.h}′H</span>
+            ${wuBadge(db.wu)}${lightBadge(db)}${bloomColorBadge(db)}
+          </div>
+          <span style="position:absolute;top:.5rem;right:.5rem">${delBtn(`delShrubRow(${zi},${i})`)}</span>
+        </div>
+        <div style="padding:.6rem .7rem;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem">
           ${fld("1-gal",mixOnly('1g'),priceOf('1g'))}${fld("5-gal",mixOnly('5g'),priceOf('5g'))}${fld("15-gal",mixOnly('15g'),priceOf('15g'))}
           ${fld("O.C. in",ocInp)}${fld("% area",pctStep)}${fld("Qty",qtyInp)}
         </div>
         <div style="padding:.5rem .7rem;background:var(--surface2);border-top:1px solid var(--brl);display:flex;align-items:baseline;gap:.5rem">
-          <span style="font-size:.66rem;color:var(--tm)">mix ${mixSum}%</span>${totBlock}</div>
-      </div>${sourcingStrip("shrub",zi,i,r)}`;
+          <span style="font-size:.64rem;color:var(--tm)">mix ${mixSum}%</span>${totBlock}</div>
+        <div style="padding:0 .7rem .55rem;font-size:.62rem">${sourcingStrip("shrub",zi,i,r)}</div>
+      </div>`;
     }
 
     if(view==="dense"){
@@ -16688,15 +16713,80 @@ function renderPlantingBuilder(){
     const tile=(v,label,sub)=>{const on=Math.round(ocVal)===v;return `<button class="btn" style="padding:.15rem .4rem;font-size:.64rem;border-radius:7px;text-align:left;width:104px;flex:none;min-height:36px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;line-height:1.2;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--gm);border:1px solid var(--gm)'}" onclick="setGcRow(${zi},${i},'ocIn',${v})"><strong>${label} · ${v}″</strong><span style="font-size:.54rem;opacity:.85;white-space:nowrap">${sub}</span></button>`;};
     const noteText=`Coverage-density presets come from this plant's recommended on-center spacing (${recOc}″). Standard = the spec/recommended value. Rapid fill tightens spacing (~2× the plants) for fast coverage and erosion control on slopes; Value opens it up to save money over a longer fill-in.${habit?' Habit: '+habit+'.':''} At the current ${Math.round(ocVal)}″ O.C. that's ≈ ${perSf.toFixed(perSf<10?1:0)} plants/sf. Type any exact O.C. in the O.C. field to override. /flat = plugs per flat. Plants/sf = 1 ÷ (spacing ft)²; flats round up.`;
     const densityCell=`<div style="display:flex;gap:.3rem;align-items:center;justify-content:center"><span style="width:15px;flex:none"></span>${levels.map(l=>tile(l[0],l[1],l[2])).join('')}${infoIcon(noteText)}</div>`;
-    return `<div style="display:grid;grid-template-columns:${GC_COLS};gap:.3rem;align-items:end;padding:.55rem 0;border-bottom:1px dashed var(--br)">
-      ${specCell(db,habit)}
-      ${densityCell}
-      ${ocInp}${pfInp}<div style="display:flex;justify-content:center">${pctStep}</div>${perEa}
-      ${priceCell(`${d.flats} flat${d.flats===1?'':'s'}`, money(d.cost))}
-      ${delBtn(`delGcRow(${zi},${i})`)}
-    </div>${sourcingStrip("gc",zi,i,r)}`;
+    // Groundcover gets the same three layouts as shrubs — a planting schedule that
+    // changes shape halfway down the page is worse than either shape on its own.
+    const gview=plantRowView();
+    const gbn=botName(db)||"";
+    const gfld=(label,inner)=>`<div style="min-width:0">
+      <div style="font-size:.56rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--tl);margin-bottom:.15rem;white-space:nowrap">${label}</div>${inner}</div>`;
+    const gbadges=`<span style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center">
+      ${wuBadge(db.wu)}${lightBadge(db)}${bloomColorBadge(db)}${habit?`<span style="font-size:.6rem;font-weight:700;background:var(--surface2);color:var(--tm);border-radius:6px;padding:.12rem .4rem">${escAttr(habit)}</span>`:""}</span>`;
+    const gtot=`<div style="text-align:right;min-width:0">
+      <div style="font-size:.56rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--tl)">${d.flats} flat${d.flats===1?'':'s'}</div>
+      <div style="font-size:.95rem;font-weight:800;letter-spacing:-.02em">${money(d.cost)}</div>
+      <div style="font-size:.62rem;color:var(--tm)">~${money(d.costEa||0)}/yr · ~${(d.galEa||0).toFixed(1)} gal</div></div>`;
+    const gid=`<div style="display:flex;align-items:center;gap:.55rem;min-width:0">
+      <img src="${escAttr(plantImgOf(db)||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:42px;height:42px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA;flex:none">
+      <span style="flex:1;min-width:0">
+        <b style="font-size:.88rem;font-weight:800;letter-spacing:-.01em;display:block;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(db.c||r.pid)}</b>
+        <i style="font-style:italic;font-size:.72rem;color:var(--tl)">${escAttr(gbn)}</i></span>
+      ${gbadges}
+      ${delBtn(`delGcRow(${zi},${i})`)}</div>`;
+
+    if(gview==="cards"){
+      return `<div style="border:1px solid var(--br);border-radius:12px;background:#fff;overflow:hidden;position:relative;min-width:0">
+        <div style="padding:.6rem .7rem;border-bottom:1px solid var(--brl)">
+          <div style="display:flex;gap:.55rem;align-items:flex-start;min-width:0">
+            <img src="${escAttr(plantImgOf(db)||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA;flex:none">
+            <div style="flex:1;min-width:0;padding-right:22px">
+              <b style="font-size:.84rem;font-weight:800;line-height:1.25;display:block">${escAttr(db.c||r.pid)}</b>
+              <i style="font-style:italic;font-size:.7rem;color:var(--tl);display:block;line-height:1.3">${escAttr(gbn)}</i></div>
+          </div>
+          <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.45rem">${gbadges}</div>
+          <span style="position:absolute;top:.5rem;right:.5rem">${delBtn(`delGcRow(${zi},${i})`)}</span>
+        </div>
+        <div style="padding:.6rem .7rem">
+          <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.5rem">${levels.map(l=>tile(l[0],l[1],l[2])).join('')}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem">
+            ${gfld("O.C. in",ocInp)}${gfld("/flat",pfInp)}${gfld("% area",pctStep)}</div>
+        </div>
+        <div style="padding:.5rem .7rem;background:var(--surface2);border-top:1px solid var(--brl);display:flex;align-items:baseline">${gtot}</div>
+        <div style="padding:0 .7rem .55rem;font-size:.62rem">${sourcingStrip("gc",zi,i,r)}</div>
+      </div>`;
+    }
+
+    if(gview==="dense"){
+      const open=(_gcOpen[zi+":"+i]===true);
+      return `<div onclick="toggleGcOpen(${zi},${i},event)" style="display:grid;grid-template-columns:30px minmax(0,1fr) 92px 58px 56px 62px 96px 24px;gap:.5rem;align-items:center;padding:.4rem .2rem;border-bottom:1px solid var(--brl);cursor:pointer;${open?'background:var(--brand-soft)':''}">
+        <img src="${escAttr(plantImgOf(db)||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:26px;height:26px;object-fit:cover;border-radius:6px;background:#EEF3EA">
+        <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.8rem"><b style="font-weight:800">${escAttr(db.c||r.pid)}</b> <i style="font-style:italic;color:var(--tl);font-size:.7rem">${escAttr(gbn)}</i></span>
+        <span style="font-size:.72rem;color:var(--tm)">${Math.round(perSf*10)/10}/sf</span>
+        <span style="text-align:right;font-size:.74rem;font-weight:700">${Math.round(ocVal)}″</span>
+        <span style="text-align:right;font-size:.74rem;font-weight:700">${r.pct}%</span>
+        <span style="text-align:right;font-size:.74rem;font-weight:700">${d.flats}</span>
+        <span style="text-align:right;font-size:.82rem;font-weight:800">${money(d.cost)}</span>
+        <span style="text-align:center;color:var(--tl);font-size:.7rem">${open?"▴":"▾"}</span>
+      </div>
+      ${open?`<div style="padding:.6rem .2rem .8rem 36px;border-bottom:1px solid var(--brl);background:var(--surface2)">
+        <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.5rem">${levels.map(l=>tile(l[0],l[1],l[2])).join('')}${infoIcon(noteText)}</div>
+        <div style="display:grid;grid-template-columns:84px 84px 96px minmax(0,1fr);gap:.6rem;align-items:end">
+          ${gfld("O.C. in",ocInp)}${gfld("/flat",pfInp)}${gfld("% area",pctStep)}${gtot}</div>
+        ${sourcingStrip("gc",zi,i,r)}</div>`:""}`;
+    }
+
+    return `<div style="padding:.6rem 0;border-bottom:1px dashed var(--br)">
+      ${gid}
+      <div style="margin-top:.5rem;padding-left:52px">
+        <div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem">${levels.map(l=>tile(l[0],l[1],l[2])).join('')}${infoIcon(noteText)}</div>
+        <div style="display:grid;grid-template-columns:84px 84px 84px minmax(0,1fr);gap:.55rem;align-items:end">
+          ${gfld("O.C. in",ocInp)}${gfld("/flat",pfInp)}${gfld("% area",pctStep)}${gtot}</div>
+        ${sourcingStrip("gc",zi,i,r)}
+      </div>
+    </div>`;
   };
-  const gcHdr=`<div style="display:grid;grid-template-columns:${GC_COLS};gap:.3rem;font-size:.56rem;color:var(--tl);text-transform:uppercase;letter-spacing:.02em;padding-bottom:.2rem"><span>Species · water</span><span style="text-align:center">Coverage density</span><span style="text-align:center">O.C. in</span><span style="text-align:center">/flat</span><span style="text-align:center">% area</span><span style="text-align:right">per plant/yr</span><span style="text-align:right">Flats</span><span></span></div>`;
+  const gcHdr = plantRowView()==="dense"
+    ? `<div style="display:grid;grid-template-columns:30px minmax(0,1fr) 92px 58px 56px 62px 96px 24px;gap:.5rem;font-size:.56rem;color:var(--tl);text-transform:uppercase;letter-spacing:.08em;font-weight:800;padding:0 .2rem .25rem"><span></span><span>Species</span><span>Density</span><span style="text-align:right">O.C.</span><span style="text-align:right">% area</span><span style="text-align:right">Flats</span><span style="text-align:right">Total</span><span></span></div>`
+    : "";
 
   // ---- tree row ----
   const treeRow=(zi,r,i,d)=>{
@@ -16806,7 +16896,10 @@ function renderPlantingBuilder(){
         :`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No shrubs in this zone yet.</div>`}
       ${sub("Groundcover",zd.gcPct)}
       ${searchBox("gc",zi,"🔍 Add groundcover — common or botanical name")}
-      ${z.gcRows.length?gcHdr+z.gcRows.map((r,i)=>gcRow(zi,r,i,zd.gcRows[i]||{flats:0,cost:0})).join(''):`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No groundcover in this zone yet.</div>`}
+      ${z.gcRows.length?gcHdr+(plantRowView()==="cards"
+        ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:.7rem;padding:.2rem 0">${z.gcRows.map((r,i)=>gcRow(zi,r,i,zd.gcRows[i]||{flats:0,cost:0})).join('')}</div>`
+        : z.gcRows.map((r,i)=>gcRow(zi,r,i,zd.gcRows[i]||{flats:0,cost:0})).join(''))
+        :`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No groundcover in this zone yet.</div>`}
       <div style="font-size:.82rem;font-weight:700;color:var(--gm);margin:.5rem 0 .15rem">Trees</div>
       ${searchBox("tree",zi,"🔍 Add tree — common or botanical. Toggle 'specimen' for canopy sizing.")}
       ${z.treeRows.length?treeHdr+z.treeRows.map((r,i)=>treeRow(zi,r,i,zd.treeRows[i]||{count:0,cost:0})).join(''):`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No trees in this zone yet.</div>`}
