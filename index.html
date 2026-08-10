@@ -2645,7 +2645,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v705</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v706</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16026,6 +16026,27 @@ function paletteBarHTML(zi){
       <i onclick="event.stopPropagation();paletteDrop('${r.id}')" style="font-style:normal;opacity:.55;padding:0 .1rem">×</i></span>`).join("")}
   </div>`;
 }
+// Three ways to read the same planting schedule. Rows for editing, cards for a small
+// palette, compact when a zone has a dozen species and you want to compare them.
+function plantRowView(){ const v=PREFS.plantRowView; return (v==="cards"||v==="dense")?v:"rows"; }
+function setPlantRowView(v){ PREFS.plantRowView=v; prefsSave(); try{ plantRefresh(); }catch(e){} }
+const _shrubOpen={};
+function toggleShrubOpen(zi,i,ev){
+  if(ev && ev.target && ev.target.closest && ev.target.closest("input,button,.stepper")) return;
+  const k=zi+":"+i; _shrubOpen[k]=!_shrubOpen[k];
+  try{ plantRefresh(); }catch(e){}
+}
+function plantViewBarHTML(){
+  const v=plantRowView();
+  const b=(k,l,t)=>`<button onclick="setPlantRowView('${k}')" title="${escAttr(t)}"
+    style="padding:.2rem .6rem;font-size:.68rem;font-weight:700;border-radius:8px;cursor:pointer;
+      ${v===k?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--tm);border:1px solid var(--br)'}">${l}</button>`;
+  return `<span style="display:inline-flex;gap:.25rem;align-items:center">
+    <span style="font-size:.58rem;color:var(--tl);text-transform:uppercase;font-weight:800;letter-spacing:.08em;margin-right:.15rem">Layout</span>
+    ${b("rows","Rows","Each plant on two lines — identity, then the numbers")}
+    ${b("cards","Cards","One card per plant")}
+    ${b("dense","Compact","One line each · tap to edit")}</span>`;
+}
 function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:null};
   const d=document.createElement("div"); d.id="ai-modal"; d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:1.2rem;overflow:auto";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:1180px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3);margin-top:2rem">
@@ -16577,15 +16598,80 @@ function renderPlantingBuilder(){
       <div style="font-size:.62rem;color:var(--gm);font-weight:700">${(ip!=null&&ip>0)?money(ip):'<span style="color:var(--tl);font-weight:400">—</span>'}</div>
       ${stp(HB(`stepShrubMix(${zi},${i},'${s}',-1)`),HB(`stepShrubMix(${zi},${i},'${s}',1)`),`<input type="number" class="no-spin" value="${+mix[s]||0}" style="width:28px" onchange="setShrubMix(${zi},${i},'${s}',this.value)">`)}</div>`; };
     const sumCell=`<div style="text-align:center;font-size:.68rem;font-weight:700;${mixSum===100?'color:var(--gm)':'color:#B23F3C'}" title="${mixSum===100?'container mix totals 100%':'container mix should total 100% (now '+mixSum+'%)'}">${mixSum===100?'✓':mixSum+'%'}</div>`;
-    return `<div style="display:grid;grid-template-columns:${SH_COLS};gap:.3rem;align-items:end;padding:.55rem 0;border-bottom:1px dashed var(--br)">
-      ${specCell(db,`${db.w}′W × ${db.h}′H`,'',nurseryInline('shrub',zi,i,r))}
-      ${mixStep('1g')}${mixStep('5g')}${mixStep('15g')}${sumCell}
-      ${ocInp}<div style="display:flex;justify-content:center">${pctStep}</div>${qtyInp}${perEa}
-      ${priceCell(`${d.count} plt`, money(d.cost))}
-      ${delBtn(`delShrubRow(${zi},${i})`)}
+    // Ten fixed columns need ~788px before the plant name gets anything, and the pane on
+    // a 13-inch iPad with the summary panel open is about 850px — which is why the name
+    // vanished and the badges stacked. None of these three can collapse that way: the
+    // identity owns a full-width line of its own, or a card, or a single tight row.
+    const view=plantRowView();
+    const bn=botName(db)||"";
+    const fld=(label,inner,note)=>`<div style="min-width:0">
+      <div style="font-size:.56rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--tl);margin-bottom:.15rem;white-space:nowrap">${label}</div>
+      ${inner}${note?`<div style="font-size:.58rem;color:var(--gm);font-weight:700;margin-top:.15rem">${note}</div>`:""}</div>`;
+    const mixOnly=(sz)=>stp(HB(`stepShrubMix(${zi},${i},'${sz}',-1)`),HB(`stepShrubMix(${zi},${i},'${sz}',1)`),
+      `<input type="number" class="no-spin" value="${+mix[sz]||0}" style="width:30px" onchange="setShrubMix(${zi},${i},'${sz}',this.value)">`);
+    const priceOf=(sz)=>{ const ip=rowInstalledEa('shrub',r.pid,sz,r.nid); return (ip!=null&&ip>0)?money(ip):""; };
+    const badges=`<span style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center">
+      <span style="font-size:.62rem;font-weight:700;background:var(--surface2);color:var(--tm);border-radius:7px;padding:.15rem .45rem;white-space:nowrap">${db.w}′W × ${db.h}′H</span>
+      ${wuBadge(db.wu)}${lightBadge(db)}${bloomColorBadge(db)}</span>`;
+    const idLine=`<div style="display:flex;align-items:center;gap:.55rem;min-width:0">
+      <img src="${escAttr(plantImgOf(db)||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:42px;height:42px;object-fit:cover;border-radius:8px;border:1px solid var(--br);background:#EEF3EA;flex:none">
+      <span style="flex:1;min-width:0">
+        <b style="font-size:.88rem;font-weight:800;letter-spacing:-.01em;display:block;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(db.c||r.pid)}</b>
+        <i style="font-style:italic;font-size:.72rem;color:var(--tl)">${escAttr(bn)}</i></span>
+      ${badges}
+      ${delBtn(`delShrubRow(${zi},${i})`)}</div>`;
+    const totBlock=`<div style="text-align:right;min-width:0">
+      <div style="font-size:.56rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--tl)">${d.count} plants</div>
+      <div style="font-size:.95rem;font-weight:800;letter-spacing:-.02em">${money(d.cost)}</div>
+      <div style="font-size:.62rem;color:var(--tm)">~${money(d.costEa||0)}/yr · ~${Math.round(d.galEa||0).toLocaleString()} gal</div></div>`;
+
+    if(view==="cards"){
+      return `<div style="border:1px solid var(--br);border-radius:12px;background:#fff;overflow:hidden">
+        <div style="padding:.6rem .7rem;border-bottom:1px solid var(--brl)">${idLine}</div>
+        <div style="padding:.6rem .7rem;display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem">
+          ${fld("1-gal",mixOnly('1g'),priceOf('1g'))}${fld("5-gal",mixOnly('5g'),priceOf('5g'))}${fld("15-gal",mixOnly('15g'),priceOf('15g'))}
+          ${fld("O.C. in",ocInp)}${fld("% area",pctStep)}${fld("Qty",qtyInp)}
+        </div>
+        <div style="padding:.5rem .7rem;background:var(--surface2);border-top:1px solid var(--brl);display:flex;align-items:baseline;gap:.5rem">
+          <span style="font-size:.66rem;color:var(--tm)">mix ${mixSum}%</span>${totBlock}</div>
+      </div>${sourcingStrip("shrub",zi,i,r)}`;
+    }
+
+    if(view==="dense"){
+      const open=(_shrubOpen[zi+":"+i]===true);
+      return `<div onclick="toggleShrubOpen(${zi},${i},event)" style="display:grid;grid-template-columns:30px minmax(0,1fr) 92px 58px 56px 62px 96px 24px;gap:.5rem;align-items:center;padding:.4rem .2rem;border-bottom:1px solid var(--brl);cursor:pointer;${open?'background:var(--brand-soft)':''}">
+        <img src="${escAttr(plantImgOf(db)||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:26px;height:26px;object-fit:cover;border-radius:6px;background:#EEF3EA">
+        <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.8rem"><b style="font-weight:800">${escAttr(db.c||r.pid)}</b> <i style="font-style:italic;color:var(--tl);font-size:.7rem">${escAttr(bn)}</i></span>
+        <span style="font-size:.72rem;color:var(--tm)">${+mix['1g']||0} / ${+mix['5g']||0} / ${+mix['15g']||0}</span>
+        <span style="text-align:right;font-size:.74rem;font-weight:700">${Math.round(ocShown)}″</span>
+        <span style="text-align:right;font-size:.74rem;font-weight:700">${r.pct}%</span>
+        <span style="text-align:right;font-size:.74rem;font-weight:700">${d.count}</span>
+        <span style="text-align:right;font-size:.82rem;font-weight:800">${money(d.cost)}</span>
+        <span style="text-align:center;color:var(--tl);font-size:.7rem">${open?"▴":"▾"}</span>
+      </div>
+      ${open?`<div style="padding:.6rem .2rem .8rem 36px;border-bottom:1px solid var(--brl);background:var(--surface2)">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 84px 84px 96px;gap:.6rem;align-items:end">
+          ${fld("1-gal",mixOnly('1g'),priceOf('1g'))}${fld("5-gal",mixOnly('5g'),priceOf('5g'))}${fld("15-gal",mixOnly('15g'),priceOf('15g'))}
+          ${fld("O.C. in",ocInp)}${fld("% area",pctStep)}${fld("Qty",qtyInp)}
+        </div>${sourcingStrip("shrub",zi,i,r)}</div>`:""}`;
+    }
+
+    // default — two lines: what it is, then what it costs
+    return `<div style="padding:.6rem 0;border-bottom:1px dashed var(--br)">
+      ${idLine}
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 84px 84px 84px 118px;gap:.55rem;align-items:end;margin-top:.5rem;padding-left:52px">
+        ${fld("1-gal",mixOnly('1g'),priceOf('1g'))}${fld("5-gal",mixOnly('5g'),priceOf('5g'))}${fld("15-gal",mixOnly('15g'),priceOf('15g'))}
+        ${fld("O.C. in",ocInp)}${fld("% area",pctStep)}${fld("Qty",qtyInp)}
+        ${totBlock}
+      </div>
+      <div style="padding-left:52px">${sourcingStrip("shrub",zi,i,r)}</div>
     </div>`;
   };
-  const shrubHdr=`<div style="display:grid;grid-template-columns:${SH_COLS};gap:.3rem;font-size:.56rem;color:var(--tl);text-transform:uppercase;letter-spacing:.02em;padding-bottom:.2rem"><span>Species · water · source</span><span style="text-align:center">1-gal</span><span style="text-align:center">5-gal</span><span style="text-align:center">15-gal</span><span style="text-align:center">mix</span><span style="text-align:center">O.C. in</span><span style="text-align:center">% area</span><span style="text-align:center">Qty</span><span style="text-align:right">per plant/yr</span><span style="text-align:right">Total</span><span></span></div>`;
+  // Only the compact layout is a table, so only it gets column headings; the other two
+  // label each field where it sits.
+  const shrubHdr = plantRowView()==="dense"
+    ? `<div style="display:grid;grid-template-columns:30px minmax(0,1fr) 92px 58px 56px 62px 96px 24px;gap:.5rem;font-size:.56rem;color:var(--tl);text-transform:uppercase;letter-spacing:.08em;font-weight:800;padding:0 .2rem .25rem"><span></span><span>Species</span><span>Mix 1/5/15</span><span style="text-align:right">O.C.</span><span style="text-align:right">% area</span><span style="text-align:right">Qty</span><span style="text-align:right">Total</span><span></span></div>`
+    : "";
 
   // ---- gc row ----
   const gcRow=(zi,r,i,d)=>{
@@ -16700,7 +16786,10 @@ function renderPlantingBuilder(){
       <div style="display:${open?'block':'none'}">
       ${header}
       <div style="margin:.2rem 0 .5rem"><button class="btn" onclick="openAiSuggest(${zi})" style="padding:.4rem .85rem;font-size:.82rem;background:linear-gradient(90deg,#6A4FA3,#9161B0);color:#fff;border:none;border-radius:8px;font-weight:600">✨ AI suggestions</button></div>
-      ${paletteBarHTML(zi)}
+      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin:.2rem 0 .5rem">
+        ${paletteBarHTML(zi).replace('style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin:.2rem 0 .5rem"','style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center"')}
+        <span style="margin-left:auto">${plantViewBarHTML()}</span>
+      </div>
       ${sub("Shrubs",zd.shrubPct)}
       ${z.shrubRows.length>1?`<div style="display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin:.1rem 0 .45rem;padding:.3rem .5rem;background:#F7F5FB;border:1px solid #E1DAEF;border-radius:8px">
         <span style="font-size:.7rem;font-weight:700;color:var(--gm)">Set all shrubs — size mix %:</span>
@@ -16711,7 +16800,10 @@ function renderPlantingBuilder(){
         <span style="font-size:.64rem;color:var(--tl)">then fine-tune each row →</span>
       </div>`:''}
       ${searchBox("shrub",zi,"🔍 Add shrub — common or botanical name")}
-      ${z.shrubRows.length?shrubHdr+z.shrubRows.map((r,i)=>shrubRow(zi,r,i,zd.shrubRows[i]||{count:0,cost:0})).join(''):`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No shrubs in this zone yet.</div>`}
+      ${z.shrubRows.length?shrubHdr+(plantRowView()==="cards"
+        ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:.7rem;padding:.2rem 0">${z.shrubRows.map((r,i)=>shrubRow(zi,r,i,zd.shrubRows[i]||{count:0,cost:0})).join('')}</div>`
+        : z.shrubRows.map((r,i)=>shrubRow(zi,r,i,zd.shrubRows[i]||{count:0,cost:0})).join(''))
+        :`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No shrubs in this zone yet.</div>`}
       ${sub("Groundcover",zd.gcPct)}
       ${searchBox("gc",zi,"🔍 Add groundcover — common or botanical name")}
       ${z.gcRows.length?gcHdr+z.gcRows.map((r,i)=>gcRow(zi,r,i,zd.gcRows[i]||{flats:0,cost:0})).join(''):`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No groundcover in this zone yet.</div>`}
