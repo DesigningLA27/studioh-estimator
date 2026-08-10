@@ -2645,7 +2645,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v704</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v705</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15919,6 +15919,113 @@ function _aiScore(p,kind,c){ const checks={}; let hit=0,tot=0; c=c||{};
   if(c.types&&c.types.length){ const ts=_aiPlantTypes(p,kind); tot++; if(ts.size===0) checks.type="unknown"; else { const ok=c.types.some(x=>ts.has(x)); checks.type=ok?"exact":"no"; if(ok)hit++; } }
   return { pct: tot>0?Math.round(hit/tot*100):100, checks }; }
 function _aiCandLine(kind,p){ const types=[..._aiPlantTypes(p,kind)].join("/"); return `${p.id} | ${p.c||''} | ${botName(p)||''} | ${p.wu||'?'} | ${(lightSetOf(p).join('+'))||'?'} | ${bloomColorOf(p)||'?'} | ${availOf(p)} | ${isFav(p,kind)?'fav':'-'} | fireZone:${dsZoneOf(p)||'?'} | ${types}`; }
+// ── SAVED SEARCHES & PALETTES ─────────────────────────────────
+// A good suggestion prompt takes real thought to write — "20 shrubs and grasses for a
+// west-facing slope, low water, some yellow and purple" — and it was thrown away the
+// moment the modal closed. Both of these live in prefs, which already sync, so they
+// follow the designer rather than the browser.
+function aiQueries(){ PREFS.aiQueries=Array.isArray(PREFS.aiQueries)?PREFS.aiQueries:[]; return PREFS.aiQueries; }
+async function aiSaveQuery(){
+  const el=document.getElementById("ai-prompt");
+  const q=el?String(el.value||"").trim():"";
+  if(!q){ alert("Write the search first, then save it."); return; }
+  const guess=q.split(/[.,\n]/)[0].slice(0,42);
+  const nm=await appAsk({title:"Save this search",
+    hint:"It joins your saved searches and is there on every project.",
+    value:guess, placeholder:"e.g. Dry west-facing slope", ok:"Save"});
+  if(nm===null) return;
+  const name=String(nm).trim()||guess||"Saved search";
+  const L=aiQueries();
+  // Only the words are saved — the tick-box criteria are re-read from the form on each run.
+  const i=L.findIndex(x=>x&&x.name===name);
+  const rec={id:"q"+Date.now().toString(36),name,q,at:new Date().toISOString()};
+  if(i>=0) L[i]=rec; else L.unshift(rec);
+  PREFS.aiQueries=L.slice(0,40); prefsSave();
+  _aiRenderSaved();
+  try{ _toast("Saved — “"+name+"”","#6A4FA3"); }catch(e){}
+}
+function aiUseQuery(id){
+  const r=aiQueries().find(x=>x&&x.id===id); if(!r) return;
+  const el=document.getElementById("ai-prompt"); if(el){ el.value=r.q; el.focus(); }
+  try{ _toast("Loaded — “"+r.name+"”","#6A4FA3"); }catch(e){}
+}
+async function aiDropQuery(id,ev){
+  if(ev) ev.stopPropagation();
+  const r=aiQueries().find(x=>x&&x.id===id); if(!r) return;
+  if(!confirm("Delete the saved search “"+r.name+"”?")) return;
+  PREFS.aiQueries=aiQueries().filter(x=>x&&x.id!==id); prefsSave(); _aiRenderSaved();
+}
+function _aiSavedHTML(){
+  const L=aiQueries();
+  if(!L.length) return `<div style="font-size:.68rem;color:var(--tl);padding:.15rem 0">No saved searches yet — write one below and press <b>Save this search</b>.</div>`;
+  return `<div style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center">
+    ${L.map(r=>`<span onclick="aiUseQuery('${r.id}')" title="${escAttr(r.q)}"
+      style="display:inline-flex;align-items:center;gap:.35rem;background:#F0EBF8;border:1px solid #DCCFF0;color:#6A4FA3;
+             border-radius:99px;padding:.2rem .5rem .2rem .65rem;font-size:.7rem;font-weight:700;cursor:pointer">
+      ${escAttr(r.name)}<i onclick="aiDropQuery('${r.id}',event)" title="Delete"
+        style="font-style:normal;color:#9B86C4;padding:0 .1rem">×</i></span>`).join("")}
+  </div>`;
+}
+function _aiRenderSaved(){ const el=document.getElementById("ai-saved"); if(el) el.innerHTML=_aiSavedHTML(); }
+
+// A palette is the outcome: the plants you actually kept. Worth reusing on the next
+// project in the same climate, which is most of them.
+function plantPalettes(){ PREFS.palettes=Array.isArray(PREFS.palettes)?PREFS.palettes:[]; return PREFS.palettes; }
+function _zonePlants(z){
+  const out=[];
+  (z.shrubRows||[]).forEach(r=>out.push({kind:"shrub",pid:r.pid}));
+  (z.gcRows||[]).forEach(r=>out.push({kind:"gc",pid:r.pid}));
+  (z.treeRows||[]).forEach(r=>out.push({kind:"tree",pid:r.pid}));
+  (z.palmRows||[]).forEach(r=>out.push({kind:"palm",pid:r.pid}));
+  return out.filter(x=>x.pid);
+}
+async function paletteSave(zi){
+  const pl=ensurePlanting(), z=pl&&pl.zones&&pl.zones[zi]; if(!z) return;
+  const items=_zonePlants(z);
+  if(!items.length){ alert("This zone has no plants in it yet."); return; }
+  const nm=await appAsk({title:"Save this palette",
+    hint:`${items.length} plants from ${z.name||"this zone"}. Saved palettes drop into any zone on any project.`,
+    value:z.name&&z.name!=="Zone 1"?z.name:"", placeholder:"e.g. Dry Mediterranean slope", ok:"Save palette"});
+  if(nm===null) return;
+  const name=String(nm).trim()||("Palette "+(plantPalettes().length+1));
+  const L=plantPalettes();
+  const i=L.findIndex(x=>x&&x.name===name);
+  const rec={id:"pal"+Date.now().toString(36),name,items,at:new Date().toISOString()};
+  if(i>=0) L[i]=rec; else L.unshift(rec);
+  PREFS.palettes=L.slice(0,60); prefsSave();
+  try{ _toast(items.length+" plants saved as “"+name+"”","#4C7B3D"); }catch(e){}
+  try{ plantRefresh(); }catch(e){}
+}
+function paletteApply(zi,id){
+  const r=plantPalettes().find(x=>x&&x.id===id); if(!r) return;
+  let n=0, miss=0;
+  r.items.forEach(it=>{
+    if(!plantDbFind(it.kind,it.pid)){ miss++; return; }   // a plant since removed from the book
+    if(it.kind==="shrub") addShrubRow(zi,it.pid);
+    else if(it.kind==="gc") addGcRow(zi,it.pid);
+    else if(it.kind==="tree") addTreeRow(zi,it.pid);
+    else if(it.kind==="palm") addPalmRow(zi,it.pid);
+    n++;
+  });
+  try{ _toast(n+" plants added from “"+r.name+"”"+(miss?" · "+miss+" no longer in the book":""),"#4C7B3D"); }catch(e){}
+}
+async function paletteDrop(id){
+  const r=plantPalettes().find(x=>x&&x.id===id); if(!r) return;
+  if(!confirm("Delete the palette “"+r.name+"”?\n\nPlants already placed in zones stay where they are.")) return;
+  PREFS.palettes=plantPalettes().filter(x=>x&&x.id!==id); prefsSave();
+  try{ plantRefresh(); }catch(e){}
+}
+function paletteBarHTML(zi){
+  const L=plantPalettes();
+  return `<div style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin:.2rem 0 .5rem">
+    <button class="btn" onclick="paletteSave(${zi})" style="padding:.35rem .75rem;font-size:.76rem;background:#fff;border:1px solid var(--gm);color:var(--gm);border-radius:8px;font-weight:700">⬚ Save as palette</button>
+    ${L.map(r=>`<span onclick="paletteApply(${zi},'${r.id}')" title="${escAttr(r.items.length+" plants")}"
+      style="display:inline-flex;align-items:center;gap:.35rem;background:#EEF3EA;border:1px solid #CBDCC2;color:var(--gm);
+             border-radius:99px;padding:.22rem .5rem .22rem .65rem;font-size:.72rem;font-weight:700;cursor:pointer">
+      ${escAttr(r.name)}<b style="font-weight:800;opacity:.6">${r.items.length}</b>
+      <i onclick="event.stopPropagation();paletteDrop('${r.id}')" style="font-style:normal;opacity:.55;padding:0 .1rem">×</i></span>`).join("")}
+  </div>`;
+}
 function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:null};
   const d=document.createElement("div"); d.id="ai-modal"; d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:1.2rem;overflow:auto";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:1180px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3);margin-top:2rem">
@@ -15927,6 +16034,11 @@ function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:nul
         <div style="font-size:.72rem;color:var(--tl);margin-top:.15rem">Suggests from <b>your plant book only</b> — no invented plants. Describe what you want.</div></div>
         <button class="btn" onclick="closeAiSuggest()" style="border:none;background:#F1ECE3;color:var(--tm);border-radius:50%;width:28px;height:28px;font-size:1rem;cursor:pointer">✕</button>
       </div>
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem">
+        <span style="font-size:.62rem;color:var(--tl);text-transform:uppercase;font-weight:800;letter-spacing:.08em">Saved searches</span>
+        <button class="btn" onclick="aiSaveQuery()" style="margin-left:auto;padding:.2rem .6rem;font-size:.68rem;background:#fff;border:1px solid #DCCFF0;color:#6A4FA3;border-radius:8px;font-weight:700">＋ Save this search</button>
+      </div>
+      <div id="ai-saved" style="margin-bottom:.5rem"></div>
       <textarea id="ai-prompt" placeholder="e.g. 20 shrubs & grasses for Coto de Caza, low or very-low water, not full sun. Some yellow, some red, some purple flowers. Mix of grasses, shrubs and succulents." style="width:100%;box-sizing:border-box;min-height:78px;font-size:.85rem;padding:.5rem .6rem;border:1px solid var(--br);border-radius:8px;resize:vertical"></textarea>
       <div style="display:flex;gap:.7rem;flex-wrap:wrap;align-items:center;margin:.6rem 0">
         <label style="font-size:.72rem;color:var(--tm)">Total (if no per-type counts): <input id="ai-count" type="number" value="20" min="1" max="60" style="width:52px;font-size:.8rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:5px;text-align:center"></label>
@@ -15953,6 +16065,7 @@ function openAiSuggest(zi){ closeAiSuggest(); _aiState={zi,picks:[],criteria:nul
     </div>`;
   d.addEventListener("mousedown",e=>{ if(e.target===d) closeAiSuggest(); });
   document.body.appendChild(d);
+  try{ _aiRenderSaved(); }catch(e){}
 }
 function closeAiSuggest(){ const h=document.getElementById("ai-modal"); if(h) h.remove(); }
 async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getElementById("ai-results"); const req=(document.getElementById("ai-prompt")||{}).value||"";
@@ -16587,6 +16700,7 @@ function renderPlantingBuilder(){
       <div style="display:${open?'block':'none'}">
       ${header}
       <div style="margin:.2rem 0 .5rem"><button class="btn" onclick="openAiSuggest(${zi})" style="padding:.4rem .85rem;font-size:.82rem;background:linear-gradient(90deg,#6A4FA3,#9161B0);color:#fff;border:none;border-radius:8px;font-weight:600">✨ AI suggestions</button></div>
+      ${paletteBarHTML(zi)}
       ${sub("Shrubs",zd.shrubPct)}
       ${z.shrubRows.length>1?`<div style="display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin:.1rem 0 .45rem;padding:.3rem .5rem;background:#F7F5FB;border:1px solid #E1DAEF;border-radius:8px">
         <span style="font-size:.7rem;font-weight:700;color:var(--gm)">Set all shrubs — size mix %:</span>
