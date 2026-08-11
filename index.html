@@ -2878,7 +2878,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v722</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v723</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9654,6 +9654,91 @@ async function hoaFindAdd(i){
 
 // "All" means every result not already in — including the ones with no documents,
 // because knowing an association exists is itself worth keeping.
+// A city survey spreads four web searches across a dozen associations, so it names
+// them and stops. That leaves records like Shady Canyon — an association and nothing
+// else, which is worthless. This is the second pass: everything aimed at one
+// community, hunting the documents themselves rather than the association.
+let _hoaDeep="";
+async function hoaDeepFind(id){
+  const h=hoaFind(id); if(!h||_hoaDeep) return;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return; }
+  _hoaDeep=id; renderHOA();
+  const label=[h.assoc||h.name,[h.city,h.state].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+  const _stop=_webWaitOpen(label);
+
+  const runSearch=async()=>{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      signal:_webAbort?_webAbort.signal:undefined,
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2600,
+        tools:[{type:"web_search_20250305",name:"web_search",max_uses:6}],
+        system:"You find published homeowners-association documents for a landscape architect. Your job is the documents themselves, not the association. A result without a document URL is a failure — keep searching until you have exhausted the obvious places. Never invent a URL.",
+        messages:[{role:"user",content:`Find every published document for ${label}${h.web?` (website: ${h.web})`:""}.
+
+Search hard, and in this order:
+1. The association's own site — its documents, governing documents, architectural, or resource pages.
+2. Its management company's portal. ${h.notes?`Known: ${h.notes}`:"Find who manages it if the association is not self-managed."} Management portals often publish governing documents publicly even when other pages need a login.
+3. The document files directly: try searches like "${h.name} CC&Rs filetype:pdf", "${h.name} design guidelines pdf", "${h.name} architectural review landscape".
+4. The county recorder or a public HOA-document aggregator for the recorded CC&Rs.
+
+Wanted, in priority order: design guidelines / architectural standards, CC&Rs, approved or prohibited plant lists, landscape submittal requirements and forms.
+
+For each document found give the exact title, the direct URL to the file or the page holding it, its type, and the year or effective date printed on it.
+
+If everything is behind an owner login, say exactly that and name the portal. Do not pad the answer with the association's general information — documents only.`}]})});
+    if(!r.ok) throw new Error("the search service returned "+r.status);
+    const d=await r.json();
+    if(d&&d.error) throw new Error(d.error.message||d.error.type||"the search service refused");
+    return ((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n")||"");
+  };
+
+  let prose="", err="";
+  for(let attempt=0; attempt<2 && !prose && !_webCancelled; attempt++){
+    try{ prose=await runSearch(); err=""; }
+    catch(e){ if(_webCancelled) break; err=(e&&e.message)||"could not reach the search service"; }
+  }
+  if(_webCancelled){ _stop(); _hoaDeep=""; renderHOA(); return; }
+
+  let docs=[], note="";
+  if(prose){
+    try{
+      const r2=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1800,temperature:0,
+          system:"You turn a written answer into structured data. Output only minified JSON.",
+          messages:[{role:"user",content:`Turn this into JSON. Output ONLY minified JSON:
+{"docs":[{"title":"…","url":"https://…","kind":"ccr|drc|arch|plant|sub|other","effective":"YYYY-MM-DD or YYYY or empty"}],"note":"one line, max 18 words, on what could not be found and why"}
+Only a doc that carries a real URL in the text. Never invent a URL or a date.
+
+${prose}`}]})});
+      const d2=await r2.json();
+      const t=((d2.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+      const a2=t.indexOf("{"), b2=t.lastIndexOf("}");
+      if(a2>=0&&b2>a2){ const o=JSON.parse(t.slice(a2,b2+1));
+        docs=(o.docs||[]).filter(d=>d&&d.url&&/^https?:/i.test(d.url)); note=String(o.note||""); }
+    }catch(e){}
+  }
+  _stop(); _hoaDeep="";
+
+  const now=new Date().toISOString(), by=contribName()||"";
+  h.docs=hoaDocs(h);
+  let added=0;
+  docs.forEach(d=>{
+    if(h.docs.some(x=>x&&x.url===d.url)) return;
+    h.docs.unshift({ id:"d"+Date.now().toString(36)+Math.round(Math.random()*1e6).toString(36),
+      title:String(d.title||"Document").slice(0,160),
+      kind:HOA_KINDS.some(k=>k[0]===d.kind)?d.kind:"other",
+      url:d.url, addedAt:now, effective:_hoaEff(d.effective), by, viaAI:true });
+    added++;
+  });
+  // Record what the search concluded even when it found nothing — "behind an owner
+  // login" is a useful answer, and it stops the next person repeating the search.
+  if(note && !added) h.notes=String(note).slice(0,300);
+  renderHOA();
+  if(added) { _toast(`Found ${added} document${added===1?"":"s"} for ${h.name}`,"#3E6B4F"); await hoaPush(); }
+  else { _toast(err?("Search failed: "+err):(note||"No published documents found — they are probably members-only."), "#B8860B");
+         if(note) await hoaPush(); }
+}
+
 function hoaFindSelAll(){
   (HOA_FIND||[]).forEach((r,i)=>{ if(!r._added) HOA_FINDSEL[i]=true; });
   hoaFindRefresh();
@@ -9847,8 +9932,10 @@ function _hoaDetail(h,attached){
     </div>
     <div class="mblk"><h4>${mi("doc")}Documents ${_hoaBusy?`<span class="hoabusy">uploading…</span>`:""}</h4>
       <div class="hoaacts">
-        <button class="spbtn" onclick="hoaUploadPick('${escAttr(h.id)}')">${mi("plus")}Upload a PDF</button>
-        <button class="cbtn" onclick="hoaAddLink('${escAttr(h.id)}')">Link one instead</button>
+        <button class="spbtn" onclick="hoaDeepFind('${escAttr(h.id)}')" ${_hoaDeep?"disabled":""}>
+          ${mi("spark")}${_hoaDeep===h.id?"Searching…":"Find its documents"}</button>
+        <button class="cbtn" onclick="hoaUploadPick('${escAttr(h.id)}')">Upload a PDF</button>
+        <button class="cbtn" onclick="hoaAddLink('${escAttr(h.id)}')">Add a link</button>
       </div>
       ${docs.length?docs.map(d=>{
         const stale=hoaDocStale(d,docs), url=hoaDocURL(d);
@@ -9870,7 +9957,7 @@ function _hoaDetail(h,attached){
           </span>
         </div>`;
       }).join("")
-      :`<div class="hoaempty">No documents yet. Upload the CC&amp;Rs and the design guidelines — the two that decide most of what you can build.</div>`}
+      :`<div class="hoaempty">No documents yet. <b>Find its documents</b> searches the association's own site, its management company's portal and the recorded CC&amp;Rs. If they turn out to be members-only, upload the PDF once you have it.</div>`}
     </div>
   </div>
   <input type="file" id="hoa-file" accept="application/pdf,.pdf" style="display:none" onchange="hoaUpload(this)">`;
