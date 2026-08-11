@@ -1012,7 +1012,9 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
   font:inherit;font-size:12.5px;background:var(--bg);color:inherit}
 .hoaacts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .hoabusy{margin-left:8px;font-size:11px;font-weight:600;color:var(--gold);text-transform:none;letter-spacing:0}
-.hoadoc{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--bg)}
+.hoadoc{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--bg)}
+.hoadoc .t{flex:1 1 220px}
+.hoadoc .a{margin-left:auto}
 .hoadoc.stale{opacity:.72}
 .hoadoc .t{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
 .hoadoc .t b{font-size:13px}
@@ -1028,6 +1030,22 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .hoadoc .t .host{color:var(--tm);font-weight:700}
 .hoadoc .t .ok{color:var(--gm);font-weight:800}
 .hoadoc .t .unk{color:var(--gold);font-weight:800}
+.cbtn.read{border-color:var(--gm);color:var(--gm)}
+.hoax{flex:1 1 100%;margin-top:9px;padding:10px 12px;background:var(--bg);border:1px solid var(--br);border-radius:10px}
+.hoax .sum{font-size:12.5px;color:var(--tx);line-height:1.5;margin-bottom:8px}
+.hoax .xg{margin-top:7px}
+.hoax .xg b{display:block;font-size:10.5px;font-weight:800;color:var(--gm);letter-spacing:.06em;
+  text-transform:uppercase;margin-bottom:3px}
+.hoax .xr{display:block;padding:3px 0;font-size:12.5px}
+.hoax .xr span{display:block;color:var(--tm);font-size:11px}
+.hoax .xr i{font-style:normal;display:block;word-break:break-word}
+.hoax u{text-decoration:none;font-size:10.5px;color:var(--tl);font-weight:700}
+.hoax .chips{display:flex;flex-wrap:wrap;gap:4px}
+.hoax .chips span{background:var(--brand-soft);border:1px solid var(--br);color:var(--gm);
+  border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600}
+.hoax .chips.bad span{background:#FBEDEC;border-color:#E0B4B2;color:#8C3B38}
+.hoax .nf{margin-top:7px;font-size:11px;color:var(--gold)}
+.hoax .src{margin-top:7px;font-size:10.5px;color:var(--tl)}
 .hoaroutes{margin-top:12px;padding:10px 12px;background:var(--bg);border:1px dashed var(--br);border-radius:11px}
 .hoaroutes .k{display:block;font-size:10.5px;font-weight:800;color:var(--tm);letter-spacing:.07em;
   text-transform:uppercase;margin-bottom:6px}
@@ -2903,7 +2921,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v726</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v727</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9707,6 +9725,67 @@ async function _hoaVerify(list){
 // stored bad link is a tap target. This walks a record: re-fetches every link, drops
 // what fails, reclassifies pages as routes, and takes a copy of the real files so the
 // library stops depending on other people's websites.
+// Reading the document itself. Anthropic fetches the PDF from its URL, so nothing
+// passes through the worker as base64 — the archived copy is preferred because it is
+// ours and cannot move. Everything extracted carries the page it came from, because a
+// setback you cannot check is worse than no setback.
+let _hoaAnalyse="";
+const HOA_EXTRACT_SCHEMA=`{
+ "docType":"ccr|drc|arch|plant|sub|other — what this document actually is, judged by reading it",
+ "title":"the document's own title",
+ "effective":"YYYY-MM-DD or YYYY or empty — only if printed in the document",
+ "summary":"two sentences on what it governs for landscape work",
+ "setbacks":[{"what":"front / side / rear / pool / wall / structure","value":"as printed","page":"p.N"}],
+ "plants":{"approved":["botanical or common name"],"prohibited":["…"],"notes":"one line","page":"p.N"},
+ "submittal":{"items":["what must be submitted"],"sheets":"sheet size or empty","copies":"or empty",
+   "fees":"or empty","timeline":"or empty","page":"p.N"},
+ "limits":[{"what":"wall height / fence / turf / lighting / hardscape coverage","value":"as printed","page":"p.N"}],
+ "notFound":["which of the above the document does not address"]
+}`;
+
+async function hoaAnalyse(hid,did){
+  if(_hoaAnalyse) return;
+  const h=hoaFind(hid); if(!h) return;
+  const d=hoaDocs(h).find(x=>x&&x.id===did); if(!d) return;
+  const url=hoaDocURL(d);
+  if(!url){ alert("Nothing to read — this entry has no document."); return; }
+  if(d.route){ alert("That is a portal or search page, not a document. Open it and upload the file you get."); return; }
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return; }
+
+  _hoaAnalyse=did; renderHOA();
+  const _stop=_webWaitOpen("reading “"+(d.title||"the document")+"”");
+  let out=null, err="";
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      signal:_webAbort?_webAbort.signal:undefined,
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:3000,temperature:0,
+        system:"You read homeowners-association and planned-community documents for a landscape architect. Report only what the document actually says. Quote figures exactly as printed. Never infer a number the document does not state — list it under notFound instead. Cite the page for everything.",
+        messages:[{role:"user",content:[
+          {type:"document",source:{type:"url",url}},
+          {type:"text",text:`Extract everything that governs landscape work. Output ONLY minified JSON in this shape:\n${HOA_EXTRACT_SCHEMA}\n\nLeave a list empty rather than guessing. A plant list must be plants the document itself names.`}
+        ]}]})});
+    const dd=await r.json();
+    if(dd&&dd.error) err=dd.error.message||dd.error.type||"the reader refused";
+    const t=((dd.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+    const a2=t.indexOf("{"), b2=t.lastIndexOf("}");
+    if(a2>=0&&b2>a2){ try{ out=JSON.parse(t.slice(a2,b2+1)); }catch(e){ err="the answer was not readable"; } }
+    if(!out&&!err) err="nothing came back";
+  }catch(e){ err=(e&&e.message)||"the request failed"; }
+  _stop(); _hoaAnalyse="";
+
+  if(!out){ renderHOA(); _toast("Could not read it: "+err,"#B23F3C"); return; }
+  d.extract=out; d.extractAt=new Date().toISOString();
+  // The document says what it is far more reliably than the search text around it did.
+  if(out.docType && HOA_KINDS.some(k=>k[0]===out.docType)) d.kind=out.docType;
+  if(!d.effective && out.effective) d.effective=_hoaEff(out.effective);
+  if(out.title && /document|untitled/i.test(d.title||"")) d.title=String(out.title).slice(0,160);
+  renderHOA();
+  const n=(out.setbacks||[]).length+((out.plants&&out.plants.approved)||[]).length+((out.submittal&&out.submittal.items)||[]).length+(out.limits||[]).length;
+  _toast(n?`Read it — ${n} requirement${n===1?"":"s"} pulled out`:"Read it — nothing about landscape in this one","#3E6B4F");
+  await hoaPush();
+}
+
 let _hoaRecheck="";
 async function hoaRecheckOne(id, quiet){
   const h=hoaFind(id); if(!h) return {dropped:0,archived:0,routed:0,ok:0};
@@ -10007,6 +10086,32 @@ function _hoaGridHTML(){
 
 // When an association publishes nothing, the useful answer is who to ask. Rendered
 // whether or not documents were found, because a phone number stays useful.
+// What the document actually requires, with the page beside each figure so you can
+// check it rather than trust it.
+function _hoaExtractHTML(d){
+  const x=d&&d.extract; if(!x) return "";
+  const pg=p=>p?`<u>${escAttr(p)}</u>`:"";
+  const rows=(list,label)=>(list&&list.length)?`<div class="xg"><b>${label}</b>${
+    list.map(r=>`<div class="xr"><span>${escAttr(r.what||"")}</span><i>${escAttr(r.value||"")}</i>${pg(r.page)}</div>`).join("")}</div>`:"";
+  const sub=x.submittal||{}, pl=x.plants||{};
+  const subBits=[["What to submit",(sub.items||[]).join(" · ")],["Sheet size",sub.sheets],
+                 ["Copies",sub.copies],["Fees",sub.fees],["Timeline",sub.timeline]]
+    .filter(r=>String(r[1]||"").trim());
+  return `<div class="hoax">
+    ${x.summary?`<div class="sum">${escAttr(x.summary)}</div>`:""}
+    ${rows(x.setbacks,"Setbacks")}
+    ${rows(x.limits,"Limits")}
+    ${(pl.approved&&pl.approved.length)?`<div class="xg"><b>Approved plants ${pg(pl.page)}</b>
+      <div class="chips">${pl.approved.slice(0,60).map(p=>`<span>${escAttr(p)}</span>`).join("")}</div></div>`:""}
+    ${(pl.prohibited&&pl.prohibited.length)?`<div class="xg"><b>Prohibited</b>
+      <div class="chips bad">${pl.prohibited.slice(0,40).map(p=>`<span>${escAttr(p)}</span>`).join("")}</div></div>`:""}
+    ${subBits.length?`<div class="xg"><b>Submittal ${pg(sub.page)}</b>${
+      subBits.map(r=>`<div class="xr"><span>${escAttr(r[0])}</span><i>${escAttr(r[1])}</i></div>`).join("")}</div>`:""}
+    ${(x.notFound&&x.notFound.length)?`<div class="nf">Not addressed: ${escAttr(x.notFound.join(", "))}</div>`:""}
+    <div class="src">Read by AI ${escAttr(_hoaDate(d.extractAt))} — page numbers are the document's own; check anything you design to.</div>
+  </div>`;
+}
+
 function _hoaContactHTML(h){
   const c=h&&h.contact; if(!c) return "";
   const row=(l,v,href)=>v?`<div class="cline"><span>${l}</span><b>${
@@ -10133,8 +10238,11 @@ function _hoaDetail(h,attached){
           </span>
           <span class="a">
             ${url?`<a class="cbtn" href="${escAttr(url)}" target="_blank" rel="noopener">Open</a>`:""}
+            ${url?`<button class="cbtn read" onclick="hoaAnalyse('${escAttr(h.id)}','${escAttr(d.id)}')" ${_hoaAnalyse?"disabled":""}>
+              ${_hoaAnalyse===d.id?"Reading…":(d.extract?"Re-read":"Read it")}</button>`:""}
             <button class="cbtn" onclick="hoaDocDrop('${escAttr(h.id)}','${escAttr(d.id)}')">Remove</button>
           </span>
+          ${_hoaExtractHTML(d)}
         </div>`;
       }).join("")
       :`<div class="hoaempty">No documents yet. <b>Find its documents</b> searches the association's own site, its management company's portal and the recorded CC&amp;Rs. If they turn out to be members-only, upload the PDF once you have it.</div>`}
