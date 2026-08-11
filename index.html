@@ -1940,9 +1940,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .mchip:hover{border-color:var(--gm)}
 .mchip svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .mcount{background:var(--gm);color:#fff;border-radius:999px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:2px}
-.mdd{position:relative;display:inline-block;z-index:120}
+.mdd{position:relative;display:inline-block}
 .mddm{position:absolute;left:0;top:calc(100% + 7px);background:var(--card);border:1px solid var(--br);
-  border-radius:14px;padding:7px;min-width:244px;z-index:120;display:none;
+  border-radius:14px;padding:7px;min-width:244px;z-index:10050;display:none;
   max-height:min(70vh,560px,calc(100vh - 250px));overflow-y:auto;overscroll-behavior:contain;
   box-shadow:0 20px 44px -22px rgba(0,0,0,.5)}
 .mddm.open{display:block}
@@ -2783,7 +2783,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v716</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v717</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10818,15 +10818,42 @@ function goodsWebHTML(kind){
 // and it collapses so a 13-inch iPad with the summary panel open is not squeezed.
 // Cap any open dropdown to the space actually below it, measured, so it can never
 // run off the bottom of the screen at any width.
-function _ddFit(){
-  document.querySelectorAll(".mddm.open").forEach(m=>{
-    m.style.maxHeight="";
-    const t=m.getBoundingClientRect().top;
-    const room=Math.max(180, window.innerHeight - t - 14);
-    m.style.maxHeight=room+"px";
+// Chrome and Safari both paint the summary panel over this menu at narrow widths
+// despite the menu asking for a far higher layer — the pane it lives in confines it.
+// Rather than fight that, move the open menu out to the body, where its z-index means
+// what it says, and pin it where the stylesheet had put it. Items stop their own
+// clicks, so the close-on-outside-click listener still behaves.
+//
+// `fromRender` matters: only a fresh render can replace the portalled menu. A resize
+// must reposition what is already there, because tearing it down when nothing has
+// re-rendered it leaves no menu at all.
+function _ddFit(fromRender){
+  const fresh=Array.from(document.querySelectorAll(".mddm.open:not([data-portal])"));
+  if(fromRender){
+    document.querySelectorAll("body > .mddm[data-portal]").forEach(n=>n.remove());
+    fresh.forEach(m=>{
+      const r=m.getBoundingClientRect();            // where the stylesheet put it
+      m.setAttribute("data-portal","1");
+      document.body.appendChild(m);
+      _ddPlace(m, r.left, r.top, r.width);
+    });
+    return;
+  }
+  document.querySelectorAll("body > .mddm[data-portal]").forEach(m=>{
+    const r=m.getBoundingClientRect();
+    _ddPlace(m, r.left, r.top, r.width);
   });
+  fresh.forEach(m=>{ const r=m.getBoundingClientRect(); _ddPlace(m, r.left, r.top, r.width); });
 }
-try{ window.addEventListener("resize",()=>{ try{ _ddFit(); }catch(e){} }); }catch(e){}
+function _ddPlace(m,left,top,width){
+  const w=Math.min(width, window.innerWidth-16);
+  m.style.position="fixed";
+  m.style.left=Math.max(8, Math.min(left, window.innerWidth-w-8))+"px";
+  m.style.right="auto";
+  m.style.top=Math.round(top)+"px";
+  m.style.maxHeight=Math.max(180, window.innerHeight - top - 14)+"px";
+}
+try{ window.addEventListener("resize",()=>{ try{ _ddFit(false); }catch(e){} }); }catch(e){}
 
 function matRailOpen(){
   if(PREFS.matRail==="closed") return false;
@@ -11037,9 +11064,9 @@ function matCatList(){ return Object.keys(MAT_CATS).filter(c=>MAT_CATS[c]); }
 function matDDToggle(ev,gid){
   if(ev) ev.stopPropagation();
   _matDD = (_matDD===gid) ? "" : gid;
-  renderMaterials();
+  renderMaterials(); try{ _ddFit(true); }catch(e){}
 }
-document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
+document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} try{ _ddFit(true); }catch(e){} } });
 let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_SPEC=false;
 // Sets, not single values — "blue or neutral", "12x24 or 24x24" is the ordinary way a
 // designer narrows a catalogue, and one-at-a-time made every one of these a dead end.
@@ -11134,7 +11161,7 @@ const matSetModel=goodsSetModel;
 
 function renderMaterials(){
   try{ specResync(); }catch(e){}
-  try{ requestAnimationFrame(_ddFit); }catch(e){}
+  try{ requestAnimationFrame(()=>_ddFit(true)); }catch(e){}
   try{ contribPeek(); }catch(e){}
   const host=document.getElementById("mat-body"); if(!host) return;
   try{ goodsAutoBrands(); }catch(e){}
@@ -11585,7 +11612,7 @@ async function furClaim(id){
 }
 
 function renderFurnishings(){
-  try{ requestAnimationFrame(_ddFit); }catch(e){}
+  try{ requestAnimationFrame(()=>_ddFit(true)); }catch(e){}
   try{ goodsAutoBrands(); }catch(e){}
   try{ goodsAutoPrices(); }catch(e){}
   const host=document.getElementById("fur-body"); if(!host) return;
