@@ -1048,7 +1048,19 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .hoarow .tick{flex:none;width:17px;height:17px;margin-top:2px;display:grid;place-items:center;color:var(--gm)}
 .hoarow .added{font-size:11px;font-weight:800;color:var(--gm);letter-spacing:.03em;text-transform:uppercase}
 .hoares .hd .bulk{margin-left:auto;display:flex;gap:6px}
-.hoares .hd .bulk .go{margin-left:0;background:var(--gm);border-color:var(--gm);color:#fff}
+.hoares .hd .bulk .sel{border:1px solid var(--gm);background:var(--card);color:var(--gm);
+  border-radius:9px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
+.hoares .hd .bulk .sel:hover{background:var(--brand-soft)}
+/* The save is the decision on this panel, so it is sized like one. */
+.hoares .save{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 13px;
+  border-top:1px solid var(--br);background:var(--brand-soft)}
+.hoares .save .big{flex:1 1 260px;background:var(--gm);color:#fff;border:0;border-radius:11px;
+  padding:13px 18px;font-size:14px;font-weight:800;cursor:pointer;letter-spacing:.01em}
+.hoares .save .big:hover{background:var(--gd)}
+.hoares .save .big.off{background:var(--card);color:var(--tl);border:1px dashed var(--br);cursor:default;font-weight:700}
+.hoares .save .back{background:none;border:1px solid var(--br);color:var(--tm);border-radius:11px;
+  padding:13px 16px;font-size:13px;font-weight:700;cursor:pointer;flex:none}
+.hoares .save .back:hover{border-color:var(--gm);color:var(--gm)}
 .hoarow .t{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
 .hoarow .t b{font-size:13.5px}
 .hoarow .t em,.hoarow .t i{font-style:normal;font-size:11.5px;color:var(--tm)}
@@ -2866,7 +2878,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v721</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v722</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9642,6 +9654,28 @@ async function hoaFindAdd(i){
 
 // "All" means every result not already in — including the ones with no documents,
 // because knowing an association exists is itself worth keeping.
+function hoaFindSelAll(){
+  (HOA_FIND||[]).forEach((r,i)=>{ if(!r._added) HOA_FINDSEL[i]=true; });
+  hoaFindRefresh();
+}
+function hoaFindSelNone(){ HOA_FINDSEL={}; hoaFindRefresh(); }
+
+// Saving is the end of the task, so it ends the task: the results close and you are
+// back in the library looking at what you just added.
+async function hoaFindSave(){
+  const list=(HOA_FIND||[]);
+  const take=list.filter((r,i)=>!r._added && HOA_FINDSEL[i]);
+  if(!take.length){ _toast("Tick the ones you want first, or use Select all.","#B23F3C"); return; }
+  let added=0, merged=0;
+  take.forEach(r=>{ if(_hoaFindMerge(r)){ r._added==="merged"?merged++:added++; } });
+  const q=HOA_FINDQ;
+  HOA_FINDSEL={}; HOA_FIND=null; HOA_Q="";
+  renderHOA();
+  try{ document.getElementById("view-hoa").scrollTop=0; }catch(e){}
+  _toast(`${added} saved${merged?` · ${merged} merged into existing`:""} from “${q}” — they are in your library now`,"#3E6B4F");
+  await hoaPush();
+}
+
 async function hoaFindAddMany(which){
   const list=(HOA_FIND||[]);
   const take=list.filter((r,i)=>!r._added && (which==="all"||HOA_FINDSEL[i]));
@@ -9750,10 +9784,10 @@ function _hoaFindHTML(){
     <div class="hd">${mi("spark")}<b>${HOA_FIND.length} found</b>
       <span>for “${escAttr(HOA_FINDQ)}”${left?"":" · all added"}</span>
       ${left?`<span class="bulk">
-        ${sel?`<button class="go" onclick="hoaFindAddMany('sel')">Add selected · ${sel}</button>`:""}
-        <button class="go" onclick="hoaFindAddMany('all')">Add all ${left}</button>
+        <button class="sel" onclick="${sel>=left?"hoaFindSelNone()":"hoaFindSelAll()"}">
+          ${sel>=left?"Clear selection":`Select all ${left}`}</button>
       </span>`:""}
-      <button onclick="hoaFindClear()">Clear</button></div>
+      <button onclick="hoaFindClear()">Close</button></div>
     ${HOA_FIND.map((r,i)=>`<div class="hoarow${r._added?" done":""}${(HOA_FINDSEL[i]&&!r._added)?" sel":""}"
         ${r._added?"":`onclick="hoaFindToggle(${i})"`}>
       ${r._added?`<span class="tick">${mi("check")}</span>`
@@ -9773,6 +9807,11 @@ function _hoaFindHTML(){
           : `<button class="spbtn" onclick="hoaFindAdd(${i})">${mi("plus")}Add${(r.docs||[]).length?` · ${r.docs.length} doc${r.docs.length===1?"":"s"}`:""}</button>`}
       </span></div>`).join("")}
     <div class="ft">Found by AI on the open web — open each document and check it is current before you design to it.</div>
+    <div class="save">
+      <button class="big${sel?"":" off"}" onclick="hoaFindSave()">
+        ${sel?`Save ${sel} ${sel===1?"community":"communities"} to the library`:"Tick the ones you want to keep"}</button>
+      <button class="back" onclick="hoaFindClear()">Back to the library</button>
+    </div>
   </div>`;
 }
 
