@@ -978,6 +978,18 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .tb-ask:hover{background:var(--brand-soft);color:var(--gm);border-color:var(--gm)}
 .tb-ask svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
 
+/* Specify — the action that binds a library product to this project's estimate. */
+.spbtn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--gm);background:var(--gm);color:#fff;
+  border-radius:9px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;line-height:1}
+.spbtn svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.2}
+.spbtn.on{background:var(--brand-soft);color:var(--gm)}
+.spbtn.off{background:var(--card);color:var(--tm);border-color:var(--br)}
+.spbtn.warn{background:#B8860B;border-color:#B8860B}
+.spchip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;
+  background:var(--brand-soft);border:1px solid var(--gm);color:var(--gm);
+  font-size:.62rem;font-weight:800;letter-spacing:.02em;vertical-align:middle;
+  max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 .askwrap{position:fixed;inset:0;z-index:10080;background:rgba(20,28,18,.42);
   display:none;align-items:flex-start;justify-content:center;padding:6vh 16px 16px}
 .askbox{width:min(720px,100%);max-height:82vh;background:var(--card);border:1px solid var(--br);
@@ -2697,7 +2709,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v711</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v712</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -4523,6 +4535,7 @@ const S={
   waterFeatures:[],
   pools:[],
   planting:null,
+  specs:[],                       // materials/furnishings specified on THIS project
   pi:{client:"",project:"",address:"",date:new Date().toISOString().slice(0,10),notes:""},
 };
 
@@ -5077,7 +5090,7 @@ function renderProCatRows(catId){
     row.innerHTML=`
       <div class="lic-h" onclick="toggleProItem('${catId}',${idx},!${!!it.checked})">
         <span class="cb ${it.checked?"on":""}" role="checkbox" aria-checked="${!!it.checked}" tabindex="0"><svg viewBox="0 0 16 16"><polyline points="3.5,8.4 6.6,11.5 12.5,4.8"/></svg></span>
-        <span class="nm">${it.n}<small>${it.u}</small></span>
+        <span class="nm">${it.n}<small>${it.u}</small>${_specChip(it)}</span>
         <span class="amt" id="litot-${tag}">${it.checked?fmtN(tot):`<em>from ${fmtN(it.bd?it.uc:it.lo)}</em>`}</span>
       </div>
       <div class="lic-c" onclick="event.stopPropagation()">
@@ -8091,6 +8104,169 @@ function matInstallRate(m){
   const rate = std>0 ? std : (lo&&hi ? Math.round((lo+hi)/2*100)/100 : (lo||hi||0));
   return rate>0 ? {rate,lo,hi,line:L} : null;
 }
+// ── SPECIFYING A PRODUCT ONTO THIS PROJECT ───────────────────────────────────
+// The library was a catalogue nothing pointed at: you could price 118 tiles and the
+// estimate still carried a generic allowance. A spec binds one product to one
+// estimate line and drives that line's unit cost — material at the price basis you
+// chose, plus the Price Book install rate. The quantity stays where it already
+// lives (the trace, the builder, what you typed), because that is the number that
+// was measured; only the rate becomes real.
+//
+// Per project, not per product: the same tile can be specified on three jobs at
+// three quantities, so the binding lives in S, never on the library record.
+function _specChip(it){
+  if(!it||!it._spec) return "";
+  const rec=projSpecs().find(x=>x&&x.id===it._spec); if(!rec) return "";
+  const m=specGoods(rec.book,rec.gid);
+  const nm=(m&&m.nm)||"specified product";
+  return `<span class="spchip" title="Specified — this rate is ${escAttr(nm)} at ${fmtN(rec.matPer)} plus ${fmtN(rec.labPer)} install">${escAttr(nm)}</span>`;
+}
+
+function specBtnHTML(book,m){
+  const on=specIsOn(m.id);
+  if(on){
+    const rec=specFind(m.id);
+    return `<button class="spbtn on" onclick="specDrop('${escAttr(m.id)}')"
+      title="Specified on ${escAttr(rec.item)} — click to remove">${mi("check")}Specified · ${fmtN(rec.per)}/${escAttr(rec.u)}</button>`;
+  }
+  const priced=!!goodsEstPrice(m);
+  const L=priced?specLineOf(m):null;
+  if(!priced) return `<button class="spbtn off" onclick="alert('Add a price in the Pricing block first — a specification has to carry a real number.')">${mi("plus")}Specify</button>`;
+  if(!L) return `<button class="spbtn off" onclick="matPickLine('${escAttr(m.id)}')" title="Pick the trade line this installs on">${mi("plus")}Specify — pick the trade</button>`;
+  const inst=specInstalled(m);
+  const warn=!inst.rateIsSet;
+  return `<button class="spbtn${warn?" warn":""}" onclick="specAdd('${escAttr(book)}','${escAttr(m.id)}')"
+    title="Drives “${escAttr(L.name)}” at ${fmtN(inst.mat)} material + ${fmtN(inst.lab)} install${warn?" — that install figure is still the section allowance, which already includes material. Set a labour rate on the line first." : ""}">${mi("plus")}Specify on this project · ${fmtN(inst.total)}/${escAttr(L.u)}${warn?" ⚠":""}</button>`;
+}
+
+// Where used: this project reads live; other projects come from the Ask index, which
+// is the only place that knows what a project you are not looking at contains.
+function matWhereUsedHTML(m){
+  const here=specFind(m.id);
+  const others=(PROJ_IDX.projects||[]).filter(p=>p&&(p.specs||[]).some(x=>x&&x.gid===m.id));
+  const line=here?`<div class="mkv"><span>On this project</span><b>${escAttr(here.item)} · ${specQty(here)} ${escAttr(here.u)} · ${fmtN(specQty(here)*here.per)}</b></div>`
+    :`<div class="mkv"><span>On this project</span><b style="color:var(--tl)">Not specified</b></div>`;
+  const idxNote=(PROJ_IDX.projects||[]).length?"":
+    `<div class="mkv"><span style="color:var(--tl)">Other projects appear once you index them — open Ask and run “Index my saved projects”.</span></div>`;
+  return `<div class="mblk"><h4>${mi("store")}Where used</h4>
+    ${line}
+    <div class="mkv"><span>Other projects</span><b>${others.length||"—"}</b></div>
+    ${others.map(p=>{
+      const hit=(p.specs||[]).find(x=>x&&x.gid===m.id)||{};
+      return `<div class="mkv"><span>${escAttr(p.name||p.addr||"project")}</span><b>${hit.qty?hit.qty+" "+escAttr(hit.u||""):"—"}${hit.total?" · "+fmtN(hit.total):""}</b></div>`;
+    }).join("")}
+    ${idxNote}
+  </div>`;
+}
+
+function projSpecs(){ if(!Array.isArray(S.specs)) S.specs=[]; return S.specs; }
+function specGoods(book,gid){ const arr=(book==="furnishings")?FURNISHINGS:MATERIALS; return (arr||[]).find(x=>x&&x.id===gid)||null; }
+function specFind(gid){ return projSpecs().find(sp=>sp&&sp.gid===gid)||null; }
+function specIsOn(gid){ return !!specFind(gid); }
+
+// The estimate line this product belongs on, resolved against the live project.
+function specLineOf(m){
+  const L=matPBLine(m); if(!L) return null;
+  const catId=PB[L.ci]&&PB[L.ci].id; if(!catId) return null;
+  const cs=S.cats[catId]; if(!cs||!cs.items) return null;
+  const idx=cs.items.findIndex(it=>it&&it.n===L.it.n);
+  if(idx<0) return null;
+  return {catId, idx, name:L.it.n, u:cs.items[idx].u||"SF"};
+}
+
+// Installed unit cost: the product at the basis you set, plus labour for that trade.
+function specInstalled(m){
+  const mat=goodsEstPrice(m)||0;
+  const r=matInstallRate(m);
+  const set=!!(r&&r.line&&r.line.it&&+r.line.it.std>0);   // a labour rate you actually set
+  return { mat, lab:(r?r.rate:0), total: Math.round((mat+(r?r.rate:0))*100)/100,
+           hasRate:!!r, rateIsSet:set, line:(r?r.line:null) };
+}
+
+function specAdd(book,gid){
+  const m=specGoods(book,gid); if(!m) return false;
+  if(specIsOn(gid)){ specDrop(gid); return false; }
+  if(!goodsEstPrice(m)){ alert("This product has no price yet.\n\nAdd one in the Pricing block and it can be specified."); return false; }
+  const L=specLineOf(m);
+  if(!L){ alert("No estimate line matches this product yet.\n\nUse “Wrong trade? Rate” on the item to pick the line it installs on, then specify it."); return false; }
+  const it=S.cats[L.catId].items[L.idx];
+  const inst=specInstalled(m);
+  let seeded=0;
+  if(!(+it.q>0)){
+    try{ const A=matAreaAuto(m); seeded=(+m.areaSF>0)?Math.round(+m.areaSF):(A&&A.sf?A.sf:0); }catch(e){}
+  }
+  // Remember what the line was doing so removing the spec puts it back exactly.
+  const rec={ id:"sp"+Date.now().toString(36)+Math.round(performance.now()%1000),
+    gid, book, cat:L.catId, item:L.name, idx:L.idx, u:L.u,
+    matPer:inst.mat, labPer:inst.lab, per:inst.total, rateIsSet:inst.rateIsSet,
+    wasUC:it.uc, wasChecked:!!it.checked, wasQ:(+it.q||0), at:new Date().toISOString() };
+  projSpecs().push(rec);
+  it.uc=inst.total; it.checked=true; it._spec=rec.id;
+  if(seeded>0) it.q=seeded;
+  S.cats[L.catId].on=true;
+  specRefresh(L.catId);
+  const warn = !inst.hasRate ? " — no install rate found, material only"
+    : !inst.rateIsSet ? " — install uses the section allowance, which already includes material. Set a labour rate on that line so it is not counted twice."
+    : "";
+  _toast(`${m.nm} specified · ${L.name} at ${fmtN(inst.total)}/${L.u}${seeded>0?` on ${seeded} ${L.u}`:""}${warn}`,
+    warn?"#B8860B":"#3E6B4F");
+  return true;
+}
+
+function specDrop(gid){
+  const i=projSpecs().findIndex(sp=>sp&&sp.gid===gid); if(i<0) return;
+  const rec=S.specs[i];
+  const cs=S.cats[rec.cat];
+  // Only restore a line that is still the one this spec drove. If you have since
+  // retuned it by hand, your number stays.
+  if(cs&&cs.items&&cs.items[rec.idx]&&cs.items[rec.idx]._spec===rec.id){
+    const it=cs.items[rec.idx];
+    it.uc=rec.wasUC; it.checked=rec.wasChecked; delete it._spec;
+    if(rec.wasQ!=null && !(+rec.wasQ>0) && +it.q>0) it.q=rec.wasQ;   // undo only the quantity we seeded
+  }
+  S.specs.splice(i,1);
+  specRefresh(rec.cat);
+  _toast("Specification removed — that line is back to its allowance.","#3E6B4F");
+}
+
+// Prices and install rates change under a spec (a sale lands, you edit the Price
+// Book). Re-price every bound line rather than leaving stale numbers in an estimate.
+function specResync(){
+  let n=0;
+  projSpecs().forEach(rec=>{
+    const m=specGoods(rec.book,rec.gid); if(!m) return;
+    const cs=S.cats[rec.cat]; const it=cs&&cs.items&&cs.items[rec.idx];
+    if(!it||it._spec!==rec.id) return;
+    const inst=specInstalled(m);
+    if(Math.round(inst.total*100)!==Math.round(rec.per*100)){
+      rec.matPer=inst.mat; rec.labPer=inst.lab; rec.per=inst.total; it.uc=inst.total; n++;
+    }
+  });
+  return n;
+}
+
+function specRefresh(catId){
+  try{ if(catId&&typeof renderProCatRows==="function") renderProCatRows(catId); }catch(e){}
+  try{ refreshCatTotals(catId); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+  try{ renderTotal(); }catch(e){}
+  try{ if(document.getElementById("mat-host")) renderMaterials(); }catch(e){}
+}
+
+// What a spec is worth on this project — the line's own quantity is the honest one.
+function specQty(rec){
+  const cs=S.cats[rec.cat]; const it=cs&&cs.items&&cs.items[rec.idx];
+  return (it&&it.checked)?(+it.q||0):0;
+}
+function specSummary(){
+  return projSpecs().map(rec=>{
+    const m=specGoods(rec.book,rec.gid);
+    const q=specQty(rec);
+    return { rec, m, qty:q, total:Math.round(q*rec.per),
+      nm:(m&&m.nm)||"(removed from the library)", brand:(m&&(m.brand||m.sup))||"" };
+  });
+}
+
 async function matSetInstall(id){
   const m=matFind(id); if(!m) return;
   const L=matPBLine(m);
@@ -9487,6 +9663,7 @@ function matCrumbHTML(list){
   const ss=_selList(MAT_SIZESEL); if(ss.length) path=(path?path+" · ":"")+ss.map(k=>k.replace("x","×")+"″").join("/");
   if(MAT_PMIN||MAT_PMAX) path = (path?path+" · ":"") + matPriceLabel();
   if(MAT_SALE) path = (path?path+" · ":"") + "On sale";
+  if(MAT_SPEC) path = (path?path+" · ":"") + "Specified here";
   if(MAT_USE)  path = (path?path+" · ":"") + (MAT_USE==="outdoor"?"Outdoor":"Indoor");
   return `<div class="gcrumb">${path?`Showing <b>${escAttr(path)}</b> · `:""}${list.length} of ${tot}
     ${path?`<button onclick="matClearAll()">clear</button>`:""}</div>`;
@@ -10197,12 +10374,12 @@ function matFilterCount(){
   let n=0;
   n+=matCatList().length; if(MAT_GRP&&!matCatList().length) n++;
   n+=_selList(MAT_KINDSEL).length + _selList(MAT_HUESEL).length + _selList(MAT_SIZESEL).length;
-  if(MAT_PMIN||MAT_PMAX) n++; if(MAT_SALE) n++; if(MAT_USE) n++;
+  if(MAT_PMIN||MAT_PMAX) n++; if(MAT_SALE) n++; if(MAT_USE) n++; if(MAT_SPEC) n++;
   return n;
 }
 function matClearAll(){
   MAT_GRP=""; MAT_CATS={}; MAT_KINDSEL={}; MAT_HUESEL={}; MAT_SIZESEL={};
-  MAT_PMIN=0; MAT_PMAX=0; MAT_PEXCL=false; MAT_SALE=false; MAT_USE="";
+  MAT_PMIN=0; MAT_PMAX=0; MAT_PEXCL=false; MAT_SALE=false; MAT_USE=""; MAT_SPEC=false;
   renderMaterials();
 }
 function _railItem(on,label,count,onclick){
@@ -10261,6 +10438,8 @@ function matRailHTML(){
     <div class="prends"><span>$${B.lo}</span><b id="mat-prcount">${list_n} material${list_n===1?"":"s"}</b><span>$${B.hi}</span></div>
 
     <div class="rg">Also</div>
+    ${(()=>{const nSpec=MATERIALS.filter(x=>specIsOn(x.id)).length;
+      return nSpec?_railItem(MAT_SPEC,"Specified here",nSpec,"MAT_SPEC=!MAT_SPEC;renderMaterials()"):"";})()}
     ${_railItem(MAT_SALE,"On sale",nSale,"MAT_SALE=!MAT_SALE;renderMaterials()")}
     ${nOut?_railItem(MAT_USE==="outdoor","Outdoor",nOut,"matSetUse('outdoor')"):""}
     ${nIn?_railItem(MAT_USE==="indoor","Indoor",nIn,"matSetUse('indoor')"):""}
@@ -10394,7 +10573,7 @@ function matDDToggle(ev,gid){
   renderMaterials();
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} } });
-let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false;
+let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_SPEC=false;
 // Sets, not single values — "blue or neutral", "12x24 or 24x24" is the ordinary way a
 // designer narrows a catalogue, and one-at-a-time made every one of these a dead end.
 let MAT_HUESEL={}, MAT_KINDSEL={}, MAT_SIZESEL={};
@@ -10466,7 +10645,7 @@ function matInSize(m){
 function matInHue(m){ const sel=_selList(MAT_HUESEL); return !sel.length || sel.indexOf(matHueOf(m))>=0; }
 function matInKind(m){ const sel=_selList(MAT_KINDSEL); return !sel.length || sel.indexOf(goodsMat(m))>=0; }
 function matInView(m){ return matInGroup(m) && matInPrice(m) && matInUse(m)
-  && (!MAT_SALE || goodsSaleLive(m)) && matInHue(m) && matInKind(m) && matInSize(m); }
+  && (!MAT_SALE || goodsSaleLive(m)) && (!MAT_SPEC || specIsOn(m.id)) && matInHue(m) && matInKind(m) && matInSize(m); }
 function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
 function matBack(){ MAT_OPEN=null; renderMaterials(); }
 function matTab(t){ MAT_TAB=t; renderMaterials(); }
@@ -10487,6 +10666,7 @@ function goodsSetModel(v){ try{ setEarn("model",v); }catch(e){ S.earn=S.earn||{}
 const matSetModel=goodsSetModel;
 
 function renderMaterials(){
+  try{ specResync(); }catch(e){}
   const host=document.getElementById("mat-body"); if(!host) return;
   try{ goodsAutoBrands(); }catch(e){}
   try{ goodsAutoPrices(); }catch(e){}
@@ -10623,11 +10803,7 @@ function _matDetail(host){
       ${goodsDocsHTML(m)}
       ${kv([["CSI specification",m.csi]])}</div>`;
   } else if(MAT_TAB==="used"){
-    body=`<div class="mblk"><h4>${mi("store")}Where used</h4>
-      <div class="mkv"><span>Your projects</span><b>—</b></div>
-      <div class="mkv"><span>Total specified</span><b>—</b></div>
-      <div class="mkv"><span>Earned to date</span><b>—</b></div>
-      <div class="mkv"><span style="color:var(--tl)">Fills in once you specify this on a project</span></div></div>`;
+    body=matWhereUsedHTML(m);
   } else {
     const alts=MATERIALS.filter(x=>x.id!==m.id && x.cat===m.cat && goodsPriced(x));
     body=alts.length?`<div class="mtwo">${alts.map(a=>`
@@ -10642,7 +10818,7 @@ function _matDetail(host){
   host.innerHTML=`
    <div class="mcrumb"><button onclick="matBack()">${mi("back")}All materials</button>
      <span class="sep">${escAttr(m.cat)}</span>${mi("chev")}<span class="sep">${escAttr(m.nm)}</span></div>
-   <div class="macts">${goodsSourceBtn(m)}
+   <div class="macts">${specBtnHTML("materials",m)}${goodsSourceBtn(m)}
      <span class="sp"><button class="mdel" onclick="goodsDelete('materials','${m.id}')">${mi("trash")}Delete</button></span></div>
    <div class="mshots${_shots.length?" tap":""}">
      <i style="${goodsShotStyle(m,_shots[0],m.cols[0])}" ${_shots[0]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',0)"`:""}></i>
@@ -22712,6 +22888,20 @@ function _digPlants(st,embed){
   return out.slice(0,150);
 }
 
+// Specified products, with what they cost on this job. Named, because a name is what
+// you ask by — "which jobs used Oceanside glass tile".
+function _digSpecs(st){
+  return (st.specs||[]).map(sp=>{
+    const arr=(sp.book==="furnishings")?FURNISHINGS:MATERIALS;
+    const m=(arr||[]).find(x=>x&&x.id===sp.gid);
+    const cs=st.cats&&st.cats[sp.cat]; const it=cs&&cs.items&&cs.items[sp.idx];
+    const qty=(it&&it.checked)?Math.round(+it.q||0):0;
+    return { gid:sp.gid, book:sp.book,
+      name:_digTrim(m?m.nm:"(no longer in the library)",80),
+      brand:_digTrim(m?(m.brand||m.sup):"",50),
+      line:_digTrim(sp.item,60), u:sp.u, per:sp.per, qty, total:Math.round(qty*(+sp.per||0)) };
+  }).slice(0,60);
+}
 function _digPools(st){
   return (st.pools||[]).map(p=>({
     title:_digTrim(p.title,40), shell:p.shell,
@@ -22751,6 +22941,7 @@ function projDigestFrom(st, embed, meta){
     pools:_digPools(st), pergolas:_digPergolas(st),
     water:(st.waterFeatures||[]).map(w=>_digTrim(w.title||w.kind,40)).slice(0,6),
     kitchens:(st.kitchens||[]).length, walls:(st.walls||[]).length,
+    specs:_digSpecs(st),
   };
 }
 
@@ -22909,8 +23100,9 @@ Rules:
 Reply with STRICT JSON only, no code fence:
 {"answer":"<plain text, may use - bullets and line breaks>",
  "projects":["<id of each project your answer is about>"],
- "copy":{"projectId":"<id>","what":"pergolas|pools|kitchens|walls|waterFeatures|planting"}}
+ "copy":{"projectId":"<id>","what":"pergolas|pools|kitchens|walls|waterFeatures|planting|specs"}}
 Use "planting" when they want that project's plant palette or plant list brought into this one.
+Use "specs" when they want the materials or products specified on that project brought into this one.
 Include "copy" ONLY when the person asks to reuse or copy something from a named project. Otherwise omit it.`;
 
 async function askRun(){
@@ -22967,6 +23159,27 @@ function askRenderAnswer(q,out){
 // rather than being appended, and this project may have several zones to choose
 // between. Plants the source project carried but this book has never seen come
 // with it — otherwise half the palette would silently vanish.
+// A spec cannot be copied as a record — it points at an estimate line index in the
+// project it came from. Only the product travels; it is re-bound here, against this
+// project's own lines and today's price.
+function _askSpecsFrom(bid){
+  const src=(bid.S&&bid.S.specs)||[];
+  if(!src.length){ _toast("That project has no specified materials.","#B23F3C"); return; }
+  let n=0, skip=[];
+  src.forEach(sp=>{
+    if(!sp||!sp.gid) return;
+    if(specIsOn(sp.gid)) return;                     // already specified here
+    const m=specGoods(sp.book,sp.gid);
+    if(!m){ skip.push("not in your library"); return; }
+    if(!goodsEstPrice(m)){ skip.push(m.nm+" has no price"); return; }
+    if(!specLineOf(m)){ skip.push(m.nm+" has no matching estimate line"); return; }
+    if(specAdd(sp.book,sp.gid)) n++;
+  });
+  _toast(n?`${n} product${n===1?"":"s"} specified here`+(skip.length?` · ${skip.length} skipped`:"")
+          :"Nothing could be specified — "+(skip[0]||"already on this project"), n?"#3E6B4F":"#B23F3C");
+  askClose();
+}
+
 let _askPal=null;
 function _askPlantingFrom(bid, projId){
   const zonesSrc=(bid.S.planting&&bid.S.planting.zones)||[];
@@ -23022,7 +23235,7 @@ function _askPlantingApply(zi){
   askClose();
 }
 
-function _askWhatLabel(w){ return ({pergolas:"the pergola",pools:"the pool",kitchens:"the kitchen",walls:"the walls",waterFeatures:"the water feature",planting:"the plant palette"})[w]||w; }
+function _askWhatLabel(w){ return ({pergolas:"the pergola",pools:"the pool",kitchens:"the kitchen",walls:"the walls",waterFeatures:"the water feature",planting:"the plant palette",specs:"the specified materials"})[w]||w; }
 
 function askOpenProject(id){ askClose(); cloudLoadBid(id); }
 
@@ -23039,6 +23252,7 @@ async function askCopyFrom(id,what){
   if(st) st.textContent="";
   if(!bid||!bid.S){ _toast("Could not read that project.","#B23F3C"); return; }
   if(what==="planting"){ _askPlantingFrom(bid, id); return; }
+  if(what==="specs"){ _askSpecsFrom(bid); return; }
   const src=bid.S[what];
   if(!Array.isArray(src)||!src.length){ _toast("Nothing of that kind in it.","#B23F3C"); return; }
   if(!Array.isArray(S[what])) S[what]=[];
@@ -23226,6 +23440,7 @@ function saveBid(){ try{
   }catch(e){ alert("Couldn't save the bid: "+e.message); } }
 function loadBidFile(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ restoreBid(JSON.parse(r.result)); }catch(e){ alert("Could not read that bid file."); } }; r.readAsText(f); }
 function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a saved bid file."); return; }
+  try{ specResync(); }catch(e){}
   if(bid.plants){ try{ ["shrub","gc","tree","palm"].forEach(kind=>{ PLANT_DB[kind]=PLANT_DB[kind]||[]; (bid.plants[kind]||[]).forEach(pl=>{ if(pl&&pl.id){ const i=PLANT_DB[kind].findIndex(x=>x.id===pl.id); if(i>=0) PLANT_DB[kind][i]=JSON.parse(JSON.stringify(pl)); else PLANT_DB[kind].push(JSON.parse(JSON.stringify(pl))); } }); }); if(typeof plantBookSave==="function") plantBookSave(); }catch(e){} }
   const src=bid.S; Object.keys(src).forEach(k=>{ try{ S[k]=src[k]; }catch(e){} });
   if(bid.trace&&typeof PT!=="undefined"){ PT.polys=bid.trace.polys||[]; PT.trees=bid.trace.trees||[]; if(bid.trace.ppf!=null) PT.ppf=bid.trace.ppf; if(bid.trace.subtype) PT.subtype=bid.trace.subtype; if(bid.trace.pdf) PT.pdfData=bid.trace.pdf; }
