@@ -150,6 +150,29 @@ export default {
                       https: /^https:/i.test(finalUrl), finalUrl });
       }
 
+      // Take a copy of a document the association publishes. Associations reorganise
+      // their sites and delete superseded CC&Rs — and a superseded CC&R is exactly the
+      // one you need when an approval was granted under it. Streamed straight to R2:
+      // these run to tens of megabytes and must never pass through JSON.
+      if (b.type === "archive") {
+        if (!env.ADMIN_KEY || b.key !== env.ADMIN_KEY) return json({ ok: false, error: "not authorised" }, 403);
+        if (!env.DOCS) return json({ ok: false, error: "document storage not bound" }, 500);
+        const u = String(b.url || "");
+        if (!/^https:\/\//i.test(u)) return json({ ok: false, error: "only https can be archived" }, 400);
+        let r;
+        try { r = await fetch(u, { redirect: "follow", signal: AbortSignal.timeout(25000) }); }
+        catch (e) { return json({ ok: false, error: "could not fetch: " + ((e && e.message) || "failed") }, 502); }
+        if (!r.ok) return json({ ok: false, error: "the site returned " + r.status }, 502);
+        const ct = (r.headers.get("Content-Type") || "application/pdf").toLowerCase();
+        const len = +(r.headers.get("Content-Length") || 0);
+        if (len && len > 100 * 1024 * 1024) return json({ ok: false, error: "too large to archive (" + Math.round(len / 1048576) + "MB)" }, 413);
+        if (/text\/html/.test(ct)) return json({ ok: false, error: "that address serves a web page, not a document" }, 415);
+        const id = String(b.id || ("arch" + Date.now().toString(36)));
+        await env.DOCS.put("hoa/" + id, r.body, { httpMetadata: { contentType: ct } });
+        const head = await env.DOCS.head("hoa/" + id);
+        return json({ ok: true, id, size: head ? head.size : len, ct });
+      }
+
       // Read the whole index. Small enough to send in one go, which is the point.
       if (b.type === "loadindex") {
         const raw = await env.GOODS.get(IDX_KEY);

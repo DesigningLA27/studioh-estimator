@@ -989,6 +989,10 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .hoaadd{display:inline-flex;align-items:center;gap:6px;background:var(--gm);color:#fff;border:0;
   border-radius:10px;padding:9px 14px;font-size:12.5px;font-weight:700;cursor:pointer}
 .hoaadd svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.4}
+.hoachk{border:1px solid var(--gm);background:var(--card);color:var(--gm);border-radius:10px;
+  padding:9px 13px;font-size:12.5px;font-weight:700;cursor:pointer}
+.hoachk:hover{background:var(--brand-soft)}
+.hoachk:disabled{opacity:.6;cursor:default}
 .hoagrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:13px;margin-top:16px}
 .hoacard{position:relative;display:flex;flex-direction:column;gap:3px;text-align:left;cursor:pointer;
   background:var(--card);border:1px solid var(--br);border-radius:13px;padding:14px;font:inherit;color:inherit}
@@ -2899,7 +2903,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v725</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v726</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9699,6 +9703,70 @@ async function _hoaVerify(list){
   }));
   return out;
 }
+// Everything saved before links were verified is still sitting there unchecked, and a
+// stored bad link is a tap target. This walks a record: re-fetches every link, drops
+// what fails, reclassifies pages as routes, and takes a copy of the real files so the
+// library stops depending on other people's websites.
+let _hoaRecheck="";
+async function hoaRecheckOne(id, quiet){
+  const h=hoaFind(id); if(!h) return {dropped:0,archived:0,routed:0,ok:0};
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  const docs=hoaDocs(h);
+  const links=docs.filter(d=>d&&d.url&&!d.file);        // already-uploaded files need nothing
+  let dropped=0, archived=0, routed=0, ok=0;
+  for(const d of links){
+    const r=await _goodsCall({type:"checkurl",url:d.url});
+    if(!r||r.err||!r.safe){ d._kill=true; dropped++; continue; }
+    d.url=r.finalUrl||d.url; d.checkedAt=new Date().toISOString();
+    if(!r.isFile){ if(!d.route){ d.route=true; d.kind="route"; d.effective=""; routed++; } ok++; continue; }
+    if(d.route){ d.route=false; if(d.kind==="route") d.kind="other"; }
+    d.size=r.bytes||d.size||0; ok++;
+    // Keep our own copy. A failure here is not a failure of the link — it stays a link.
+    if(key && !d.file){
+      const fid=h.id+"_a"+Date.now().toString(36)+Math.round(Math.random()*1e4).toString(36);
+      const a=await _goodsCall({type:"archive",key,id:fid,url:d.url});
+      if(a&&!a.err&&a.ok){ d.file=fid; d.size=a.size||d.size; d.archivedAt=new Date().toISOString(); archived++; }
+      else d.archiveFail=(a&&(a.error||a.err))||"could not copy";
+    }
+  }
+  if(dropped) h.docs=docs.filter(d=>!d._kill);
+  else docs.forEach(d=>{ delete d._kill; });
+  if(!quiet){
+    const bits=[];
+    if(ok) bits.push(`${ok} checked`);
+    if(archived) bits.push(`${archived} copied here`);
+    if(routed) bits.push(`${routed} reclassified as routes`);
+    if(dropped) bits.push(`${dropped} dropped as unsafe`);
+    _toast(bits.length?bits.join(" · "):"Nothing to check", dropped?"#B8860B":"#3E6B4F");
+  }
+  return {dropped,archived,routed,ok};
+}
+async function hoaRecheck(id){
+  if(_hoaRecheck) return;
+  _hoaRecheck=id; renderHOA();
+  const _stop=_webWaitOpen("checking and copying documents");
+  try{ await hoaRecheckOne(id); }catch(e){}
+  _stop(); _hoaRecheck=""; renderHOA();
+  await hoaPush();
+}
+// The whole library at once, because the unchecked rows are spread across every
+// record added before verification existed.
+async function hoaRecheckAll(){
+  if(_hoaRecheck) return;
+  if(!confirm(`Check every link in all ${HOA.length} communities?\n\nUnsafe links are removed, portals are reclassified, and real documents are copied here so they cannot rot.`)) return;
+  _hoaRecheck="*"; renderHOA();
+  const _stop=_webWaitOpen("checking the whole library");
+  let D=0,A=0,R=0,K=0;
+  for(const h of HOA.slice()){
+    const st=document.getElementById("webwait-s");
+    if(st) st.textContent=h.name;
+    try{ const r=await hoaRecheckOne(h.id,true); D+=r.dropped; A+=r.archived; R+=r.routed; K+=r.ok; }catch(e){}
+  }
+  _stop(); _hoaRecheck=""; renderHOA();
+  _toast(`${K} links checked · ${A} copied here · ${R} reclassified · ${D} dropped as unsafe`, D?"#B8860B":"#3E6B4F");
+  await hoaPush();
+}
+
 function _hoaHost(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
 async function hoaDeepFind(id){
   const h=hoaFind(id); if(!h||_hoaDeep) return;
@@ -9898,6 +9966,7 @@ function renderHOA(){
         ${states.map(st=>`<button class="${HOA_STATE===st?"on":""}" onclick="HOA_STATE='${escAttr(st)}';renderHOA()">${escAttr(st)}</button>`).join("")}
       </span>`:""}
       <button class="hoaadd" onclick="hoaAdd()">${mi("plus")}Add a community</button>
+      ${HOA.some(h=>hoaDocs(h).some(d=>d&&d.url&&!d.file))?`<button class="hoachk" onclick="hoaRecheckAll()" ${_hoaRecheck?"disabled":""}>${_hoaRecheck==="*"?"Checking…":"Check all links"}</button>`:""}
     </div>
     <div class="hoafind">
       <span class="lb">${mi("spark")}Find guidelines on the web</span>
@@ -10041,6 +10110,8 @@ function _hoaDetail(h,attached){
           ${mi("spark")}${_hoaDeep===h.id?"Searching…":"Find its documents"}</button>
         <button class="cbtn" onclick="hoaUploadPick('${escAttr(h.id)}')">Upload a PDF</button>
         <button class="cbtn" onclick="hoaAddLink('${escAttr(h.id)}')">Add a link</button>
+        ${all.some(d=>d&&d.url&&!d.file)?`<button class="cbtn" onclick="hoaRecheck('${escAttr(h.id)}')" ${_hoaRecheck?"disabled":""}>
+          ${_hoaRecheck===h.id?"Checking…":"Check &amp; copy links"}</button>`:""}
       </div>
       ${_hoaContactHTML(h)}
       ${docs.length?docs.map(d=>{
@@ -10052,7 +10123,9 @@ function _hoaDetail(h,attached){
               ${HOA_KINDS.map(([k,l])=>`<option value="${k}"${d.kind===k?" selected":""}>${l}</option>`).join("")}
             </select>
             <em>Added ${escAttr(_hoaDate(d.addedAt))}${d.by?" by "+escAttr(d.by):""}${d.size?" · "+escAttr(_hoaSize(d.size)):""}${
-              d.url?` · <span class="host">${escAttr(_hoaHost(d.url))}</span>${d.checkedAt?` <span class="ok" title="Fetched and its certificate checked ${escAttr(_hoaDate(d.checkedAt))}">checked</span>`:` <span class="unk" title="Added before links were checked">unchecked</span>`}`:" · uploaded here"}</em>
+              d.url?` · <span class="host">${escAttr(_hoaHost(d.url))}</span>${d.checkedAt?` <span class="ok" title="Fetched and its certificate checked ${escAttr(_hoaDate(d.checkedAt))}">checked</span>`:` <span class="unk" title="Added before links were checked">unchecked</span>`}${
+              d.file?` · <span class="ok" title="A copy is stored here, so it survives the association changing its site">copy kept</span>`
+                :(d.archiveFail?` · <span class="unk" title="${escAttr(d.archiveFail)}">no copy</span>`:"")}`:" · uploaded here"}</em>
             <label class="hoaeff">Effective
               <input type="date" value="${escAttr(String(d.effective||"").slice(0,10))}"
                 onchange="hoaDocSet('${escAttr(h.id)}','${escAttr(d.id)}','effective',this.value)"></label>
