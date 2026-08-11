@@ -978,6 +978,31 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .tb-ask:hover{background:var(--brand-soft);color:var(--gm);border-color:var(--gm)}
 .tb-ask svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
 
+/* Community contributions — the review desk and the quiet per-item offers. */
+.cbtns{display:inline-flex;gap:6px;flex-wrap:wrap}
+.cbtn{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:9px;
+  padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;line-height:1}
+.cbtn:hover{border-color:var(--gm);color:var(--gm)}
+.cqr{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--bg)}
+.cqk{flex:none;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--br);color:var(--tm);margin-top:2px}
+.cqk.add{background:var(--brand-soft);border-color:var(--gm);color:var(--gm)}
+.cqk.fix{background:#FBF3E2;border-color:#B8860B;color:#8A6508}
+.cqt{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.cqt b{font-size:13px}
+.cqt em,.cqt i,.cqt u{font-style:normal;text-decoration:none;font-size:11.5px;color:var(--tm)}
+.cqt i{color:var(--tl)}
+.cqt u{color:var(--gm);font-weight:700}
+.cqt u.warn{color:#B8860B}
+.cqa{flex:none;display:flex;gap:6px;align-items:center}
+.cqok,.cqno{border-radius:9px;padding:6px 12px;font-size:11.5px;font-weight:700;cursor:pointer;border:1px solid}
+.cqok{background:var(--gm);border-color:var(--gm);color:#fff}
+.cqno{background:var(--card);border-color:var(--br);color:var(--tm)}
+.cqno:hover{border-color:#B23F3C;color:#B23F3C}
+.cqs{font-size:11px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+.cqs.accept{color:var(--gm)} .cqs.reject{color:#B23F3C} .cqs.pending{color:var(--tl)}
+@media(max-width:620px){ .cqr{flex-wrap:wrap} .cqa{width:100%;justify-content:flex-end} }
+
 /* Specification Schedule — the deliverable a specification exists to produce. */
 .ssw{position:fixed;inset:0;z-index:10090;background:rgba(20,28,18,.5);
   display:flex;align-items:flex-start;justify-content:center;padding:4vh 16px 16px}
@@ -2757,7 +2782,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v714</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v715</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9244,6 +9269,226 @@ async function _goodsCall(payload){
     return Object.assign({},d||{},{err:(d&&d.error)||"failed"});
   }catch(e){ return {err:(e&&e.message)||"unreachable"}; }
 }
+// ── COMMUNITY CONTRIBUTIONS ──────────────────────────────────────────────────
+// A library that only one person can add to is a catalogue. Anyone holding the link
+// can submit an addition or a correction; nothing reaches the master book until it is
+// reviewed, because the first rule here is that a price is right. The queue is
+// readable only with the admin key, so a contributor sees their own submissions and
+// no one else's — a review desk, not a forum.
+let CONTRIB=[], _contribBusy=false, CONTRIB_FILTER="pending";
+// Read the queue once per session so the Tools menu can show a real count, rather
+// than a badge that only appears after you have already gone looking.
+let _contribPeeked=false;
+function contribPeek(){
+  if(_contribPeeked||!_contribIsAdmin()) return;
+  _contribPeeked=true;
+  contribPull().then(()=>{ if(contribPendingCount()) { try{ renderMaterials(); }catch(e){} } });
+}
+
+function contribName(){ try{ return localStorage.getItem("studioh_contrib_name")||""; }catch(e){ return ""; } }
+function contribSetName(v){ try{ localStorage.setItem("studioh_contrib_name",String(v||"").slice(0,60)); }catch(e){} }
+function _contribIsAdmin(){ try{ return !!localStorage.getItem("studioh_admin_key"); }catch(e){ return false; } }
+
+// Submitting is the open half. No key, by design.
+async function contribSubmit(book,kind,item,note,targetId){
+  let by=contribName();
+  if(!by){
+    by=await appAsk({title:"Who is this from?",
+      hint:"Your name travels with the contribution so it can be credited — and traced back if it turns out wrong.",
+      placeholder:"e.g. Warwick, Studio H", ok:"Save"});
+    if(by===null) return false;
+    by=String(by).trim(); if(!by) return false;
+    contribSetName(by);
+  }
+  const d=await _goodsCall({type:"submit",book,kind,by,note:note||"",targetId:targetId||"",item});
+  if(d&&d.ok){ _toast("Sent for review — thank you.","#3E6B4F"); return true; }
+  _toast("Could not send: "+((d&&d.err)||"unknown"),"#B23F3C");
+  return false;
+}
+
+// Offer the record you are looking at to the shared library, or flag what is wrong
+// with it. Same queue, different intent.
+async function contribOffer(book,id){
+  const x=_goodsArr(book).find(r=>r&&r.id===id); if(!x) return;
+  const note=await appAsk({title:"Contribute “"+(x.nm||"this item")+"”",
+    hint:"It goes to the shared library for every designer, once reviewed. Anything the reviewer should know?",
+    placeholder:"e.g. priced from a January 2026 trade quote", ok:"Send for review"});
+  if(note===null) return;
+  await contribSubmit(book,"add",JSON.parse(JSON.stringify(x)),note,id);
+}
+async function contribFix(book,id){
+  const x=_goodsArr(book).find(r=>r&&r.id===id); if(!x) return;
+  const note=await appAsk({title:"Suggest a correction",
+    hint:"What is wrong with “"+(x.nm||"this item")+"”? A stale price is the most useful thing you can report.",
+    placeholder:"e.g. MSRP is now $42/sf, confirmed with the rep", ok:"Send for review"});
+  if(note===null||!String(note).trim()) return;
+  await contribSubmit(book,"fix",{id:x.id,nm:x.nm,brand:x.brand||"",sup:x.sup||"",msrp:x.msrp||0},note,id);
+}
+
+// Quiet buttons — contributing is generous, not the main action on the page.
+function goodsContribBtns(book,x){
+  if(!x||!x.id) return "";
+  return `<span class="cbtns">
+    <button class="cbtn" onclick="contribOffer('${escAttr(book)}','${escAttr(x.id)}')"
+      title="Offer this item to the shared library every designer uses">Contribute</button>
+    <button class="cbtn" onclick="contribFix('${escAttr(book)}','${escAttr(x.id)}')"
+      title="Report something wrong with this item — a stale price most of all">Suggest a correction</button>
+  </span>`;
+}
+
+// ── the review desk ──────────────────────────────────────────────────────────
+async function contribPull(){
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key) return [];
+  const d=await _goodsCall({type:"loadqueue",key});
+  // Only replace the queue when the server actually sent one. A failed or unexpected
+  // reply must not empty a list the reviewer is part-way through.
+  if(d&&d.ok&&Array.isArray(d.items)) CONTRIB=d.items;
+  return CONTRIB;
+}
+function contribPendingCount(){ return CONTRIB.filter(x=>x&&x.status==="pending").length; }
+
+async function openContribs(){
+  if(!_contribIsAdmin()){ openMySubs(); return; }
+  _contribRender(true);
+  await contribPull();
+  _contribRender();
+}
+function closeContribs(){ const d=document.getElementById("cq-modal"); if(d) d.remove(); }
+
+function _contribRender(loading){
+  let d=document.getElementById("cq-modal");
+  if(!d){ d=document.createElement("div"); d.id="cq-modal"; d.className="ssw";
+    d.addEventListener("click",e=>{ if(e.target===d) closeContribs(); });
+    document.body.appendChild(d); }
+  const list=CONTRIB.filter(x=>x&&(CONTRIB_FILTER==="all"||x.status===CONTRIB_FILTER))
+    .slice().sort((a,b)=>String(b.at||"").localeCompare(String(a.at||"")));
+  const tabs=[["pending","Pending"],["accept","Accepted"],["reject","Rejected"],["all","All"]];
+  const body = loading ? `<div class="ssempty"><b>Reading the queue…</b></div>`
+    : (list.length ? list.map(x=>{
+        const nm=(x.item&&(x.item.nm||x.item.name))||"(unnamed)";
+        const known=_goodsArr(x.book)&&_goodsArr(x.book).some(r=>r&&r.id===x.targetId);
+        return `<div class="cqr">
+          <span class="cqk ${x.kind}">${x.kind==="fix"?"Correction":"Addition"}</span>
+          <span class="cqt">
+            <b>${escAttr(nm)}</b>
+            <em>${escAttr(x.book)} · from ${escAttr(x.by||"anonymous")} · ${escAttr(String(x.at||"").slice(0,10))}</em>
+            ${x.note?`<i>${escAttr(x.note)}</i>`:""}
+            ${x.kind==="fix"&&!known?`<u class="warn">The item it refers to is not in your copy of the library</u>`:""}
+            ${x.reason?`<u>Reason: ${escAttr(x.reason)}</u>`:""}
+          </span>
+          <span class="cqa">
+            ${x.status==="pending"?`
+              ${(x.kind==="fix"&&known)?`<button class="cqno" onclick="contribOpenTarget('${escAttr(x.book)}','${escAttr(x.targetId)}')">Open item</button>`:""}
+              <button class="cqok" onclick="contribAccept('${escAttr(x.id)}')">${x.kind==="fix"?"Mark applied":"Accept"}</button>
+              <button class="cqno" onclick="contribReject('${escAttr(x.id)}')">Reject</button>`
+            :`<span class="cqs ${escAttr(x.status)}">${x.status==="accept"?"Accepted":"Rejected"}</span>`}
+          </span></div>`;
+      }).join("")
+      : `<div class="ssempty"><b>Nothing ${CONTRIB_FILTER==="pending"?"waiting":"here"}</b>
+          <span>Contributions from other designers land here for you to review before they reach the shared library.</span></div>`);
+  d.innerHTML=`<div class="ssbox">
+    <div class="sshead">
+      <div class="sstitle"><b>Contributions</b><span>${contribPendingCount()} waiting for review</span></div>
+      <span class="ssgrow"></span>
+      <span class="ssseg">${tabs.map(([k,l])=>
+        `<button class="${CONTRIB_FILTER===k?"on":""}" onclick="CONTRIB_FILTER='${k}';_contribRender()">${l}</button>`).join("")}</span>
+      <button class="ssx" onclick="closeContribs()" aria-label="Close">✕</button>
+    </div>
+    <div class="ssbody">${body}</div>
+    <div class="ssfoot"><span>Reviewed by you only</span>
+      <span class="ssnote">Contributors see the status of their own submissions and nothing of anyone else's. Accepting adds the item to the shared library with the contributor's name on it.</span></div>
+  </div>`;
+}
+
+async function _contribAct(id,action,reason){
+  if(_contribBusy) return null;
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){ _toast("No admin key on this device.","#B23F3C"); return null; }
+  _contribBusy=true;
+  const d=await _goodsCall({type:"queueact",key,id,action,reason:reason||""});
+  _contribBusy=false;
+  if(!(d&&d.ok)){ _toast("Failed: "+((d&&d.err)||"unknown"),"#B23F3C"); return null; }
+  const i=CONTRIB.findIndex(x=>x&&x.id===id); if(i>=0) CONTRIB[i]=d.item;
+  return d.item;
+}
+
+// Accepting an addition writes it into the book with the contributor's name and the
+// date on it, under a fresh id — so an accepted contribution can always be found
+// again and undone, and never collides with a row you already have.
+async function contribAccept(id){
+  const x=CONTRIB.find(r=>r&&r.id===id); if(!x) return;
+  if(x.kind==="fix"){
+    // Nothing to merge — a correction is applied by hand to the item itself. This
+    // only records that it was dealt with, so it leaves the queue.
+    if(!confirm(`Mark this correction as applied?\n\n“${(x.item&&x.item.nm)||"the item"}”\n${x.note||""}\n\nThis does not change the item — make that edit yourself first.`)) return;
+  } else if(x.book==="materials"||x.book==="furnishings"){
+    const arr=_goodsArr(x.book);
+    const row=JSON.parse(JSON.stringify(x.item||{}));
+    row.id=(x.book==="materials"?"m":"f")+"c"+Date.now().toString(36);
+    row._by=x.by||""; row._at=x.at||""; row._sub=x.id;
+    if(arr.some(r=>r&&r.nm===row.nm&&(r.brand||"")===(row.brand||""))){
+      if(!confirm(`You already have “${row.nm}”${row.brand?" by "+row.brand:""}.\n\nAdd this one as well?`)) return;
+    }
+    arr.push(row);
+    const ok=await goodsPush(x.book,false);
+    if(!ok){ _toast("Added locally but the library did not save — sync and try again.","#B8860B"); }
+  } else {
+    alert("Accepting "+x.book+" contributions is not wired up yet — this one stays in the queue.");
+    return;
+  }
+  const upd=await _contribAct(id,"accept");
+  if(upd){ _toast("Accepted.","#3E6B4F"); _contribRender(); try{ renderMaterials(); }catch(e){} }
+}
+
+// Jump straight to the item a correction is about, with the desk still behind you.
+function contribOpenTarget(book,id){
+  closeContribs();
+  try{
+    if(book==="materials"){ const t=document.querySelector('[data-view="materials"]'); if(t) t.click(); matOpen(id); }
+    else if(book==="furnishings"){ const t=document.querySelector('[data-view="furnishings"]'); if(t) t.click(); furOpen(id); }
+  }catch(e){}
+}
+
+async function contribReject(id){
+  const why=await appAsk({title:"Reject this contribution",
+    hint:"The reason goes back to whoever sent it. Say what would make it acceptable.",
+    placeholder:"e.g. price looks like retail, not trade", ok:"Reject"});
+  if(why===null) return;
+  const upd=await _contribAct(id,"reject",why);
+  if(upd){ _toast("Rejected.","#B23F3C"); _contribRender(); }
+}
+
+// What a contributor sees: their own submissions, and nothing else.
+async function openMySubs(){
+  const by=contribName();
+  if(!by){ _toast("You have not submitted anything yet.","#B23F3C"); return; }
+  const d=await _goodsCall({type:"mysubs",by});
+  const items=(d&&d.ok)?(d.items||[]):[];
+  let m=document.getElementById("cq-modal"); if(m) m.remove();
+  m=document.createElement("div"); m.id="cq-modal"; m.className="ssw";
+  m.addEventListener("click",e=>{ if(e.target===m) closeContribs(); });
+  const rows=items.length?items.slice().sort((a,b)=>String(b.at||"").localeCompare(String(a.at||""))).map(x=>`
+    <div class="cqr">
+      <span class="cqk ${x.kind}">${x.kind==="fix"?"Correction":"Addition"}</span>
+      <span class="cqt"><b>${escAttr(x.name||"(unnamed)")}</b>
+        <em>${escAttr(x.book)} · ${escAttr(String(x.at||"").slice(0,10))}</em>
+        ${x.reason?`<i>${escAttr(x.reason)}</i>`:""}</span>
+      <span class="cqa"><span class="cqs ${escAttr(x.status)}">${
+        x.status==="accept"?"Accepted":x.status==="reject"?"Not accepted":"Waiting for review"}</span></span>
+    </div>`).join("")
+    : `<div class="ssempty"><b>Nothing submitted yet</b><span>Contribute an item from its page in Materials or Furnishings.</span></div>`;
+  m.innerHTML=`<div class="ssbox">
+    <div class="sshead"><div class="sstitle"><b>Your contributions</b><span>${escAttr(by)}</span></div>
+      <span class="ssgrow"></span>
+      <button class="ssx" onclick="closeContribs()" aria-label="Close">✕</button></div>
+    <div class="ssbody">${rows}</div>
+    <div class="ssfoot"><span>${items.length} submission${items.length===1?"":"s"}</span>
+      <span class="ssnote">Accepted contributions go into the shared library with your name on them.</span></div>
+  </div>`;
+  document.body.appendChild(m);
+}
+
 function _goodsArr(book){ return book==="materials"?MATERIALS:FURNISHINGS; }
 // Merge by id rather than picking a winner wholesale. The device you are typing on
 // holds the intent, so its version of a row wins; a row only the server has was added
@@ -10678,6 +10923,9 @@ function matToolsHTML(){
       ${it("goodsFixBrands('materials')","Fix brands")}
       ${it("goodsDropThin('materials')","Drop empties",thin)}
       ${it("goodsSyncNow()","Sync now")}
+      <div class="hd">Community</div>
+      ${it("openContribs()", _contribIsAdmin()?"Review contributions":"Your contributions",
+           _contribIsAdmin()?contribPendingCount():0)}
     </div></span>`;
 }
 // ── SORT ──────────────────────────────────────────────────────
@@ -10873,6 +11121,7 @@ const matSetModel=goodsSetModel;
 
 function renderMaterials(){
   try{ specResync(); }catch(e){}
+  try{ contribPeek(); }catch(e){}
   const host=document.getElementById("mat-body"); if(!host) return;
   try{ goodsAutoBrands(); }catch(e){}
   try{ goodsAutoPrices(); }catch(e){}
@@ -11024,7 +11273,7 @@ function _matDetail(host){
   host.innerHTML=`
    <div class="mcrumb"><button onclick="matBack()">${mi("back")}All materials</button>
      <span class="sep">${escAttr(m.cat)}</span>${mi("chev")}<span class="sep">${escAttr(m.nm)}</span></div>
-   <div class="macts">${specBtnHTML("materials",m)}${goodsSourceBtn(m)}
+   <div class="macts">${specBtnHTML("materials",m)}${goodsSourceBtn(m)}${goodsContribBtns("materials",m)}
      <span class="sp"><button class="mdel" onclick="goodsDelete('materials','${m.id}')">${mi("trash")}Delete</button></span></div>
    <div class="mshots${_shots.length?" tap":""}">
      <i style="${goodsShotStyle(m,_shots[0],m.cols[0])}" ${_shots[0]?`onclick="goodsPhotoOpen(event,'materials','${m.id}',0)"`:""}></i>
@@ -11488,7 +11737,7 @@ function _furDetail(host){
   host.innerHTML=`
    <div class="mcrumb"><button onclick="furBack()">${mi("back")}All furnishings</button>
      <span class="sep">${escAttr(f.cat)}</span>${mi("chev")}<span class="sep">${escAttr(f.nm)}</span></div>
-   <div class="macts">${specBtnHTML("furnishings",f)}${goodsSourceBtn(f)}
+   <div class="macts">${specBtnHTML("furnishings",f)}${goodsSourceBtn(f)}${goodsContribBtns("furnishings",f)}
      <span class="sp"><button class="mdel" onclick="goodsDelete('furnishings','${f.id}')">${mi("trash")}Delete</button></span></div>
    <div class="mshots${_shots.length?" tap":""}">
      <i style="${goodsShotStyle(f,_shots[0],`linear-gradient(150deg,${f.cols[0]},${f.cols[1]||f.cols[0]})`)}" ${_shots[0]?`onclick="goodsPhotoOpen(event,'furnishings','${f.id}',0)"`:""}></i>

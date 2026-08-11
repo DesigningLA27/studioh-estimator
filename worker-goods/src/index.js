@@ -26,6 +26,12 @@ const BOOKS = { materials: "materials_v1", furnishings: "furnishings_v1" };
 // the bid store; this is the ~2KB summary that makes them searchable and answerable
 // without reading them all.
 const IDX_KEY = "project_index_v1";
+// Contributions from anyone holding the link. Submitting needs no key — that is the
+// point of a community library — but reading the queue and acting on it does, so a
+// contributor never sees anyone else's pending work and nothing reaches the master
+// book unreviewed.
+const QUEUE_KEY = "contrib_queue_v1";
+const QUEUE_MAX = 500;
 
 export default {
   async fetch(request, env) {
@@ -124,6 +130,74 @@ export default {
         rec = { savedAt: new Date().toISOString(), projects: list.slice(0, 500) };
         await env.GOODS.put(IDX_KEY, JSON.stringify(rec));
         return json({ ok: true, count: rec.projects.length, savedAt: rec.savedAt });
+      }
+
+      // Submit — no key. Deliberately open.
+      if (b.type === "submit") {
+        const book = String(b.book || "").toLowerCase();
+        if (["materials", "furnishings", "plants", "hoa"].indexOf(book) < 0) return json({ ok: false, error: "unknown book" }, 400);
+        if (!b.item || typeof b.item !== "object") return json({ ok: false, error: "nothing submitted" }, 400);
+        const kind = (b.kind === "fix") ? "fix" : "add";
+
+        let rec = { savedAt: "", items: [] };
+        const raw = await env.GOODS.get(QUEUE_KEY);
+        if (raw) { try { rec = JSON.parse(raw); } catch (e) {} }
+        const items = Array.isArray(rec.items) ? rec.items : [];
+        const pending = items.filter(x => x && x.status === "pending").length;
+        if (pending >= QUEUE_MAX) return json({ ok: false, error: "the review queue is full — try again later" }, 429);
+
+        const entry = {
+          id: "sub" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+          book, kind, status: "pending",
+          by: String(b.by || "").slice(0, 60),
+          note: String(b.note || "").slice(0, 600),
+          targetId: String(b.targetId || "").slice(0, 80),
+          at: new Date().toISOString(),
+          item: b.item,
+        };
+        items.push(entry);
+        await env.GOODS.put(QUEUE_KEY, JSON.stringify({ savedAt: entry.at, items: items.slice(-QUEUE_MAX * 3) }));
+        return json({ ok: true, id: entry.id });
+      }
+
+      // Read the queue — key required, so it is one reviewer's queue, not a forum.
+      if (b.type === "loadqueue") {
+        if (!env.ADMIN_KEY || b.key !== env.ADMIN_KEY) return json({ ok: false, error: "not authorised" }, 403);
+        const raw = await env.GOODS.get(QUEUE_KEY);
+        if (!raw) return json({ ok: true, items: [] });
+        let rec; try { rec = JSON.parse(raw); } catch (e) { return json({ ok: false, error: "queue unreadable" }, 500); }
+        return json({ ok: true, items: rec.items || [], savedAt: rec.savedAt || "" });
+      }
+
+      // Accept or reject. The decision and who made it stay on the record, so an
+      // accepted contribution can be traced back and undone.
+      if (b.type === "queueact") {
+        if (!env.ADMIN_KEY || b.key !== env.ADMIN_KEY) return json({ ok: false, error: "not authorised" }, 403);
+        if (["accept", "reject", "pending"].indexOf(b.action) < 0) return json({ ok: false, error: "unknown action" }, 400);
+        const raw = await env.GOODS.get(QUEUE_KEY);
+        if (!raw) return json({ ok: false, error: "queue empty" }, 404);
+        let rec; try { rec = JSON.parse(raw); } catch (e) { return json({ ok: false, error: "queue unreadable" }, 500); }
+        const items = rec.items || [];
+        const i = items.findIndex(x => x && x.id === b.id);
+        if (i < 0) return json({ ok: false, error: "not in the queue" }, 404);
+        items[i].status = b.action;
+        items[i].decidedAt = new Date().toISOString();
+        if (b.reason) items[i].reason = String(b.reason).slice(0, 300);
+        await env.GOODS.put(QUEUE_KEY, JSON.stringify({ savedAt: items[i].decidedAt, items }));
+        return json({ ok: true, item: items[i] });
+      }
+
+      // A contributor checks on their own submissions and nobody else's.
+      if (b.type === "mysubs") {
+        const by = String(b.by || "").trim().toLowerCase();
+        if (!by) return json({ ok: true, items: [] });
+        const raw = await env.GOODS.get(QUEUE_KEY);
+        if (!raw) return json({ ok: true, items: [] });
+        let rec; try { rec = JSON.parse(raw); } catch (e) { return json({ ok: true, items: [] }); }
+        const mine = (rec.items || []).filter(x => x && String(x.by || "").trim().toLowerCase() === by)
+          .map(x => ({ id: x.id, book: x.book, kind: x.kind, status: x.status, at: x.at,
+                       name: (x.item && (x.item.nm || x.item.name)) || "", reason: x.reason || "" }));
+        return json({ ok: true, items: mine });
       }
 
       if (b.type === "statgoods") {
