@@ -21,6 +21,11 @@ const CORS = {
 };
 
 const BOOKS = { materials: "materials_v1", furnishings: "furnishings_v1" };
+// Every saved project also leaves a small digest here — address, phase, totals, the
+// plant palette, the pool and pergola specs. Whole projects are megabytes and live in
+// the bid store; this is the ~2KB summary that makes them searchable and answerable
+// without reading them all.
+const IDX_KEY = "project_index_v1";
 
 export default {
   async fetch(request, env) {
@@ -80,6 +85,45 @@ export default {
         const rec = { savedAt: new Date().toISOString(), by: String(b.by || "").slice(0, 60), data: b.data };
         await env.GOODS.put(k, JSON.stringify(rec));
         return json({ ok: true, book: b.book, savedAt: rec.savedAt, count: b.data.length });
+      }
+
+      // Read the whole index. Small enough to send in one go, which is the point.
+      if (b.type === "loadindex") {
+        const raw = await env.GOODS.get(IDX_KEY);
+        if (!raw) return json({ ok: true, found: false, projects: [], savedAt: "" });
+        let rec; try { rec = JSON.parse(raw); } catch (e) { return json({ ok: false, error: "index unreadable" }, 500); }
+        return json({ ok: true, found: true, projects: rec.projects || [], savedAt: rec.savedAt || "" });
+      }
+
+      // Upsert one project's digest, or replace the lot during a backfill.
+      if (b.type === "saveindex") {
+        if (!env.ADMIN_KEY || b.key !== env.ADMIN_KEY) return json({ ok: false, error: "not authorised" }, 403);
+        let rec = { savedAt: "", projects: [] };
+        const raw = await env.GOODS.get(IDX_KEY);
+        if (raw) { try { rec = JSON.parse(raw); } catch (e) {} }
+        let list = Array.isArray(rec.projects) ? rec.projects : [];
+
+        if (b.replaceAll && Array.isArray(b.projects)) {
+          list = b.projects;
+        } else if (b.project && b.project.id) {
+          const i = list.findIndex(p => p && p.id === b.project.id);
+          // A project keeps its first-seen date and its running count of saves — that
+          // count is the honest answer to "which job had the most revisions".
+          const prev = i >= 0 ? list[i] : null;
+          const merged = Object.assign({}, b.project, {
+            firstSeen: (prev && prev.firstSeen) || b.project.savedAt || "",
+            saves: ((prev && +prev.saves) || 0) + 1,
+          });
+          if (i >= 0) list[i] = merged; else list.push(merged);
+        } else if (b.removeId) {
+          list = list.filter(p => p && p.id !== b.removeId);
+        } else {
+          return json({ ok: false, error: "nothing to save" }, 400);
+        }
+
+        rec = { savedAt: new Date().toISOString(), projects: list.slice(0, 500) };
+        await env.GOODS.put(IDX_KEY, JSON.stringify(rec));
+        return json({ ok: true, count: rec.projects.length, savedAt: rec.savedAt });
       }
 
       if (b.type === "statgoods") {
