@@ -20,7 +20,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-const BOOKS = { materials: "materials_v1", furnishings: "furnishings_v1" };
+const BOOKS = { materials: "materials_v1", furnishings: "furnishings_v1", hoa: "hoa_v1" };
 // Every saved project also leaves a small digest here — address, phase, totals, the
 // plant palette, the pool and pergola specs. Whole projects are megabytes and live in
 // the bid store; this is the ~2KB summary that makes them searchable and answerable
@@ -36,7 +36,36 @@ const QUEUE_MAX = 500;
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+
+    const url = new URL(request.url);
+
+    // Read a stored document. No key: a community's design guidelines are the thing
+    // the library exists to share, and the id is unguessable.
+    if (request.method === "GET" && url.searchParams.get("doc")) {
+      if (!env.DOCS) return json({ ok: false, error: "document storage not bound" }, 500);
+      const id = url.searchParams.get("doc");
+      const obj = await env.DOCS.get("hoa/" + id);
+      if (!obj) return json({ ok: false, error: "not found" }, 404);
+      const h = new Headers(CORS);
+      h.set("Content-Type", obj.httpMetadata?.contentType || "application/pdf");
+      h.set("Content-Disposition", "inline");
+      h.set("Cache-Control", "public, max-age=31536000, immutable");
+      return new Response(obj.body, { headers: h });
+    }
+
     if (request.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
+
+    // Upload a document — RAW BYTES, never base64. A scanned CC&R runs to tens of
+    // megabytes and base64 in JSON blows the worker's memory budget outright.
+    if (url.searchParams.get("docup")) {
+      if (!env.ADMIN_KEY || url.searchParams.get("key") !== env.ADMIN_KEY) return json({ ok: false, error: "not authorised" }, 403);
+      if (!env.DOCS) return json({ ok: false, error: "document storage not bound" }, 500);
+      const id = url.searchParams.get("docup");
+      const ct = request.headers.get("Content-Type") || "application/pdf";
+      await env.DOCS.put("hoa/" + id, request.body, { httpMetadata: { contentType: ct } });
+      const head = await env.DOCS.head("hoa/" + id);
+      return json({ ok: true, id, size: head ? head.size : 0 });
+    }
 
     let b;
     try { b = await request.json(); }
