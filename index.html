@@ -3095,7 +3095,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v742</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v743</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10633,20 +10633,35 @@ function _hoaExtractHTML(d){
 
 // Loose match against the plant book, so the list can say what you would have to add.
 function plantDbFindName(name){
-  const n=String(name||"").toLowerCase().replace(/[^a-z ]/g," ").replace(/\s+/g," ").trim();
-  if(!n) return null;
-  const first=n.split(" ").slice(0,2).join(" ");
+  // Cultivars share a genus and species — an association may approve Salvia greggii and
+  // prohibit 'Hot Lips'. So a name carrying a cultivar only matches a plant with the
+  // same cultivar, and a bare species only matches plants that have no cultivar of
+  // their own. Matching a cultivar to its parent species would put the wrong plant on
+  // an approved or a prohibited list.
+  const norm=t=>String(t||"").toLowerCase().replace(/['"\u2018\u2019]/g,"").replace(/[^a-z ]/g," ").replace(/\s+/g," ").trim();
+  const n=norm(name); if(!n) return null;
+  const words=n.split(" ");
+  const two=words.slice(0,2).join(" ");
+  const hasCv=words.length>2;
   let hit=null;
   ["shrub","tree","palm","gc"].forEach(k=>{
     if(hit) return;
     hit=(PLANT_DB[k]||[]).find(p=>{
-      const b=String((typeof botName==="function"?botName(p):"")||p.b||"").toLowerCase();
-      const c=String(p.c||"").toLowerCase();
-      return (b&&(b.indexOf(first)===0||first.indexOf(b)===0)) || (c&&c===n);
+      const b=norm((typeof botName==="function"?botName(p):"")||p.b||"");
+      const c=norm(p.c||"");
+      if(c && c===n) return true;
+      if(!b) return false;
+      if(b===n) return true;                            // exact, cultivar included
+      const bw=b.split(" ");
+      if(hasCv) return false;                           // the name named a cultivar; only exact counts
+      if(bw.length>2) return false;                     // the book entry is a cultivar; a bare species is not it
+      if(words.length===1) return bw[0]===n;            // a bare genus
+      return bw.slice(0,2).join(" ")===two;
     })||null;
   });
   return hit;
 }
+
 
 function _hoaContactHTML(h){
   const c=h&&h.contact; if(!c) return "";
@@ -18214,8 +18229,57 @@ function delPalmRow(zi,i){ const p=ensurePlanting(); const z=p.zones[zi]; if(!z)
 function toggleSundry(name,on){ const it=(S.cats.planting.items||[]).find(x=>x.n===name); if(!it)return; it.checked=!!on; if(it.checked&&!(+it.q>0)) it.q=0; plantRefresh(); }
 function setSundryQ(name,val){ const it=(S.cats.planting.items||[]).find(x=>x.n===name); if(!it)return; it.q=Math.max(0,+val||0); it.checked=it.q>0?true:it.checked; plantRefresh(); }
 
+// ── THE HOA'S PLANT LIST, WHERE PLANTS ARE CHOSEN ────────────────
+// A palette that fails design review is worse than no palette. When the project has an
+// association attached and one of its documents names plants, those names are matched
+// against the book so the picker can put them first and stop a prohibited one being
+// added at all. Cached per render — the match is a string comparison over the book.
+let _hoaPlantCache=null;
+function hoaPlantRules(){
+  let h=null;
+  try{ if(typeof HOA!=="undefined" && typeof hoaForProject==="function") h=hoaForProject(); }catch(e){}
+  if(!h) return null;
+  const key=h.id+":"+hoaDocs(h).map(d=>d&&d.extractAt||"").join("|");
+  if(_hoaPlantCache&&_hoaPlantCache.key===key) return _hoaPlantCache.val;
+  const ok={}, no={}, okNames=[], noNames=[];
+  hoaDocs(h).forEach(d=>{
+    const pl=(d&&d.extract&&d.extract.plants)||null; if(!pl) return;
+    (pl.approved||[]).forEach(n=>{ okNames.push(n); const m=plantDbFindName(n); if(m) ok[m.id]=n; });
+    (pl.prohibited||[]).forEach(n=>{ noNames.push(n); const m=plantDbFindName(n); if(m) no[m.id]=n; });
+  });
+  Object.keys(no).forEach(id=>{ delete ok[id]; });   // a refusal outranks an approval
+  const val=(okNames.length||noNames.length)
+    ? { name:h.name, ok, no, okNames, noNames,
+        okCount:Object.keys(ok).length, noCount:Object.keys(no).length }
+    : null;
+  _hoaPlantCache={key,val};
+  return val;
+}
+function hoaPlantState(pid){
+  const r=hoaPlantRules(); if(!r) return "";
+  if(r.no[pid]) return "no";
+  if(r.ok[pid]) return "ok";
+  return r.okNames.length ? "unlisted" : "";
+}
+// Whether the picker leads with the approved list. On by default when a list exists —
+// the whole point is not having to remember.
+function hoaFirst(){ return PREFS.hoaFirst!==false; }
+function hoaFirstToggle(){ PREFS.hoaFirst=!hoaFirst(); try{ prefsSave(); }catch(e){}
+  try{ plantRefresh(); }catch(e){}
+  ["shrub","gc","tree","palm"].forEach(k=>{ document.querySelectorAll('[id^="plant-search-'+k+'-"]').forEach(el=>{
+    try{ plantSearchInput(k, el.id.split("-").pop()); }catch(e){} }); });
+}
+
 // ── live search (scope = zone index) ─────────────────────────────
 function pickPlant(kind,scope,pid){
+  // A prohibited plant is not a warning, it is a refusal — adding it would put the
+  // palette in front of a review board that has already said no.
+  const st=hoaPlantState(pid);
+  if(st==="no"){
+    const r=hoaPlantRules(), p=plantDbFind(kind,pid);
+    _toast(((p&&p.c)||"That plant")+" is prohibited by "+((r&&r.name)||"the association")+" — not added.","#B23F3C");
+    return;
+  }
   if(kind==="shrub") addShrubRow(scope,pid);
   else if(kind==="gc") addGcRow(scope,pid);
   else if(kind==="tree") addTreeRow(scope,pid);
@@ -18323,28 +18387,51 @@ function plantPricedInfo(kind,pid){ let nMin=null,nName=null; NURSERY_DB.nurseri
   return {has:false}; }
 function _plantRowsKey(kind){ return {shrub:"shrubRows",gc:"gcRows",tree:"treeRows",palm:"palmRows"}[kind]; }
 function plantsUsedInProject(kind){ const p=ensurePlanting(); const key=_plantRowsKey(kind); if(!key) return []; const seen=new Set(); const out=[]; (p.zones||[]).forEach(z=>{ (z[key]||[]).forEach(r=>{ if(r.pid&&!seen.has(r.pid)){ seen.add(r.pid); const pl=plantDbFind(kind,r.pid); if(pl) out.push(pl); } }); }); return out; }
+function _hoaBadge(pid){
+  const st=hoaPlantState(pid); if(!st||st==="unlisted") return "";
+  const ok=st==="ok";
+  return `<span style="margin-left:.35rem;border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:800;
+    background:${ok?"var(--brand-soft)":"#FBEDEC"};color:${ok?"var(--gm)":"#8C3B38"};
+    border:1px solid ${ok?"var(--gm)":"#E0B4B2"}">${ok?"HOA ✓":"PROHIBITED"}</span>`;
+}
 function _plantHit(kind,scope,p,info){ const priceBadge = info&&info.has ? `<span style="margin-left:.35rem;background:${info.nursery?'var(--gm)':'#EAF3EA'};color:${info.nursery?'#fff':'var(--gm)'};border:1px solid var(--gm);border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:700">${info.nursery?'✓ ':''}${info.label}</span>` : '';
   const _img=plantImgOf(p); const thumb=`<img src="${escAttr(_img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:30px;height:30px;object-fit:cover;border-radius:5px;border:1px solid var(--br);background:#EEF3EA;flex:none">`;
   return `<div class="plant-hit" style="display:flex;align-items:center;gap:.5rem;padding:.35rem .6rem;cursor:pointer;font-size:.78rem;border-bottom:1px solid var(--br);${info&&info.nursery?'background:#F4F9F2':''}" onmousedown="event.preventDefault();pickPlant('${kind}',${scope},'${p.id}');var b=document.getElementById('plant-search-${kind}-${scope}');if(b)b.value='';document.getElementById('plant-results-${kind}-${scope}').style.display='none'">
-      ${thumb}<div><span style="font-weight:600">${p.c}</span> <span style="color:var(--tl);font-style:italic">${botName(p)}</span>${priceBadge}${p.spec?' · <span style="color:var(--gold)">specimen</span>':''}</div></div>`; }
+      ${thumb}<div><span style="font-weight:600">${p.c}</span> <span style="color:var(--tl);font-style:italic">${botName(p)}</span>${priceBadge}${_hoaBadge(p.id)}${p.spec?' · <span style="color:var(--gold)">specimen</span>':''}</div></div>`; }
 function plantSearchInput(kind,scope){
   const inp=document.getElementById("plant-search-"+kind+"-"+scope);
   const box=document.getElementById("plant-results-"+kind+"-"+scope);
   if(!inp||!box)return;
   const q=(inp.value||"").trim().toLowerCase();
+  // Approved first, prohibited last — the order is the feature.
+  const _hoaSort=(arr)=>{ const r=hoaPlantRules(); if(!r||!hoaFirst()) return arr;
+    const w=x=>r.ok[x.id]?0:(r.no[x.id]?2:1);
+    return arr.slice().sort((a,b)=>w(a)-w(b)); };
+  const _hoaHdr=()=>{ const r=hoaPlantRules(); if(!r) return "";
+    return `<div style="padding:.32rem .6rem;font-size:.6rem;font-weight:700;text-transform:uppercase;
+      background:var(--brand-soft);color:var(--gm);border-bottom:1px solid var(--br);position:sticky;top:0;
+      display:flex;gap:.4rem;align-items:center">
+      <span>${escAttr(r.name)} · ${r.okCount} approved${r.noCount?" · "+r.noCount+" prohibited":""}</span>
+      <button onclick="event.preventDefault();event.stopPropagation();hoaFirstToggle()"
+        style="margin-left:auto;border:1px solid var(--gm);background:${hoaFirst()?"var(--gm)":"transparent"};
+        color:${hoaFirst()?"#fff":"var(--gm)"};border-radius:7px;padding:.05rem .4rem;font:inherit;
+        font-size:.6rem;font-weight:800;cursor:pointer">Approved first</button></div>`; };
   if(!q){ // on focus with no typing: show plants already used elsewhere in the project for one-tap re-add
     const key=_plantRowsKey(kind); const cur=ensurePlanting().zones[scope]; const curPids=new Set(((cur&&cur[key])||[]).map(r=>r.pid));
     const used=plantsUsedInProject(kind).filter(p=>!curPids.has(p.id));
     if(!used.length){ box.innerHTML=""; box.style.display="none"; return; }
-    box.innerHTML=`<div style="padding:.32rem .6rem;font-size:.6rem;color:var(--gm);text-transform:uppercase;font-weight:700;background:#F5F9F3;border-bottom:1px solid var(--br);position:sticky;top:0">Already used in this project · tap to add — or type to search all</div>`
-      + used.map(p=>_plantHit(kind,scope,p,plantPricedInfo(kind,p.id))).join('');
+    box.innerHTML=_hoaHdr()
+      + `<div style="padding:.32rem .6rem;font-size:.6rem;color:var(--gm);text-transform:uppercase;font-weight:700;background:#F5F9F3;border-bottom:1px solid var(--br)">Already used in this project · tap to add — or type to search all</div>`
+      + _hoaSort(used).map(p=>_plantHit(kind,scope,p,plantPricedInfo(kind,p.id))).join('');
     box.style.display="block"; return;
   }
   let hits=(PLANT_DB[kind]||[]).filter(p=>p.c.toLowerCase().includes(q)||botName(p).toLowerCase().includes(q)).slice(0,40).map(p=>({p,info:plantPricedInfo(kind,p.id)}));
   hits.sort((a,b)=>{ const wa=a.info.nursery?2:(a.info.has?1:0), wb=b.info.nursery?2:(b.info.has?1:0); return wb-wa; });
+  const _r=hoaPlantRules();
+  if(_r&&hoaFirst()){ const w=x=>_r.ok[x.p.id]?0:(_r.no[x.p.id]?2:1); hits.sort((a,b)=>w(a)-w(b)); }
   hits=hits.slice(0,10);
   if(!hits.length){ box.innerHTML=`<div style="padding:.4rem .6rem;font-size:.76rem;color:var(--tl)">No match — type a common or botanical name</div>`; box.style.display="block"; return; }
-  box.innerHTML=hits.map(({p,info})=>_plantHit(kind,scope,p,info)).join("");
+  box.innerHTML=_hoaHdr()+hits.map(({p,info})=>_plantHit(kind,scope,p,info)).join("");
   box.style.display="block";
 }
 
