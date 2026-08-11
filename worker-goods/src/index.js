@@ -122,6 +122,34 @@ export default {
         return json({ ok: true, book: b.book, savedAt: rec.savedAt, count: b.data.length });
       }
 
+      // Verify a link before it is ever offered as a tap target. Cloudflare validates
+      // TLS on fetch, so a site with a broken or expired certificate fails here rather
+      // than in front of the user as a browser security warning.
+      if (b.type === "checkurl") {
+        const u = String(b.url || "");
+        if (!/^https?:\/\//i.test(u)) return json({ ok: true, safe: false, reason: "not a web address" });
+        if (!/^https:\/\//i.test(u)) return json({ ok: true, safe: false, reason: "not encrypted (http)" });
+        let r = null, method = "HEAD";
+        try {
+          r = await fetch(u, { method: "HEAD", redirect: "follow", signal: AbortSignal.timeout(9000) });
+          // Plenty of document servers refuse HEAD; a GET settles it.
+          if (r.status === 405 || r.status === 501) { method = "GET"; r = await fetch(u, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(9000) }); }
+        } catch (e) {
+          const m = String((e && e.message) || e);
+          return json({ ok: true, safe: false,
+            reason: /certificat|SSL|TLS/i.test(m) ? "the site's security certificate is not valid" : "the site could not be reached" });
+        }
+        const ct = (r.headers.get("Content-Type") || "").toLowerCase();
+        const len = +(r.headers.get("Content-Length") || 0);
+        const finalUrl = r.url || u;
+        if (!r.ok) return json({ ok: true, safe: false, status: r.status, reason: "the page returned " + r.status, finalUrl });
+        // A file is a document. Anything serving HTML is a page you still have to
+        // navigate — a portal, a search form, a management company's site.
+        const isFile = /pdf|msword|officedocument|octet-stream/.test(ct) || /\.pdf(\?|$)/i.test(finalUrl);
+        return json({ ok: true, safe: true, status: r.status, ct, bytes: len, isFile, method,
+                      https: /^https:/i.test(finalUrl), finalUrl });
+      }
+
       // Read the whole index. Small enough to send in one go, which is the point.
       if (b.type === "loadindex") {
         const raw = await env.GOODS.get(IDX_KEY);

@@ -1021,6 +1021,18 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
   font-size:11px;background:var(--bg);color:inherit}
 .hoadoc .a{display:flex;gap:6px;flex:none;align-items:center}
 .hoaempty{font-size:12.5px;color:var(--tl);padding:10px 0;line-height:1.5}
+.hoadoc .t .host{color:var(--tm);font-weight:700}
+.hoadoc .t .ok{color:var(--gm);font-weight:800}
+.hoadoc .t .unk{color:var(--gold);font-weight:800}
+.hoaroutes{margin-top:12px;padding:10px 12px;background:var(--bg);border:1px dashed var(--br);border-radius:11px}
+.hoaroutes .k{display:block;font-size:10.5px;font-weight:800;color:var(--tm);letter-spacing:.07em;
+  text-transform:uppercase;margin-bottom:6px}
+.hoaroutes .rline{display:flex;align-items:center;gap:9px;padding:4px 0;font-size:12.5px}
+.hoaroutes .rline a{color:var(--gm);font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hoaroutes .rline .host{color:var(--tl);font-size:11px;flex:none}
+.hoaroutes .rline button{margin-left:auto;border:1px solid var(--br);background:var(--card);color:var(--tm);
+  border-radius:7px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;flex:none}
+.hoaroutes .note{margin-top:6px;font-size:11px;color:var(--tl)}
 .hoacontact{margin:4px 0 12px;padding:11px 12px;background:var(--brand-soft);border:1px solid var(--br);border-radius:11px}
 .hoacontact .k{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;color:var(--gm);
   letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px}
@@ -2887,7 +2899,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v724</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v725</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9633,8 +9645,10 @@ function _hoaFindMerge(r){
   if(!r||r._added) return false;
   const now=new Date().toISOString(), by=contribName()||"";
   const mkDoc=d=>({ id:"d"+Date.now().toString(36)+Math.round(Math.random()*1e6).toString(36),
-    title:String(d.title||"Document").slice(0,160), kind:HOA_KINDS.some(k=>k[0]===d.kind)?d.kind:"other",
-    url:d.url, addedAt:now, effective:_hoaEff(d.effective), by, viaAI:true });
+    title:String(d.title||"Document").slice(0,160),
+    kind:d.route?"route":(HOA_KINDS.some(k=>k[0]===d.kind)?d.kind:"other"), route:!!d.route,
+    url:d.url, addedAt:now, effective:d.route?"":_hoaEff(d.effective),
+    size:d.bytes||0, checkedAt:now, by, viaAI:true });
   const dup=HOA.find(h=>h&&String(h.name||"").toLowerCase()===String(r.name||"").toLowerCase());
   if(dup){
     dup.docs=hoaDocs(dup);
@@ -9655,6 +9669,9 @@ function _hoaFindMerge(r){
 
 async function hoaFindAdd(i){
   const r=(HOA_FIND||[])[i]; if(!r||r._added) return;
+  const _stop=_webWaitOpen("checking links");
+  await _hoaVerifyResult(r);
+  _stop();
   if(!_hoaFindMerge(r)) return;
   hoaFindRefresh();
   _toast((r._added==="merged"?"Merged into ":"Added ")+r.name,"#3E6B4F");
@@ -9668,6 +9685,21 @@ async function hoaFindAdd(i){
 // else, which is worthless. This is the second pass: everything aimed at one
 // community, hunting the documents themselves rather than the association.
 let _hoaDeep="";
+
+// Nothing found on the open web becomes a tap target until the server has fetched it.
+// Cloudflare validates TLS, so a site with a broken certificate — cr.ocgov.com, which
+// is a real Orange County host — fails here instead of in front of you as a browser
+// security warning.
+async function _hoaVerify(list){
+  const out=await Promise.all((list||[]).map(async d=>{
+    const r=await _goodsCall({type:"checkurl",url:d.url});
+    if(!r||r.err) return Object.assign({},d,{safe:false,why:"could not be checked"});
+    return Object.assign({},d,{ safe:!!r.safe, why:r.reason||"",
+      isFile:!!r.isFile, bytes:+r.bytes||0, url:r.finalUrl||d.url });
+  }));
+  return out;
+}
+function _hoaHost(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return ""; } }
 async function hoaDeepFind(id){
   const h=hoaFind(id); if(!h||_hoaDeep) return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
@@ -9733,16 +9765,21 @@ ${prose}`}]})});
   }
   _stop(); _hoaDeep="";
 
+  const checked=await _hoaVerify(docs);
+  const unsafe=checked.filter(d=>!d.safe);
   const now=new Date().toISOString(), by=contribName()||"";
   h.docs=hoaDocs(h);
-  let added=0;
-  docs.forEach(d=>{
+  let added=0, routes=0;
+  checked.filter(d=>d.safe).forEach(d=>{
     if(h.docs.some(x=>x&&x.url===d.url)) return;
+    // A URL that serves a page is a route to a document, not the document — filing a
+    // recorder's search form as "CC&Rs" is how the record ends up lying to you.
     h.docs.unshift({ id:"d"+Date.now().toString(36)+Math.round(Math.random()*1e6).toString(36),
       title:String(d.title||"Document").slice(0,160),
-      kind:HOA_KINDS.some(k=>k[0]===d.kind)?d.kind:"other",
-      url:d.url, addedAt:now, effective:_hoaEff(d.effective), by, viaAI:true });
-    added++;
+      kind:d.isFile?(HOA_KINDS.some(k=>k[0]===d.kind)?d.kind:"other"):"route",
+      route:!d.isFile, url:d.url, addedAt:now, effective:d.isFile?_hoaEff(d.effective):"",
+      size:d.bytes||0, checkedAt:now, by, viaAI:true });
+    d.isFile?added++:routes++;
   });
   // Record what the search concluded even when it found nothing — "behind an owner
   // login" is a useful answer, and it stops the next person repeating the search.
@@ -9756,9 +9793,14 @@ ${prose}`}]})});
       at:new Date().toISOString() };
   }
   renderHOA();
-  if(added) { _toast(`Found ${added} document${added===1?"":"s"} for ${h.name}`,"#3E6B4F"); await hoaPush(); }
+  const bits=[];
+  if(added) bits.push(`${added} document${added===1?"":"s"}`);
+  if(routes) bits.push(`${routes} route${routes===1?"":"s"} to them`);
+  if(unsafe.length) bits.push(`${unsafe.length} link${unsafe.length===1?"":"s"} dropped as unsafe`);
+  if(added||routes) { _toast(bits.join(" · ")+" for "+h.name, unsafe.length?"#B8860B":"#3E6B4F"); await hoaPush(); }
   else { _toast(err?("Search failed: "+err)
-           :((note||"Nothing published")+(h.contact?" — who to ask is on the record now":"")), "#B8860B");
+           :((unsafe.length?`${unsafe.length} link${unsafe.length===1?"":"s"} dropped as unsafe · `:"")
+             +(note||"Nothing published")+(h.contact?" — who to ask is on the record now":"")), "#B8860B");
          if(note||h.contact) await hoaPush(); }
 }
 
@@ -9770,17 +9812,34 @@ function hoaFindSelNone(){ HOA_FINDSEL={}; hoaFindRefresh(); }
 
 // Saving is the end of the task, so it ends the task: the results close and you are
 // back in the library looking at what you just added.
+// Every link is fetched by the server before any of it is saved. A saved bad link is
+// a tap target, and the browser's certificate warning is far too late a place to find
+// out — cr.ocgov.com is a real county host serving an invalid certificate.
+async function _hoaVerifyResult(r){
+  if(!r||r._checked) return;
+  r.docs=(await _hoaVerify(r.docs||[])).filter(d=>d.safe)
+    .map(d=>Object.assign({},d,{ route:!d.isFile, kind:d.isFile?d.kind:"route" }));
+  r._checked=true;
+}
+
 async function hoaFindSave(){
   const list=(HOA_FIND||[]);
   const take=list.filter((r,i)=>!r._added && HOA_FINDSEL[i]);
   if(!take.length){ _toast("Tick the ones you want first, or use Select all.","#B23F3C"); return; }
+  const before=take.reduce((n,r)=>n+((r.docs||[]).length),0);
+  const _stop=_webWaitOpen(`checking ${before} link${before===1?"":"s"}`);
+  for(const r of take){ await _hoaVerifyResult(r); }
+  _stop();
+  const kept=take.reduce((n,r)=>n+((r.docs||[]).length),0);
   let added=0, merged=0;
   take.forEach(r=>{ if(_hoaFindMerge(r)){ r._added==="merged"?merged++:added++; } });
   const q=HOA_FINDQ;
   HOA_FINDSEL={}; HOA_FIND=null; HOA_Q="";
   renderHOA();
   try{ document.getElementById("view-hoa").scrollTop=0; }catch(e){}
-  _toast(`${added} saved${merged?` · ${merged} merged into existing`:""} from “${q}” — they are in your library now`,"#3E6B4F");
+  const bad=before-kept;
+  _toast(`${added} saved${merged?` · ${merged} merged into existing`:""}${
+    bad?` · ${bad} link${bad===1?"":"s"} dropped as unsafe`:""} from “${q}”`, bad?"#B8860B":"#3E6B4F");
   await hoaPush();
 }
 
@@ -9950,7 +10009,10 @@ function hoaSearch(v){
 }
 
 function _hoaDetail(h,attached){
-  const docs=hoaDocs(h).slice().sort((a,b)=>String(b.addedAt||"").localeCompare(String(a.addedAt||"")));
+  const all=hoaDocs(h).slice().sort((a,b)=>String(b.addedAt||"").localeCompare(String(a.addedAt||"")));
+  // A portal or a recorder's search form is a route to a document, not one. Keeping
+  // them apart is the difference between a library and a pile of links.
+  const docs=all.filter(d=>!d.route), routes=all.filter(d=>d.route);
   const f=(label,field,val,ph)=>`<label class="hoaf"><span>${label}</span>
     <input value="${escAttr(val||"")}" placeholder="${escAttr(ph||"")}"
       onchange="hoaSet('${escAttr(h.id)}','${field}',this.value)"></label>`;
@@ -9989,7 +10051,8 @@ function _hoaDetail(h,attached){
             <select onchange="hoaDocSet('${escAttr(h.id)}','${escAttr(d.id)}','kind',this.value)">
               ${HOA_KINDS.map(([k,l])=>`<option value="${k}"${d.kind===k?" selected":""}>${l}</option>`).join("")}
             </select>
-            <em>Added ${escAttr(_hoaDate(d.addedAt))}${d.by?" by "+escAttr(d.by):""}${d.size?" · "+escAttr(_hoaSize(d.size)):""}${d.url?" · link":""}</em>
+            <em>Added ${escAttr(_hoaDate(d.addedAt))}${d.by?" by "+escAttr(d.by):""}${d.size?" · "+escAttr(_hoaSize(d.size)):""}${
+              d.url?` · <span class="host">${escAttr(_hoaHost(d.url))}</span>${d.checkedAt?` <span class="ok" title="Fetched and its certificate checked ${escAttr(_hoaDate(d.checkedAt))}">checked</span>`:` <span class="unk" title="Added before links were checked">unchecked</span>`}`:" · uploaded here"}</em>
             <label class="hoaeff">Effective
               <input type="date" value="${escAttr(String(d.effective||"").slice(0,10))}"
                 onchange="hoaDocSet('${escAttr(h.id)}','${escAttr(d.id)}','effective',this.value)"></label>
@@ -10002,6 +10065,15 @@ function _hoaDetail(h,attached){
         </div>`;
       }).join("")
       :`<div class="hoaempty">No documents yet. <b>Find its documents</b> searches the association's own site, its management company's portal and the recorded CC&amp;Rs. If they turn out to be members-only, upload the PDF once you have it.</div>`}
+      ${routes.length?`<div class="hoaroutes">
+        <span class="k">Where to get them</span>
+        ${routes.map(r=>`<div class="rline">
+          <a href="${escAttr(r.url)}" target="_blank" rel="noopener">${escAttr(r.title)}</a>
+          <span class="host">${escAttr(_hoaHost(r.url))}</span>
+          <button onclick="hoaDocDrop('${escAttr(h.id)}','${escAttr(r.id)}')">Remove</button>
+        </div>`).join("")}
+        <div class="note">These are portals and search pages, not documents — you still have to go and get the file.</div>
+      </div>`:""}
     </div>
   </div>
   <input type="file" id="hoa-file" accept="application/pdf,.pdf" style="display:none" onchange="hoaUpload(this)">`;
