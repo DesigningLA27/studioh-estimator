@@ -1029,6 +1029,11 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
   font-size:11px;background:var(--bg);color:inherit;min-width:0;max-width:132px}
 .hdoc .meta>*{min-width:0}
 .hdoc .read{font-size:11.5px;color:var(--tl)}
+.hoaconf{display:flex;gap:9px;align-items:flex-start;margin:0 0 .8rem;padding:.65rem .8rem;
+  background:#FBEDEC;border:1px solid #E0B4B2;border-radius:11px}
+.hoaconf svg{width:15px;height:15px;flex:none;margin-top:2px;fill:none;stroke:#8C3B38;stroke-width:2}
+.hoaconf span{font-size:.78rem;line-height:1.45;color:#8C3B38;min-width:0}
+.hoaconf b{display:block;font-weight:800;margin-bottom:1px}
 .hdoc .qacount{text-decoration:none;font-size:11px;font-weight:800;color:var(--gm);cursor:pointer}
 /* asking a document — the answer stays in the panel you asked from */
 .haskw{position:fixed;inset:0;z-index:10095;background:rgba(20,28,18,.5);
@@ -3095,7 +3100,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v743</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v744</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -18255,6 +18260,35 @@ function hoaPlantRules(){
   _hoaPlantCache={key,val};
   return val;
 }
+// Anything already in the project that the association prohibits. A plant added
+// before the HOA was attached, or brought in with a palette, is exactly the one that
+// gets missed.
+function hoaPlantConflicts(){
+  const r=hoaPlantRules(); if(!r||!r.noCount) return [];
+  const out=[], seen={};
+  try{
+    const pl=ensurePlanting();
+    (pl.zones||[]).forEach(z=>{
+      [["shrubRows","shrub"],["gcRows","gc"],["treeRows","tree"],["palmRows","palm"]].forEach(([k,kind])=>{
+        (z[k]||[]).forEach(row=>{
+          if(!row||!row.pid||!r.no[row.pid]||seen[row.pid]) return;
+          seen[row.pid]=1;
+          const p=plantDbFind(kind,row.pid);
+          out.push({pid:row.pid, name:(p&&p.c)||row.pid, zone:z.name||"a zone"});
+        });
+      });
+    });
+  }catch(e){}
+  return out;
+}
+function hoaConflictHTML(){
+  const c=hoaPlantConflicts(); if(!c.length) return "";
+  const r=hoaPlantRules();
+  return `<div class="hoaconf">${mi("spark")}
+    <span><b>${c.length} plant${c.length===1?"":"s"} in this project ${c.length===1?"is":"are"} prohibited by ${escAttr(r.name)}</b>
+    ${escAttr(c.map(x=>x.name+" — "+x.zone).join(" · "))}</span></div>`;
+}
+
 function hoaPlantState(pid){
   const r=hoaPlantRules(); if(!r) return "";
   if(r.no[pid]) return "no";
@@ -18387,8 +18421,14 @@ function plantPricedInfo(kind,pid){ let nMin=null,nName=null; NURSERY_DB.nurseri
   return {has:false}; }
 function _plantRowsKey(kind){ return {shrub:"shrubRows",gc:"gcRows",tree:"treeRows",palm:"palmRows"}[kind]; }
 function plantsUsedInProject(kind){ const p=ensurePlanting(); const key=_plantRowsKey(kind); if(!key) return []; const seen=new Set(); const out=[]; (p.zones||[]).forEach(z=>{ (z[key]||[]).forEach(r=>{ if(r.pid&&!seen.has(r.pid)){ seen.add(r.pid); const pl=plantDbFind(kind,r.pid); if(pl) out.push(pl); } }); }); return out; }
-function _hoaBadge(pid){
-  const st=hoaPlantState(pid); if(!st||st==="unlisted") return "";
+function _hoaBadge(pid,quiet){
+  const st=hoaPlantState(pid); if(!st) return "";
+  if(st==="unlisted"){
+    if(quiet) return "";
+    return `<span title="Not named on this association's list — usually allowed, but not confirmed"
+      style="margin-left:.35rem;border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:700;
+      background:transparent;color:var(--tl);border:1px dashed var(--br)">not listed</span>`;
+  }
   const ok=st==="ok";
   return `<span style="margin-left:.35rem;border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:800;
     background:${ok?"var(--brand-soft)":"#FBEDEC"};color:${ok?"var(--gm)":"#8C3B38"};
@@ -18675,7 +18715,13 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
   else { const CAP=260; if(cands.length>CAP) cands=cands.slice(0,CAP); }
   const lines=cands.map(c=>_aiCandLine(c.kind,c.p)).join("\n");
   const reqLine = (reqWater.length||reqSun.length||reqColor.length||reqZone.length||noAvoid)?`\nHARD REQUIREMENTS (only pick plants meeting these): ${reqWater.length?"water in ["+reqWater.join(",")+"]; ":""}${reqSun.length?"sun in ["+reqSun.join(",")+"] (or unknown); ":""}${reqColor.length?"color in ["+reqColor.join(",")+"] (or unknown); ":""}${reqZone.length?"must be appropriate for California defensible-space Zone ["+reqZone.join(",")+"] (fire hazard area); ":""}${noAvoid?"NEVER pick high-fuel/flammable plants (no juniper, pampas/fountain grass, eucalyptus, cypress); ":""}`:"";
-  const buildPrompt=(n, candLines, extra)=>`You help a landscape designer choose plants FROM THEIR OWN plant book. Choose ONLY plants present in CANDIDATES, by their exact id. NEVER invent plants or ids.\n\nRequest: "${req}"${reqLine}\n${extra||""}\nCount wanted: ${n}. Prioritize favorites: ${prioFav}. Prioritize commonly-available: ${prioCommon}.\n\nCANDIDATES (id | common | botanical | water VL/L/M/H | sun sun/sunpart/part/shade | flowerColor | availability common/available/specialty | fav | fireZone | types):\n${candLines}\n\nReturn ONLY minified JSON, no prose, no markdown fences:\n{"criteria":{"water":["VL","L"],"sun":["part","sunpart","shade"],"colors":["yellow","red","purple"],"types":["grass","shrub","succulent"]},"picks":[{"id":"<candidate id>"}]}\ncriteria = constraints from the request + hard requirements (water codes VL/L/M/H; sun codes sun/sunpart/part/shade; colors from white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze; types like shrub,grass,succulent,perennial,groundcover,tree,palm). Only include a dimension if it's constrained.\npicks = exactly ${n} candidate ids best matching the request, balanced across the requested colors and types, prioritizing favorites/common if asked, and preferring plants matching more criteria.`;
+  // The association's list is a hard constraint, not a preference — a suggestion that
+  // fails design review costs more than no suggestion.
+  const _hr=(typeof hoaPlantRules==="function")?hoaPlantRules():null;
+  const hoaLine=_hr ? `\n\nHOA — ${_hr.name}. NEVER choose an id in this prohibited list: [${Object.keys(_hr.no).join(", ")||"none"}].`
+      + (Object.keys(_hr.ok).length?` Strongly prefer ids on its approved list: [${Object.keys(_hr.ok).join(", ")}]. Fill from outside it only if the request cannot be met from the approved list, and say so in "why".`:"")
+    : "";
+  const buildPrompt=(n, candLines, extra)=>`You help a landscape designer choose plants FROM THEIR OWN plant book. Choose ONLY plants present in CANDIDATES, by their exact id. NEVER invent plants or ids.${hoaLine}\n\nRequest: "${req}"${reqLine}\n${extra||""}\nCount wanted: ${n}. Prioritize favorites: ${prioFav}. Prioritize commonly-available: ${prioCommon}.\n\nCANDIDATES (id | common | botanical | water VL/L/M/H | sun sun/sunpart/part/shade | flowerColor | availability common/available/specialty | fav | fireZone | types):\n${candLines}\n\nReturn ONLY minified JSON, no prose, no markdown fences:\n{"criteria":{"water":["VL","L"],"sun":["part","sunpart","shade"],"colors":["yellow","red","purple"],"types":["grass","shrub","succulent"]},"picks":[{"id":"<candidate id>"}]}\ncriteria = constraints from the request + hard requirements (water codes VL/L/M/H; sun codes sun/sunpart/part/shade; colors from white,cream,yellow,orange,red,pink,purple,lavender,blue,magenta,green,bronze; types like shrub,grass,succulent,perennial,groundcover,tree,palm). Only include a dimension if it's constrained.\npicks = exactly ${n} candidate ids best matching the request, balanced across the requested colors and types, prioritizing favorites/common if asked, and preferring plants matching more criteria.`;
   box.innerHTML=`<div style="font-size:.85rem;color:#6A4FA3;display:flex;align-items:center;gap:.5rem"><span style="display:inline-block;width:14px;height:14px;border:2px solid #d9cdec;border-top-color:#6A4FA3;border-radius:50%;animation:aispin .7s linear infinite"></span> Thinking through your plant book…</div><style>@keyframes aispin{to{transform:rotate(360deg)}}</style>`;
   try{
     const _aiEndpoint = (typeof AI_PROXY_URL!=="undefined" && AI_PROXY_URL) ? AI_PROXY_URL : "https://api.anthropic.com/v1/messages";
@@ -18706,7 +18752,7 @@ async function runAiSuggest(){ const zi=_aiState.zi; const box=document.getEleme
     const criteria={}; ["water","sun","colors","types"].forEach(dim=>{ const v=(structured[dim]&&structured[dim].length)?structured[dim]:(aiCrit[dim]||[]); if(v&&v.length) criteria[dim]=v; });
     const picks=[]; const seen=new Set();
     rawPicks.forEach(x=>{ const id=x&&x.id; if(!id||seen.has(id))return; const kind=kindById[id]||plantKindOf(id); const p=kind?plantDbFind(kind,id):null; if(p){ seen.add(id); picks.push({kind,pid:id,sel:true}); } });
-    _aiState.criteria=criteria; _aiState.picks=picks; _aiState.prioFav=prioFav; _aiState.prioCommon=prioCommon;
+    _aiState.criteria=criteria; _aiState.picks=_aiDropProhibited(picks); _aiState.prioFav=prioFav; _aiState.prioCommon=prioCommon;
     // deterministic prioritization so "prioritize favorites/common" actually reorders the list
     _aiState.picks.sort((a,a2)=>{ const pa=plantDbFind(a.kind,a.pid)||{}, pb=plantDbFind(a2.kind,a2.pid)||{};
       if(prioFav){ const fa=isFav(pa,a.kind)?1:0, fb=isFav(pb,a2.kind)?1:0; if(fb-fa) return fb-fa; }
@@ -18885,6 +18931,14 @@ function _aiToggle(idx){ if(_aiState.picks[idx]){ _aiState.picks[idx].sel=!_aiSt
 function _aiSelectAll(on){ const c=_aiState.criteria||{}; const only100=!!_aiState.only100;
   _aiState.picks.forEach(pk=>{ const p=plantDbFind(pk.kind,pk.pid); if(!p) return; if(only100 && _aiScore(p,pk.kind,c).pct<100) return; pk.sel=!!on; });
   _aiRenderReview(); }
+function _aiDropProhibited(picks){
+  const r=(typeof hoaPlantRules==="function")?hoaPlantRules():null;
+  if(!r||!r.noCount) return picks;
+  const kept=picks.filter(p=>!(p&&r.no[p.pid]));
+  const n=picks.length-kept.length;
+  if(n) try{ _toast(`${n} suggestion${n===1?"":"s"} dropped — prohibited by ${r.name}`,"#B23F3C"); }catch(e){}
+  return kept;
+}
 function aiAddSelected(){ const zi=_aiState.zi; let n=0; _aiState.picks.forEach(pk=>{ if(!pk.sel) return; if(pk.kind==="shrub") addShrubRow(zi,pk.pid); else if(pk.kind==="gc") addGcRow(zi,pk.pid); else if(pk.kind==="tree") addTreeRow(zi,pk.pid); else if(pk.kind==="palm") addPalmRow(zi,pk.pid); n++; }); closeAiSuggest(); if(typeof plantRefresh==="function") plantRefresh(); }
 async function aiLookupSun(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const name=(botName(p)||p.c||"").trim(); if(!name){ alert("This plant has no botanical name to look up."); return; }
   const endpoint=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:"https://api.anthropic.com/v1/messages";
@@ -19168,7 +19222,7 @@ function renderPlantingBuilder(){
       ${plantThumb(db,42)}
       <span style="flex:1;min-width:0">
         <b style="font-size:.88rem;font-weight:800;letter-spacing:-.01em;display:block;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(db.c||r.pid)}</b>
-        <i style="font-style:italic;font-size:.72rem;color:var(--tl)">${escAttr(bn)}</i></span>
+        <i style="font-style:italic;font-size:.72rem;color:var(--tl)">${escAttr(bn)}</i>${_hoaBadge(r.pid,true)}</span>
       ${badges}
       ${delBtn(`delShrubRow(${zi},${i})`)}</div>`;
     const totBlock=`<div style="text-align:right;min-width:0">
@@ -19275,7 +19329,7 @@ function renderPlantingBuilder(){
       ${plantThumb(db,42)}
       <span style="flex:1;min-width:0">
         <b style="font-size:.88rem;font-weight:800;letter-spacing:-.01em;display:block;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(db.c||r.pid)}</b>
-        <i style="font-style:italic;font-size:.72rem;color:var(--tl)">${escAttr(gbn)}</i></span>
+        <i style="font-style:italic;font-size:.72rem;color:var(--tl)">${escAttr(gbn)}</i>${_hoaBadge(r.pid,true)}</span>
       ${gbadges}
       ${delBtn(`delGcRow(${zi},${i})`)}</div>`;
 
@@ -19539,7 +19593,7 @@ function renderPlantingBuilder(){
       <div style="display:flex;justify-content:space-between;font-size:.92rem;font-weight:700;color:var(--gm);border-top:1px dashed var(--br);margin-top:.3rem;padding-top:.3rem"><span>Planting total</span><span>${money(calc.total)}</span></div>
     </div>`;
 
-  host.innerHTML=`<div class="li-row" style="padding:1rem;margin-bottom:0">${zonesSec}${ratesPanel}${sundrySec}${waterPanel}${totals}${earningsPanel()}</div>`;
+  host.innerHTML=`<div class="li-row" style="padding:1rem;margin-bottom:0">${hoaConflictHTML()}${zonesSec}${ratesPanel}${sundrySec}${waterPanel}${totals}${earningsPanel()}</div>`;
 }
 
 
