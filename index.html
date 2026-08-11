@@ -1127,6 +1127,8 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .hoax .pg,.hcard .pg{display:inline-block;font:700 10.5px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;
   color:var(--tm);background:var(--bg);border:1px solid var(--br);border-radius:6px;
   padding:3px 6px;white-space:nowrap}
+a.pg.link{text-decoration:none;color:var(--gm);border-color:var(--gm);cursor:pointer}
+a.pg.link:hover{background:var(--brand-soft)}
 .xsub{margin-top:9px}
 .xsubw{display:grid;grid-template-columns:1.1fr 1fr;gap:16px}
 .xh{margin:0 0 5px;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--tm)}
@@ -3038,7 +3040,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v737</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v738</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10649,18 +10651,28 @@ function _hoaMergedHTML(h,docs){
     <div class="hoaempty">Nothing read yet. Hit <b>Read it</b> on a document and its setbacks, coverage limits, heights, irrigation rules, materials and plant list land here.</div></div>`;
 
   const L=v=>Array.isArray(v)?v:[];
-  const pg=p=>p?`<span class="pg">${escAttr(p)}</span>`:"";
+  // "p.42" becomes a link that opens the document at page 42. Most viewers honour
+  // #page=N, and the archived copy is preferred because it is ours and cannot move.
+  const pg=(p,url)=>{
+    if(!p) return "";
+    const n=String(p).match(/\d+/);
+    if(!url||!n) return `<span class="pg">${escAttr(p)}</span>`;
+    const href=url+(url.indexOf("#")>=0?"":"#page="+n[0]);
+    return `<a class="pg link" href="${escAttr(href)}" target="_blank" rel="noopener"
+      title="Open ${escAttr(String(p))} of this document">${escAttr(p)}</a>`;
+  };
   const cats={}; HOA_CATS.forEach(([k])=>{ cats[k]=[]; });
-  const head=[], approved=[], prohibited=[]; let sub=null, subDoc="";
+  const head=[], approved=[], prohibited=[]; let sub=null, subDoc="", subUrl="";
   readd.forEach(d=>{
     const x=d.extract, nm=d.title||"document";
-    HOA_CATS.forEach(([k])=>{ L(x[k]).forEach(r=>cats[k].push(Object.assign({},r,{doc:nm}))); });
-    L(x.headline).forEach(fx=>head.push(Object.assign({},fx,{doc:nm})));
+    const durl=hoaDocURL(d);
+    HOA_CATS.forEach(([k])=>{ L(x[k]).forEach(r=>cats[k].push(Object.assign({},r,{doc:nm,url:durl}))); });
+    L(x.headline).forEach(fx=>head.push(Object.assign({},fx,{doc:nm,url:durl})));
     const pl=x.plants||{};
     L(pl.approved).forEach(p=>{ if(approved.indexOf(p)<0) approved.push(p); });
     L(pl.prohibited).forEach(p=>{ if(prohibited.indexOf(p)<0) prohibited.push(p); });
     const si=L(x.submittal&&x.submittal.items).length;
-    if(si && (!sub || si>L(sub.items).length)){ sub=x.submittal; subDoc=nm; }
+    if(si && (!sub || si>L(sub.items).length)){ sub=x.submittal; subDoc=nm; subUrl=durl; }
   });
   const missing=HOA_REQUIRED.filter(([k])=> k==="plants" ? !approved.length : !cats[k].length );
   const subMeta=sub?[["Copies",sub.copies],["Sheet size",sub.sheets],["Fee",sub.fees],
@@ -10672,7 +10684,7 @@ function _hoaMergedHTML(h,docs){
     <h4>What the documents require <em>merged from ${readd.length} document${readd.length===1?"":"s"}</em></h4>
     ${head.length?`<div class="xstrip">${head.slice(0,6).map(fx=>`<div class="xfig">
       <span class="v">${escAttr(fx.value||"")}</span><span class="l">${escAttr(fx.label||"")}</span>
-      ${pg(fx.page)}</div>`).join("")}</div>`:""}
+      ${pg(fx.page,fx.url)}</div>`).join("")}</div>`:""}
     <div class="xgrid">
       ${HOA_CATS.map(([k,label])=>{
         const a=cats[k];
@@ -10686,17 +10698,17 @@ function _hoaMergedHTML(h,docs){
           <div class="xrules">${a.map(r=>`<div class="xru${r.prohibited?" no":""}">
             <span class="w">${escAttr(clip(r.what,70))}</span>
             <span class="v" title="${escAttr(r.value||"")}">${escAttr(clip(r.value,120))}</span>
-            <span class="from">${escAttr(r.doc)}</span>${pg(r.page)}</div>`).join("")}</div></div>`;
+            <span class="from">${escAttr(r.doc)}</span>${pg(r.page,r.url)}</div>`).join("")}</div></div>`;
       }).join("")}
     </div>
   </div>
 
   ${sub?`<div class="hcard">
-    <h4>Submittal <em>${escAttr(subDoc)}${sub.page?" · "+escAttr(sub.page):""}</em></h4>
+    <h4>Submittal <em>${escAttr(subDoc)}${sub.page?" · "+pg(sub.page,subUrl):""}</em></h4>
     <div class="xsubw">
       <div><p class="xh">What to submit</p><ul class="xdlv">${
         L(sub.items).map(it=>`<li>${escAttr(typeof it==="string"?it:(it.what||""))}${
-          (it&&it.page)?" "+pg(it.page):""}</li>`).join("")}</ul></div>
+          (it&&it.page)?" "+pg(it.page,subUrl):""}</li>`).join("")}</ul></div>
       ${subMeta.some(m=>String(m[1]||"").trim())?`<div><p class="xh">The rules</p>${
         subMeta.filter(m=>String(m[1]||"").trim()).map(m=>
           `<div class="xru"><span class="w">${m[0]}</span><span class="v">${escAttr(m[1])}</span></div>`).join("")}</div>`:""}
