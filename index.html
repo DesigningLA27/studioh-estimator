@@ -1033,11 +1033,22 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .hoares .hd{display:flex;align-items:baseline;gap:8px;padding:10px 13px;border-bottom:1px solid var(--br);flex-wrap:wrap}
 .hoares .hd b{font-size:13px;color:var(--gm)}
 .hoares .hd span{font-size:11.5px;color:var(--tm)}
-.hoares .hd button{margin-left:auto;border:1px solid var(--br);background:var(--card);color:var(--tm);
+.hoares .hd>button{margin-left:auto;border:1px solid var(--br);background:var(--card);color:var(--tm);
   border-radius:8px;padding:4px 10px;font-size:11.5px;font-weight:700;cursor:pointer}
 .hoares .txt{padding:11px 13px;font-size:12px;color:var(--tm);line-height:1.55;max-height:220px;overflow-y:auto}
 .hoares .ft{padding:9px 13px;border-top:1px solid var(--br);font-size:11px;color:var(--tl)}
-.hoarow{display:flex;align-items:flex-start;gap:11px;padding:11px 13px;border-bottom:1px solid var(--bg)}
+.hoarow{display:flex;align-items:flex-start;gap:11px;padding:11px 13px;border-bottom:1px solid var(--bg);cursor:pointer}
+.hoarow:hover{background:var(--surface2)}
+.hoarow.sel{background:var(--brand-soft)}
+.hoarow.done{cursor:default;opacity:.66}
+.hoarow.done:hover{background:none}
+.hoarow .cb{flex:none;width:17px;height:17px;margin-top:2px;border:1.5px solid var(--br);border-radius:5px;
+  display:grid;place-items:center;background:var(--card)}
+.hoarow .cb.on{background:var(--gm);border-color:var(--gm);color:#fff}
+.hoarow .tick{flex:none;width:17px;height:17px;margin-top:2px;display:grid;place-items:center;color:var(--gm)}
+.hoarow .added{font-size:11px;font-weight:800;color:var(--gm);letter-spacing:.03em;text-transform:uppercase}
+.hoares .hd .bulk{margin-left:auto;display:flex;gap:6px}
+.hoares .hd .bulk .go{margin-left:0;background:var(--gm);border-color:var(--gm);color:#fff}
 .hoarow .t{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
 .hoarow .t b{font-size:13.5px}
 .hoarow .t em,.hoarow .t i{font-style:normal;font-size:11.5px;color:var(--tm)}
@@ -2855,7 +2866,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v720</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v721</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9582,30 +9593,67 @@ ${prose}`}]})});
 
 // Adding a result creates the record and files its documents as links. Nothing is
 // uploaded — these live on the association's own site, where they stay current.
-async function hoaFindAdd(i){
-  const r=(HOA_FIND||[])[i]; if(!r) return;
-  const dup=HOA.find(h=>h&&String(h.name||"").toLowerCase()===String(r.name||"").toLowerCase());
-  if(dup && !confirm(`“${r.name}” is already in the library.\n\nAdd its documents to the existing record?`)) return;
+//
+// A city search returns a dozen associations and you want most of them, so adding one
+// must never throw the rest away: the row is marked, the list stays, and several can
+// go in together on one save.
+let HOA_FINDSEL={};
+
+function hoaFindToggle(i){ HOA_FINDSEL[i]=!HOA_FINDSEL[i]; hoaFindRefresh(); }
+function hoaFindSelCount(){ return (HOA_FIND||[]).filter((r,i)=>HOA_FINDSEL[i]&&!r._added).length; }
+function hoaFindRefresh(){
+  const n=document.getElementById("hoa-find");
+  if(n) n.innerHTML=_hoaFindHTML(); else renderHOA();
+}
+
+// The merge itself, with no saving and no navigating — so a bulk add is one write to
+// the server rather than one per association.
+function _hoaFindMerge(r){
+  if(!r||r._added) return false;
   const now=new Date().toISOString(), by=contribName()||"";
-  const mkDoc=d=>({ id:"d"+Date.now().toString(36)+Math.round(Math.random()*1e4).toString(36),
+  const mkDoc=d=>({ id:"d"+Date.now().toString(36)+Math.round(Math.random()*1e6).toString(36),
     title:String(d.title||"Document").slice(0,160), kind:HOA_KINDS.some(k=>k[0]===d.kind)?d.kind:"other",
     url:d.url, addedAt:now, effective:_hoaEff(d.effective), by, viaAI:true });
+  const dup=HOA.find(h=>h&&String(h.name||"").toLowerCase()===String(r.name||"").toLowerCase());
   if(dup){
     dup.docs=hoaDocs(dup);
     (r.docs||[]).forEach(d=>{ if(!dup.docs.some(x=>x&&x.url===d.url)) dup.docs.unshift(mkDoc(d)); });
     if(!dup.web&&r.web) dup.web=r.web;
-    HOA_OPEN=dup.id;
+    if(!dup.assoc&&r.assoc) dup.assoc=r.assoc;
+    r._added="merged";
   } else {
-    HOA.unshift({ id:"hoa"+Date.now().toString(36), name:String(r.name).slice(0,120),
+    HOA.unshift({ id:"hoa"+Date.now().toString(36)+Math.round(Math.random()*1e4).toString(36),
+      name:String(r.name).slice(0,120),
       city:String(r.city||"").slice(0,80), state:String(r.state||"CA").slice(0,4).toUpperCase(),
       assoc:String(r.assoc||"").slice(0,160), web:String(r.web||""), notes:String(r.note||"").slice(0,300),
       docs:(r.docs||[]).map(mkDoc), at:now, by, viaAI:true });
-    HOA_OPEN=HOA[0].id;
+    r._added="added";
   }
-  HOA_FIND=null;
-  renderHOA();
+  return true;
+}
+
+async function hoaFindAdd(i){
+  const r=(HOA_FIND||[])[i]; if(!r||r._added) return;
+  if(!_hoaFindMerge(r)) return;
+  hoaFindRefresh();
+  _toast((r._added==="merged"?"Merged into ":"Added ")+r.name,"#3E6B4F");
   await hoaPush();
 }
+
+// "All" means every result not already in — including the ones with no documents,
+// because knowing an association exists is itself worth keeping.
+async function hoaFindAddMany(which){
+  const list=(HOA_FIND||[]);
+  const take=list.filter((r,i)=>!r._added && (which==="all"||HOA_FINDSEL[i]));
+  if(!take.length){ _toast(which==="all"?"They are all in already.":"Nothing selected.","#B23F3C"); return; }
+  let added=0, merged=0;
+  take.forEach(r=>{ if(_hoaFindMerge(r)){ r._added==="merged"?merged++:added++; } });
+  HOA_FINDSEL={};
+  hoaFindRefresh();
+  _toast(`${added} added${merged?` · ${merged} merged into existing`:""}`,"#3E6B4F");
+  await hoaPush();
+}
+
 // A year on its own is all most documents print. Keep it as a real date so sorting and
 // the superseded check still work, rather than throwing the only date away.
 function _hoaEff(v){
@@ -9659,7 +9707,7 @@ function renderHOA(){
       <button class="hoaadd" onclick="hoaFindGo()">${HOA_FINDBUSY?"Searching…":"Search"}</button>
       <span class="hint">Name one, the other, or both. A city on its own lists what it can find there.</span>
     </div>
-    ${_hoaFindHTML()}
+    <div id="hoa-find">${_hoaFindHTML()}</div>
     <div id="hoa-grid">${_hoaGridHTML()}</div>
     <input type="file" id="hoa-file" accept="application/pdf,.pdf" style="display:none" onchange="hoaUpload(this)">`;
 }
@@ -9697,11 +9745,19 @@ function _hoaFindHTML(){
     ${HOA_FINDTEXT?`<div class="txt">${escAttr(HOA_FINDTEXT).replace(/\n/g,"<br>")}</div>`:""}
     <div class="ft">Many associations keep their documents behind an owner login. If so, add the community by hand and upload the PDF when you get it.</div>
   </div>`;
+  const left=HOA_FIND.filter(r=>!r._added).length, sel=hoaFindSelCount();
   return `<div class="hoares">
     <div class="hd">${mi("spark")}<b>${HOA_FIND.length} found</b>
-      <span>for “${escAttr(HOA_FINDQ)}”</span>
+      <span>for “${escAttr(HOA_FINDQ)}”${left?"":" · all added"}</span>
+      ${left?`<span class="bulk">
+        ${sel?`<button class="go" onclick="hoaFindAddMany('sel')">Add selected · ${sel}</button>`:""}
+        <button class="go" onclick="hoaFindAddMany('all')">Add all ${left}</button>
+      </span>`:""}
       <button onclick="hoaFindClear()">Clear</button></div>
-    ${HOA_FIND.map((r,i)=>`<div class="hoarow">
+    ${HOA_FIND.map((r,i)=>`<div class="hoarow${r._added?" done":""}${(HOA_FINDSEL[i]&&!r._added)?" sel":""}"
+        ${r._added?"":`onclick="hoaFindToggle(${i})"`}>
+      ${r._added?`<span class="tick">${mi("check")}</span>`
+        :`<span class="cb${HOA_FINDSEL[i]?" on":""}">${HOA_FINDSEL[i]?mi("check"):""}</span>`}
       <span class="t">
         <b>${escAttr(r.name)}</b>
         <em>${escAttr([r.assoc,[r.city,r.state].filter(Boolean).join(", ")].filter(Boolean).join(" · "))}</em>
@@ -9710,9 +9766,11 @@ function _hoaFindHTML(){
           ? `<span class="docs">${r.docs.map(d=>`<a href="${escAttr(d.url)}" target="_blank" rel="noopener">${escAttr(hoaKindLabel(d.kind))}${d.effective?" "+escAttr(String(d.effective).slice(0,4)):""}</a>`).join("")}</span>`
           : `<u>No public documents found — the record is still worth keeping</u>`}
       </span>
-      <span class="a">
+      <span class="a" onclick="event.stopPropagation()">
         ${r.web?`<a class="cbtn" href="${escAttr(r.web)}" target="_blank" rel="noopener">Site</a>`:""}
-        <button class="spbtn" onclick="hoaFindAdd(${i})">${mi("plus")}Add${(r.docs||[]).length?` · ${r.docs.length} doc${r.docs.length===1?"":"s"}`:""}</button>
+        ${r._added
+          ? `<span class="added">${r._added==="merged"?"Merged in":"In your library"}</span>`
+          : `<button class="spbtn" onclick="hoaFindAdd(${i})">${mi("plus")}Add${(r.docs||[]).length?` · ${r.docs.length} doc${r.docs.length===1?"":"s"}`:""}</button>`}
       </span></div>`).join("")}
     <div class="ft">Found by AI on the open web — open each document and check it is current before you design to it.</div>
   </div>`;
