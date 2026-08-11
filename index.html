@@ -2697,7 +2697,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v710</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v711</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -22909,8 +22909,9 @@ Rules:
 Reply with STRICT JSON only, no code fence:
 {"answer":"<plain text, may use - bullets and line breaks>",
  "projects":["<id of each project your answer is about>"],
- "copy":{"projectId":"<id>","what":"pergolas|pools|kitchens|walls|waterFeatures"}}
-Include "copy" ONLY when the person asks to reuse or copy a built element from a named project. Otherwise omit it.`;
+ "copy":{"projectId":"<id>","what":"pergolas|pools|kitchens|walls|waterFeatures|planting"}}
+Use "planting" when they want that project's plant palette or plant list brought into this one.
+Include "copy" ONLY when the person asks to reuse or copy something from a named project. Otherwise omit it.`;
 
 async function askRun(){
   if(_askBusy) return;
@@ -22962,7 +22963,66 @@ function askRenderAnswer(q,out){
   body.innerHTML=`<div class="askq">${escAttr(q)}</div><div class="aska">${ans}</div>${extra}`;
   body.scrollTop=body.scrollHeight;
 }
-function _askWhatLabel(w){ return ({pergolas:"the pergola",pools:"the pool",kitchens:"the kitchen",walls:"the walls",waterFeatures:"the water feature"})[w]||w; }
+// A palette crosses projects differently from a pergola: it merges into a zone
+// rather than being appended, and this project may have several zones to choose
+// between. Plants the source project carried but this book has never seen come
+// with it — otherwise half the palette would silently vanish.
+let _askPal=null;
+function _askPlantingFrom(bid, projId){
+  const zonesSrc=(bid.S.planting&&bid.S.planting.zones)||[];
+  const items=[], seen={};
+  zonesSrc.forEach(z=>{
+    [["treeRows","tree"],["palmRows","palm"],["shrubRows","shrub"],["gcRows","gc"]].forEach(([rk,kind])=>{
+      (z[rk]||[]).forEach(r=>{ if(!r||!r.pid) return; const k=kind+":"+r.pid; if(seen[k]) return; seen[k]=1; items.push({kind,pid:r.pid}); });
+    });
+  });
+  if(!items.length){ _toast("That project has no plants in it.","#B23F3C"); return; }
+  _askPal={ items, plants:bid.plants||{} };
+  ensurePlanting();
+  const zones=(S.planting&&S.planting.zones)||[];
+  if(zones.length<=1){ _askPlantingApply(0); return; }
+  const body=document.getElementById("ask-body"); if(!body) return;
+  body.insertAdjacentHTML("beforeend",`<div class="askrefs" id="ask-zonepick">
+    <span style="width:100%;font-size:12px;color:var(--tm)">${items.length} plants — which zone?</span>
+    ${zones.map((z,i)=>`<button type="button" class="askcopy" onclick="_askPlantingApply(${i})">${escAttr(z.name||("Zone "+(i+1)))}</button>`).join("")}</div>`);
+  body.scrollTop=body.scrollHeight;
+}
+
+function _askPlantingApply(zi){
+  const pal=_askPal; if(!pal) return;
+  const pick=document.getElementById("ask-zonepick"); if(pick) pick.remove();
+  // Add only what is missing. An edited plant in this book keeps its own edits —
+  // copying a palette in must never quietly rewrite the shared book.
+  let added=0;
+  try{
+    ["shrub","gc","tree","palm"].forEach(kind=>{
+      PLANT_DB[kind]=PLANT_DB[kind]||[];
+      (pal.plants[kind]||[]).forEach(pl=>{
+        if(!pl||!pl.id) return;
+        if(PLANT_DB[kind].some(x=>x&&x.id===pl.id)) return;
+        PLANT_DB[kind].push(JSON.parse(JSON.stringify(pl))); added++;
+      });
+    });
+    if(added&&typeof plantBookSave==="function") plantBookSave();
+  }catch(e){}
+
+  let n=0, miss=0;
+  pal.items.forEach(it=>{
+    if(!plantDbFind(it.kind,it.pid)){ miss++; return; }
+    if(it.kind==="shrub") addShrubRow(zi,it.pid);
+    else if(it.kind==="gc") addGcRow(zi,it.pid);
+    else if(it.kind==="tree") addTreeRow(zi,it.pid);
+    else if(it.kind==="palm") addPalmRow(zi,it.pid);
+    n++;
+  });
+  _askPal=null;
+  try{ renderProSummary(); }catch(e){}
+  _toast(n+" plants added"+(added?" · "+added+" new to the book":"")+(miss?" · "+miss+" could not be found":""),
+    miss?"#B23F3C":"#3E6B4F");
+  askClose();
+}
+
+function _askWhatLabel(w){ return ({pergolas:"the pergola",pools:"the pool",kitchens:"the kitchen",walls:"the walls",waterFeatures:"the water feature",planting:"the plant palette"})[w]||w; }
 
 function askOpenProject(id){ askClose(); cloudLoadBid(id); }
 
@@ -22978,6 +23038,7 @@ async function askCopyFrom(id,what){
   }catch(e){}
   if(st) st.textContent="";
   if(!bid||!bid.S){ _toast("Could not read that project.","#B23F3C"); return; }
+  if(what==="planting"){ _askPlantingFrom(bid, id); return; }
   const src=bid.S[what];
   if(!Array.isArray(src)||!src.length){ _toast("Nothing of that kind in it.","#B23F3C"); return; }
   if(!Array.isArray(S[what])) S[what]=[];
