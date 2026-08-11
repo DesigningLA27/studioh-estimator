@@ -3100,7 +3100,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v745</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v746</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -18298,26 +18298,20 @@ function hoaPlantState(pid){
 // Whether the picker leads with the approved list. On by default when a list exists —
 // the whole point is not having to remember.
 function hoaFirst(){ return PREFS.hoaFirst!==false; }
-// Sorting only helps when an approved plant happens to match what you typed. The list
-// has to be browsable in its own right — tap the count and the picker shows the
-// association's palette, filtered to what your book actually has.
-let HOA_ONLY=false;
-function hoaOnlyToggle(){ HOA_ONLY=!HOA_ONLY; _hoaRepaintPickers(); }
-function _hoaRepaintPickers(){
-  ["shrub","gc","tree","palm"].forEach(k=>{
-    document.querySelectorAll('[id^="plant-search-'+k+'-"]').forEach(el=>{
-      const scope=el.id.slice(("plant-search-"+k+"-").length);
-      try{ plantSearchInput(k,scope); }catch(e){}
-      const box=document.getElementById("plant-results-"+k+"-"+scope);
-      if(box&&HOA_ONLY) box.style.display="block";
-    });
-  });
-}
 function hoaApprovedIn(kind){
   const r=hoaPlantRules(); if(!r) return [];
   return (PLANT_DB[kind]||[]).filter(p=>p&&r.ok[p.id]);
 }
-function hoaFirstToggle(){ PREFS.hoaFirst=!hoaFirst(); try{ prefsSave(); }catch(e){} _hoaRepaintPickers(); }
+function hoaFirstToggle(){
+  PREFS.hoaFirst=!hoaFirst(); try{ prefsSave(); }catch(e){}
+  // repaint every open picker in place, so the box does not close under the tap
+  ["shrub","gc","tree","palm"].forEach(k=>{
+    document.querySelectorAll('[id^="plant-search-'+k+'-"]').forEach(el=>{
+      const scope=el.id.slice(("plant-search-"+k+"-").length);
+      try{ plantSearchInput(k,scope); }catch(e){}
+    });
+  });
+}
 
 // ── live search (scope = zone index) ─────────────────────────────
 function pickPlant(kind,scope,pid){
@@ -18449,9 +18443,15 @@ function _hoaBadge(pid,quiet){
     background:${ok?"var(--brand-soft)":"#FBEDEC"};color:${ok?"var(--gm)":"#8C3B38"};
     border:1px solid ${ok?"var(--gm)":"#E0B4B2"}">${ok?"HOA ✓":"PROHIBITED"}</span>`;
 }
-function _plantHit(kind,scope,p,info){ const priceBadge = info&&info.has ? `<span style="margin-left:.35rem;background:${info.nursery?'var(--gm)':'#EAF3EA'};color:${info.nursery?'#fff':'var(--gm)'};border:1px solid var(--gm);border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:700">${info.nursery?'✓ ':''}${info.label}</span>` : '';
+function _plantHit(kind,scope,p,info){
+  // The row itself carries the status — a tint and a green edge for approved, a red
+  // edge for prohibited — so you can see where the approved ones stop without reading.
+  const _st=hoaPlantState(p.id);
+  const _rowCss=_st==="ok" ? "background:var(--brand-soft);box-shadow:inset 3px 0 0 var(--gm)"
+    : _st==="no" ? "background:#FBEDEC;box-shadow:inset 3px 0 0 #B23F3C" : "";
+  const priceBadge = info&&info.has ? `<span style="margin-left:.35rem;background:${info.nursery?'var(--gm)':'#EAF3EA'};color:${info.nursery?'#fff':'var(--gm)'};border:1px solid var(--gm);border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:700">${info.nursery?'✓ ':''}${info.label}</span>` : '';
   const _img=plantImgOf(p); const thumb=`<img src="${escAttr(_img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:30px;height:30px;object-fit:cover;border-radius:5px;border:1px solid var(--br);background:#EEF3EA;flex:none">`;
-  return `<div class="plant-hit" style="display:flex;align-items:center;gap:.5rem;padding:.35rem .6rem;cursor:pointer;font-size:.78rem;border-bottom:1px solid var(--br);${info&&info.nursery?'background:#F4F9F2':''}" onmousedown="event.preventDefault();pickPlant('${kind}',${scope},'${p.id}');var b=document.getElementById('plant-search-${kind}-${scope}');if(b)b.value='';document.getElementById('plant-results-${kind}-${scope}').style.display='none'">
+  return `<div class="plant-hit" style="display:flex;align-items:center;gap:.5rem;padding:.35rem .6rem;cursor:pointer;font-size:.78rem;border-bottom:1px solid var(--br);${_rowCss||(info&&info.nursery?'background:#F4F9F2':'')}" onmousedown="event.preventDefault();pickPlant('${kind}',${scope},'${p.id}');var b=document.getElementById('plant-search-${kind}-${scope}');if(b)b.value='';document.getElementById('plant-results-${kind}-${scope}').style.display='none'">
       ${thumb}<div><span style="font-weight:600">${p.c}</span> <span style="color:var(--tl);font-style:italic">${botName(p)}</span>${priceBadge}${_hoaBadge(p.id)}${p.spec?' · <span style="color:var(--gold)">specimen</span>':''}</div></div>`; }
 function plantSearchInput(kind,scope){
   const inp=document.getElementById("plant-search-"+kind+"-"+scope);
@@ -18465,21 +18465,17 @@ function plantSearchInput(kind,scope){
   const _hoaHdr=()=>{ const r=hoaPlantRules(); if(!r) return "";
     return `<div style="padding:.32rem .6rem;font-size:.6rem;font-weight:700;text-transform:uppercase;
       background:var(--brand-soft);color:var(--gm);border-bottom:1px solid var(--br);position:sticky;top:0;
-      display:flex;gap:.4rem;align-items:center">
-      <span>${escAttr(r.name)}${r.noCount?" · "+r.noCount+" prohibited":""}</span>
-      <button onclick="event.preventDefault();event.stopPropagation();hoaOnlyToggle()"
-        style="margin-left:auto;border:1px solid var(--gm);background:${HOA_ONLY?"var(--gm)":"transparent"};
-        color:${HOA_ONLY?"#fff":"var(--gm)"};border-radius:7px;padding:.1rem .5rem;font:inherit;
-        font-size:.62rem;font-weight:800;cursor:pointer">${HOA_ONLY?"✓ ":""}Approved only · ${hoaApprovedIn(kind).length}</button></div>`; };
-  // browsing the palette short-circuits the normal search
-  if(HOA_ONLY){
-    const _q=(inp.value||"").trim().toLowerCase();
-    const list=hoaApprovedIn(kind).filter(p=>!_q||p.c.toLowerCase().includes(_q)||botName(p).toLowerCase().includes(_q));
-    box.innerHTML=_hoaHdr()+(list.length
-      ? list.map(p=>_plantHit(kind,scope,p,plantPricedInfo(kind,p.id))).join("")
-      : `<div style="padding:.5rem .6rem;font-size:.76rem;color:var(--tl)">Nothing approved in your book matches that. The association names ${(hoaPlantRules()||{}).okNames.length} plants; ${(hoaPlantRules()||{}).okCount} are in your book.</div>`);
-    box.style.display="block"; return;
-  }
+      display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;
+        font-size:.62rem;font-weight:800;color:var(--gm);text-transform:none;letter-spacing:0">
+        <input type="checkbox" ${hoaFirst()?"checked":""}
+          onmousedown="event.preventDefault();event.stopPropagation()"
+          onclick="event.stopPropagation();hoaFirstToggle()"
+          style="width:14px;height:14px;accent-color:var(--gm);margin:0">
+        Show approved plants first</label>
+      <span style="width:100%;font-weight:600;text-transform:none;letter-spacing:0;color:var(--tm)">
+        ${escAttr(r.name)} · ${hoaApprovedIn(kind).length} approved in your book${r.noCount?" · "+r.noCount+" prohibited":""}</span>
+      </div>`; };
   if(!q){ // on focus with no typing: show plants already used elsewhere in the project for one-tap re-add
     const key=_plantRowsKey(kind); const cur=ensurePlanting().zones[scope]; const curPids=new Set(((cur&&cur[key])||[]).map(r=>r.pid));
     const used=plantsUsedInProject(kind).filter(p=>!curPids.has(p.id));
