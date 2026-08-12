@@ -3195,7 +3195,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v763</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v764</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25705,9 +25705,27 @@ async function _fetchSatStitched(center, tileZoom, grid, scale){
   await Promise.all(jobs);
   return {canvas:cv, sb:{center:{lat:center.lat,lng:center.lng}, zoom:tileZoom, scale, w:cv.width, h:cv.height}};
 }
+// Coordinates the project's address actually resolved to — null until that is certain,
+// so a half-loaded project never passes stale numbers off as the property.
+function _ptHome(){ try{ if(S.pi&&S.pi.lat&&S.pi.lng&&S.pi.geoFor&&S.pi.geoFor===S.pi.address)
+    return {lat:+S.pi.lat,lng:+S.pi.lng}; }catch(e){} return null; }
+function _ptSameSpot(a,b){ return !!(a&&b) && Math.abs(a.lat-b.lat)<0.0015 && Math.abs(a.lng-b.lng)<0.0015; }   // ~150 m
 async function ptOpenSatellite(keepTrace){
+  // A framing carried in from another project points at another property. Traces are stored in
+  // that image's pixels, so they cannot be salvaged — rebuild on this project's own address.
+  if(keepTrace && PT.satBase){
+    const home=_ptHome();
+    const belongs=(PT.satBase.for&&S.pi&&PT.satBase.for===S.pi.address)||_ptSameSpot(PT.satBase.center,home);
+    if(home && !belongs){
+      const n=(PT.polys?PT.polys.length:0)+(PT.trees?PT.trees.length:0);
+      _toast("That trace was framed on a different property — rebuilding on "+(S.pi.address||"this address")+".","#8A6D1F");
+      if(n>1 && !confirm(`This trace was framed on a different property, so its ${n} items don't line up with ${S.pi.address||"this address"}.\n\nRebuild on the right property? The old items are discarded.`)) return;
+      keepTrace=false; PT.satBase=null;
+    }
+  }
   let ctr=null; try{ if(typeof map!=="undefined"&&map&&map.getCenter){ const c=map.getCenter(); if(c) ctr={lat:c.lat(),lng:c.lng()}; } }catch(e){}
   if(keepTrace && PT.satBase) ctr=PT.satBase.center;
+  { const home=_ptHome(); if(home && !(keepTrace&&PT.satBase)) ctr=home; }   // the project's address wins over wherever the map drifted
   if(!ctr || (Math.abs(ctr.lat)<0.02&&Math.abs(ctr.lng)<0.02)){ _toast("Enter the property address first so the map centers on it.","#B23F3C"); return; }
   const tileZoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||21, grid=3, scale=2;   // zoom 21 = max real detail; 3×3 tiles
   _toast("Loading high-res satellite (a few tiles)…","#6A4FA3");
@@ -25715,6 +25733,7 @@ async function ptOpenSatellite(keepTrace){
   const sb=stit.sb;
   const mpp=156543.03392*Math.cos(ctr.lat*Math.PI/180)/Math.pow(2,sb.zoom)/scale;   // metres per stitched pixel
   const ppf=1/(mpp*3.28084);   // pixels per foot (real-world scale)
+  try{ sb.for=(S.pi&&S.pi.address)||""; }catch(e){}   // which property this framing belongs to
   PT.doc=_ptImageDoc(stit.canvas,sb.w,sb.h); PT.pdfData=null; PT.satBase=sb;
   PT.numPages=1; PT.page=1; PT.ppf=ppf;
   if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.subtype={};
