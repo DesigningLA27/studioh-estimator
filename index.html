@@ -1032,6 +1032,18 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .chkit .tag.city{color:#3B6E8F;border-color:#3B6E8F}
 .chkit .tag.studio{color:var(--tl);border-color:var(--br)}
 .chkit .tag.biz{color:var(--gold);border-color:var(--gold)}
+.chkit .meta{grid-column:3;grid-row:1/3;align-self:center;font-size:10.5px;font-weight:700;color:var(--tl);
+  border:1px solid var(--br);border-radius:8px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+.chkit .meta:hover{border-color:var(--gm);color:var(--gm)}
+.chkit .meta i{font-style:normal}
+.chkit .meta i.soon{color:var(--gold)} .chkit .meta i.over{color:#B23F3C}
+.chkit .drawer{grid-column:2/4;display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:7px}
+.chkit .drawer button{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:8px;
+  padding:5px 10px;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}
+.chkit .drawer button:hover{border-color:var(--gm);color:var(--gm)}
+.chkit .drawer label{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--tm)}
+.chkit .drawer input{border:1px solid var(--br);border-radius:8px;padding:4px 7px;font:inherit;
+  font-size:11.5px;background:var(--bg);color:inherit;max-width:140px}
 .chkit .ed{grid-column:3;grid-row:1/3;align-self:center;display:flex;gap:5px;align-items:center}
 .chkit .ed button{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:7px;
   padding:3px 8px;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
@@ -3168,7 +3180,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v751</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v752</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -18445,6 +18457,14 @@ function renderChecklist(){
         ${it.byApp?`<em>checked by the app</em>`:""}
         ${blocked?`<u>${chkBlocks()?"blocks the phase":"warning"}</u>`:""}</span>
       ${note?`<span class="s">${escAttr(note)}${it.page&&it.url?` <a href="${escAttr(it.url+"#page="+(String(it.page).match(/\d+/)||[""])[0])}" target="_blank" rel="noopener">${escAttr(it.page)}</a>`:""}</span>`:""}
+      ${(!CHK_EDIT)?`<span class="meta" onclick="event.preventDefault();event.stopPropagation();chkRowToggle('${escAttr(it.id)}')"
+        title="Note, owner and due date">${chkHasMeta(it.id)?_chkMetaSummary(it.id):"···"}</span>`:""}
+      ${CHK_OPEN[it.id]&&!CHK_EDIT?`<span class="drawer" onclick="event.preventDefault();event.stopPropagation()">
+        <button onclick="chkSetWho('${escAttr(it.id)}')">${escAttr((chkState().meta&&chkState().meta[it.id]&&chkState().meta[it.id].who)||"Set owner")}</button>
+        <label>Due <input type="date" value="${escAttr(((chkState().meta||{})[it.id]||{}).due||"")}"
+          onchange="chkSetDue('${escAttr(it.id)}',this.value)"></label>
+        <button onclick="chkSetNote('${escAttr(it.id)}')">${((chkState().meta||{})[it.id]||{}).note?"Edit note":"Add a note"}</button>
+      </span>`:""}
       ${CHK_EDIT&&!it.derived
         ? `<span class="ed" onclick="event.preventDefault();event.stopPropagation()">
              <button onclick="chkEdit('${escAttr(it.id)}')" title="Reword">Edit</button>
@@ -18462,6 +18482,7 @@ function renderChecklist(){
     <div><h3>Design checklist</h3>
       <span class="sub">${escAttr((typeof CLOUD_BID_NAME!=="undefined"&&CLOUD_BID_NAME)||(S.pi&&S.pi.project)||"This project")} · nothing gets missed</span></div>
     <span class="acts">
+      <button class="cbtn" onclick="chkExport()">Export this phase</button>
       <button class="cbtn${CHK_EDIT?" read go":""}" onclick="chkEditToggle()">${CHK_EDIT?"Done editing":"Edit list"}</button>
       ${CHK_EDIT?`<button class="cbtn" onclick="chkRestore()">Restore defaults</button>`:""}
       <button class="cbtn" onclick="PREFS.checklistBlock=chkBlocks()?'warn':'block';prefsSave&&prefsSave();renderChecklist()"
@@ -18557,6 +18578,86 @@ function chkRestore(){
   try{ prefsSave(); }catch(e){}
   renderChecklist();
 }
+// Who is chasing it and by when. Kept per project, not on the studio list — the item
+// is standard, the owner and the date never are.
+function chkMeta(id){
+  const st=chkState(); st.meta=st.meta||{};
+  return (st.meta[id]=st.meta[id]||{});
+}
+function _chkMetaSummary(id){
+  const m=(chkState().meta||{})[id]||{};
+  const due=m.due?`<i class="${chkDueState(m.due)}">${escAttr(String(m.due).slice(5))}</i>`:"";
+  return `${m.who?escAttr(m.who):""}${m.who&&due?" · ":""}${due}${(!m.who&&!due&&m.note)?"note":""}`;
+}
+function chkHasMeta(id){ const m=(chkState().meta||{})[id]; return !!(m&&(m.note||m.who||m.due)); }
+async function chkSetNote(id){
+  const m=chkMeta(id);
+  const v=await appAsk({title:"Note",hint:"Anything the next person needs to know about this item.",
+    value:m.note||"", placeholder:"e.g. waiting on the survey from Ridgeline", ok:"Save"});
+  if(v===null) return; m.note=String(v).trim().slice(0,300); renderChecklist();
+}
+async function chkSetWho(id){
+  const m=chkMeta(id);
+  const v=await appAsk({title:"Who is chasing this?",value:m.who||"",placeholder:"e.g. Warwick",ok:"Save"});
+  if(v===null) return; m.who=String(v).trim().slice(0,60); renderChecklist();
+}
+function chkSetDue(id,v){ chkMeta(id).due=String(v||"").slice(0,10); renderChecklist(); }
+function chkDueState(due){
+  if(!due) return "";
+  try{ const d=new Date(due+"T23:59:59"), now=new Date();
+    const days=Math.ceil((d-now)/86400000);
+    if(days<0) return "over"; if(days<=3) return "soon";
+  }catch(e){}
+  return "";
+}
+let CHK_OPEN={};
+function chkRowToggle(id){ CHK_OPEN[id]=!CHK_OPEN[id]; renderChecklist(); }
+
+// The list as something you hand over — a submittal package cover, or a record that a
+// phase was actually completed.
+function chkExport(){
+  const ph=PHASES.find(p=>p.id===CHK_PH)||{nm:CHK_PH};
+  const st=chkPhaseStats(CHK_PH);
+  const proj=(typeof CLOUD_BID_NAME!=="undefined"&&CLOUD_BID_NAME)||(S.pi&&S.pi.project)||"Untitled project";
+  const addr=(S.pi&&S.pi.address)||"";
+  const meta=chkState().meta||{};
+  const byGrp={}, order=[];
+  st.items.forEach(it=>{ if(!byGrp[it.grp]){ byGrp[it.grp]=[]; order.push(it.grp); } byGrp[it.grp].push(it); });
+  const w=window.open("","_blank","width=900,height=1100");
+  if(!w){ _toast("Allow pop-ups to print the checklist.","#B23F3C"); return; }
+  const rows=order.map(g=>`<h2>${escAttr(g)}</h2>
+    <table><tbody>${byGrp[g].map(it=>{
+      const m=meta[it.id]||{};
+      const bits=[m.who?"Owner: "+m.who:"", m.due?"Due "+m.due:"", m.note||"",
+        (it.auto&&it.auto.note)?it.auto.note:""].filter(Boolean).join(" · ");
+      return `<tr><td class="bx">${it.done?"☑":"☐"}</td>
+        <td><b>${escAttr(it.t)}</b>${bits?`<br><span class="s">${escAttr(bits)}</span>`:""}</td>
+        <td class="r">${escAttr(CHK_SRC[it.src]||it.src)}</td></tr>`;
+    }).join("")}</tbody></table>`).join("");
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escAttr(ph.nm)} checklist — ${escAttr(proj)}</title>
+  <style>
+    body{font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1C2B16;margin:28px}
+    h1{font-size:19px;margin:0 0 2px} .sub{color:#6B7A63;font-size:12px;margin-bottom:18px}
+    h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#3E6B4F;margin:20px 0 4px;
+       border-bottom:1px solid #D8E0D2;padding-bottom:4px}
+    table{width:100%;border-collapse:collapse} td{padding:6px 8px 6px 0;border-bottom:1px solid #EDF1EA;vertical-align:top}
+    td.bx{width:20px;font-size:15px;line-height:1.1} td.r{text-align:right;color:#8A9682;font-size:10.5px;
+       text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+    .s{color:#6B7A63;font-size:11.5px}
+    .warn{margin:14px 0;padding:10px 12px;border:1px solid #B8860B;border-radius:8px;color:#8A6508;font-size:12px}
+    .note{margin-top:22px;color:#8A9682;font-size:10.5px}
+    @media print{ body{margin:0} h2{break-after:avoid} tr{break-inside:avoid} }
+  </style></head><body>
+  <h1>${escAttr(ph.nm)} checklist</h1>
+  <div class="sub">${escAttr(proj)}${addr?" · "+escAttr(addr):""} · ${escAttr(new Date().toLocaleDateString())} · ${st.done} of ${st.n} complete</div>
+  ${st.blockers?`<div class="warn"><b>${st.blockers} check${st.blockers===1?"":"s"} still failing.</b> ${escAttr(chkGate(CHK_PH).map(x=>x.t+(x.auto&&x.auto.note?" — "+x.auto.note:"")).join(" · "))}</div>`:""}
+  ${rows}
+  <div class="note">Items marked by the app were measured against the project; the rest were ticked by hand.</div>
+  </body></html>`);
+  w.document.close();
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },350);
+}
+
 let CHK_EDIT=false;
 function chkEditToggle(){ CHK_EDIT=!CHK_EDIT; renderChecklist(); }
 
@@ -25784,6 +25885,19 @@ function _digPlants(st,embed){
 
 // Specified products, with what they cost on this job. Named, because a name is what
 // you ask by — "which jobs used Oceanside glass tile".
+// How the job is tracking, so Ask can answer "which projects have blockers" without
+// opening each one.
+function _digChecklist(st){
+  try{
+    if(st!==S) return null;                 // only the live project can be evaluated
+    if(!chkOn()) return null;
+    const out={phase:S.phase,phases:{}};
+    PHASES.forEach(p=>{ const s2=chkPhaseStats(p.id);
+      out.phases[p.id]={done:s2.done,total:s2.n,blockers:s2.blockers}; });
+    out.blocking=chkGate(S.phase).map(x=>_digTrim(x.t+(x.auto&&x.auto.note?" — "+x.auto.note:""),120)).slice(0,8);
+    return out;
+  }catch(e){ return null; }
+}
 function _digSpecs(st){
   return (st.specs||[]).map(sp=>{
     const arr=(sp.book==="furnishings")?FURNISHINGS:MATERIALS;
@@ -25836,6 +25950,7 @@ function projDigestFrom(st, embed, meta){
     water:(st.waterFeatures||[]).map(w=>_digTrim(w.title||w.kind,40)).slice(0,6),
     kitchens:(st.kitchens||[]).length, walls:(st.walls||[]).length,
     specs:_digSpecs(st),
+    checklist:_digChecklist(st),
   };
 }
 
