@@ -985,6 +985,12 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .pinfo-figs .pf b{font-size:14px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
 .pinfo-figs .pf i{font-style:normal;font-size:10px;color:var(--tm);line-height:1.25}
 
+.tb-chk{display:none;align-items:center;gap:5px;height:32px;padding:0 11px;margin-right:10px;
+  border-radius:9px;border:1px solid var(--gold);background:#FBF3E2;color:#8A6508;
+  font-size:12px;font-weight:800;cursor:pointer;flex:none}
+.tb-chk.hard{border-color:#B23F3C;background:#FBEDEC;color:#8C3B38}
+.tb-chk svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+:root[data-theme="dark"] .tb-chk{background:transparent}
 /* Design checklist */
 .chkphases{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-bottom:13px}
 .chkph{text-align:left;background:var(--card);border:1px solid var(--br);border-radius:12px;padding:12px 13px;
@@ -3162,7 +3168,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v750</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v751</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -3208,6 +3214,11 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
     <button class="tab"     data-view="arch" style="display:none">Architect</button>
   </div>
   <span id="tb-actions"></span>
+  <button type="button" class="tb-chk" id="tb-chk" onclick="openChecklist()" style="display:none"
+    title="Checks that need clearing before this phase can finish">
+    <svg viewBox="0 0 24 24"><path d="M12 8v5M12 16v.5"/><path d="M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+    <span id="tb-chk-n">0</span>
+  </button>
   <button type="button" class="tb-ask" onclick="askOpen()" title="Ask about your saved projects">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
     <span class="tb-ask-l">Ask</span>
@@ -18556,13 +18567,19 @@ function chkState(){
   if(!S.checklist.done) S.checklist.done={};
   // First open takes its cue from the project rather than asking about everything.
   if(!S.checklist.applies){
-    S.checklist.applies={ hoa:!!(S.pi&&S.pi.hoaId), fire:true, mwelo:true,
+    S.checklist.applies={ fire:true, mwelo:true,
       coastal:false, hillside:false, historic:false, trees:false, geotech:false, septic:false };
   }
   return S.checklist;
 }
-function chkApplies(k){ return !!chkState().applies[k]; }
-function chkToggleApply(k){ const a=chkState().applies; a[k]=!a[k]; renderChecklist(); }
+// `hoa` follows the project unless you have said otherwise. Caching it at first render
+// meant the answer was decided before the association had finished loading, and stuck.
+function chkApplies(k){
+  const a=chkState().applies;
+  if(k==="hoa" && a.hoa===undefined) return !!(S.pi&&S.pi.hoaId);
+  return !!a[k];
+}
+function chkToggleApply(k){ const a=chkState().applies; a[k]=!chkApplies(k); renderChecklist(); }
 
 // Details are not a list anybody maintains — the estimate already says what was
 // designed, so every built element earns its own detail sheet.
@@ -18609,6 +18626,40 @@ function chkVerify(v){
   }catch(e){}
   return null;
 }
+// Measured against the design, not asserted. Returns null when the rule is not stated
+// or the project has nothing to measure — an unmeasurable rule must not masquerade as
+// a pass.
+function _chkPct(v){ const m=String(v||"").match(/(\d+(?:\.\d+)?)\s*%/); return m?parseFloat(m[1]):null; }
+function _chkArea(n){ try{ const it=(S.cats.planting.items||[]).find(x=>x.n===n);
+  return (it&&it.checked)?(+it.q||0):0; }catch(e){ return 0; } }
+function chkLandscapeSF(){ return +S.proLandscapeArea||+S.landscapeArea||0; }
+function chkTurfSF(){ return _chkArea("Lawn / Sod")+_chkArea("Artificial Turf"); }
+function chkHardscapeSF(){
+  let sf=0;
+  try{ ["paving","walls","woodMetal"].forEach(c=>{ const cs=S.cats[c];
+    if(cs&&cs.on) (cs.items||[]).forEach(it=>{ if(it.checked&&it.u==="SF") sf+=(+it.q||0); }); }); }catch(e){}
+  try{ (S.pools||[]).forEach(p=>{ sf+= p.useSF?(+p.sfDirect||0):((+p.lenFt||0)*(+p.widFt||0)); }); }catch(e){}
+  return Math.round(sf);
+}
+// Turn an extracted coverage rule into a live measurement where the shape is one we
+// understand — a percentage of the landscaped area.
+function chkCoverageCheck(r,doc){
+  const pct=_chkPct(r.value); if(pct===null) return null;
+  const land=chkLandscapeSF(); if(!land) return null;
+  const what=String(r.what||"").toLowerCase();
+  const isTurf=/turf|lawn|sod/.test(what);
+  const isHard=/hardscape|impervious|paving|coverage/.test(what);
+  const isMin=/minimum|not less|at least|soft|planted/.test(what)||/minimum/i.test(String(r.value||""));
+  if(!isTurf&&!isHard) return null;
+  const sf=isTurf?chkTurfSF():chkHardscapeSF();
+  if(!sf&&isTurf) return null;                       // no turf drawn — nothing to fail
+  const have=Math.round(sf/land*1000)/10;
+  const ok=isMin ? have>=pct : have<=pct;
+  const over=Math.round(Math.abs(have-pct)/100*land);
+  return { ok, note: have+"% of "+land.toLocaleString()+" sf — limit "+pct+"%"
+    + (ok?" · within":" · "+over.toLocaleString()+" sf "+(isMin?"short":"over")) };
+}
+
 // The rules the app can measure against the design. These are the ones allowed to block.
 function chkHoaChecks(){
   const out=[];
@@ -18626,7 +18677,10 @@ function chkHoaChecks(){
     hoaDocs(h).filter(d=>d&&d.extract).forEach(d=>{
       ["setbacks","coverage","heights","irrigation"].forEach(k=>{
         (d.extract[k]||[]).slice(0,6).forEach((r,i)=>{
+          // A coverage rule we can measure becomes a hard check; the rest stay manual.
+          const auto=(k==="coverage")?chkCoverageCheck(r,d):null;
           out.push({ id:"h_"+k+"_"+d.id+"_"+i, ph:"concept", grp:"Approvals", src:"hoa", derived:true,
+            hard:!!auto, auto:auto||undefined,
             t:(r.what||k)+" — "+(r.value||""), note:d.title+(r.page?" · "+r.page:""),
             url:hoaDocURL(d), page:r.page });
         });
@@ -18657,6 +18711,14 @@ function chkToggle(id){
   renderChecklist();
 }
 // Verified failures only. A box you forgot to tick is not a reason to stop work.
+// Keep the top bar honest about the current phase, from wherever you are in the app.
+function chkBadgeRefresh(){
+  const el=document.getElementById("tb-chk"); if(!el) return;
+  let n=0; try{ n=chkGate(S.phase).length; }catch(e){}
+  el.style.display=n?"flex":"none";
+  el.classList.toggle("hard",chkBlocks());
+  const t=document.getElementById("tb-chk-n"); if(t) t.textContent=n;
+}
 function chkGate(ph){
   if(!chkOn()) return [];
   try{ return chkItems(ph).filter(x=>x.hard && x.auto && !x.auto.ok); }catch(e){ return []; }
@@ -22448,6 +22510,7 @@ function _mkRelease(){ if(_mkTimer){ clearTimeout(_mkTimer); _mkTimer=null; } }
 function updatePI(key,val){S.pi[key]=val;renderProSummary();if(key==="project"){try{_refreshProjectName();}catch(e){}}}
 
 function renderProSummary(){
+  try{ chkBadgeRefresh(); }catch(e){}
   // Grouped breakdown, matching the Price Book / estimator spine. Group order and
   // membership come from PB_GROUPS; a section in no group lands in a final catch-all.
   const inGrp={}; PB_GROUPS.forEach(g=>g.secs.forEach(id=>{inGrp[id]=1;}));
