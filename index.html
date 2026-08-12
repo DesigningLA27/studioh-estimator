@@ -1912,6 +1912,10 @@ textarea.pf-box::placeholder{color:var(--tl)}
 /* ── Site trace: flows on the section's white background (no separate panel tint) ── */
 .trace-panel{background:transparent;border:none;border-radius:0;padding:0;max-width:100%}
 .trace-panel #map-wrap,.trace-panel .trace-cards{max-width:100%;min-width:0}
+#map-grip{height:16px;margin-top:-8px;display:grid;place-items:center;cursor:ns-resize;
+  touch-action:none;position:relative;z-index:2}
+#map-grip span{display:block;width:46px;height:5px;border-radius:99px;background:var(--br);transition:background .15s}
+#map-grip:hover span,#map-grip.on span{background:var(--gm)}
 /* ── Unified traced-area cards ── */
 .trace-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 @media(max-width:900px){.trace-cards{grid-template-columns:repeat(2,1fr)}}
@@ -3191,7 +3195,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v756</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v757</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -3693,6 +3697,8 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
     </div>
     <div id="map-wrap" style="position:relative;margin-bottom:.9rem">
       <div id="site-map" style="width:100%;height:420px;border-radius:12px;border:1px solid var(--br);overflow:hidden;background:#e8e0d5"></div>
+      <div id="map-grip" title="Drag to make the map taller"
+        onpointerdown="mapGripDown(event)"><span></span></div>
       <!-- Inline: single Add-trace button opens the full-screen tracer -->
       <button id="btn-add-trace" class="map-add-btn" onclick="openTracer()" title="Open the full-screen tracer to draw lot, building, planting, hardscape and more"><span class="pl">＋</span> Add trace</button>
       <!-- Full-screen tracer tools (hidden until the tracer is open) -->
@@ -15096,6 +15102,38 @@ try{ document.addEventListener("DOMContentLoaded",function(){ try{ _refreshProje
   try{ hoaPull().then(function(){ try{ _renderPInfoCards(); }catch(e){} }); }catch(e){}
 }); }catch(e){}
 // Site-intelligence reference cards inside Project Info (setbacks / fire / water)
+// The map frame is draggable and its height is remembered — a deep lot is a property
+// of the site, not of one session.
+function mapHeight(){ const h=+PREFS.mapH||0; return (h>=240&&h<=1400)?h:420; }
+function mapApplyHeight(){
+  const el=document.getElementById("site-map"); if(!el) return;
+  el.style.height=mapHeight()+"px";
+  try{ if(typeof map!=="undefined"&&map&&window.google&&google.maps) google.maps.event.trigger(map,"resize"); }catch(e){}
+}
+function mapGripDown(e){
+  const el=document.getElementById("site-map"), grip=document.getElementById("map-grip");
+  if(!el) return;
+  e.preventDefault();
+  const startY=e.clientY, startH=el.getBoundingClientRect().height;
+  if(grip) grip.classList.add("on");
+  const move=ev=>{
+    const h=Math.max(240,Math.min(1400,Math.round(startH+(ev.clientY-startY))));
+    el.style.height=h+"px";
+    try{ if(typeof map!=="undefined"&&map&&window.google&&google.maps) google.maps.event.trigger(map,"resize"); }catch(_){}
+  };
+  const up=()=>{
+    window.removeEventListener("pointermove",move);
+    window.removeEventListener("pointerup",up);
+    if(grip) grip.classList.remove("on");
+    PREFS.mapH=Math.round(el.getBoundingClientRect().height);
+    try{ prefsSave(); }catch(_){}
+    mapApplyHeight();
+  };
+  window.addEventListener("pointermove",move);
+  window.addEventListener("pointerup",up);
+}
+try{ document.addEventListener("DOMContentLoaded",function(){ try{ mapApplyHeight(); }catch(e){} }); }catch(e){}
+
 function _renderPInfoCards(){ const host=document.getElementById("pinfo-refcards"); if(!host) return;
   const cityRaw=(S.pi&&S.pi.city)||""; const city=cityRaw.toLowerCase().trim();
   const sb=(typeof SETBACKS!=="undefined")?(SETBACKS[city]||null):null; const cityName=cityRaw||"—";
