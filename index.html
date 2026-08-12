@@ -1003,6 +1003,11 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .chkph .c{margin-top:5px;font-size:11px;color:var(--tm);font-variant-numeric:tabular-nums}
 .chkph.blocked .bar i{background:var(--gold)}
 .chkph.blocked .c{color:var(--gold);font-weight:700}
+.chktpl{border:1px solid var(--gm);border-radius:9px;padding:7px 9px;font:inherit;font-size:12.5px;
+  font-weight:700;background:var(--brand-soft);color:var(--gm);max-width:220px}
+.hcard>h4 .secx{border:1px solid var(--br);background:var(--card);color:var(--tl);border-radius:7px;
+  padding:1px 7px;font:inherit;font-size:11px;font-weight:700;cursor:pointer;margin-left:8px}
+.hcard>h4 .secx:hover{border-color:#B23F3C;color:#B23F3C}
 .chkap{display:flex;gap:7px;flex-wrap:wrap}
 .chkap .ap{font-size:12px;font-weight:700;border-radius:9px;padding:6px 11px;border:1px solid var(--br);
   background:var(--card);color:var(--tx);cursor:pointer}
@@ -3180,7 +3185,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v752</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v753</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -18443,7 +18448,8 @@ function renderChecklist(){
   }
   const stats={}; PHASES.forEach(p=>{ stats[p.id]=chkPhaseStats(p.id); });
   const cur=stats[CHK_PH]||chkPhaseStats(CHK_PH);
-  const groups=[]; const byGrp={};
+  const byGrp={}; const groups=[];
+  chkSections(CHK_PH).forEach(g=>{ if(!byGrp[g]){ byGrp[g]=[]; groups.push(g); } });
   cur.items.forEach(it=>{ if(!byGrp[it.grp]){ byGrp[it.grp]=[]; groups.push(it.grp); } byGrp[it.grp].push(it); });
 
   const row=it=>{
@@ -18482,9 +18488,17 @@ function renderChecklist(){
     <div><h3>Design checklist</h3>
       <span class="sub">${escAttr((typeof CLOUD_BID_NAME!=="undefined"&&CLOUD_BID_NAME)||(S.pi&&S.pi.project)||"This project")} · nothing gets missed</span></div>
     <span class="acts">
+      <select class="chktpl" onchange="chkUseTpl(this.value)" title="Which checklist this project uses">
+        ${chkTpls().map(t=>`<option value="${escAttr(t.id)}"${t.id===chkTplId()?" selected":""}>${escAttr(t.name)}${t.def?" · default":""}</option>`).join("")}
+      </select>
       <button class="cbtn" onclick="chkExport()">Export this phase</button>
       <button class="cbtn${CHK_EDIT?" read go":""}" onclick="chkEditToggle()">${CHK_EDIT?"Done editing":"Edit list"}</button>
-      ${CHK_EDIT?`<button class="cbtn" onclick="chkRestore()">Restore defaults</button>`:""}
+      ${CHK_EDIT?`<button class="cbtn" onclick="chkTplNew(false)">New checklist</button>
+        <button class="cbtn" onclick="chkTplNew(true)">Duplicate</button>
+        <button class="cbtn" onclick="chkTplRename()">Rename</button>
+        ${chkMaster().def?"":`<button class="cbtn" onclick="chkTplDefaultSet()">Make default</button>`}
+        <button class="cbtn" onclick="chkTplDrop()">Delete checklist</button>
+        <button class="cbtn" onclick="chkRestore()">Restore defaults</button>`:""}
       <button class="cbtn" onclick="PREFS.checklistBlock=chkBlocks()?'warn':'block';prefsSave&&prefsSave();renderChecklist()"
         title="${chkBlocks()?"Verified failures stop the phase advancing":"Verified failures warn but let you continue"}">
         ${chkBlocks()?"Blocking":"Warn only"}</button>
@@ -18513,29 +18527,104 @@ function renderChecklist(){
       ${escAttr(gate.map(x=>x.t+(x.auto&&x.auto.note?" — "+x.auto.note:"")).join(" · "))}</span></div>`; })()}
   ${groups.map(g=>{
     const items=byGrp[g]; const d=items.filter(x=>x.done).length;
-    return `<div class="hcard"><h4>${escAttr(g)} <em>${d} of ${items.length}</em></h4>
-      ${items.map(row).join("")}
+    return `<div class="hcard"><h4>${escAttr(g)} <em>${d} of ${items.length}</em>
+      ${CHK_EDIT?`<button class="secx" onclick="chkSectionDrop('${CHK_PH}','${escAttr(g)}')" title="Remove this section">✕</button>`:""}</h4>
+      ${items.map(row).join("")||(CHK_EDIT?"":`<div class="hoaempty">Nothing here yet.</div>`)}
       ${CHK_EDIT?`<button class="chkadd" onclick="chkAdd('${CHK_PH}','${escAttr(g)}')">${mi("plus")}Add an item to ${escAttr(g)}</button>`:""}</div>`;
-  }).join("")||`<div class="hcard"><div class="hoaempty">Nothing on the list for this phase yet.</div></div>`}`;
+  }).join("")||`<div class="hcard"><div class="hoaempty">Nothing on the list for this phase yet.</div></div>`}
+  ${CHK_EDIT?`<button class="chkadd" style="margin-top:0" onclick="chkSectionAdd('${CHK_PH}')">${mi("plus")}Add a section to ${escAttr((PHASES.find(p=>p.id===CHK_PH)||{}).nm||CHK_PH)}</button>`:""}`;
 }
 
-// The studio's edits to the standard list. Kept in prefs, not in the project, so a
-// change made once applies to every job from then on — and hiding a default keeps it
-// recoverable rather than deleting something you may want back.
-function chkMaster(){
-  PREFS.chkMaster=PREFS.chkMaster||{};
-  const m=PREFS.chkMaster;
-  m.hidden=m.hidden||{}; m.edits=m.edits||{}; m.custom=Array.isArray(m.custom)?m.custom:[];
-  return m;
+// Checklists are named and plural: a pool renovation should not carry the whole
+// construction-document list. Each is the studio's, edited once; a project records
+// which one it started with. Edits are kept as overrides on the built-in items so
+// "restore defaults" stays possible.
+function chkTpls(){
+  PREFS.chkTpls=Array.isArray(PREFS.chkTpls)?PREFS.chkTpls:[];
+  if(!PREFS.chkTpls.length){
+    // carry forward whatever was edited before templates existed
+    const old=PREFS.chkMaster||{};
+    PREFS.chkTpls=[{ id:"t_std", name:"Studio H standard", def:true,
+      hidden:old.hidden||{}, edits:old.edits||{}, custom:Array.isArray(old.custom)?old.custom:[], sections:[] }];
+  }
+  PREFS.chkTpls.forEach(t=>{ t.hidden=t.hidden||{}; t.edits=t.edits||{};
+    t.custom=Array.isArray(t.custom)?t.custom:[]; t.sections=Array.isArray(t.sections)?t.sections:[]; });
+  if(!PREFS.chkTpls.some(t=>t.def)) PREFS.chkTpls[0].def=true;
+  return PREFS.chkTpls;
 }
+function chkTplDefault(){ return chkTpls().find(t=>t.def)||chkTpls()[0]; }
+function chkTplId(){
+  const st=chkState();
+  if(!st.tpl || !chkTpls().some(t=>t.id===st.tpl)) st.tpl=chkTplDefault().id;
+  return st.tpl;
+}
+function chkMaster(){ return chkTpls().find(t=>t.id===chkTplId())||chkTplDefault(); }
+function chkUseTpl(id){ chkState().tpl=id; CHK_OPEN={}; renderChecklist(); }
+async function chkTplNew(dup){
+  const src=dup?chkMaster():null;
+  const nm=await appAsk({title:dup?"Duplicate this checklist":"New checklist",
+    hint:"Name it for the kind of job it suits — the list a project starts with.",
+    value:dup?(src.name+" copy"):"", placeholder:"e.g. Pool renovation", ok:"Create"});
+  if(nm===null||!String(nm).trim()) return;
+  const t={ id:"t"+Date.now().toString(36), name:String(nm).trim().slice(0,60), def:false,
+    hidden:src?JSON.parse(JSON.stringify(src.hidden)):{}, edits:src?JSON.parse(JSON.stringify(src.edits)):{},
+    custom:src?JSON.parse(JSON.stringify(src.custom)):[], sections:src?src.sections.slice():[] };
+  chkTpls().push(t); chkState().tpl=t.id;
+  try{ prefsSave(); }catch(e){} renderChecklist();
+}
+async function chkTplRename(){
+  const t=chkMaster();
+  const nm=await appAsk({title:"Rename checklist",value:t.name,ok:"Save"});
+  if(nm===null||!String(nm).trim()) return;
+  t.name=String(nm).trim().slice(0,60); try{ prefsSave(); }catch(e){} renderChecklist();
+}
+function chkTplDefaultSet(){
+  const id=chkTplId();
+  chkTpls().forEach(t=>{ t.def=(t.id===id); });
+  try{ prefsSave(); }catch(e){} renderChecklist(); }
+function chkTplDrop(){
+  const list=chkTpls(); if(list.length<2){ _toast("Keep at least one checklist.","#B23F3C"); return; }
+  const t=chkMaster();
+  if(!confirm(`Delete the “${t.name}” checklist?\n\nProjects already using it fall back to the default. Items you added to it are lost.`)) return;
+  PREFS.chkTpls=list.filter(x=>x.id!==t.id);
+  if(!PREFS.chkTpls.some(x=>x.def)) PREFS.chkTpls[0].def=true;
+  chkState().tpl=chkTplDefault().id;
+  try{ prefsSave(); }catch(e){} renderChecklist();
+}
+
 function chkMasterList(){
   const m=chkMaster();
   const base=CHK_MASTER.filter(x=>!m.hidden[x.id]).map(x=>Object.assign({},x,m.edits[x.id]||{}));
   return base.concat(m.custom.filter(x=>!m.hidden[x.id]));
 }
+// Sections a phase shows: whatever its items use, plus any you created that are empty
+// so far — an empty section you just made must not vanish before you fill it.
+function chkSections(ph){
+  const out=[], seen={};
+  chkMasterList().filter(x=>x.ph===ph).forEach(x=>{ if(!seen[x.grp]){ seen[x.grp]=1; out.push(x.grp); } });
+  chkMaster().sections.filter(sx=>sx&&sx.ph===ph).forEach(sx=>{ if(!seen[sx.name]){ seen[sx.name]=1; out.push(sx.name); } });
+  return out;
+}
+async function chkSectionAdd(ph){
+  const nm=await appAsk({title:"New section",
+    hint:"A heading of your own on this phase — items you add go under it.",
+    placeholder:"e.g. Site visit", ok:"Add section"});
+  if(nm===null||!String(nm).trim()) return;
+  const m=chkMaster(); const name=String(nm).trim().slice(0,60);
+  if(!m.sections.some(sx=>sx&&sx.ph===ph&&sx.name===name)) m.sections.push({ph,name});
+  try{ prefsSave(); }catch(e){} renderChecklist();
+}
+function chkSectionDrop(ph,name){
+  const m=chkMaster();
+  const items=chkMasterList().filter(x=>x.ph===ph&&x.grp===name);
+  if(items.length && !confirm(`Remove the “${name}” section?\n\nIts ${items.length} item${items.length===1?"":"s"} go with it.`)) return;
+  items.forEach(x=>{ m.hidden[x.id]=true; });
+  m.sections=m.sections.filter(sx=>!(sx&&sx.ph===ph&&sx.name===name));
+  try{ prefsSave(); }catch(e){} renderChecklist();
+}
 async function chkAdd(ph,grp){
   const t=await appAsk({title:"Add a checklist item",
-    hint:"It joins the studio's standard list, so every project from now on gets it.",
+    hint:"It joins this checklist, so every project using it gets the item.",
     placeholder:"e.g. Irrigation as-built handed over", ok:"Add"});
   if(t===null||!String(t).trim()) return;
   const m=chkMaster();
@@ -18546,7 +18635,7 @@ async function chkAdd(ph,grp){
 }
 async function chkEdit(id){
   const it=chkMasterList().find(x=>x.id===id); if(!it) return;
-  const t=await appAsk({title:"Edit this item",hint:"Changes the studio's standard list.",
+  const t=await appAsk({title:"Edit this item",hint:"Changes this checklist for every project using it.",
     value:it.t, ok:"Save"});
   if(t===null||!String(t).trim()) return;
   const m=chkMaster();
@@ -18558,7 +18647,7 @@ async function chkEdit(id){
 }
 function chkHide(id){
   const it=chkMasterList().find(x=>x.id===id); if(!it) return;
-  if(!confirm(`Remove “${it.t}” from the studio's checklist?\n\nIt disappears from every project. You can restore the defaults at any time.`)) return;
+  if(!confirm(`Remove “${it.t}” from this checklist?\n\nYou can restore the defaults at any time.`)) return;
   chkMaster().hidden[id]=true;
   try{ prefsSave(); }catch(e){}
   renderChecklist();
@@ -18573,11 +18662,12 @@ function chkMovePhase(id,ph){
 function chkRestore(){
   const m=chkMaster();
   const n=Object.keys(m.hidden).length+Object.keys(m.edits).length;
-  if(!confirm(`Restore the standard checklist?\n\n${n} change${n===1?"":"s"} to the built-in items will be undone. Items you added yourself are kept.`)) return;
+  if(!confirm(`Restore the standard items in “${m.name}”?\n\n${n} change${n===1?"":"s"} will be undone. Items and sections you added yourself are kept.`)) return;
   m.hidden={}; m.edits={};
   try{ prefsSave(); }catch(e){}
   renderChecklist();
 }
+
 // Who is chasing it and by when. Kept per project, not on the studio list — the item
 // is standard, the owner and the date never are.
 function chkMeta(id){
