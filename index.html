@@ -3195,7 +3195,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v758</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v759</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25832,7 +25832,18 @@ function _ptHitTest(q,cxy){ // q=pdf coords, cxy=canvas coords; return {type:'tr
   for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue; const pts=p.pts; if(!pts||pts.length<2) continue;
     const segs=p.kind==="linear"?pts.length-1:pts.length; for(let s=0;s<segs;s++){ const a=pts[s], b=pts[(s+1)%pts.length]; if(_ptSegDist(q.x,q.y,a.x,a.y,b.x,b.y)<=tol) return {type:"poly",idx:i}; } }
   // inside filled areas
-  for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue; if(p.kind==="area"&&p.pts&&p.pts.length>=3&&_ptPointInPoly(q,p.pts)) return {type:"poly",idx:i}; }
+  // area is not always stored (an unscaled trace has none), so fall back to the
+  // bounding span — it ranks shapes the same way for picking purposes
+  const _ptSpan=pts=>{ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
+    pts.forEach(pt=>{ if(pt.x<x0)x0=pt.x; if(pt.x>x1)x1=pt.x; if(pt.y<y0)y0=pt.y; if(pt.y>y1)y1=pt.y; });
+    return (x1-x0)*(y1-y0); };
+  let best=-1, bestSF=Infinity;
+  for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue;
+    if(p.kind!=="area"||!p.pts||p.pts.length<3) continue;
+    if(!_ptPointInPoly(q,p.pts)) continue;
+    const sf=(+p.sf||0)||_ptSpan(p.pts);
+    if(sf<bestSF){ bestSF=sf; best=i; } }
+  if(best>=0) return {type:"poly",idx:best};
   return null; }
 function ptToggleLayer(m){ PT.hidden[m]=!PT.hidden[m]; ptDrawOverlay(); ptLayersPopover(true); }
 function ptToggleAllLayers(show){ PT_MODES.forEach(m=>{ if(_ptModeUsed(m.k)) PT.hidden[m.k]=!show; }); ptDrawOverlay(); ptLayersPopover(true); }
@@ -26065,8 +26076,28 @@ function _bidPayload(){ return { v:1, app:"studioh-estimator", savedAt:new Date(
     planTrace:(typeof window!=="undefined"&&window._planTrace)?window._planTrace:null,
     trace:(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length))?{polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null}:null }; }
 // Recompute traced area totals from the polygons (for older bids saved without `measured`)
+function _ptCentroid(pts){ let x=0,y=0; pts.forEach(p=>{ x+=p.x; y+=p.y; }); return {x:x/pts.length,y:y/pts.length}; }
+// Which surface, if any, a shape sits inside — the smallest one that contains it.
+function _ptEnclosing(poly,list){
+  const c=_ptCentroid(poly.pts||[]); let best=null;
+  (list||[]).forEach(o=>{
+    if(o===poly||o.kind==="linear"||!o.pts||o.pts.length<3) return;
+    if(o.page!==poly.page) return;
+    if(["exclude","lot","limit"].indexOf(o.mode)>=0) return;      // containers, not surfaces
+    if(!_ptPointInPoly(c,o.pts)) return;
+    if(!best||(+o.sf||0)<(+best.sf||0)) best=o;
+  });
+  return best;
+}
 function _measuredFromTrace(){ if(typeof PT==="undefined"||!PT.ppf) return null;
-  const a={}; PT.polys.forEach(p=>{ if(p.kind!=="linear") a[p.mode]=(a[p.mode]||0)+(p.sf||0); }); const R=(k)=>Math.round(a[k]||0);
+  const a={}; PT.polys.forEach(p=>{ if(p.kind!=="linear") a[p.mode]=(a[p.mode]||0)+(p.sf||0); });
+  // subtract each exclusion from the surface it sits within
+  PT.polys.forEach(p=>{
+    if(p.kind==="linear"||p.mode!=="exclude"||!(+p.sf>0)) return;
+    const host=_ptEnclosing(p,PT.polys);
+    if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-(+p.sf||0));
+  });
+  const R=(k)=>Math.round(a[k]||0);
   return {planting:R("planting")+R("turf"),paving:R("paving"),lot:R("lot"),building:R("building"),driveway:R("driveway"),demo:R("demo"),exclusion:R("exclude")}; }
 // ── Cloud bids (server) ──
 // ── PROJECT AUTOSAVE ─────────────────────────────────────────
