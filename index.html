@@ -3195,7 +3195,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v762</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v763</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -23883,7 +23883,11 @@ function _applyPlace(place){
   window._dbg.placeSelected=true; window._dbg.addr=place.formatted_address;
   S.pi.address=place.formatted_address;
   try{ const loc=place.geometry.location; S.pi.lat=(typeof loc.lat==="function"?loc.lat():loc.lat); S.pi.lng=(typeof loc.lng==="function"?loc.lng():loc.lng);
+    S.pi.geoFor=place.formatted_address;   // the coordinates belong to THIS address, not whatever was loaded before
     const comps=place.address_components||[]; S.pi.city=((comps.find(c=>c.types.includes("locality"))||comps.find(c=>c.types.includes("sublocality"))||comps.find(c=>c.types.includes("neighborhood"))||{}).long_name||""); }catch(e){}
+  // A trace framing rebuilt from the address was guessed off whatever coordinates were
+  // loaded at the time — move it onto the real ones now they are known.
+  try{ if(typeof PT!=="undefined"&&PT.satBase&&PT.satBase._recovered&&S.pi.lat&&S.pi.lng) PT.satBase.center={lat:+S.pi.lat,lng:+S.pi.lng}; }catch(e){}
   if(S.pi&&S.pi.city && typeof fetchCityTemps==="function") fetchCityTemps(S.pi.city);
   try{ detectSunsetZone(); }catch(e){}
   if(typeof poolRefresh==="function" && (S.pools||[]).length) poolRefresh();
@@ -23901,7 +23905,17 @@ function resolveAddress(addr,tries){
     if((tries||0)>20) return;                       // ~10s, then give up quietly
     setTimeout(()=>resolveAddress(addr,(tries||0)+1),500); return;
   }
-  if(S.pi&&S.pi.lat&&S.pi.lng&&S.pi.address===addr) return;   // already resolved
+  if(S.pi&&S.pi.lat&&S.pi.lng&&S.pi.geoFor===addr){
+    // Coordinates already belong to this address — but the map can still be sitting on the
+    // project opened before this one, so re-centre it instead of assuming the view is right.
+    try{ const keep=Object.assign({},measured);
+      buildMap(new google.maps.LatLng(+S.pi.lat,+S.pi.lng));
+      Object.keys(keep).forEach(k=>{ measured[k]=keep[k]; });   // buildMap zeroes these; the project's own stand
+      const sic=document.getElementById("site-intel-card"); if(sic) sic.style.display="block";
+      fetchParcelBoundary(new google.maps.LatLng(+S.pi.lat,+S.pi.lng), []);
+    }catch(e){}
+    return;
+  }
   try{
     new google.maps.Geocoder().geocode({address:addr},(res,status)=>{
       if(status==="OK"&&res&&res[0]) _applyPlace(res[0]);
