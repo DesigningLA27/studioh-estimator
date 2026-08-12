@@ -1026,6 +1026,25 @@ body.sp-on #topbar{right:calc(var(--sp) + var(--gap) * 2)}
 .chkit .tag.city{color:#3B6E8F;border-color:#3B6E8F}
 .chkit .tag.studio{color:var(--tl);border-color:var(--br)}
 .chkit .tag.biz{color:var(--gold);border-color:var(--gold)}
+.chkit .ed{grid-column:3;grid-row:1/3;align-self:center;display:flex;gap:5px;align-items:center}
+.chkit .ed button{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:7px;
+  padding:3px 8px;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
+.chkit .ed button:hover{border-color:var(--gm);color:var(--gm)}
+.chkit .ed select{border:1px solid var(--br);border-radius:7px;padding:3px 5px;font:inherit;
+  font-size:11px;background:var(--bg);color:var(--tm);max-width:130px}
+.chkadd{margin-top:9px;display:inline-flex;align-items:center;gap:6px;border:1px dashed var(--br);
+  background:transparent;color:var(--gm);border-radius:9px;padding:7px 12px;font:inherit;
+  font-size:12px;font-weight:700;cursor:pointer}
+.chkadd:hover{border-color:var(--gm)}
+.chkadd svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.4}
+.chkgate{display:flex;gap:9px;align-items:flex-start;margin-bottom:12px;padding:11px 14px;
+  background:#FBF3E2;border:1px solid var(--gold);border-radius:12px}
+.chkgate.hard{background:#FBEDEC;border-color:#B23F3C}
+.chkgate svg{width:15px;height:15px;flex:none;margin-top:2px;fill:none;stroke:var(--gold);stroke-width:2}
+.chkgate.hard svg{stroke:#B23F3C}
+.chkgate span{font-size:12.5px;line-height:1.45;color:var(--gold);min-width:0}
+.chkgate.hard span{color:#8C3B38}
+.chkgate b{display:block;font-weight:800;margin-bottom:2px}
 
 /* Full-width community record: association, documents, then one merged extraction. */
 .htop{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:6px 0 14px}
@@ -3143,7 +3162,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v749</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v750</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7346,6 +7365,20 @@ function carryForward(toId){
 }
 function setPhase(id){
   if(!PHASES.some(p=>p.id===id) || id===S.phase) return;
+  // A preflight list only means something if it can hold the aircraft on the ground.
+  // Only checks the app verified itself may do this, and only when set to block.
+  try{
+    const gate=chkGate(S.phase);
+    if(gate.length){
+      const lines=gate.map(x=>"• "+x.t+(x.auto&&x.auto.note?" — "+x.auto.note:"")).join("\n");
+      if(chkBlocks()){
+        alert("Cannot leave "+((PHASES.find(p=>p.id===S.phase)||{}).nm||"this phase")+" yet.\n\n"+lines+
+          "\n\nFix these, or switch the checklist to Warn only.");
+        return;
+      }
+      if(!confirm(((PHASES.find(p=>p.id===S.phase)||{}).nm||"This phase")+" has unresolved checks:\n\n"+lines+"\n\nMove on anyway?")) return;
+    }
+  }catch(e){}
   const target=PHASES[PHASES.findIndex(p=>p.id===id)];
   const snap=phaseSnap(id);
   if(!snap){                                     // nothing there yet — offer to carry forward
@@ -18401,7 +18434,15 @@ function renderChecklist(){
         ${it.byApp?`<em>checked by the app</em>`:""}
         ${blocked?`<u>${chkBlocks()?"blocks the phase":"warning"}</u>`:""}</span>
       ${note?`<span class="s">${escAttr(note)}${it.page&&it.url?` <a href="${escAttr(it.url+"#page="+(String(it.page).match(/\d+/)||[""])[0])}" target="_blank" rel="noopener">${escAttr(it.page)}</a>`:""}</span>`:""}
-      <span class="tag ${escAttr(it.src)}">${escAttr(CHK_SRC[it.src]||it.src)}</span>
+      ${CHK_EDIT&&!it.derived
+        ? `<span class="ed" onclick="event.preventDefault();event.stopPropagation()">
+             <button onclick="chkEdit('${escAttr(it.id)}')" title="Reword">Edit</button>
+             <select onchange="chkMovePhase('${escAttr(it.id)}',this.value)" title="Move to another phase">
+               ${PHASES.map(p=>`<option value="${p.id}"${p.id===it.ph?" selected":""}>${escAttr(p.nm)}</option>`).join("")}
+             </select>
+             <button onclick="chkHide('${escAttr(it.id)}')" title="Remove from the studio list">✕</button>
+           </span>`
+        : `<span class="tag ${escAttr(it.src)}">${escAttr(CHK_SRC[it.src]||it.src)}</span>`}
     </label>`;
   };
 
@@ -18410,7 +18451,10 @@ function renderChecklist(){
     <div><h3>Design checklist</h3>
       <span class="sub">${escAttr((typeof CLOUD_BID_NAME!=="undefined"&&CLOUD_BID_NAME)||(S.pi&&S.pi.project)||"This project")} · nothing gets missed</span></div>
     <span class="acts">
-      <button class="cbtn" onclick="PREFS.checklistBlock=chkBlocks()?'warn':'block';prefsSave&&prefsSave();renderChecklist()">
+      <button class="cbtn${CHK_EDIT?" read go":""}" onclick="chkEditToggle()">${CHK_EDIT?"Done editing":"Edit list"}</button>
+      ${CHK_EDIT?`<button class="cbtn" onclick="chkRestore()">Restore defaults</button>`:""}
+      <button class="cbtn" onclick="PREFS.checklistBlock=chkBlocks()?'warn':'block';prefsSave&&prefsSave();renderChecklist()"
+        title="${chkBlocks()?"Verified failures stop the phase advancing":"Verified failures warn but let you continue"}">
         ${chkBlocks()?"Blocking":"Warn only"}</button>
       <button class="cbtn" onclick="PREFS.checklist=false;prefsSave&&prefsSave();renderChecklist()">Turn off</button>
     </span>
@@ -18431,12 +18475,79 @@ function renderChecklist(){
     <div class="src">Switching one off hides its items rather than leaving them unticked for ever.</div>
   </div>
 
+  ${(function(){ const gate=chkGate(CHK_PH); if(!gate.length) return "";
+    return `<div class="chkgate${chkBlocks()?" hard":""}">${mi("spark")}
+      <span><b>${gate.length} check${gate.length===1?"":"s"} ${chkBlocks()?"must be cleared before this phase can advance":"unresolved"}</b>
+      ${escAttr(gate.map(x=>x.t+(x.auto&&x.auto.note?" — "+x.auto.note:"")).join(" · "))}</span></div>`; })()}
   ${groups.map(g=>{
     const items=byGrp[g]; const d=items.filter(x=>x.done).length;
     return `<div class="hcard"><h4>${escAttr(g)} <em>${d} of ${items.length}</em></h4>
-      ${items.map(row).join("")}</div>`;
+      ${items.map(row).join("")}
+      ${CHK_EDIT?`<button class="chkadd" onclick="chkAdd('${CHK_PH}','${escAttr(g)}')">${mi("plus")}Add an item to ${escAttr(g)}</button>`:""}</div>`;
   }).join("")||`<div class="hcard"><div class="hoaempty">Nothing on the list for this phase yet.</div></div>`}`;
 }
+
+// The studio's edits to the standard list. Kept in prefs, not in the project, so a
+// change made once applies to every job from then on — and hiding a default keeps it
+// recoverable rather than deleting something you may want back.
+function chkMaster(){
+  PREFS.chkMaster=PREFS.chkMaster||{};
+  const m=PREFS.chkMaster;
+  m.hidden=m.hidden||{}; m.edits=m.edits||{}; m.custom=Array.isArray(m.custom)?m.custom:[];
+  return m;
+}
+function chkMasterList(){
+  const m=chkMaster();
+  const base=CHK_MASTER.filter(x=>!m.hidden[x.id]).map(x=>Object.assign({},x,m.edits[x.id]||{}));
+  return base.concat(m.custom.filter(x=>!m.hidden[x.id]));
+}
+async function chkAdd(ph,grp){
+  const t=await appAsk({title:"Add a checklist item",
+    hint:"It joins the studio's standard list, so every project from now on gets it.",
+    placeholder:"e.g. Irrigation as-built handed over", ok:"Add"});
+  if(t===null||!String(t).trim()) return;
+  const m=chkMaster();
+  m.custom.push({ id:"u_"+Date.now().toString(36), ph, grp:grp||"Deliverables",
+    src:"studio", t:String(t).trim().slice(0,140) });
+  try{ prefsSave(); }catch(e){}
+  renderChecklist();
+}
+async function chkEdit(id){
+  const it=chkMasterList().find(x=>x.id===id); if(!it) return;
+  const t=await appAsk({title:"Edit this item",hint:"Changes the studio's standard list.",
+    value:it.t, ok:"Save"});
+  if(t===null||!String(t).trim()) return;
+  const m=chkMaster();
+  const custom=m.custom.find(x=>x.id===id);
+  if(custom) custom.t=String(t).trim().slice(0,140);
+  else m.edits[id]=Object.assign({},m.edits[id],{t:String(t).trim().slice(0,140)});
+  try{ prefsSave(); }catch(e){}
+  renderChecklist();
+}
+function chkHide(id){
+  const it=chkMasterList().find(x=>x.id===id); if(!it) return;
+  if(!confirm(`Remove “${it.t}” from the studio's checklist?\n\nIt disappears from every project. You can restore the defaults at any time.`)) return;
+  chkMaster().hidden[id]=true;
+  try{ prefsSave(); }catch(e){}
+  renderChecklist();
+}
+function chkMovePhase(id,ph){
+  const m=chkMaster();
+  const custom=m.custom.find(x=>x.id===id);
+  if(custom) custom.ph=ph; else m.edits[id]=Object.assign({},m.edits[id],{ph});
+  try{ prefsSave(); }catch(e){}
+  renderChecklist();
+}
+function chkRestore(){
+  const m=chkMaster();
+  const n=Object.keys(m.hidden).length+Object.keys(m.edits).length;
+  if(!confirm(`Restore the standard checklist?\n\n${n} change${n===1?"":"s"} to the built-in items will be undone. Items you added yourself are kept.`)) return;
+  m.hidden={}; m.edits={};
+  try{ prefsSave(); }catch(e){}
+  renderChecklist();
+}
+let CHK_EDIT=false;
+function chkEditToggle(){ CHK_EDIT=!CHK_EDIT; renderChecklist(); }
 
 function chkOn(){ return PREFS.checklist!==false; }
 function chkBlocks(){ return PREFS.checklistBlock==="block"; }
@@ -18528,7 +18639,7 @@ function chkHoaChecks(){
 // The whole list for a phase: master + what applies + derived details + HOA checks.
 function chkItems(ph){
   const st=chkState();
-  let list=CHK_MASTER.filter(x=>x.ph===ph);
+  let list=chkMasterList().filter(x=>x.ph===ph);
   Object.keys(CHK_APPLY_ITEMS).forEach(k=>{
     if(chkApplies(k)) list=list.concat(CHK_APPLY_ITEMS[k].filter(x=>x.ph===ph));
   });
@@ -18545,6 +18656,12 @@ function chkToggle(id){
   st.done[id]=!st.done[id];
   renderChecklist();
 }
+// Verified failures only. A box you forgot to tick is not a reason to stop work.
+function chkGate(ph){
+  if(!chkOn()) return [];
+  try{ return chkItems(ph).filter(x=>x.hard && x.auto && !x.auto.ok); }catch(e){ return []; }
+}
+
 function chkPhaseStats(ph){
   const items=chkItems(ph);
   const done=items.filter(x=>x.done).length;
