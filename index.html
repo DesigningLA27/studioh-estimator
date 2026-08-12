@@ -3195,7 +3195,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v760</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v761</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25711,7 +25711,7 @@ async function _ptOpenDocBuf(buf, keepTrace){
   let lib; try{ lib=await _ptLoadLib(); }catch(e){ alert(e.message); return false; }
   let b64=null; try{ b64=_ab2b64(buf); }catch(e){}
   try{ PT.doc=await lib.getDocument({data:new Uint8Array(buf.slice(0))}).promise; }catch(e){ alert("Couldn't read that PDF."); return false; }
-  PT.pdfData=b64;
+  PT.pdfData=b64; PT.satBase=null;   // a PDF and a satellite image are alternative bases, never both
   PT.numPages=PT.doc.numPages; PT.page=1;
   if(!keepTrace){ PT.ppf=null; PT.polys=[]; PT.trees=[]; PT.subtype={}; }
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
@@ -25847,6 +25847,43 @@ function _ptHitTest(q,cxy){ // q=pdf coords, cxy=canvas coords; return {type:'tr
   return null; }
 function ptToggleLayer(m){ PT.hidden[m]=!PT.hidden[m]; ptDrawOverlay(); ptLayersPopover(true); }
 function ptToggleAllLayers(show){ PT_MODES.forEach(m=>{ if(_ptModeUsed(m.k)) PT.hidden[m.k]=!show; }); ptDrawOverlay(); ptLayersPopover(true); }
+// What the trace is drawn on. Both bases are reachable from inside the tool, so
+// Take-offs opens on your work rather than on a chooser.
+function ptBaseLabel(){ return PT.pdfData?"PDF plan":(PT.satBase?"Satellite":"No base"); }
+function ptBasePopover(){ let d=document.getElementById("pt-base-pop"); if(d){ d.remove(); return; }
+  d=document.createElement("div"); d.id="pt-base-pop"; (document.getElementById("pt-modal")||document.body).appendChild(d);
+  d.style.cssText="position:fixed;top:52px;left:10px;z-index:10003;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:.75rem .85rem;width:min(360px,92vw)";
+  const addr=(typeof S!=="undefined"&&S.pi&&S.pi.address)?String(S.pi.address):"";
+  const rec=!!(PT.satBase&&PT.satBase._recovered);
+  const bs="width:100%;text-align:left;font-size:.78rem;border:1px solid var(--br);background:#fff;border-radius:8px;padding:.5rem .6rem;cursor:pointer;margin-top:.4rem";
+  d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center">
+      <strong style="font-size:.85rem">Tracing on</strong>
+      <button onclick="document.getElementById('pt-base-pop').remove()" style="font-size:.8rem;border:none;background:#F1ECE3;border-radius:5px;padding:.15rem .5rem;cursor:pointer">✕</button></div>
+    <div style="font-size:.8rem;font-weight:700;color:#35502A;margin-top:.25rem">${ptBaseLabel()}</div>
+    ${PT.satBase&&addr?`<div style="font-size:.72rem;color:var(--tl);margin-top:.1rem">centred on ${addr}</div>`:''}
+    ${rec?`<div style="font-size:.72rem;color:#8A6D1F;background:#FBF3DC;border-radius:6px;padding:.4rem .5rem;margin-top:.4rem">This project was saved before the framing was kept, so it was rebuilt from the address. If it doesn't line up with the property, re-centre it.</div>`:''}
+    <label style="${bs};display:block">
+      <input type="file" accept="application/pdf,.pdf" style="display:none" onchange="document.getElementById('pt-base-pop').remove();ptLoadPdf(this)">
+      <b>Open a PDF plan</b><div style="font-size:.7rem;color:var(--tl)">Trace over the drawing. Starts a fresh trace.</div></label>
+    ${PT.pdfData?`<button style="${bs}" onclick="ptBaseSwitch('sat')"><b>Trace on the satellite image</b><div style="font-size:.7rem;color:var(--tl)">Scale comes from the map. Starts a fresh trace.</div></button>`:''}
+    ${PT.satBase?`<button style="${bs}" onclick="ptBaseSwitch('recentre')"><b>Re-centre on the project address</b><div style="font-size:.7rem;color:var(--tl)">Use when the image isn't showing the right property.</div></button>`:''}`;
+}
+function ptBaseSwitch(kind){
+  const pop=document.getElementById("pt-base-pop"); if(pop) pop.remove();
+  const n=(PT.polys?PT.polys.length:0)+(PT.trees?PT.trees.length:0);
+  if(kind==="sat"){
+    // Traces are stored in the base's own pixels, so they cannot follow you to a different base.
+    if(n&&!confirm(`Your ${n} traced item${n===1?"":"s"} ${n===1?"was":"were"} drawn on the PDF plan and can't be moved onto the satellite image.\n\nSwitching starts a fresh trace. Continue?`)) return;
+    PT.pdfData=null; PT.satBase=null; ptOpenSatellite(false); return;
+  }
+  if(kind==="recentre"){
+    if(!(typeof S!=="undefined"&&S.pi&&S.pi.lat&&S.pi.lng)){ _toast("Enter the property address first — the map centres on it.","#B23F3C"); return; }
+    if(n&&!confirm(`Re-centring moves the image underneath your ${n} traced item${n===1?"":"s"}, so ${n===1?"it":"they"} will no longer line up with what's below.\n\nRe-centre anyway?`)) return;
+    PT.satBase=Object.assign({},PT.satBase||{},{center:{lat:+S.pi.lat,lng:+S.pi.lng},zoom:(PT.satBase&&PT.satBase.zoom)||21});
+    delete PT.satBase._recovered;
+    ptOpenSatellite(true);
+  }
+}
 function ptLayersPopover(refresh){ let d=document.getElementById("pt-layers-pop"); if(d&&!refresh){ d.remove(); return; } if(!d){ d=document.createElement("div"); d.id="pt-layers-pop"; (document.getElementById("pt-modal")||document.body).appendChild(d); }
   const used=PT_MODES.filter(m=>_ptModeUsed(m.k)); 
   d.style.cssText="position:fixed;top:54px;left:50%;transform:translateX(-50%);z-index:10003;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:.7rem .8rem;max-width:520px;max-height:70vh;overflow:auto";
@@ -25979,6 +26016,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   d.innerHTML=`
     <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.6rem .8rem;background:#35502A;color:#fff">
       <strong style="font-size:.9rem">Plan Trace</strong>
+      <button onclick="ptBasePopover()" style="padding:.3rem .6rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="What you are tracing on — switch between a PDF plan and the satellite image">▤ ${ptBaseLabel()} ▾</button>
       <button onclick="ptOpenScale()" style="padding:.3rem .7rem;font-size:.78rem;border:none;border-radius:7px;background:${PT.ppf?'#4C7B3D':'#C0524F'};color:#fff;cursor:pointer">${PT.ppf?'✓ Scale set — change':'① Set scale'}</button>
       <span style="opacity:.5">|</span>
       <span style="font-size:.78rem;opacity:.9">Now tracing: <strong style="color:${md.color==='#8a8a8a'?'#ddd':md.color}">${md.label}</strong>${_ptCurType(PT.mode)?` (${_ptCurType(PT.mode)})`:''}</span>
