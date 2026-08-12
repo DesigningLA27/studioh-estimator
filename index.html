@@ -3100,7 +3100,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v746</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v747</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -18304,11 +18304,18 @@ function hoaApprovedIn(kind){
 }
 function hoaFirstToggle(){
   PREFS.hoaFirst=!hoaFirst(); try{ prefsSave(); }catch(e){}
-  // repaint every open picker in place, so the box does not close under the tap
+  // Tapping the checkbox blurs the search field, and the field hides its results on
+  // blur — so the repaint has to put the focus back and hold the list open, or the
+  // whole thing vanishes under the finger and looks like nothing happened.
   ["shrub","gc","tree","palm"].forEach(k=>{
     document.querySelectorAll('[id^="plant-search-'+k+'-"]').forEach(el=>{
       const scope=el.id.slice(("plant-search-"+k+"-").length);
       try{ plantSearchInput(k,scope); }catch(e){}
+      const box=document.getElementById("plant-results-"+k+"-"+scope);
+      if(box&&box.innerHTML){ box.style.display="block";
+        try{ el.focus({preventScroll:true}); }catch(e){ try{ el.focus(); }catch(_){} }
+        setTimeout(()=>{ if(box.innerHTML) box.style.display="block"; },120);
+      }
     });
   });
 }
@@ -18479,6 +18486,19 @@ function plantSearchInput(kind,scope){
   if(!q){ // on focus with no typing: show plants already used elsewhere in the project for one-tap re-add
     const key=_plantRowsKey(kind); const cur=ensurePlanting().zones[scope]; const curPids=new Set(((cur&&cur[key])||[]).map(r=>r.pid));
     const used=plantsUsedInProject(kind).filter(p=>!curPids.has(p.id));
+    const appr=(hoaFirst()?hoaApprovedIn(kind):[]).filter(p=>!curPids.has(p.id));
+    if(appr.length){
+      const r=hoaPlantRules(), usedIds=new Set(appr.map(p=>p.id));
+      box.innerHTML=_hoaHdr()
+        + `<div style="padding:.32rem .6rem;font-size:.6rem;color:var(--gm);text-transform:uppercase;font-weight:700;background:var(--brand-soft);border-bottom:1px solid var(--br)">Approved by ${escAttr(r.name)} · tap to add</div>`
+        + appr.map(p=>_plantHit(kind,scope,p,plantPricedInfo(kind,p.id))).join("")
+        + (used.filter(p=>!usedIds.has(p.id)).length
+          ? `<div style="padding:.32rem .6rem;font-size:.6rem;color:var(--tm);text-transform:uppercase;font-weight:700;background:#F5F9F3;border-bottom:1px solid var(--br)">Already used in this project</div>`
+            + used.filter(p=>!usedIds.has(p.id)).map(p=>_plantHit(kind,scope,p,plantPricedInfo(kind,p.id))).join("")
+          : "")
+        + `<div style="padding:.35rem .6rem;font-size:.7rem;color:var(--tl)">or type to search the whole book</div>`;
+      box.style.display="block"; return;
+    }
     if(!used.length){ box.innerHTML=""; box.style.display="none"; return; }
     box.innerHTML=_hoaHdr()
       + `<div style="padding:.32rem .6rem;font-size:.6rem;color:var(--gm);text-transform:uppercase;font-weight:700;background:#F5F9F3;border-bottom:1px solid var(--br)">Already used in this project · tap to add — or type to search all</div>`
