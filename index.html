@@ -3195,7 +3195,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v765</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v766</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25799,7 +25799,11 @@ function ptCanvasXY(e){ const cv=document.getElementById("pt-canvas"); const r=c
 function _toPdf(pt){ return {x:pt.x/PT.renderScale, y:pt.y/PT.renderScale}; }
 function _toCanvas(pt){ return {x:pt.x*PT.renderScale, y:pt.y*PT.renderScale}; }
 function ptCanvasClick(e){ if(!PT.doc) return; const c=ptCanvasXY(e); const p=_toPdf(c);
-  if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c); if(hit){ if(hit.type==="tree") ptEditTree(hit.idx); else ptEditPoly(hit.idx); } return; }
+  if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c);
+    // Canvas-first layouts keep the selection live so the corner handles stay up,
+    // instead of throwing a popover over the drawing you are editing.
+    if(ptUiGet()!=="classic"){ if(hit&&hit.type==="poly") ptSelect(hit.idx); else if(hit) ptEditTree(hit.idx); else ptSelClear(); return; }
+    if(hit){ if(hit.type==="tree") ptEditTree(hit.idx); else ptEditPoly(hit.idx); } return; }
   if(PT.calibrating){ PT.calib.push(p); if(PT.calib.length===2){ const dx=PT.calib[1].x-PT.calib[0].x, dy=PT.calib[1].y-PT.calib[0].y; const distPdf=Math.hypot(dx,dy);
       const ans=prompt("How long is that line in the real world? Enter feet (e.g. 20 or 15.5):"); const ft=parseFloat(ans);
       if(!isNaN(ft)&&ft>0){ PT.ppf=distPdf/ft; } PT.calibrating=false; PT.calib=[]; ptRenderModal(); }
@@ -25820,7 +25824,7 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; } PT.polys.push({mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page}); } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
-function ptSetMode(m){ PT.selectMode=false; const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
+function ptSetMode(m){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
 function ptSetSubtype(v){ let rerender=false; if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):",""); const L=parseFloat(l),W=parseFloat(w); if(L>0&&W>0){ v=`${L}×${W}`; rerender=true; } else { ptRenderModal(); return; } } PT.subtype[PT.mode]=v; if(rerender) ptRenderModal(); }
 function ptStartCalib(){ PT.calibrating=true; PT.calib=[]; PT.cur=[]; const d=document.getElementById("pt-scale-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 const PT_SCALES=[["1/16\" = 1'-0\"",0.0625],["3/32\" = 1'-0\"",0.09375],["1/8\" = 1'-0\"",0.125],["3/16\" = 1'-0\"",0.1875],["1/4\" = 1'-0\"",0.25],["3/8\" = 1'-0\"",0.375],["1/2\" = 1'-0\"",0.5],["3/4\" = 1'-0\"",0.75],["1\" = 1'-0\"",1.0],["1-1/2\" = 1'-0\"",1.5],["1\" = 10'",0.1],["1\" = 20'",0.05],["1\" = 30'",0.033333],["1\" = 40'",0.025],["1\" = 50'",0.02],["1\" = 60'",0.016667],["1\" = 100'",0.01]];
@@ -25853,9 +25857,12 @@ function ptToggleFullscreen(){ const el=document.getElementById("pt-modal"); if(
   setTimeout(()=>{ try{ ptFitPage().then(ptRenderPage); }catch(e){} }, 350); }
 function ptZoom(f){ PT.scale=Math.min(4,Math.max(0.12,PT.scale*f)); ptRenderPage(); }
 let _ptPan=null;
-function ptDown(e){ const cv=e.currentTarget; try{ cv.setPointerCapture(e.pointerId); }catch(_){} const st=document.getElementById("pt-stage"); _ptPan={x:e.clientX,y:e.clientY,moved:false,sl:st?st.scrollLeft:0,stp:st?st.scrollTop:0}; }
-function ptMove(e){ if(!_ptPan) return; const dx=e.clientX-_ptPan.x, dy=e.clientY-_ptPan.y; if(Math.abs(dx)+Math.abs(dy)>5){ _ptPan.moved=true; const st=document.getElementById("pt-stage"); if(st){ st.scrollLeft=_ptPan.sl-dx; st.scrollTop=_ptPan.stp-dy; } } }
-function ptUp(e){ if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
+function ptDown(e){ const cv=e.currentTarget;
+  if(ptVertexDown(e)){ try{ cv.setPointerCapture(e.pointerId); }catch(_){} return; } try{ cv.setPointerCapture(e.pointerId); }catch(_){} const st=document.getElementById("pt-stage"); _ptPan={x:e.clientX,y:e.clientY,moved:false,sl:st?st.scrollLeft:0,stp:st?st.scrollTop:0}; }
+function ptMove(e){ if(ptVertexMove(e)) return;
+  if(!_ptPan) return; const dx=e.clientX-_ptPan.x, dy=e.clientY-_ptPan.y; if(Math.abs(dx)+Math.abs(dy)>5){ _ptPan.moved=true; const st=document.getElementById("pt-stage"); if(st){ st.scrollLeft=_ptPan.sl-dx; st.scrollTop=_ptPan.stp-dy; } } }
+function ptUp(e){ if(ptVertexUp()) return;
+  if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
 function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
   const mx=(e.clientX-rect.left)+st.scrollLeft, my=(e.clientY-rect.top)+st.scrollTop; const old=PT.scale; const ratio=e.deltaY<0?1.12:0.89;
   PT.scale=Math.min(4,Math.max(0.12,PT.scale*ratio)); const f=PT.scale/old;
@@ -25866,7 +25873,7 @@ async function ptFitPage(){ if(!PT.doc) return; const page=await PT.doc.getPage(
 async function ptPage(d){ const n=PT.page+d; if(n<1||n>PT.numPages) return; PT.page=n; PT.cur=[]; await ptRenderPage(); ptRenderModal(); await ptRenderPage(); }
 function ptDelTree(i){ ptSnap(); PT.trees.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
 function _ptInteractive(mode){ return PT.cur.length===0 && !PT.calibrating && (PT.selectMode || PT.mode===mode); } // clickable on its own layer, or any layer in Select mode
-function ptSelectMode(){ PT.selectMode=!PT.selectMode; if(PT.selectMode) PT.cur=[]; ptRenderModal(); ptRenderPage(); }
+function ptSelectMode(){ PT.selectMode=!PT.selectMode; if(PT.selectMode) PT.cur=[]; else { PT.selPoly=null; PT._selStart=null; } ptRenderModal(); ptRenderPage(); }
 function _ptSegDist(px,py,ax,ay,bx,by){ const dx=bx-ax,dy=by-ay; const L=dx*dx+dy*dy; let t=L?((px-ax)*dx+(py-ay)*dy)/L:0; t=Math.max(0,Math.min(1,t)); const cx=ax+t*dx,cy=ay+t*dy; return Math.hypot(px-cx,py-cy); }
 function _ptHitTest(q,cxy){ // q=pdf coords, cxy=canvas coords; return {type:'tree'|'poly',idx}
   const tol=14/(PT.renderScale||1); // pdf units within ~14px
@@ -25927,6 +25934,221 @@ function ptBaseSwitch(kind){
     ptOpenSatellite(true);
   }
 }
+// ── CANVAS-FIRST LAYOUTS (D / E / F) ────────────────────────────────────────
+// Three ways of showing the measured square footage while you work, switchable from
+// the toolbar so the one that suits the job can win on use rather than on argument.
+// "classic" is the original rail-and-panel layout, untouched.
+const PT_UIS=[
+  {k:"classic",label:"Rail & panel",note:"The original — category rail left, take-off panel right"},
+  {k:"D",label:"Labels on shapes",note:"Every area labelled where it sits; drag its corners to resize"},
+  {k:"E",label:"Design to a budget",note:"Track each category against a target square footage"},
+  {k:"F",label:"Bottom ledger",note:"Every category total along one bar at the bottom"}
+];
+const TK_GROUPS=[
+  {t:"Boundary", keys:["lot","limit","building","exclude","demo"]},
+  {t:"Surfaces", keys:["planting","turf","paving","driveway","irrigation"]},
+  {t:"Features", keys:["pool","spa","shade","water","firepit","fireplace"]},
+  {t:"Lines & counts", keys:["wall","steps","kitchen","seating","drainline","tapelight","tree","pots","gate","pilaster","stepper","inlet","light","furniture"]}
+];
+const TK_TRAY_DEFAULT=["planting","turf","paving","pool","limit","tree"];
+function ptUiGet(){ if(!PT._ui){ let v=null; try{ v=localStorage.getItem("studioh_pt_ui"); }catch(e){}
+    PT._ui=(PT_UIS.some(u=>u.k===v)?v:"classic"); } return PT._ui; }
+function ptUiSet(k){ if(!PT_UIS.some(u=>u.k===k)) return; PT._ui=k;
+  try{ localStorage.setItem("studioh_pt_ui",k); }catch(e){}
+  const d=document.getElementById("pt-ui-pop"); if(d) d.remove();
+  PT.selPoly=null; ptRenderModal(); ptFitPage().then(ptRenderPage); }
+function ptUiPopover(){ let d=document.getElementById("pt-ui-pop"); if(d){ d.remove(); return; }
+  d=document.createElement("div"); d.id="pt-ui-pop"; (document.getElementById("pt-modal")||document.body).appendChild(d);
+  d.style.cssText="position:fixed;top:52px;right:10px;z-index:10004;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:.6rem;width:min(300px,92vw)";
+  const cur=ptUiGet();
+  d.innerHTML=`<div style="font-size:.7rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--tl);padding:.1rem .3rem .45rem">Layout</div>`+
+    PT_UIS.map(u=>`<button onclick="ptUiSet('${u.k}')" style="display:block;width:100%;text-align:left;border:1px solid ${u.k===cur?'#4C7B3D':'var(--br)'};background:${u.k===cur?'#EAF3E6':'#fff'};border-radius:8px;padding:.45rem .55rem;margin-bottom:.3rem;cursor:pointer">
+      <b style="font-size:.78rem;color:#2F5B23">${u.k===cur?'✓ ':''}${u.label}</b>
+      <div style="font-size:.68rem;color:var(--tl);line-height:1.35">${u.note}</div></button>`).join('');
+}
+function ptTray(){ let t=null; try{ t=JSON.parse(localStorage.getItem("studioh_pt_tray")||"null"); }catch(e){}
+  if(!Array.isArray(t)||!t.length) t=TK_TRAY_DEFAULT.slice();
+  t=t.filter(k=>PT_MODES.some(m=>m.k===k)); TK_TRAY_DEFAULT.forEach(k=>{ if(t.length<6&&t.indexOf(k)<0) t.push(k); });
+  return t.slice(0,6); }
+// Picking from the full set promotes it into the tray, so the tray learns what you use.
+function ptTrayPick(k){ let t=ptTray().filter(x=>x!==k); t.unshift(k); t=t.slice(0,6);
+  try{ localStorage.setItem("studioh_pt_tray",JSON.stringify(t)); }catch(e){}
+  const sh=document.getElementById("pt-sheet"); if(sh) sh.remove(); ptSetMode(k); }
+function ptTraySheet(){ let d=document.getElementById("pt-sheet"); if(d){ d.remove(); return; }
+  d=document.createElement("div"); d.id="pt-sheet"; (document.getElementById("pt-modal")||document.body).appendChild(d);
+  d.style.cssText="position:fixed;left:50%;bottom:78px;transform:translateX(-50%);z-index:10004;background:#fff;border-radius:13px;box-shadow:0 18px 50px rgba(0,0,0,.45);padding:.8rem .9rem;width:min(680px,94vw);max-height:62vh;overflow:auto";
+  const cell=(k)=>{ const m=_ptMode(k); if(!m||m.k!==k) return "";
+    const n=PT.polys.filter(p=>p.mode===k).length+PT.trees.filter(t=>_ptMarkMode(t)===k).length;
+    return `<button onclick="ptTrayPick('${k}')" style="display:flex;align-items:center;gap:.4rem;width:100%;text-align:left;border:0;background:${PT.mode===k?'#EAF3E6':'none'};border-radius:6px;padding:.25rem .35rem;cursor:pointer;font-size:.74rem;color:#333">
+      <span style="width:8px;height:8px;border-radius:50%;background:${m.color};flex:none"></span>${m.label}
+      ${n?`<span style="margin-left:auto;font-size:.64rem;font-weight:700;color:var(--tl)">${n}</span>`:''}</button>`; };
+  d.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem">
+      <b style="font-size:.86rem">All categories</b>
+      <input id="pt-sheet-q" oninput="ptSheetFilter(this.value)" placeholder="Search…" style="margin-left:auto;font-size:.74rem;border:1px solid var(--br);border-radius:7px;padding:.28rem .55rem;min-width:170px">
+      <button onclick="document.getElementById('pt-sheet').remove()" style="border:none;background:#F1ECE3;border-radius:5px;padding:.15rem .5rem;cursor:pointer">✕</button></div>
+    <div id="pt-sheet-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.8rem">
+      ${TK_GROUPS.map(g=>`<div class="tksec"><div style="font-size:.6rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--tl);border-bottom:1px solid var(--br);padding-bottom:.25rem;margin-bottom:.3rem">${g.t}</div>${g.keys.map(cell).join('')}</div>`).join('')}
+    </div>`;
+  try{ document.getElementById("pt-sheet-q").focus(); }catch(e){}
+}
+function ptSheetFilter(q){ q=(q||"").toLowerCase().trim();
+  const g=document.getElementById("pt-sheet-grid"); if(!g) return;
+  g.querySelectorAll(".tksec").forEach(sec=>{ let any=false;
+    sec.querySelectorAll("button").forEach(b=>{ const hit=!q||b.textContent.toLowerCase().indexOf(q)>=0;
+      b.style.display=hit?"flex":"none"; if(hit) any=true; });
+    sec.style.display=any?"":"none"; }); }
+// Running totals by category, exclusions already netted out of their host surface.
+function ptTotals(){ const a={}; if(typeof PT==="undefined") return a;
+  PT.polys.forEach(p=>{ if(p.kind==="linear"){ a[p.mode]=(a[p.mode]||0)+(+p.lf||0); } else a[p.mode]=(a[p.mode]||0)+(+p.sf||0); });
+  PT.polys.forEach(p=>{ if(p.kind==="linear"||p.mode!=="exclude"||!(+p.sf>0)) return;
+    const host=_ptEnclosing(p,PT.polys); if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-(+p.sf||0)); });
+  return a; }
+function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
+// What the shape under the cursor measures right now — the number you are drawing toward.
+function ptLiveSF(){ const kind=_ptKind(PT.mode);
+  if(kind==="count"||!PT.cur.length) return null;
+  if(kind==="linear") return PT.cur.length<2?{n:0,u:"LF",pts:PT.cur.length}:{n:_ptLineLF(PT.cur),u:"LF",pts:PT.cur.length};
+  return {n:PT.cur.length<3?0:_ptPolySF(PT.cur),u:"SF",pts:PT.cur.length}; }
+function ptTargets(){ try{ if(!S.tkTargets) S.tkTargets={}; return S.tkTargets; }catch(e){ return {}; } }
+function ptTargetSet(k){ const m=_ptMode(k); const t=ptTargets(); const cur=t[k]||"";
+  const v=prompt(`Target square footage for ${m.label}:\n\nLeave blank to remove the target.`, cur);
+  if(v===null) return; const n=parseFloat(String(v).replace(/[^0-9.]/g,""));
+  if(n>0) t[k]=Math.round(n); else delete t[k];
+  ptRenderFloat(); }
+function ptTargetAdd(){ const t=ptTargets(); const opts=PT_MODES.filter(m=>m.kind==="area"&&["lot","limit","building","demo","exclude"].indexOf(m.k)<0&&!t[m.k]);
+  if(!opts.length){ _toast("Every area already has a target.","#6A4FA3"); return; }
+  const names=opts.map((m,i)=>`${i+1}. ${m.label}`).join("\n");
+  const pick=prompt("Which category needs a target?\n\n"+names, "1"); if(pick===null) return;
+  const i=parseInt(pick,10)-1; if(!(i>=0&&i<opts.length)) return; ptTargetSet(opts[i].k); }
+// ── the floating layer ──────────────────────────────────────────────────────
+function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) return;
+  const ui=ptUiGet(); if(ui==="classic"){ el.innerHTML=""; return; }
+  const G="background:rgba(255,255,255,.96);border:1px solid rgba(0,0,0,.07);border-radius:11px;box-shadow:0 10px 30px -14px rgba(0,0,0,.55);pointer-events:auto";
+  const tot=ptTotals(); const live=ptLiveSF();
+  // the tool tray — most used, then everything else behind More
+  const tray=`<div style="position:absolute;left:50%;transform:translateX(-50%);bottom:${ui==="F"?"58px":"13px"};display:flex;gap:4px;padding:6px;${G}">
+    ${ptTray().map(k=>{ const m=_ptMode(k); const on=PT.mode===k&&!PT.selectMode;
+      return `<button onclick="ptSetMode('${k}')" style="display:flex;flex-direction:column;align-items:center;gap:4px;width:58px;padding:6px 3px;border:0;border-radius:9px;cursor:pointer;background:${on?'#2F5B23':'none'};color:${on?'#fff':'#3A452F'};font-size:.62rem;font-weight:${on?'700':'500'};line-height:1.15;text-align:center">
+        <span style="width:21px;height:21px;border-radius:7px;background:${on?'rgba(255,255,255,.32)':m.color}"></span>${m.label}</button>`; }).join('')}
+    <button onclick="ptTraySheet()" style="display:flex;flex-direction:column;align-items:center;gap:4px;width:58px;padding:6px 3px;border:0;border-radius:9px;cursor:pointer;background:none;color:#6C7A5F;font-size:.62rem">
+      <span style="width:21px;height:21px;border-radius:7px;background:#EAEEE3;display:flex;align-items:center;justify-content:center;font-weight:800;color:#6C7A5F">⋯</span>More</button>
+  </div>`;
+  // live readout of the shape being drawn
+  const liveBox=live?`<div style="position:absolute;left:13px;bottom:${ui==="F"?"126px":"84px"};padding:7px 10px;${G}">
+      <div style="font-size:.56rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:#98A38C">${_ptMode(PT.mode).label} · drawing</div>
+      <div style="font-size:1.15rem;font-weight:750;font-variant-numeric:tabular-nums;color:#2F5B23;letter-spacing:-.02em;font-family:ui-monospace,Menlo,monospace">${_tkFmt(live.n)}<span style="font-size:.62rem;font-weight:700;color:#6C7A5F;margin-left:3px">${live.u}</span></div>
+      <div style="font-size:.62rem;font-weight:600;color:#6C7A5F">${live.pts} point${live.pts===1?"":"s"}${live.u==="SF"&&live.pts<3?" · need 3":""}</div>
+    </div>`:"";
+  let extra="";
+  if(ui==="D") extra=_tkInspector(G);
+  if(ui==="E") extra=_tkTargetCard(G,tot,live);
+  if(ui==="F") extra=_tkLedgerBar(tot,live);
+  el.innerHTML=tray+liveBox+extra;
+}
+function _tkInspector(G){ const i=PT.selPoly; if(i==null) return "";
+  const p=PT.polys[i]; if(!p) return ""; const m=_ptMode(p.mode);
+  const isLin=p.kind==="linear"; const n=isLin?(+p.lf||0):(+p.sf||0); const u=isLin?"LF":"SF";
+  const d=(PT._selStart!=null)?Math.round(n-PT._selStart):0;
+  return `<div style="position:absolute;right:13px;top:13px;width:196px;padding:10px 11px;${G}">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
+      <span style="width:9px;height:9px;border-radius:50%;background:${m.color}"></span>
+      <b style="font-size:.74rem">${p.name||m.label}</b>
+      <button onclick="ptSelClear()" style="margin-left:auto;border:0;background:none;color:#98A38C;cursor:pointer;font-size:.78rem">✕</button></div>
+    <div style="font-size:1.5rem;font-weight:750;font-variant-numeric:tabular-nums;color:#2F5B23;letter-spacing:-.03em;line-height:1;font-family:ui-monospace,Menlo,monospace">${_tkFmt(n)}<span style="font-size:.7rem;font-weight:700;color:#6C7A5F;margin-left:4px;font-family:inherit">${u}</span></div>
+    ${d!==0?`<div style="font-size:.64rem;font-weight:700;color:${d>0?'#5BA34A':'#A8443F'};margin-top:2px;font-family:ui-monospace,Menlo,monospace">${d>0?'▲':'▼'} ${_tkFmt(Math.abs(d))} ${u} since you grabbed it</div>`:''}
+    <div style="display:flex;gap:5px;margin-top:9px">
+      <button onclick="ptEditPoly(${i})" style="flex:1;font-size:.64rem;padding:.28rem 0;border:1px solid var(--br);border-radius:6px;background:#fff;cursor:pointer">Details</button>
+      <button onclick="ptSelDelete()" style="flex:1;font-size:.64rem;padding:.28rem 0;border:1px solid #C0524F;color:#C0524F;border-radius:6px;background:#fff;cursor:pointer">Delete</button></div>
+    <div style="font-size:.62rem;color:#6C7A5F;margin-top:8px;line-height:1.4">Drag a corner to resize. Drag a hollow midpoint to add one.</div></div>`;
+}
+function _tkTargetCard(G,tot,live){ const t=ptTargets();
+  // Boundaries and exclusions are not things you budget toward — they are what you budget inside.
+  const keys=PT_MODES.filter(m=>m.kind==="area"&&["lot","limit","building","demo","exclude"].indexOf(m.k)<0&&(t[m.k]||tot[m.k]>0)).map(m=>m.k);
+  const rows=keys.map(k=>{ const m=_ptMode(k); let n=tot[k]||0;
+    if(live&&PT.mode===k&&live.u==="SF") n+=live.n;      // count the shape in progress
+    const tg=t[k]||0; const pct=tg?Math.min(100,(n/tg)*100):100; const over=tg&&n>tg;
+    return `<div style="margin-bottom:9px">
+      <div style="display:flex;align-items:baseline;gap:6px;font-size:.68rem;color:#3A452F">
+        <span style="width:7px;height:7px;border-radius:50%;background:${m.color}"></span>${m.label}
+        <span style="margin-left:auto;font-size:.68rem;font-weight:700;font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace">${_tkFmt(n)}<button onclick="ptTargetSet('${k}')" style="border:0;background:none;color:#98A38C;font-weight:600;cursor:pointer;padding:0 0 0 3px;font-size:.68rem;font-family:inherit">/ ${tg?_tkFmt(tg):"set"}</button></span></div>
+      <div style="height:5px;border-radius:5px;background:#EAEEE3;margin-top:4px;overflow:hidden"><i style="display:block;height:100%;border-radius:5px;width:${pct}%;background:${over?'#A8443F':m.color};${tg?'':'opacity:.35'}"></i></div>
+      ${tg?`<div style="font-size:.6rem;margin-top:3px;color:${over?'#A8443F':'#6C7A5F'};font-weight:${over?'700':'400'}">${over?`${_tkFmt(n-tg)} SF over target`:`${_tkFmt(tg-n)} SF left`}</div>`:''}
+    </div>`; }).join('');
+  const lim=tot.limit||0, lot=tot.lot||0;
+  const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(tot[k]||0),0);
+  const against=lim||lot;
+  return `<div style="position:absolute;right:13px;top:13px;width:216px;padding:11px 12px;${G}">
+    <div style="display:flex;align-items:center;margin-bottom:9px">
+      <b style="font-size:.6rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:#6C7A5F">Against target</b>
+      <button onclick="ptTargetAdd()" style="margin-left:auto;border:0;background:none;font-size:.64rem;color:#2F5B23;font-weight:700;cursor:pointer">＋ Add</button></div>
+    ${rows||'<div style="font-size:.66rem;color:#6C7A5F;line-height:1.45">Nothing traced yet. Add a target and trace toward it.</div>'}
+    ${against?`<div style="border-top:1px solid #DCE1D2;padding-top:8px;margin-top:2px;display:flex;align-items:baseline;font-size:.64rem;color:#6C7A5F">
+      Of ${lim?"limit of work":"lot"} ${_tkFmt(against)}
+      <b style="margin-left:auto;font-size:.82rem;font-weight:750;color:#2F5B23;font-family:ui-monospace,Menlo,monospace">${_tkFmt(surf)}</b></div>
+      <div style="font-size:.6rem;color:${surf>against?'#A8443F':'#6C7A5F'};margin-top:2px;font-weight:${surf>against?'700':'400'}">${surf>against?`${_tkFmt(surf-against)} SF more than the boundary holds`:`${_tkFmt(against-surf)} SF still untraced`}</div>`:''}
+  </div>`;
+}
+function _tkLedgerBar(tot,live){ const md=_ptMode(PT.mode);
+  const keys=PT_MODES.filter(m=>tot[m.k]>0).map(m=>m.k);
+  const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(tot[k]||0),0);
+  return `<div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #DCE1D2;padding:8px 10px;display:flex;align-items:center;gap:9px;pointer-events:auto">
+    <div style="display:flex;align-items:center;gap:7px;padding-right:11px;border-right:1px solid #DCE1D2;flex:none">
+      <span style="width:22px;height:22px;border-radius:7px;background:${md.color}"></span>
+      <span><b style="display:block;font-size:.66rem;line-height:1.25">${md.label}${_ptCurType(PT.mode)?" · "+_ptCurType(PT.mode):""}</b>
+        <span style="font-size:.62rem;font-weight:700;color:#2F5B23;font-family:ui-monospace,Menlo,monospace">${live?`${_tkFmt(live.n)} ${live.u} · ${live.pts} pt`:"nothing in progress"}</span></span></div>
+    <div style="display:flex;gap:5px;overflow-x:auto;flex:1">
+      ${keys.map(k=>{ const m=_ptMode(k); const u=m.kind==="linear"?"LF":"SF";
+        return `<button onclick="ptSetMode('${k}')" style="display:flex;align-items:center;gap:6px;padding:5px 9px;border:0;border-radius:8px;background:${PT.mode===k?'#EAF3E6':'#EAEEE3'};font-size:.64rem;color:#3A452F;white-space:nowrap;flex:none;cursor:pointer">
+          <span style="width:7px;height:7px;border-radius:50%;background:${m.color}"></span>${m.label}
+          <b style="font-size:.66rem;font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace">${_tkFmt(tot[k])}<span style="font-weight:400;color:#6C7A5F"> ${u}</span></b></button>`; }).join('')
+        ||'<span style="font-size:.66rem;color:#6C7A5F;align-self:center">Nothing traced yet — pick a category and click around an area.</span>'}
+    </div>
+    <span style="display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:8px;background:#2F5B23;color:#fff;font-size:.64rem;flex:none">Landscape <b style="font-family:ui-monospace,Menlo,monospace">${_tkFmt(surf)} SF</b></span>
+  </div>`;
+}
+// ── selection & vertex editing ──────────────────────────────────────────────
+function ptSelClear(){ PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+function ptSelDelete(){ const i=PT.selPoly; if(i==null) return; ptSnap(); PT.polys.splice(i,1);
+  PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptUpdateInfo(); }
+function ptSelect(idx){ const p=PT.polys[idx]; if(!p) return;
+  PT.selPoly=idx; PT._selStart=(p.kind==="linear")?(+p.lf||0):(+p.sf||0);
+  ptDrawOverlay(); ptRenderFloat(); }
+function _ptRemeasure(p){ if(!p) return;
+  if(p.kind==="linear") p.lf=_ptLineLF(p.pts); else p.sf=_ptPolySF(p.pts); }
+// Which handle is under the pointer: a corner, or a midpoint that would become one.
+function _ptHandleAt(e){ if(PT.selPoly==null) return null; const p=PT.polys[PT.selPoly];
+  if(!p||p.page!==PT.page||!p.pts) return null;
+  const c=ptCanvasXY(e); const tol=13;
+  for(let i=0;i<p.pts.length;i++){ const q=_toCanvas(p.pts[i]);
+    if(Math.hypot(c.x-q.x,c.y-q.y)<=tol) return {pi:i,mid:false}; }
+  const segs=(p.kind==="linear")?p.pts.length-1:p.pts.length;
+  for(let i=0;i<segs;i++){ const a=_toCanvas(p.pts[i]), b=_toCanvas(p.pts[(i+1)%p.pts.length]);
+    const q={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+    if(Math.hypot(c.x-q.x,c.y-q.y)<=tol) return {pi:i+1,mid:true}; }
+  return null; }
+let _ptVDrag=null;
+function ptVertexDown(e){ if(ptUiGet()==="classic"||PT.selPoly==null||PT.calibrating) return false;
+  const h=_ptHandleAt(e); if(!h) return false;
+  const p=PT.polys[PT.selPoly]; if(!p) return false;
+  ptSnap();
+  if(h.mid) p.pts.splice(h.pi,0,_toPdf(ptCanvasXY(e)));   // a midpoint becomes a real corner
+  _ptVDrag={pi:h.pi}; return true; }
+function ptVertexMove(e){ if(!_ptVDrag) return false; const p=PT.polys[PT.selPoly]; if(!p){ _ptVDrag=null; return false; }
+  p.pts[_ptVDrag.pi]=_toPdf(ptCanvasXY(e)); _ptRemeasure(p);
+  ptDrawOverlay(); ptRenderFloat(); return true; }
+function ptVertexUp(){ if(!_ptVDrag) return false; _ptVDrag=null;
+  const p=PT.polys[PT.selPoly]; if(p) _ptRemeasure(p);
+  ptDrawOverlay(); ptUpdateInfo(); return true; }
+// Handles drawn over the selected shape.
+function _ptHandlesSvg(){ if(ptUiGet()==="classic"||PT.selPoly==null) return "";
+  const p=PT.polys[PT.selPoly]; if(!p||p.page!==PT.page||!p.pts) return "";
+  const md=_ptMode(p.mode); let s="";
+  const segs=(p.kind==="linear")?p.pts.length-1:p.pts.length;
+  for(let i=0;i<segs;i++){ const a=_toCanvas(p.pts[i]), b=_toCanvas(p.pts[(i+1)%p.pts.length]);
+    s+=`<circle cx="${(a.x+b.x)/2}" cy="${(a.y+b.y)/2}" r="4.5" fill="rgba(255,255,255,.8)" stroke="${md.color}" stroke-width="1.6" style="pointer-events:auto;cursor:copy"/>`; }
+  p.pts.forEach(q=>{ const c=_toCanvas(q);
+    s+=`<circle cx="${c.x}" cy="${c.y}" r="6.5" fill="#fff" stroke="${md.color}" stroke-width="2.4" style="pointer-events:auto;cursor:move"/>`; });
+  return s; }
 function ptLayersPopover(refresh){ let d=document.getElementById("pt-layers-pop"); if(d&&!refresh){ d.remove(); return; } if(!d){ d=document.createElement("div"); d.id="pt-layers-pop"; (document.getElementById("pt-modal")||document.body).appendChild(d); }
   const used=PT_MODES.filter(m=>_ptModeUsed(m.k)); 
   d.style.cssText="position:fixed;top:54px;left:50%;transform:translateX(-50%);z-index:10003;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:.7rem .8rem;max-width:520px;max-height:70vh;overflow:auto";
@@ -25980,7 +26202,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     cpts.forEach((q,i)=>{ const closer=isLine?(i===cpts.length-1&&cpts.length>=2):(i===0&&cpts.length>=3); s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${closer?7:5}" fill="${closer?c:'#fff'}" stroke="${c}" stroke-width="2.5"/>`; if(closer) s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="12" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2"/>`; }); }
   if(PT.calib.length){ const cp=PT.calib.map(_toCanvas); cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="5" fill="#fff" stroke="#C0524F" stroke-width="2"/>`; });
     if(cp.length===2) s+=`<line x1="${cp[0].x}" y1="${cp[0].y}" x2="${cp[1].x}" y2="${cp[1].y}" stroke="#C0524F" stroke-width="2"/>`; }
-  svg.innerHTML=s; }
+  svg.innerHTML=s+_ptHandlesSvg(); }
 function ptEditPoly(idx){ const p=PT.polys[idx]; if(!p) return; const md=_ptMode(p.mode); let d=document.getElementById("pt-edit-pop"); if(d) d.remove();
   d=document.createElement("div"); d.id="pt-edit-pop"; d.style.cssText="position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center";
   const meas=p.kind==="linear"?`${Math.round(p.lf||0).toLocaleString()} LF`:`${Math.round(p.sf||0).toLocaleString()} SF`;
@@ -26037,7 +26259,8 @@ function ptEditTreeZoneChange(idx,val){ const t=PT.trees[idx]; if(!t) return;
 function ptAddTreeZoneInline(idx){ const t=PT.trees[idx]; if(!t) return; const inp=document.getElementById("pt-newzone"); const nm=inp?(inp.value||"").trim():""; if(!nm){ if(inp) inp.focus(); return; } const added=addAreaOption(nm); if(added) t.zone=added; ptEditTree(idx); }
 function ptSaveTreeEdit(idx){ const t=PT.trees[idx]; if(t){ ptSnap(); const sel=document.getElementById("pt-edit-size"); if(sel) t.size=sel.value; const mt=document.getElementById("pt-edit-mtype"); if(mt) t.size=mt.value; const zn=document.getElementById("pt-edit-zone"); if(zn) t.zone=(zn.value==="—"?"":zn.value); const ph=document.getElementById("pt-edit-phase"); if(ph) t.phase=(ph.value==="—"?"":ph.value); const tg=document.getElementById("pt-edit-tags"); if(tg) t.tags=tg.value.trim(); } const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptDelTreeFromEdit(idx){ ptSnap(); PT.trees.splice(idx,1); const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
-function ptUpdateInfo(){ const el=document.getElementById("pt-info"); if(!el) return;
+function ptUpdateInfo(){ try{ ptRenderFloat(); }catch(e){}
+  const el=document.getElementById("pt-info"); if(!el) return;
   const area={}, lin={}; PT.polys.forEach(p=>{ const key=p.type?`${p.mode}|${p.type}`:p.mode; if(p.kind==="linear"){ lin[key]=(lin[key]||0)+(p.lf||0); } else { area[key]=(area[key]||0)+(p.sf||0); } });
   const cby={}; PT.trees.forEach(t=>{ const m=_ptMarkMode(t); const key=_ptMode(m).types?`${m}|${t.size||""}`:m; cby[key]=(cby[key]||0)+1; });
   const line=(k,val,unit)=>{ const [m,ty]=k.split("|"); const md=_ptMode(m); return `<div style="display:flex;justify-content:space-between;gap:.6rem;font-size:.74rem"><span style="color:${md.color}">${md.label}${ty?` · <span style="color:var(--tm)">${ty}</span>`:''}</span><strong>${Math.round(val).toLocaleString()} ${unit}</strong></div>`; };
@@ -26053,6 +26276,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.85);z-index:10000;display:flex;flex-direction:column";
   const chip=(m)=>{ const used=_ptModeUsed(m.k); const sel=PT.mode===m.k; const filled=used||sel; const bg=filled?m.color:"#fff"; const col=filled?"#fff":"#333"; const border=sel?`2.5px solid ${_ptDarken(m.color)}`:`1px solid ${m.color}`; return `<button onclick="ptSetMode('${m.k}')" style="padding:.28rem .5rem;font-size:.72rem;border-radius:7px;border:${border};cursor:pointer;text-align:left;background:${bg};color:${col};${sel?'font-weight:700':''}">${m.label}${used&&!sel?' ✓':''}</button>`; };
   const group=(kind)=>PT_MODES.filter(m=>m.kind===kind).map(chip).join('');
+  const _ptUiNow=ptUiGet();
   const md=_ptMode(PT.mode); const finishLbl = md.kind==="linear"?"✓ Finish line":(md.kind==="count"?"":"✓ Close area");
   const _cur=_ptCurType(PT.mode); const _opts=md.types?(md.types.includes(_cur)||_cur==null?md.types:[_cur].concat(md.types)):[];
   const toolbarType = md.types?`<span style="opacity:.5">|</span><span style="font-size:.72rem;opacity:.85">${md.kind==="count"?"Size:":"Type:"}</span><select onchange="ptSetSubtype(this.value)" style="font-size:.76rem;padding:.25rem .3rem;border:none;border-radius:6px;background:#fff;color:#222;font-weight:600">${_opts.map(t=>`<option value="${t}" ${_cur===t?'selected':''}>${t}</option>`).join('')}</select>`:'';
@@ -26074,6 +26298,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <button onclick="ptSelectMode()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:${PT.selectMode?'#4A90D9':'#3a4a30'};color:#fff;cursor:pointer" title="Select / edit / delete any traced item — tap it to open">⇱ ${PT.selectMode?'Select ON':'Select / edit'}</button>
       <button onclick="ptToggleLabels()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:${PT.hideLabels?'#7a3a38':'#3a4a30'};color:#fff;cursor:pointer" title="Show/hide labels so they don't block tracing">${PT.hideLabels?'Labels off':'Labels on'}</button>
       <button onclick="ptLayersPopover()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Show/hide individual layers to declutter">≡ Layers</button>
+      <button onclick="ptUiPopover()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Switch how the take-off is laid out">⌗ Layout</button>
       ${toolbarType}
       ${PT.numPages>1?`<button onclick="ptPage(-1)" style="padding:.3rem .55rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer">‹</button><span style="font-size:.75rem">pg ${PT.page}/${PT.numPages}</span><button onclick="ptPage(1)" style="padding:.3rem .55rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer">›</button>`:''}
       <div style="margin-left:auto;display:flex;gap:.5rem">
@@ -26082,21 +26307,24 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       </div>
     </div>
     <div style="flex:1;display:flex;overflow:hidden">
-      <div style="width:196px;background:#f3f1ec;padding:.7rem;overflow:auto;border-right:1px solid var(--br)">
+      ${_ptUiNow==="classic"?`<div style="width:196px;background:#f3f1ec;padding:.7rem;overflow:auto;border-right:1px solid var(--br)">
         <div style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.3rem">Areas (SF)</div>
         <div style="display:flex;flex-direction:column;gap:.25rem">${group("area")}</div>
         <div style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin:.6rem 0 .3rem">Linear (LF)</div>
         <div style="display:flex;flex-direction:column;gap:.25rem">${group("linear")}</div>
         <div style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin:.6rem 0 .3rem">Count</div>
         <div style="display:flex;flex-direction:column;gap:.25rem">${group("count")}</div>
-      </div>
+      </div>`:''}
+      <div id="pt-stagewrap" style="flex:1;position:relative;display:flex;overflow:hidden">
       <div id="pt-stage" style="flex:1;overflow:auto;background:#3a4030;position:relative;display:flex;align-items:safe center;justify-content:safe center;padding:1rem">
         <div style="position:relative;line-height:0">
           <canvas id="pt-canvas" onpointerdown="ptDown(event)" onpointermove="ptMove(event)" onpointerup="ptUp(event)" style="cursor:crosshair;box-shadow:0 4px 24px rgba(0,0,0,.5);touch-action:none"></canvas>
           <svg id="pt-svg" style="position:absolute;top:0;left:0;pointer-events:none"></svg>
         </div>
       </div>
-      ${PT.panelOpen?`<div style="width:280px;background:#fff;padding:0;overflow:auto;display:flex;flex-direction:column">
+      <div id="pt-float" style="position:absolute;inset:0;pointer-events:none"></div>
+      </div>
+      ${_ptUiNow!=="classic"?"":(PT.panelOpen?`<div style="width:280px;background:#fff;padding:0;overflow:auto;display:flex;flex-direction:column">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:.7rem .9rem .4rem"><div style="font-size:.72rem;color:var(--tm);text-transform:uppercase;font-weight:800;letter-spacing:.04em">Take-off</div><button onclick="ptTogglePanel()" title="Collapse panel" style="border:none;background:#F1ECE3;color:var(--tm);border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:.9rem">›</button></div>
         <div id="pt-info" style="padding:0 .9rem;font-size:.82rem"></div>
         <div style="border-top:1px solid var(--br);margin:.8rem .9rem .5rem;padding-top:.7rem">
@@ -26109,8 +26337,9 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
           <div style="font-size:.62rem;color:var(--tl);margin-top:.4rem;line-height:1.35">Re-open the <strong>same PDF</strong> first, then load. Auto-saves in-browser as you work.</div>
         </div>
         <div style="font-size:.68rem;color:var(--tl);padding:.4rem .9rem .9rem;line-height:1.45">Pick a category, click around the area. <strong>Areas</strong>: click the first point to close. <strong>Lines</strong>: click the last point to finish. Click any label to name / phase / tag / delete it.</div>
-      </div>`:`<div style="width:34px;background:#fff;display:flex;flex-direction:column;align-items:center;padding-top:.7rem"><button onclick="ptTogglePanel()" title="Expand take-off" style="border:none;background:#F1ECE3;color:var(--tm);border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:.9rem">‹</button><div style="writing-mode:vertical-rl;transform:rotate(180deg);margin-top:.6rem;font-size:.68rem;color:var(--tm);text-transform:uppercase;font-weight:800;letter-spacing:.1em">Take-off</div></div>`}
+      </div>`:`<div style="width:34px;background:#fff;display:flex;flex-direction:column;align-items:center;padding-top:.7rem"><button onclick="ptTogglePanel()" title="Expand take-off" style="border:none;background:#F1ECE3;color:var(--tm);border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:.9rem">‹</button><div style="writing-mode:vertical-rl;transform:rotate(180deg);margin-top:.6rem;font-size:.68rem;color:var(--tm);text-transform:uppercase;font-weight:800;letter-spacing:.1em">Take-off</div></div>`)}
     </div>`;
+  try{ ptRenderFloat(); }catch(e){}
 }
 function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
     const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
