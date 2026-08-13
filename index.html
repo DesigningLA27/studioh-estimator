@@ -1849,13 +1849,17 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkbar.wide .tkb-tog span{display:inline}
 .tkbar .tkb-tog:active{background:rgba(255,255,255,.2)}
 .tkrow{position:relative;overflow:hidden;border-top:1px solid rgba(255,255,255,.13)}
-.tkrow-exc{position:absolute;left:0;top:0;bottom:0;width:96px;border:0;background:#2C5F9E;color:#fff;
-  font:700 13px var(--tkf);cursor:pointer;letter-spacing:.01em}
+.tkrow-exc,.tkrow-dem,.tkrow-hide{position:absolute;top:0;bottom:0;width:84px;border:0;color:#fff;
+  font:700 12.5px var(--tkf);cursor:pointer;letter-spacing:.01em}
+.tkrow-exc{left:0;background:#2C5F9E}
+.tkrow-dem{left:84px;background:#9A6B1E}
+.tkrow-hide{right:84px;background:#414C3C}
 /* dim the contents, never the row itself — fading the body let the buttons behind it show through */
 .tkrow-body.is-exc{box-shadow:inset 3px 0 0 #2C5F9E}
 .tkrow-body.is-exc>*{opacity:.6}
-.tkrow-del{position:absolute;right:0;top:0;bottom:0;width:96px;border:0;background:#C0524F;color:#fff;
-  font:700 13px var(--tkf);cursor:pointer;letter-spacing:.01em}
+.tkrow-body.is-dem{box-shadow:inset 3px 0 0 #C79A3A}
+.tkrow-del{position:absolute;right:0;top:0;bottom:0;width:84px;border:0;background:#C0524F;color:#fff;
+  font:700 12.5px var(--tkf);cursor:pointer;letter-spacing:.01em}
 .tkrow-body{position:relative;display:flex;align-items:center;gap:11px;padding:11px 8px;cursor:pointer;
   background:rgba(18,24,15,.99);touch-action:pan-y;will-change:transform}
 .tkb-lb{font:800 9px var(--tkf);letter-spacing:.12em;text-transform:uppercase;color:#8FA383;padding:5px 6px 1px}
@@ -3319,7 +3323,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v819</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v820</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26710,6 +26714,15 @@ function ptLabelOpen(idx){ if(!PT._open) PT._open={};
   const was=!!PT._open[idx]; PT._open={}; if(!was) PT._open[idx]=true;
   ptDrawOverlay(); }
 function ptToggleLayer(m){ PT.hidden[m]=!PT.hidden[m]; ptDrawOverlay(); ptLayersPopover(true); }
+// Take a category off the drawing without taking it out of the estimate — a demo zone you have
+// already measured is only in the way from here on.
+function ptHideToggle(mode){
+  PT.hidden[mode]=!PT.hidden[mode]; PT._openRow=null;
+  const md=_ptMode(mode);
+  _toast(PT.hidden[mode]?`${md.label} hidden — still counted and still priced.`
+                        :`${md.label} back on the plan.`, "#4A5545");
+  try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+}
 function ptToggleAllLayers(show){ PT_MODES.forEach(m=>{ if(_ptModeUsed(m.k)) PT.hidden[m.k]=!show; }); ptDrawOverlay(); ptLayersPopover(true); }
 // What the trace is drawn on. Both bases are reachable from inside the tool, so
 // Take-offs opens on your work rather than on a chooser.
@@ -26863,13 +26876,43 @@ function ptExcl(mode){
 }
 function ptExclToggle(mode){
   const on=!ptExcl(mode); ptSnap();
-  PT.polys.forEach(p=>{ if(p.mode===mode){ if(on) p._excl=true; else delete p._excl; } });
-  (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)===mode){ if(on) t._excl=true; else delete t._excl; } });
+  PT.polys.forEach(p=>{ if(p.mode===mode){ if(on){ p._excl=true; delete p._demo; } else delete p._excl; } });
+  (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)===mode){ if(on){ t._excl=true; delete t._demo; } else delete t._excl; } });
   PT._openRow=null;
   const md=_ptMode(mode);
   _toast(on?`${md.label} excluded — out of the estimate and out of the landscape area.`
            :`${md.label} back in the estimate.`, on?"#2C4E7A":"#2F5B23");
   try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+}
+// Marked for demolition. Nothing is excluded — the driveway is still priced as a new driveway.
+// What changes is that the old one has to come out first, and that costs money.
+function ptDemo(mode){
+  if(typeof PT==="undefined"||!PT.polys) return false;
+  const all=PT.polys.filter(p=>p.mode===mode)
+    .concat((PT.trees||[]).filter(t=>_ptMarkMode(t)===mode));
+  return all.length>0 && all.every(x=>x._demo);
+}
+function ptDemoToggle(mode){
+  const on=!ptDemo(mode); ptSnap();
+  PT.polys.forEach(p=>{ if(p.mode===mode){ if(on){ p._demo=true; delete p._excl; } else delete p._demo; } });
+  (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)===mode){ if(on){ t._demo=true; delete t._excl; } else delete t._demo; } });
+  PT._openRow=null;
+  const md=_ptMode(mode);
+  _toast(on?`${md.label} — tear-out added, still priced as new.`
+           :`${md.label} — demolition removed.`, on?"#7A5216":"#2F5B23");
+  try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+}
+// Hard surfaces come out with a saw and a bin; soft ground is cleared and grubbed.
+const TK_DEMO_HARD=["paving","driveway","pool","spa","building","water","shade","kitchen","exclude"];
+function _tkDemoRate(mode){
+  return TK_DEMO_HARD.indexOf(mode)>=0
+    ? (_tkRate("sitework",/Demo — Concrete/i)||_tkRate("sitework",/Demo/i))
+    : _tkRate("sitework",/Clearing & Grubbing/i);
+}
+function ptDemoSF(){
+  const by={}; PT.polys.forEach(p=>{ if(!p._demo||p.kind==="linear") return;
+    by[p.mode]=(by[p.mode]||0)+(+p.sf||0); });
+  return by;
 }
 // Totals with the excluded ground taken out — what the estimate actually works from.
 function ptScoped(){ return ptTotals(true); }
@@ -27239,6 +27282,14 @@ function ptDerived(){
   if(worked>0){ const r=_tkRate("sitework",/Clearing & Grubbing/i)+_tkRate("sitework",/Fine Grading/i);
     add("Site prep", `clearing and fine grading, ${Math.round(worked).toLocaleString()} SF`, r*worked); }
 
+  // Anything marked for demolition: the new surface is priced above, this is the old one leaving.
+  const demoBy=ptDemoSF(); const demoKeys=Object.keys(demoBy).filter(k=>demoBy[k]>0);
+  if(demoKeys.length){
+    let cost=0; const parts=[];
+    demoKeys.forEach(k=>{ const sf=demoBy[k], r=_tkDemoRate(k); cost+=r*sf;
+      parts.push(`${Math.round(sf).toLocaleString()} SF of ${_ptMode(k).label.toLowerCase()}`); });
+    add("Demolition", `tear-out of ${parts.join(", ")}`, cost);
+  }
   // A permit is triggered by what is being built, not by having drawn something.
   const needsPermit=(t.pool>0||t.spa>0||t.water>0||t.shade>0||(t.wall||0)>0||hard>800);
   if(needsPermit){ const it=_tkItem("genconds",/Building \/ Planning Permit/i);
@@ -27350,8 +27401,7 @@ function _tkTargetCard(G,tot,live){ const t=ptTargets();
       ${tg?`<div style="font-size:.6rem;margin-top:3px;color:${over?'#A8443F':'#6C7A5F'};font-weight:${over?'700':'400'}">${over?`${_tkFmt(n-tg)} SF over target`:`${_tkFmt(tg-n)} SF left`}</div>`:''}
     </div>`; }).join('');
   const lim=tot.limit||0, lot=tot.lot||0;
-  const _sc=ptScoped();
-  const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(_sc[k]||0),0);
+  const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(tot[k]||0),0);
   const against=lim||lot;
   return `<div style="position:absolute;right:13px;top:13px;width:216px;padding:11px 12px;${G}">
     <div style="display:flex;align-items:center;margin-bottom:9px">
@@ -27373,8 +27423,7 @@ function _tkLedgerBar(tot,live){
   // Every square foot you have drawn — that is what "traced" means against the lot. The house
   // and an excluded court are accounted for too; they are ground you have dealt with. Irrigation
   // zones and demo overlay other surfaces, so they would double-count and stay out of it.
-  const _sc=ptScoped();
-  const surf=PT_GROUND.reduce((s,k)=>s+(_sc[k]||0),0);
+  const surf=PT_GROUND.reduce((s,k)=>s+(tot[k]||0),0);
   const MN2=MN;
   const cap=(tot.limit||0)||(tot.lot||0);
   const capNm=tot.limit?"Limit of work":"Lot";
@@ -27397,15 +27446,19 @@ function _tkLedgerBar(tot,live){
       // ── the money leads: it is the number that moves while you trace ──
       const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
         const note=ptExcl(m.k)?"existing — staying as it is"
+                 :ptDemo(m.k)?(PT.hidden[m.k]?"demo + new · hidden on the plan":"demo + new")
+                 :PT.hidden[m.k]?"hidden on the plan"
                  :(m.k==="exclude")?"existing — not in the scope"
                  :(m.k==="building")?"footprint"
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)} — not priced yet`
                  :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
-        const ex=ptExcl(m.k);
+        const ex=ptExcl(m.k), dm=ptDemo(m.k), hid=!!PT.hidden[m.k];
         return `<div class="tkrow"><button class="tkrow-del" onclick="ptDeleteCategory('${m.k}')">Delete</button>
+          <button class="tkrow-hide" onclick="ptHideToggle('${m.k}')">${hid?"Show":"Hide"}</button>
           <button class="tkrow-exc" onclick="ptExclToggle('${m.k}')">${ex?"Include":"Exclude"}</button>
-          <div class="tkrow-body${ex?" is-exc":""}" data-mode="${m.k}" onclick="ptRowTap(event,'${m.k}')"
+          <button class="tkrow-dem" onclick="ptDemoToggle('${m.k}')">${dm?"No demo":"Demo"}</button>
+          <div class="tkrow-body${ex?" is-exc":""}${dm?" is-dem":""}" data-mode="${m.k}" onclick="ptRowTap(event,'${m.k}')"
             onpointerdown="ptRowDown(event)" onpointermove="ptRowMove(event)"
             onpointerup="ptRowUp(event)" onpointercancel="ptRowUp(event)">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
@@ -27538,7 +27591,7 @@ function ptTkShut(){ return !!PT._tkShut; }
 function ptTkShutSet(v){ PT._tkShut=!!v; ptRenderFloat(); }
 function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
 // Swipe a row left and it slides over to show a red Delete. Tap the row to see the workings.
-const TK_ROW_W=96;
+const TK_ROW_W=168;
 let _tkRow=null;
 function _tkRowClose(el){ if(el){ el.style.transition="transform .18s"; el.style.transform="translateX(0)"; el.dataset.open=""; }
   PT._openRow=null; }
@@ -28987,6 +29040,7 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
   try{ ptAutoSave(); }catch(e){}   // persist the trace before applying, so a hiccup can never lose it
   const areaSum={}, linSum={}, byType={}; PT.polys.forEach(p=>{
     if(p._excl){ if(p.kind!=="linear") areaSum.exclude=(areaSum.exclude||0)+(p.sf||0); return; }
+    if(p._demo && p.kind!=="linear") areaSum.demo=(areaSum.demo||0)+(p.sf||0);   // torn out, then rebuilt
     if(p.kind==="linear"){ linSum[p.mode]=(linSum[p.mode]||0)+(p.lf||0); } else { areaSum[p.mode]=(areaSum[p.mode]||0)+(p.sf||0); if(p.type){ byType[p.mode]=byType[p.mode]||{}; byType[p.mode][p.type]=(byType[p.mode][p.type]||0)+(p.sf||0); } } });
   const cmark={}; PT.trees.forEach(t=>{ if(t._excl) return; const m=_ptMarkMode(t); if(m==="tree"){ cmark.tree=cmark.tree||{}; cmark.tree[t.size]=(cmark.tree[t.size]||0)+1; } else { cmark[m]=(cmark[m]||0)+1; } });
   const treeBy=cmark.tree||{}; const cN=(m)=>cmark[m]||0;
