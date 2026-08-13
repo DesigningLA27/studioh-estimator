@@ -1863,9 +1863,10 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkb-pair{width:52px;display:flex;flex-direction:column;gap:3px}
 .tkbar.wide .tkb-pair{flex-direction:row}
 .tkbar.wide .tkb-pair{width:auto}
-.tkb-pair button{flex:1;height:38px;border:0;border-radius:11px;background:rgba(255,255,255,.10);
-  color:#EAF0E4;cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center}
-.tkb-pair button svg{width:16px;height:16px;stroke:#EAF0E4;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tkb-pair button{flex:none;height:50px;border:0;border-radius:13px;background:rgba(255,255,255,.10);
+  color:#EAF0E4;cursor:pointer;font-size:22px;display:flex;align-items:center;justify-content:center}
+.tkbar.wide .tkb-pair button{flex:1;height:40px;font-size:18px}
+.tkb-pair button svg{width:21px;height:21px;stroke:#EAF0E4;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .tkb-pair button:active{background:rgba(255,255,255,.2)}
 .tkb-sw{width:52px;padding:7px 2px 5px;border:0;border-radius:13px;background:rgba(255,255,255,.10);
   color:#EAF0E4;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px}
@@ -3296,7 +3297,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v803</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v804</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25893,8 +25894,14 @@ function ptStylusUp(ev,pt){
   }
   if(PT.selectMode) { try{ ptDrawOverlay(); }catch(_){} return; }
   // a stroke: thin it out and lay it down as one shape
+  if(kind==="count"){
+    // you drew a circle round a fire pit — that is where the fire pit goes
+    let cx=0, cy=0; st.pts.forEach(p=>{ cx+=p.x; cy+=p.y; });
+    const c={x:cx/st.pts.length, y:cy/st.pts.length};
+    ptAddAt(_toPdf(c), c, ev); return;
+  }
   const simp=_ptSimplify(st.pts, 2.5);
-  if(kind==="count"||simp.length<(kind==="linear"?2:3)){ try{ ptDrawOverlay(); }catch(_){} return; }
+  if(simp.length<(kind==="linear"?2:3)){ try{ ptDrawOverlay(); }catch(_){} return; }
   ptSnap();
   PT.cur=simp.map(_toPdf);
   ptFinishPoly();
@@ -26450,6 +26457,18 @@ function _tkBuiltEmpty(cat){
 function ptPriceFor(mode, qty){
   const cat=TK_CAT2EST[mode]; if(!cat||!(qty>0)) return null;
   const m=_ptMode(mode); const unit=(m&&m.kind==="linear")?"LF":"SF";
+  // Turf is laid, not designed — it prices off sod or artificial turf, never off the shrub
+  // palette. Pricing it through the planting zone was giving lawn a shrub-bed rate.
+  if(mode==="turf"){
+    let art=0, real=0;
+    PT.polys.forEach(p=>{ if(p.mode!=="turf") return;
+      if(/artificial/i.test(p.type||"")) art+=(+p.sf||0); else real+=(+p.sf||0); });
+    const rArt=_tkRate("planting",/Artificial Turf/i), rSod=_tkRate("planting",/Lawn \/ Sod/i);
+    const money=(art*rArt)+(real*rSod);
+    if(money>0) return {total:money, per:money/qty, from:(art>real?"rate":"rate")};
+    const r=rSod||rArt; if(r>0) return {total:r*qty, per:r, from:"rate"};
+    return null;
+  }
   // a built section already knows what it costs; share it by traced area across its categories
   if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)){
     let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
@@ -26871,7 +26890,7 @@ function _tkLedgerBar(tot,live){
       <span style="font:600 12px ${F};color:#8FA383">${live.pts} pt</span>
     </div>`:"";
   const railW=(ptRailWide()?196:64)+40;
-  const pos = dock==="right" ? `right:20px;top:20px;bottom:20px;width:${shut?56:344}px;border-radius:18px`
+  const pos = dock==="right" ? `right:20px;top:20px;bottom:20px;width:${shut?92:344}px;border-radius:18px`
             :                    `left:${railW}px;bottom:20px;width:min(600px,calc(100% - ${railW+40}px));border-radius:22px`;
   const grip=side
     ? `<div onpointerdown="ptTkDragStart(event)" title="Drag to move — bottom, left or right"
@@ -26884,9 +26903,9 @@ function _tkLedgerBar(tot,live){
   if(shut){
     let money=0; PT_MODES.forEach(m=>{ if(!(tot[m.k]>0)) return; const pr=ptPriceFor(m.k,tot[m.k]); if(pr) money+=pr.total; });
     const pctLot=cap?Math.round(surf/cap*100):0;
-    const st=(lab,val,acc)=>`<span style="text-align:center;color:#EAF0E4">
-      <em style="display:block;font-style:normal;font:700 8.5px ${F};letter-spacing:.1em;text-transform:uppercase;color:#9FBF95">${lab}</em>
-      <b style="display:block;font:750 12.5px ${MN};letter-spacing:-.02em;${acc?"color:#8FE07A":""}">${val}</b></span>`;
+    const st=(lab,val,acc)=>`<span style="text-align:center;color:#EAF0E4;width:100%">
+      <em style="display:block;font-style:normal;font:700 9px ${F};letter-spacing:.1em;text-transform:uppercase;color:#9FBF95">${lab}</em>
+      <b style="display:block;font:750 15px ${MN};letter-spacing:-.03em;${acc?"color:#8FE07A":""}">${val}</b></span>`;
     const hr=`<hr style="width:26px;border:0;border-top:1px solid rgba(255,255,255,.18);margin:2px 0">`;
     return `<div id="pt-card" onclick="ptTkShutSet(false)" ontouchstart="ptTkSwipeStart(event)" ontouchend="ptTkSwipeEnd(event)"
         title="Open the take-off" style="position:absolute;${pos};z-index:3;pointer-events:auto;cursor:pointer;
@@ -26910,7 +26929,7 @@ function _tkLedgerBar(tot,live){
         <button onclick="ptTkShutSet(true)" title="Close — or swipe it shut"
           style="flex:none;width:34px;height:34px;border:0;border-radius:12px;background:rgba(255,255,255,.12);
           color:#EAF0E4;font-size:15px;cursor:pointer;margin-bottom:13px">›</button>
-      </div>`:seg}${liveRow}<div style="overflow:auto;flex:1;min-height:0">${body}</div></div>`;
+      </div>`:seg}${liveRow}<div style="overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;touch-action:pan-y;overscroll-behavior:contain">${body}</div></div>`;
 }
 // Swipe the side-docked card shut and open again.
 function ptTkShut(){ return !!PT._tkShut; }
@@ -27420,7 +27439,9 @@ function _ptCentroid(pts){ let x=0,y=0; pts.forEach(p=>{ x+=p.x; y+=p.y; }); ret
 //     it comes out of whatever it sits on. You trace the pool once and it counts once.
 //  3. Exclude is for ground that leaves the job altogether — an existing tennis court that stays.
 //     It belongs to no surface; it comes off the landscape area.
-const PT_CUTS=["pool","spa","water","shade"];
+// A pool, spa or water feature replaces the ground it sits on. A shade structure or pergola
+// stands over it, so the paving underneath still gets built and still gets paid for.
+const PT_CUTS=["pool","spa","water"];
 const PT_SURFACES=["planting","turf","paving","driveway"];
 // Ground each category physically occupies — used for "how much of the lot have I dealt with".
 const PT_GROUND=["planting","turf","paving","driveway","pool","spa","shade","water","building","exclude"];
