@@ -3289,7 +3289,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v799</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v800</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28026,6 +28026,45 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
     walls_lf:R(linSum,"wall"), steps_lf:R(linSum,"steps") };
   // push into the estimate — lot/building first so landscape area is known before planting/paving %
   ["lot","building","driveway","exclusion","limit","demo","planting","paving"].forEach(k=>{ try{ if(measMap[k]>0) applyMeasure(k,true); }catch(e){} });
+  // ── SEED THE ESTIMATE FROM THE ASSUMPTIONS ────────────────────────────────
+  // At consultation there is no palette and no material picked, so a section with nothing ticked
+  // gets the benchmark written into it: the lines a normal job carries, at the price book's
+  // Standard tier, with the quantity you just traced. Sections you have already priced are left
+  // alone. Everything seeded is marked, so it reads as a starting point, not a decision.
+  const _seeded=[];
+  try{
+    const _byCat={};
+    PT_MODES.forEach(m=>{ const q=Math.round(areaSum[m.k]||0)||Math.round(linSum[m.k]||0);
+      if(!(q>0)) return; const c=TK_CAT2EST[m.k]; if(!c) return;
+      _byCat[c]=Math.max(_byCat[c]||0, q); });
+    Object.keys(_byCat).forEach(cat=>{
+      const cs=S.cats[cat]; const spec=TK_BENCH[cat];
+      if(!cs||!cs.items||!spec) return;
+      if(cs.items.some(it=>it&&it.checked)) return;      // already priced by hand — leave it
+      if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)) return;   // already designed
+      const qty=_byCat[cat];
+      // A built section's total comes from what you design into it — zones, pools, wall runs — so
+      // writing line items there would be ignored. It carries the assumption as the allowance the
+      // section already supports, which you switch off the moment you start designing.
+      if(TK_BUILT.indexOf(cat)>=0){
+        const b=ptBenchRate(cat,"SF");
+        if(b.rate>0){ cs.on=true; cs.lumpOn=true; cs.lumpSum=Math.round(b.rate*qty); cs._assumed=true;
+          _seeded.push(`${(PB.find(x=>x.id===cat)||{}).name||cat} — allowance ${fmtN(cs.lumpSum)} (${b.rate.toFixed(2)}/SF × ${qty.toLocaleString()})`); }
+        return;
+      }
+      let n=0;
+      spec.forEach(rule=>{
+        const it=cs.items.find(x=>x&&rule.m.test(x.n||"")); if(!it) return;
+        const u=String(it.u||"").toUpperCase();
+        const uc=_tkStdUC(it,cat); if(!(uc>0)) return;
+        if(u==="SF"||u==="LF"){ it.q=qty; }
+        else if(u==="EA"&&rule.per>0){ it.q=Math.max(1,Math.round(qty/rule.per)); }
+        else return;
+        it.uc=uc; it.checked=true; it._assumed=true; n++;
+      });
+      if(n){ cs.on=true; _seeded.push(`${(PB.find(x=>x.id===cat)||{}).name||cat} — ${n} line${n===1?"":"s"} at ${qty.toLocaleString()}`); }
+    });
+  }catch(e){ console.error("seed:",e); }
   // PLANTING — one estimator zone per distinct traced planting label (carry location + phase)
   try{ const pp=PT.polys.filter(p=>p.mode==="planting");
     if(pp.length){ const groups={}, order=[]; pp.forEach((p,i)=>{ const key=(p.name&&p.name.trim())||(p.zone&&p.zone.trim())||("Planting "+(i+1)); if(!(key in groups)){ groups[key]={sf:0,loc:(p.zone||"").trim(),phase:(p.phase||"").trim()}; order.push(key); } groups[key].sf+=(p.sf||0); if(!groups[key].loc&&p.zone) groups[key].loc=p.zone.trim(); if(!groups[key].phase&&p.phase) groups[key].phase=p.phase.trim(); });
@@ -28113,6 +28152,7 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
   const tKeys=Object.keys(treeBy); if(tKeys.length) lines.push("Trees: "+tKeys.map(sz=>`${treeBy[sz]}×${sz}`).join(", "));
   ["pots","gate","pilaster","stepper","firepit","fireplace"].forEach(m=>{ if(cN(m)) lines.push(`${_ptLabel(m)}: ${cN(m)}`); });
   if(window._ptPotDrains>0) lines.push(`Planter drains (pots on hardscape): ${window._ptPotDrains} — auto-added to Drainage`);
+  if(_seeded.length) lines.push("", "ASSUMED — nothing was priced on these yet, so a standard build was written in for you to refine:", ...  _seeded);
   ptClose(); alert("Applied to the estimate:\n\n"+lines.join("\n")+"\n\nAreas → Planting/Hardscape/Site; pool, spa, structures, seating, walls, steps, gates, pilasters, steppers & pots → Specialty & Amenities. Coping LF is captured for the pool builder.");
 }
 </script>
