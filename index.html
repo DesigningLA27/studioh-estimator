@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v792</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v793</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5123,6 +5123,28 @@ const S={
 // ── HELPERS ──────────────────────────────────────────────────
 const fmt  = n=>n>=1e6?`$${(n/1e6).toFixed(1)}M`:n>=1000?`$${Math.round(n/1000)}k`:`$${Math.round(n)}`;
 const fmtN = n=>n===0?"$0":`$${Math.round(n).toLocaleString()}`;
+// ── ROLLING NUMBERS ─────────────────────────────────────────────────────────
+// Totals count up to their new value instead of snapping, so a change is visible rather than
+// something you have to catch. Runs off the wall clock with a guaranteed final write, so a
+// throttled or backgrounded tab still lands on the true number.
+function rollText(el, text){
+  if(!el) return;
+  const grab=(v)=>{ const m=String(v==null?"":v).match(/-?[\d,]*\.?\d+/); return m||null; };
+  const mTo=grab(text), mFrom=grab(el.textContent);
+  const to=mTo?parseFloat(mTo[0].replace(/,/g,"")):null;
+  const from=mFrom?parseFloat(mFrom[0].replace(/,/g,"")):null;
+  if(to===null||from===null||!isFinite(to)||!isFinite(from)||from===to){ el.textContent=text; return; }
+  const pre=String(text).slice(0,mTo.index), post=String(text).slice(mTo.index+mTo[0].length);
+  const dec=(mTo[0].split(".")[1]||"").length;
+  const fmt=(v)=>v.toLocaleString(undefined,{minimumFractionDigits:dec,maximumFractionDigits:dec});
+  const tok=(el._rtok=(el._rtok||0)+1), t0=Date.now(), dur=460;
+  const step=()=>{ if(el._rtok!==tok) return;
+    const k=Math.max(0,Math.min(1,(Date.now()-t0)/dur));
+    el.textContent=pre+fmt(from+(to-from)*(1-Math.pow(1-k,3)))+post;
+    if(k<1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+  setTimeout(()=>{ if(el._rtok===tok) el.textContent=text; }, dur+90);
+}
 function setGrad(el,color){
   const pct=((+el.value-+el.min)/(+el.max-+el.min))*100;
   el.style.background=`linear-gradient(90deg,${color||"var(--gm)"} ${pct}%,var(--br) ${pct}%)`;
@@ -5543,7 +5565,7 @@ function refreshProGroupTotals(){
       tot++;
       if(cs.on){ on++; sum+=catSubtotal(id); }
     });
-    if(amtEl) amtEl.textContent = sum>0 ? fmtN(sum) : "";
+    if(amtEl) rollText(amtEl, sum>0 ? fmtN(sum) : "");
     if(metaEl) metaEl.textContent = tot ? `${on} of ${tot} on` : "";
   });
 }
@@ -5738,7 +5760,7 @@ function refreshCatTotals(catId){
   if(catId!=="walls"&&catId!=="kitchen"&&catId!=="pergola"&&catId!=="water"&&cs.items){ cs.items.forEach(it=>{ if(it.u==="SF"&&it.checked) allocSF+=it.q; }); }
   const sub=catSubtotal(catId);
   const lumpTag=cs.lumpOn?" · lump":"";
-  const lbl=document.getElementById("cat-sub-"+catId);if(lbl)lbl.textContent=cs.on?(fmtN(sub)+lumpTag):"";
+  const lbl=document.getElementById("cat-sub-"+catId);if(lbl) rollText(lbl, cs.on?(fmtN(sub)+lumpTag):"");
   const subrow=document.getElementById("catsubrow-"+catId);if(subrow)subrow.innerHTML=fmtN(sub)+(cs.lumpOn?' <span style="font-size:.7rem;color:var(--gold);font-weight:600">(lump sum)</span>':'');
   // toggle the lump input row's active styling
   const lumpRow=document.getElementById("lumprow-"+catId); if(lumpRow) lumpRow.style.opacity=cs.lumpOn?"1":".62";
@@ -5787,7 +5809,7 @@ function liveItemQtySF(catId,idx,sfVal){
   const pct=sa>0?Math.round((it.q/sa)*1000)/10:0;
   const pl=document.getElementById("qpct-"+tag); if(pl){ pl.textContent=(pct>100?Math.round(pct):pct)+"%"; pl.style.color=over?"#E24B4A":"var(--gm)"; }
   const bx=document.getElementById("qbox-"+tag); if(bx) bx.value=it.q;
-  const tt=document.getElementById("litot-"+tag); if(tt) tt.textContent=fmtN(it.q*it.uc);
+  const tt=document.getElementById("litot-"+tag); if(tt) rollText(tt, fmtN(it.q*it.uc));
   refreshCatTotals(catId);
 }
 function liveItemPct(catId,idx,pctVal){
@@ -5804,7 +5826,7 @@ function liveItemPct(catId,idx,pctVal){
   const sl=document.getElementById("qsl-"+tag); if(sl) sl.style.background="linear-gradient(90deg,"+fillCol+" "+fillPct+"%,var(--br) "+fillPct+"%)";
   const pl=document.getElementById("qpct-"+tag); if(pl){ pl.textContent=(Math.round(pctVal*10)/10)+"%"; pl.style.color=over?"#E24B4A":"var(--gm)"; }
   const bx=document.getElementById("qbox-"+tag); if(bx) bx.value=it.q;
-  const tt=document.getElementById("litot-"+tag); if(tt) tt.textContent=fmtN(it.q*it.uc);
+  const tt=document.getElementById("litot-"+tag); if(tt) rollText(tt, fmtN(it.q*it.uc));
   refreshCatTotals(catId);
 }
 function liveItemCount(catId,idx,val){
@@ -5813,7 +5835,7 @@ function liveItemCount(catId,idx,val){
   if(it.q>0 && !it.checked){ it.checked=true; S.cats[catId].on=true; const cb=document.getElementById("lichk-"+catId+"-"+idx); if(cb)cb.checked=true; const r=document.getElementById("lirow-"+catId+"-"+idx); if(r)r.style.opacity="1"; }
   const tag=catId+"-"+idx;
   const bx=document.getElementById("qbox-"+tag); if(bx) bx.value=it.q;
-  const tt=document.getElementById("litot-"+tag); if(tt) tt.textContent=fmtN(it.q*it.uc);
+  const tt=document.getElementById("litot-"+tag); if(tt) rollText(tt, fmtN(it.q*it.uc));
   refreshCatTotals(catId);
 }
 function liveItemUC(catId,idx,val){
@@ -5821,7 +5843,7 @@ function liveItemUC(catId,idx,val){
   it.uc=+val;
   const tag=catId+"-"+idx;
   const bx=document.getElementById("ucbox-"+tag); if(bx) bx.value=Math.round(it.uc*100)/100;
-  const tt=document.getElementById("litot-"+tag); if(tt && it.checked) tt.textContent=fmtN(it.q*it.uc);
+  const tt=document.getElementById("litot-"+tag); if(tt && it.checked) rollText(tt, fmtN(it.q*it.uc));
   refreshCatTotals(catId);
 }
 function liveMaster(catId,pctVal){
@@ -5942,7 +5964,7 @@ function syncElToProRow(elId){
   row.style.opacity=es.on?"1":"0.45";
   row.querySelectorAll("td")[2].querySelector("input").checked=es.on;
   const last=row.querySelectorAll("td")[5];
-  last.style.color=es.on?"var(--gm)":"var(--tl)";last.textContent=es.on?fmtN(es.qty*es.uc):"—";
+  last.style.color=es.on?"var(--gm)":"var(--tl)";rollText(last, es.on?fmtN(es.qty*es.uc):"—");
   renderElSubPro();renderProSummary();
 }
 function toggleElPro(elId,on){
@@ -5954,7 +5976,7 @@ function toggleElPro(elId,on){
 function updateElPro(elId,key,val){S.els[elId][key]=val;syncElToProRow(elId);}
 function renderElSubPro(){
   let sub=0;ELEMENTS.forEach(el=>{if(S.els[el.id].on)sub+=S.els[el.id].qty*S.els[el.id].uc;});
-  const lbl=document.getElementById("el-subtotal-pro");if(lbl)lbl.textContent=sub>0?fmtN(sub):"";
+  const lbl=document.getElementById("el-subtotal-pro");if(lbl) rollText(lbl, sub>0?fmtN(sub):"");
 }
 
 // ── PRO: MARKUP / PI / SUMMARY ───────────────────────────────
@@ -22802,7 +22824,7 @@ function updateProBar(){
   const grand=subA+mu;
   const barTotal=document.getElementById("pro-bar-total");
   const barDetail=document.getElementById("pro-bar-detail");
-  if(barTotal) barTotal.textContent=fmtN(grand);
+  if(barTotal) rollText(barTotal, fmtN(grand));
   if(barDetail) barDetail.innerHTML=`<div>Subtotal: ${fmtN(sub)}</div>${madj?`<div>Market adj (${+GSET.marketAdj>0?'+':''}${+GSET.marketAdj}%): ${madj>0?'+':''}${fmtN(madj)}</div>`:''}<div>Markup (${S.markup}%): +${fmtN(mu)}</div>`;
 }
 
@@ -23788,7 +23810,7 @@ function renderArch(){
   // Update arch sticky bar
   const archBar=document.getElementById("arch-bar-total");
   const archDetail=document.getElementById("arch-bar-detail");
-  if(archBar) archBar.textContent=fmtN(grand);
+  if(archBar) rollText(archBar, fmtN(grand));
   if(archDetail){
     const catCount=PB.filter(c=>S.cats[c.id].on && S.cats[c.id].items.some(it=>it.checked)).length;
     const elCount=ELEMENTS.filter(el=>S.els[el.id].on).length;
@@ -26459,9 +26481,9 @@ function _tkLedgerBar(tot,live){
   const over=cap&&surf>cap;
   const dock=ptTkDock(), side=(dock==="left"||dock==="right"), shut=side&&ptTkShut();
   const tab=PT._tkTab==="target"?"target":"traced";
-  const seg=`<div style="display:flex;background:#F1F0E9;border-radius:999px;padding:4px;margin-bottom:11px">
+  const seg=`<div style="display:flex;background:rgba(255,255,255,.10);border-radius:999px;padding:4px;margin-bottom:13px;flex:none">
     ${[["traced","This take-off"],["target","Against target"]].map(([k,l])=>
-      `<button onclick="ptTkTab('${k}')" style="flex:1;border:0;cursor:pointer;padding:9px 0;border-radius:999px;font:700 14px ${F};background:${tab===k?'#141A10':'transparent'};color:${tab===k?'#fff':'#68765B'}">${l}</button>`).join('')}
+      `<button onclick="ptTkTab('${k}')" style="flex:1;border:0;cursor:pointer;padding:9px 0;border-radius:999px;font:700 14px ${F};background:${tab===k?'#EAF0E4':'transparent'};color:${tab===k?'#141A10':'#9FBF95'}">${l}</button>`).join('')}
   </div>`;
   let body="";
   if(tab==="traced"){
@@ -26478,53 +26500,53 @@ function _tkLedgerBar(tot,live){
         const note=cut[m.k]?`less ${_tkFmt(cut[m.k])} taken out`
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)?`taken out of ${_ptCutHost(m.k)}`
                  :(pr?`$${pr.per.toFixed(2)} / ${u}`:""));
-        return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid #E3E6DC">
+        return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13)">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
           <span style="min-width:0">
-            <b style="display:block;font:650 14px ${F};color:#141A10;line-height:1.25">${m.label}</b>
-            ${note?`<span style="display:block;font:600 11px ${F};color:#94A088">${note}</span>`:''}</span>
+            <b style="display:block;font:650 14px ${F};color:#EAF0E4;line-height:1.25">${m.label}</b>
+            ${note?`<span style="display:block;font:600 11px ${F};color:#8FA383">${note}</span>`:''}</span>
           <span style="margin-left:auto;text-align:right">
-            <b style="display:block;font:750 15px ${MN};color:#141A10;letter-spacing:-.02em">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
-            <span style="display:block;font:700 12px ${MN};color:#2F5B23">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
+            <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
+            <span style="display:block;font:700 12px ${MN};color:#8FE07A">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
         </div>`; }).join('');
       body=`<div style="flex:none;margin-bottom:12px">
-          <div style="font:600 11.5px ${F};color:#94A088">Priced from the estimate</div>
-          <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;color:#141A10">${_tkRollSpan("tk$-all", money, "$")}</div>
+          <div style="font:600 11.5px ${F};color:#8FA383">Priced from the estimate</div>
+          <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;color:#EAF0E4">${_tkRollSpan("tk$-all", money, "$")}</div>
           <div style="display:flex;align-items:baseline;gap:7px;margin-top:3px">
-            <b style="font:750 17px ${MN};color:#2F5B23">${_tkRollSpan("tk-surf", surf)} SF</b>
-            <em style="font-style:normal;font:600 11.5px ${F};color:#94A088">traced${cap?` · ${pct}% of the ${tot.limit?"limit of work":"lot"}`:""}</em></div>
-          ${cap?`<div style="height:6px;border-radius:6px;background:#EFEEE7;margin-top:11px;overflow:hidden">
-              <i style="display:block;height:100%;border-radius:6px;width:${pct}%;background:${surf>cap?'#A8443F':'#141A10'}"></i></div>
-            <div style="display:flex;margin-top:5px;font:600 11px ${F};color:#94A088">
+            <b style="font:750 17px ${MN};color:#8FE07A">${_tkRollSpan("tk-surf", surf)} SF</b>
+            <em style="font-style:normal;font:600 11.5px ${F};color:#8FA383">traced${cap?` · ${pct}% of the ${tot.limit?"limit of work":"lot"}`:""}</em></div>
+          ${cap?`<div style="height:6px;border-radius:6px;background:rgba(255,255,255,.13);margin-top:11px;overflow:hidden">
+              <i style="display:block;height:100%;border-radius:6px;width:${pct}%;background:${surf>cap?'#E0908A':'#EAF0E4'}"></i></div>
+            <div style="display:flex;margin-top:5px;font:600 11px ${F};color:#8FA383">
               ${tot.limit?"Limit of work":"Lot"} ${_tkFmt(cap)} SF
-              <b style="margin-left:auto;color:#38432D;font-weight:700">${surf>cap?`${_tkFmt(surf-cap)} SF over`:`${_tkFmt(cap-surf)} SF left`}</b></div>`:''}
+              <b style="margin-left:auto;color:#CBD8C0;font-weight:700">${surf>cap?`${_tkFmt(surf-cap)} SF over`:`${_tkFmt(cap-surf)} SF left`}</b></div>`:''}
         </div>
         <div style="flex:1;min-height:0;overflow:auto;margin:0 -4px">${rows||
-          `<div style="font:600 13px ${F};color:#68765B;padding:10px 8px">Nothing traced yet — pick a category and draw around an area.</div>`}</div>
-        ${money>0?`<div style="flex:none;border-top:2px solid #141A10;margin-top:8px;padding-top:11px;display:flex;align-items:baseline">
-          <em style="font-style:normal;font:700 11.5px ${F};letter-spacing:.09em;text-transform:uppercase;color:#68765B">Total</em>
-          <b style="margin-left:auto;font:750 24px ${MN};color:#2F5B23;letter-spacing:-.03em">${_tkRollSpan("tk$-foot", money, "$")}</b></div>`:''}`;
+          `<div style="font:600 13px ${F};color:#9FBF95;padding:10px 8px">Nothing traced yet — pick a category and draw around an area.</div>`}</div>
+        ${money>0?`<div style="flex:none;border-top:2px solid rgba(255,255,255,.28);margin-top:8px;padding-top:11px;display:flex;align-items:baseline">
+          <em style="font-style:normal;font:700 11.5px ${F};letter-spacing:.09em;text-transform:uppercase;color:#9FBF95">Total</em>
+          <b style="margin-left:auto;font:750 24px ${MN};color:#8FE07A;letter-spacing:-.03em">${_tkRollSpan("tk$-foot", money, "$")}</b></div>`:''}`;
     } else {
       body=`<div style="display:flex;align-items:center;padding:2px 12px 8px">
-        <span style="text-align:left"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">Traced</em>
-          <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${_tkRollSpan("tk-surf", surf)}</b></span>
-        <span style="flex:1;height:4px;background:#E9EDE2;border-radius:4px;margin:0 18px;position:relative;top:4px">
-          <i style="display:block;height:100%;width:${pct}%;background:${surf>cap?'#A8443F':'#141A10'};border-radius:4px"></i>
-          ${cap?`<span style="position:absolute;left:50%;top:-26px;transform:translateX(-50%);background:${surf>cap?'#F7DEDD':'#DFF3D2'};color:${surf>cap?'#A8443F':'#2F5B23'};border-radius:999px;padding:3px 10px;font:700 11.5px ${F};white-space:nowrap">${surf>cap?`${_tkFmt(surf-cap)} SF over`:`${pct}% of ${capNm.toLowerCase()}`}</span>`:''}
+        <span style="text-align:left"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#8FA383">Traced</em>
+          <b style="display:block;font:750 21px ${MN};color:#EAF0E4;letter-spacing:-.03em">${_tkRollSpan("tk-surf", surf)}</b></span>
+        <span style="flex:1;height:4px;background:rgba(255,255,255,.13);border-radius:4px;margin:0 18px;position:relative;top:4px">
+          <i style="display:block;height:100%;width:${pct}%;background:${surf>cap?'#E0908A':'#EAF0E4'};border-radius:4px"></i>
+          ${cap?`<span style="position:absolute;left:50%;top:-26px;transform:translateX(-50%);background:${surf>cap?'rgba(224,144,138,.22)':'rgba(143,224,122,.18)'};color:${surf>cap?'#E0908A':'#8FE07A'};border-radius:999px;padding:3px 10px;font:700 11.5px ${F};white-space:nowrap">${surf>cap?`${_tkFmt(surf-cap)} SF over`:`${pct}% of ${capNm.toLowerCase()}`}</span>`:''}
         </span>
-        <span style="text-align:right"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">${capNm}</em>
-          <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${cap?_tkFmt(cap):"—"}</b></span>
+        <span style="text-align:right"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#8FA383">${capNm}</em>
+          <b style="display:block;font:750 21px ${MN};color:#EAF0E4;letter-spacing:-.03em">${cap?_tkFmt(cap):"—"}</b></span>
       </div>
       ${money>0?`<div style="display:flex;align-items:baseline;padding:0 12px 10px">
-        <span style="font:600 11.5px ${F};color:#94A088">Priced from the estimate</span>
-        <b style="margin-left:auto;font:750 20px ${MN};color:#2F5B23;letter-spacing:-.03em">${_tkRollSpan("tk$-all", money, "$")}</b></div>`:''}
-      <div style="display:flex;background:#F6F5EF;border-radius:18px;padding:11px 4px;overflow-x:auto">
-        ${cells.length?cells.map((m,i)=>`<span style="flex:1;text-align:center;${i?'border-left:1px solid #E2E6DA':''};position:relative">
-            <em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088;margin-bottom:2px">${m.label}</em>
-            <b style="display:block;font:750 15px ${F};color:#141A10">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b>
-            ${(()=>{ const pr=ptPriceFor(m.k, tot[m.k]); return pr?`<span style="display:block;font:700 12px ${MN};color:#2F5B23;margin-top:2px">${_tkRollSpan("tk$-"+m.k, pr.total, "$")}</span>`:''; })()}
-            ${cut[m.k]?`<span style="display:block;font:600 10.5px ${F};color:#94A088;margin-top:1px">less ${_tkFmt(cut[m.k])}</span>`:''}</span>`).join('')
-          :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#68765B;padding:4px 0">Nothing traced yet — pick a category and draw around an area.</span>`}
+        <span style="font:600 11.5px ${F};color:#8FA383">Priced from the estimate</span>
+        <b style="margin-left:auto;font:750 20px ${MN};color:#8FE07A;letter-spacing:-.03em">${_tkRollSpan("tk$-all", money, "$")}</b></div>`:''}
+      <div style="display:flex;background:rgba(255,255,255,.06);border-radius:18px;padding:11px 4px;overflow-x:auto">
+        ${cells.length?cells.map((m,i)=>`<span style="flex:1;text-align:center;${i?'border-left:1px solid rgba(255,255,255,.13)':''};position:relative">
+            <em style="display:block;font-style:normal;font:600 11.5px ${F};color:#8FA383;margin-bottom:2px">${m.label}</em>
+            <b style="display:block;font:750 15px ${F};color:#EAF0E4">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b>
+            ${(()=>{ const pr=ptPriceFor(m.k, tot[m.k]); return pr?`<span style="display:block;font:700 12px ${MN};color:#8FE07A;margin-top:2px">${_tkRollSpan("tk$-"+m.k, pr.total, "$")}</span>`:''; })()}
+            ${cut[m.k]?`<span style="display:block;font:600 10.5px ${F};color:#8FA383;margin-top:1px">less ${_tkFmt(cut[m.k])}</span>`:''}</span>`).join('')
+          :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#9FBF95;padding:4px 0">Nothing traced yet — pick a category and draw around an area.</span>`}
       </div>`;
     }
   } else {
@@ -26535,22 +26557,22 @@ function _tkLedgerBar(tot,live){
         if(live&&PT.mode===k&&live.u==="SF") n+=live.n;
         const tg=t[k]||0, p2=tg?Math.min(100,(n/tg)*100):100, ov=tg&&n>tg;
         return `<span>
-          <span style="display:flex;align-items:baseline;gap:8px;font:600 13px ${F};color:#38432D">
+          <span style="display:flex;align-items:baseline;gap:8px;font:600 13px ${F};color:#CBD8C0">
             <i style="width:9px;height:9px;border-radius:50%;background:${m.color}"></i>${m.label}
-            <b style="margin-left:auto;font:750 14px ${MN};color:#141A10">${_tkFmt(n)}<button onclick="ptTargetSet('${k}')" style="border:0;background:none;cursor:pointer;color:#94A088;font:600 13px ${MN};padding:0 0 0 4px"> / ${tg?_tkFmt(tg):"set"}</button></b></span>
-          <span style="display:block;height:5px;background:#E9EDE2;border-radius:5px;margin-top:5px;overflow:hidden">
-            <i style="display:block;height:100%;width:${p2}%;background:${ov?'#A8443F':m.color};${tg?'':'opacity:.35'}"></i></span>
-          ${tg?`<span style="display:block;font:${ov?'700':'500'} 11.5px ${F};color:${ov?'#A8443F':'#68765B'};margin-top:3px">${ov?`${_tkFmt(n-tg)} SF over target`:`${_tkFmt(tg-n)} SF left`}</span>`:''}
+            <b style="margin-left:auto;font:750 14px ${MN};color:#EAF0E4">${_tkFmt(n)}<button onclick="ptTargetSet('${k}')" style="border:0;background:none;cursor:pointer;color:#8FA383;font:600 13px ${MN};padding:0 0 0 4px"> / ${tg?_tkFmt(tg):"set"}</button></b></span>
+          <span style="display:block;height:5px;background:rgba(255,255,255,.13);border-radius:5px;margin-top:5px;overflow:hidden">
+            <i style="display:block;height:100%;width:${p2}%;background:${ov?'#E0908A':m.color};${tg?'':'opacity:.35'}"></i></span>
+          ${tg?`<span style="display:block;font:${ov?'700':'500'} 11.5px ${F};color:${ov?'#E0908A':'#9FBF95'};margin-top:3px">${ov?`${_tkFmt(n-tg)} SF over target`:`${_tkFmt(tg-n)} SF left`}</span>`:''}
         </span>`; }).join('')
-        :`<span style="font:600 13px ${F};color:#68765B;padding:6px 8px">No targets yet. Trace something, then tap a figure to set what you're aiming for.</span>`}
-      <button onclick="ptTargetAdd()" style="align-self:flex-start;border:0;background:none;cursor:pointer;font:700 13px ${F};color:#2F5B23;padding:2px 6px">＋ Add a target</button>
+        :`<span style="font:600 13px ${F};color:#9FBF95;padding:6px 8px">No targets yet. Trace something, then tap a figure to set what you're aiming for.</span>`}
+      <button onclick="ptTargetAdd()" style="align-self:flex-start;border:0;background:none;cursor:pointer;font:700 13px ${F};color:#8FE07A;padding:2px 6px">＋ Add a target</button>
     </div>`;
   }
   const liveRow=live?`<div style="display:flex;align-items:center;gap:10px;padding:0 12px 10px">
       <span style="width:11px;height:11px;border-radius:50%;background:${md.color};flex:none"></span>
-      <span style="font:700 13px ${F};color:#141A10">${md.label}${_ptCurType(PT.mode)?" · "+_ptCurType(PT.mode):""}</span>
-      <span style="margin-left:auto;font:750 15px ${MN};color:#2F5B23">${_tkFmt(live.n)} ${live.u}</span>
-      <span style="font:600 12px ${F};color:#94A088">${live.pts} pt</span>
+      <span style="font:700 13px ${F};color:#EAF0E4">${md.label}${_ptCurType(PT.mode)?" · "+_ptCurType(PT.mode):""}</span>
+      <span style="margin-left:auto;font:750 15px ${MN};color:#8FE07A">${_tkFmt(live.n)} ${live.u}</span>
+      <span style="font:600 12px ${F};color:#8FA383">${live.pts} pt</span>
     </div>`:"";
   const pos = dock==="left"  ? `left:0;top:0;bottom:0;width:${shut?56:320}px;border-radius:0 22px 22px 0`
             : dock==="right" ? `right:0;top:0;bottom:0;width:${shut?56:320}px;border-radius:22px 0 0 22px`
@@ -26559,10 +26581,10 @@ function _tkLedgerBar(tot,live){
     ? `<div onpointerdown="ptTkDragStart(event)" title="Drag to move — bottom, left or right"
         style="position:absolute;top:0;bottom:0;${dock==="left"?"right:0":"left:0"};width:16px;
         display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none;z-index:2">
-        <span style="width:4px;height:38px;border-radius:4px;background:#DBE0D1"></span></div>`
+        <span style="width:4px;height:38px;border-radius:4px;background:rgba(255,255,255,.28)"></span></div>`
     : `<div onpointerdown="ptTkDragStart(event)" title="Drag to move — bottom, left or right"
         style="height:16px;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none;flex:none">
-        <span style="width:38px;height:4px;border-radius:4px;background:#DBE0D1"></span></div>`;
+        <span style="width:38px;height:4px;border-radius:4px;background:rgba(255,255,255,.28)"></span></div>`;
   if(shut){
     let money=0; PT_MODES.forEach(m=>{ if(!(tot[m.k]>0)) return; const pr=ptPriceFor(m.k,tot[m.k]); if(pr) money+=pr.total; });
     const pctLot=cap?Math.round(surf/cap*100):0;
@@ -26583,12 +26605,12 @@ function _tkLedgerBar(tot,live){
   }
   return `<div id="pt-card" ontouchstart="ptTkSwipeStart(event)" ontouchend="ptTkSwipeEnd(event)"
       style="position:absolute;${pos};z-index:3;
-      background:rgba(255,255,255,.97);padding:${side?(dock==="left"?"12px 26px 11px 14px":"12px 14px 11px 26px"):"4px 9px 11px"};pointer-events:auto;
+      background:rgba(18,24,15,.93);backdrop-filter:blur(10px);padding:${side?(dock==="left"?"20px 26px 20px 16px":"20px 16px 20px 26px"):"6px 12px 14px"};pointer-events:auto;
       display:flex;flex-direction:column;overflow:hidden;
       box-shadow:0 18px 44px -14px rgba(0,0,0,.5);font-family:${F}">
     ${grip}${side?`<button onclick="ptTkShutSet(true)" title="Close — or swipe it shut"
         style="position:absolute;top:10px;${dock==="left"?"right:10px":"left:10px"};width:30px;height:30px;border:0;
-        border-radius:10px;background:#F1F0E9;color:#68765B;font-size:15px;cursor:pointer;z-index:2">${dock==="left"?"‹":"›"}</button>`:''}
+        border-radius:10px;background:rgba(255,255,255,.12);color:#EAF0E4;font-size:15px;cursor:pointer;z-index:2">${dock==="left"?"‹":"›"}</button>`:''}
     ${seg}${liveRow}<div style="overflow:auto;flex:1;min-height:0">${body}</div></div>`;
 }
 // Swipe the side-docked card shut and open again.
