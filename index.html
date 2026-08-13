@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v787</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v788</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25764,67 +25764,106 @@ function ptMapBuild(center, zoom){
   ["bounds_changed","zoom_changed","drag","idle"].forEach(ev=>{ try{ PT.map.addListener(ev,redraw); }catch(e){} });
   try{ PT.map.addListener("click",e=>ptMapClick(e)); }catch(e){}
   try{ google.maps.event.addListenerOnce(PT.map,"idle",()=>{ PT._mapReady=true; redraw(); }); }catch(e){}
-  ptPenBind(); ptPenModeApply(); ptMapCursor();
+  ptPenBind(); ptMapCursor();
 }
 // The map swallows Apple Pencil input as a drag, so a pencil tap never becomes a click.
 // Pen events are caught on the way down — before the map's own listeners — and handled
 // here. Fingers and mouse are left alone, so pinch and pan still belong to the map.
 let _ptPen=null;
-// The map never turns an Apple Pencil tap into a click — it reads the pencil as a drag and pans.
-// So a pen TAP is handled here, and nothing else is: no preventDefault, no capture layer. A pen
-// drag falls straight through to the map and pans exactly as it always did.
-let _ptTap=null;
+// ── APPLE PENCIL ────────────────────────────────────────────────────────────
+// Two things were wrong for a long time. First, the map reads a Pencil as a drag and pans, and
+// never turns a Pencil tap into a click. Second, and the bigger one: you draw with a Pencil, you
+// do not tap out corners with it — the old map tracer had freehand and this one never did.
+//
+// Safari is the only browser that can tell a stylus from a finger, through Touch.touchType. That
+// is the lever: stylus touches are taken here at capture phase and never reach the map, so it
+// cannot pan. Finger touches are not touched at all, so pinch and pan stay native and nothing
+// can freeze. A Pencil drag draws the outline; a Pencil tap still drops a single corner.
+function _ptStylusTouch(ev){
+  const ts=ev.changedTouches||ev.touches; if(!ts) return null;
+  for(let i=0;i<ts.length;i++){ if(ts[i].touchType==="stylus") return ts[i]; }
+  return null;
+}
+function _ptUiTarget(t){ try{ return !!(t&&t.closest&&t.closest("#pt-card,.tkpop,#pt-toolbar,#pt-float button")); }catch(_){ return false; } }
+let _ptStroke=null;
 function ptPenBind(){ const w=document.getElementById("pt-stagewrap"); if(!w||w._penBound) return;
-  w.addEventListener("pointerdown",e=>{ if(e.pointerType!=="pen") return;
-    let onUi=false, onHandle=false;
-    try{ onUi=!!(e.target&&e.target.closest&&e.target.closest("#pt-card,.tkpop,#pt-toolbar,#pt-float button")); }catch(_){}
-    try{ onHandle=!!_ptHandleAt(e); }catch(_){}
-    _ptTap={x:e.clientX, y:e.clientY, onUi, onHandle};
-  },true);
-  w.addEventListener("pointerup",e=>{ if(e.pointerType!=="pen") return;
-    const t=_ptTap; _ptTap=null; if(!t||t.onUi||t.onHandle) return;
-    if(Math.abs(e.clientX-t.x)+Math.abs(e.clientY-t.y)>8) return;   // that was a pan, not a tap
-    if(!ptMapLive()||!PT.open) return;
-    PT._penTapAt=Date.now();          // so the map's own click, if it comes, is not counted twice
-    const c=ptCanvasXY(e), q=_toPdf(c);
-    if(PT.selectMode){ const hit=_ptHitTest(q,c);
+  w.addEventListener("touchstart",ptStylusDown,{capture:true,passive:false});
+  w.addEventListener("touchmove",ptStylusMove,{capture:true,passive:false});
+  w.addEventListener("touchend",ptStylusUp,{capture:true,passive:false});
+  w.addEventListener("touchcancel",ptStylusUp,{capture:true,passive:false});
+  // Anything that reports a pen through Pointer Events (desktop stylus, other browsers) too.
+  w.addEventListener("pointerdown",e=>{ if(e.pointerType==="pen") ptStylusDown(e,e); },true);
+  w.addEventListener("pointermove",e=>{ if(e.pointerType==="pen") ptStylusMove(e,e); },true);
+  w.addEventListener("pointerup",e=>{ if(e.pointerType==="pen") ptStylusUp(e,e); },true);
+  w._penBound=true; }
+function _ptPt(ev,pt){ const el=document.getElementById("pt-map"); if(!el) return null;
+  const r=el.getBoundingClientRect(); return {x:pt.clientX-r.left, y:pt.clientY-r.top}; }
+function ptStylusDown(ev,pt){
+  if(!ptMapLive()||!PT.open) return;
+  const t=pt||_ptStylusTouch(ev); if(!t) return;
+  if(_ptUiTarget(ev.target)) return;                       // the card and the toolbar are not canvas
+  ev.preventDefault(); ev.stopPropagation();               // the map must not see this
+  let onHandle=false; try{ onHandle=!!_ptHandleAt({clientX:t.clientX,clientY:t.clientY}); }catch(_){}
+  const p=_ptPt(ev,t); if(!p) return;
+  _ptStroke={pts:[p], moved:0, onHandle};
+  if(onHandle) try{ ptVertexDown({clientX:t.clientX,clientY:t.clientY}); }catch(_){}
+}
+function ptStylusMove(ev,pt){
+  if(!_ptStroke) return;
+  const t=pt||_ptStylusTouch(ev); if(!t) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const p=_ptPt(ev,t); if(!p) return;
+  const last=_ptStroke.pts[_ptStroke.pts.length-1];
+  _ptStroke.moved+=Math.hypot(p.x-last.x,p.y-last.y);
+  if(_ptStroke.onHandle){ try{ ptVertexMove({clientX:t.clientX,clientY:t.clientY}); }catch(_){} return; }
+  _ptStroke.pts.push(p);
+  PT._inkPts=_ptStroke.pts;                                 // live preview under the nib
+  try{ ptDrawOverlay(); }catch(_){}
+}
+function ptStylusUp(ev,pt){
+  const st=_ptStroke; if(!st) return;
+  _ptStroke=null; PT._inkPts=null;
+  try{ ev.preventDefault(); ev.stopPropagation(); }catch(_){}
+  if(st.onHandle){ try{ ptVertexUp(); }catch(_){} return; }
+  const t=pt||_ptStylusTouch(ev);
+  const kind=_ptKind(PT.mode);
+  if(st.moved<10){                                          // a tap: drop one corner, as before
+    const p=st.pts[st.pts.length-1]; const q=_toPdf(p);
+    if(PT.selectMode){ const hit=_ptHitTest(q,p);
       if(hit&&hit.type==="poly") ptSelect(hit.idx); else if(hit) ptEditTree(hit.idx); else ptSelClear();
       return; }
-    ptAddAt(q,c,e);
-  },true);
-  w._penBound=true; }
-// The parcel lookup is a network round trip. If the tracer opened first, add the
-// property line the moment it lands rather than making you reopen the tab.
-function ptParcelWhenReady(tries){
-  if(!PT.open||!ptMapLive()) return;
-  const pd=window._parcelData;
-  if(pd&&pd.paths&&pd.paths.length){
-    if(PT.polys.some(p=>p._parcel)) return;
-    pd.paths.forEach(ring=>{ if(!ring||ring.length<3) return;
-      const pts=ring.map(ll=>({x:ll.lng, y:ll.lat}));
-      const poly={mode:"lot",kind:"area",page:1,pts,name:"Property line",_parcel:true};
-      poly.sf=_ptPolySF(pts); PT.polys.push(poly); });
-    try{ ptRenderPage(); }catch(e){}
-    return;
+    PT._penTapAt=Date.now();
+    ptAddAt(q,p,ev); return;
   }
-  if((tries||0)>30) return;                       // ~15s, then stop asking
-  setTimeout(()=>ptParcelWhenReady((tries||0)+1),500);
+  if(PT.selectMode) { try{ ptDrawOverlay(); }catch(_){} return; }
+  // a stroke: thin it out and lay it down as one shape
+  const simp=_ptSimplify(st.pts, 2.5);
+  if(kind==="count"||simp.length<(kind==="linear"?2:3)){ try{ ptDrawOverlay(); }catch(_){} return; }
+  ptSnap();
+  PT.cur=simp.map(_toPdf);
+  ptFinishPoly();
 }
-// Crosshair says "I am placing points"; the default arrow says "I am selecting".
+// Douglas–Peucker: keeps the corners you drew, drops the wobble in between.
+function _ptSimplify(pts,tol){
+  if(!pts||pts.length<3) return pts||[];
+  const keep=new Array(pts.length).fill(false);
+  keep[0]=keep[pts.length-1]=true;
+  const stack=[[0,pts.length-1]];
+  while(stack.length){
+    const [a,b]=stack.pop(); let far=-1, fd=tol;
+    for(let i=a+1;i<b;i++){
+      const d=_ptSegDist(pts[i].x,pts[i].y,pts[a].x,pts[a].y,pts[b].x,pts[b].y);
+      if(d>fd){ fd=d; far=i; }
+    }
+    if(far>=0){ keep[far]=true; stack.push([a,far],[far,b]); }
+  }
+  return pts.filter((p,i)=>keep[i]);
+}
+// Crosshair says "I am placing points"; the arrow says "I am selecting".
 function ptMapCursor(){ if(!ptMapLive()||!PT.map) return;
   try{ PT.map.setOptions({draggableCursor: PT.selectMode?"default":"crosshair"}); }catch(e){} }
-// Resting a hand on the glass while drawing with the Pencil pans the map and drops stray points.
-// In Pencil mode the map only answers to two fingers, and only pen input can place a point.
-function ptPenModeGet(){ if(PT._pen==null){ let v=null; try{ v=localStorage.getItem("studioh_pt_pen"); }catch(e){}
-    PT._pen=(v==="1"); } return PT._pen; }
-function ptPenModeToggle(){ PT._pen=!ptPenModeGet();
-  try{ localStorage.setItem("studioh_pt_pen", PT._pen?"1":"0"); }catch(e){}
-  ptPenModeApply(); ptRenderModal();
-  _toast(PT._pen?"Pencil mode on — only the Pencil can place a point":"Pencil mode off — a tap places a point again","#2F5B23"); }
-function ptPenModeApply(){ /* the map keeps its own gestures in every mode */ }
 function ptMapClick(e){ if(!e||!e.latLng) return;
   if(PT._penTapAt && Date.now()-PT._penTapAt<500){ PT._penTapAt=0; return; }   // already placed by the pen
-  if(ptPenModeGet()){ const t=e.domEvent&&e.domEvent.pointerType; if(t&&t!=="pen") return; }
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
   const c=_llToPx(p);
   if(PT.selectMode){ const hit=_ptHitTest(p,c);
@@ -26678,6 +26717,9 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     cpts.forEach((q,i)=>{ const closer=isLine?(i===cpts.length-1&&cpts.length>=2):(i===0&&cpts.length>=3); s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${closer?7:5}" fill="${closer?c:'#fff'}" stroke="${c}" stroke-width="2.5"/>`; if(closer) s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="12" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2"/>`; }); }
   if(PT.calib.length){ const cp=PT.calib.map(_toCanvas); cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="5" fill="#fff" stroke="#C0524F" stroke-width="2"/>`; });
     if(cp.length===2) s+=`<line x1="${cp[0].x}" y1="${cp[0].y}" x2="${cp[1].x}" y2="${cp[1].y}" stroke="#C0524F" stroke-width="2"/>`; }
+  // the wet stroke under the nib
+  if(PT._inkPts&&PT._inkPts.length>1){ const mdI=_ptMode(PT.mode);
+    s+=`<polyline points="${PT._inkPts.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${_ptKind(PT.mode)==="linear"?"none":mdI.color+"33"}" stroke="${mdI.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" style="pointer-events:none"/>`; }
   svg.innerHTML=s+_ptHandlesSvg(); }
 function ptEditPoly(idx){ const p=PT.polys[idx]; if(!p) return; const md=_ptMode(p.mode); let d=document.getElementById("pt-edit-pop"); if(d) d.remove();
   d=document.createElement("div"); d.id="pt-edit-pop"; d.style.cssText="position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center";
@@ -26774,8 +26816,6 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <button class="tkb-b${PT.selectMode?'':' on'}" onclick="if(PT.selectMode)ptSelectMode()" title="Draw new areas">${_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/>')}Draw</button>
       <button class="tkb-b${PT.selectMode?' on':''}" onclick="if(!PT.selectMode)ptSelectMode()" title="Select, reshape or delete what you traced">${_ic('<path d="M4 3l7 17 2-7 7-2L4 3Z"/>')}Select</button>
     </div>
-    ${PT.live?`<div class="tkb-grp">
-      <button class="tkb-b${ptPenModeGet()?' on':''}" onclick="ptPenModeToggle()" title="Pencil mode — the map ignores fingers so your hand can rest on the glass">${_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')}Pencil</button></div>`:''}
     <div class="tkb-grp">
       <button class="tkb-b ico" id="pt-undo-btn" onclick="ptUndo()" title="Undo">${_ic('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10H9"/>')}</button>
       <button class="tkb-b ico" id="pt-redo-btn" onclick="ptRedoAct()" title="Redo">${_ic('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h6"/>')}</button>
