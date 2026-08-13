@@ -3199,7 +3199,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v770</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v771</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25690,7 +25690,7 @@ async function ptSatZoom(delta){ if(!PT.satBase) return; const sb=PT.satBase; co
     else p.sf=_ptPolySF(p.pts); });
   PT.trees.forEach(t=>{ const np=reproj({x:t.x,y:t.y}); t.x=np.x; t.y=np.y; });
   PT.satBase=nb; PT.doc=_ptImageDoc(img,nb.w,nb.h);
-  try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ ptUpdateInfo(); }catch(e){}
+  try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} _ptCenterView(); try{ ptUpdateInfo(); }catch(e){}
 }
 // Fetch a high-res satellite base by stitching a grid×grid set of Static Maps tiles at `tileZoom`
 // into one canvas. tileZoom≈21 is the real imagery-detail ceiling; grid controls coverage. The total
@@ -25763,7 +25763,7 @@ async function ptOpenSatellite(keepTrace){
   }
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.detectedScale=null; PT.sheetIn=null;
-  ptRenderModal(); try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ refreshTraceButtons(); }catch(e){}
+  ptRenderModal(); try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} _ptCenterView(); try{ refreshTraceButtons(); }catch(e){}
   _toast("Satellite loaded (hi-res). Scale set automatically — trace away.","#2f5b23");
 }
 function ptHasTrace(){ return (typeof PT!=="undefined") && !!PT.pdfData; }
@@ -25780,7 +25780,7 @@ async function _ptOpenDocBuf(buf, keepTrace){
   try{ const pg1=await PT.doc.getPage(1); const vp=pg1.getViewport({scale:1}); PT.sheetIn={w:vp.width/72,h:vp.height/72};
     const tc=await pg1.getTextContent(); const txt=tc.items.map(i=>i.str).join(" "); PT.detectedScale=_ptParseScale(txt)||PT._preScale||null; }catch(e){ PT.detectedScale=PT._preScale||null; }
   PT._preScale=null;
-  ptRenderModal(); await ptFitPage(); await ptRenderPage(); try{ refreshTraceButtons(); }catch(e){}
+  ptRenderModal(); await ptFitPage(); await ptRenderPage(); _ptCenterView(); try{ refreshTraceButtons(); }catch(e){}
   if(!keepTrace && !PT.ppf) ptOpenScale();
   return true; }
 function _ptFrac(s){ s=(""+s).trim(); if(s.indexOf("/")>=0){ const p=s.split("/"); return parseFloat(p[0])/parseFloat(p[1]); } return parseFloat(s); }
@@ -25872,7 +25872,7 @@ function ptToggleFullscreen(){ const el=document.getElementById("pt-modal"); if(
   const isFs=d.fullscreenElement||d.webkitFullscreenElement;
   try{ if(!isFs){ const req=el.requestFullscreen||el.webkitRequestFullscreen; if(req){ req.call(el); } else { el.classList.add("pt-fs-fallback"); } }
     else { const ex=d.exitFullscreen||d.webkitExitFullscreen; if(ex){ ex.call(d); } el.classList.remove("pt-fs-fallback"); } }catch(e){ el.classList.toggle("pt-fs-fallback"); }
-  setTimeout(()=>{ try{ ptFitPage().then(ptRenderPage); }catch(e){} }, 350); }
+  setTimeout(()=>{ try{ ptFitPage().then(ptRenderPage).then(_ptCenterView); }catch(e){} }, 350); }
 function ptZoom(f){ PT.scale=Math.min(4,Math.max(0.12,PT.scale*f)); ptRenderPage(); }
 let _ptPan=null;
 function ptDown(e){ const cv=e.currentTarget;
@@ -25886,8 +25886,17 @@ function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.g
   PT.scale=Math.min(4,Math.max(0.12,PT.scale*ratio)); const f=PT.scale/old;
   ptRenderPage().then(()=>{ st.scrollLeft=mx*f-(e.clientX-rect.left); st.scrollTop=my*f-(e.clientY-rect.top); }); }
 async function ptFitPage(){ if(!PT.doc) return; const page=await PT.doc.getPage(PT.page); const vp1=page.getViewport({scale:1});
-  const st=document.getElementById("pt-stage"); const cw=(st?st.clientWidth:1000)-48, ch=(st?st.clientHeight:700)-48;
-  let s=Math.min(cw/vp1.width, ch/vp1.height); if(!isFinite(s)||s<=0) s=1; PT.scale=Math.max(0.12,Math.min(3,s)); PT._fitScale=PT.scale; }
+  const st=document.getElementById("pt-stage");
+  // A PDF has page edges worth respecting, so it fits inside the stage. A satellite image has
+  // none — it fills the stage edge to edge and you pan and zoom around it instead.
+  const cover=!!PT.satBase, pad=cover?0:48;
+  if(st) try{ st.style.padding=cover?"0":"1rem"; }catch(e){}
+  const cw=(st?st.clientWidth:1000)-pad, ch=(st?st.clientHeight:700)-pad;
+  let s=cover?Math.max(cw/vp1.width, ch/vp1.height):Math.min(cw/vp1.width, ch/vp1.height);
+  if(!isFinite(s)||s<=0) s=1; PT.scale=Math.max(0.12,Math.min(3,s)); PT._fitScale=PT.scale; }
+// Filling the stage means the image overflows it — start in the middle, not the top-left corner.
+function _ptCenterView(){ const st=document.getElementById("pt-stage"); if(!st) return;
+  try{ st.scrollLeft=(st.scrollWidth-st.clientWidth)/2; st.scrollTop=(st.scrollHeight-st.clientHeight)/2; }catch(e){} }
 async function ptPage(d){ const n=PT.page+d; if(n<1||n>PT.numPages) return; PT.page=n; PT.cur=[]; await ptRenderPage(); ptRenderModal(); await ptRenderPage(); }
 function ptDelTree(i){ ptSnap(); PT.trees.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
 function _ptInteractive(mode){ return PT.cur.length===0 && !PT.calibrating && (PT.selectMode || PT.mode===mode); } // clickable on its own layer, or any layer in Select mode
@@ -25974,7 +25983,7 @@ function ptUiGet(){ if(!PT._ui){ let v=null; try{ v=localStorage.getItem("studio
 function ptUiSet(k){ if(!PT_UIS.some(u=>u.k===k)) return; PT._ui=k;
   try{ localStorage.setItem("studioh_pt_ui",k); }catch(e){}
   const d=document.getElementById("pt-ui-pop"); if(d) d.remove();
-  PT.selPoly=null; ptRenderModal(); ptFitPage().then(ptRenderPage); }
+  PT.selPoly=null; ptRenderModal(); ptFitPage().then(ptRenderPage).then(_ptCenterView); }
 function ptUiPopover(){ let d=document.getElementById("pt-ui-pop"); if(d){ d.remove(); return; }
   d=document.createElement("div"); d.id="pt-ui-pop"; (document.getElementById("pt-modal")||document.body).appendChild(d);
   d.style.cssText="position:fixed;top:52px;right:10px;z-index:10004;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:.6rem;width:min(300px,92vw)";
@@ -26337,7 +26346,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <span style="opacity:.5">|</span>
       <button onclick="ptZoom(1.2)" style="padding:.3rem .55rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer">＋</button>
       <button onclick="ptZoom(0.83)" style="padding:.3rem .55rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer">－</button>
-      <button onclick="ptFitPage().then(ptRenderPage)" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Fit page to screen">Fit</button>
+      <button onclick="ptFitPage().then(ptRenderPage).then(_ptCenterView)" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Fit page to screen">Fit</button>
       <button onclick="ptToggleFullscreen()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="Full screen — best for iPad + Apple Pencil">⛶ Full screen</button>
       <button onclick="ptSelectMode()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:${PT.selectMode?'#4A90D9':'#3a4a30'};color:#fff;cursor:pointer" title="Select / edit / delete any traced item — tap it to open">⇱ ${PT.selectMode?'Select ON':'Select / edit'}</button>
       <button onclick="ptToggleLabels()" style="padding:.3rem .55rem;font-size:.72rem;border:none;border-radius:7px;background:${PT.hideLabels?'#7a3a38':'#3a4a30'};color:#fff;cursor:pointer" title="Show/hide labels so they don't block tracing">${PT.hideLabels?'Labels off':'Labels on'}</button>
