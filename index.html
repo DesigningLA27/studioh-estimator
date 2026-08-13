@@ -1832,6 +1832,10 @@ body:not(.sp-on) #sp-open{display:grid}
 /* Project Info — clean field system */
 .pf-grid{display:grid;gap:16px 18px}
 .pf-grid.c3{grid-template-columns:repeat(3,1fr)}
+/* Tracing lives in Take-offs. Project Info keeps the site record, not a second tracer
+   writing to the same measurements. The fields stay in the DOM because public records and
+   Take-offs still feed them and the pricing reads them — they are just no longer typed here. */
+#sitedims-card, .trace-panel{display:none !important}
 .pf-fld{display:flex;flex-direction:column;gap:6px;min-width:0}
 .pf-lbl{font-size:.66rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--tm)}
 .pf-lbl .mut{font-weight:500;text-transform:none;letter-spacing:0;color:var(--tl)}
@@ -3195,7 +3199,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v768</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v769</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25690,15 +25694,28 @@ async function ptSatZoom(delta){ if(!PT.satBase) return; const sb=PT.satBase; co
 // Fetch a high-res satellite base by stitching a grid×grid set of Static Maps tiles at `tileZoom`
 // into one canvas. tileZoom≈21 is the real imagery-detail ceiling; grid controls coverage. The total
 // canvas is kept under iOS Safari's ~16 MP (4096²) limit. Returns a canvas + its projection sb.
+// Tile counts that fill the screen the trace is shown on, rather than always a square.
+function _satGridFor(){
+  let w=1280,h=800;
+  try{ const st=document.getElementById("pt-stage");
+    if(st&&st.clientWidth>200){ w=st.clientWidth; h=st.clientHeight; }
+    else { w=window.innerWidth; h=window.innerHeight-120; } }catch(e){}
+  const ar=(h>0?w/h:1.4);
+  if(ar>=1.35) return {gx:3,gy:2};          // laptop / iPad landscape
+  if(ar<=0.72) return {gx:2,gy:3};          // portrait
+  return {gx:3,gy:3};                       // squarish
+}
 async function _fetchSatStitched(center, tileZoom, grid, scale){
   const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw", size=640; const tilePx=size*scale;
-  while(tilePx*grid>4000 && grid>1) grid--;   // stay under the iOS canvas cap
+  let gx=(grid&&grid.gx)||grid||3, gy=(grid&&grid.gy)||grid||3;
+  while(tilePx*gx>4000 && gx>1) gx--;   // stay under the iOS canvas cap
+  while(tilePx*gy>4000 && gy>1) gy--;
   const mpp=156543.03392*Math.cos(center.lat*Math.PI/180)/Math.pow(2,tileZoom)/scale;   // metres per stitched pixel
-  const tileGroundM=tilePx*mpp, half=(grid-1)/2, cosLat=Math.cos(center.lat*Math.PI/180);
-  const cv=document.createElement("canvas"); cv.width=tilePx*grid; cv.height=tilePx*grid; const ctx=cv.getContext("2d");
+  const tileGroundM=tilePx*mpp, halfX=(gx-1)/2, halfY=(gy-1)/2, cosLat=Math.cos(center.lat*Math.PI/180);
+  const cv=document.createElement("canvas"); cv.width=tilePx*gx; cv.height=tilePx*gy; const ctx=cv.getContext("2d");
   const jobs=[];
-  for(let j=0;j<grid;j++) for(let i=0;i<grid;i++){
-    const dxM=(i-half)*tileGroundM, dyM=(j-half)*tileGroundM;
+  for(let j=0;j<gy;j++) for(let i=0;i<gx;i++){
+    const dxM=(i-halfX)*tileGroundM, dyM=(j-halfY)*tileGroundM;
     const c={lat:center.lat-dyM/111320, lng:center.lng+dxM/(111320*cosLat)};
     const url=`https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center=${c.lat.toFixed(6)},${c.lng.toFixed(6)}&zoom=${tileZoom}&size=${size}x${size}&scale=${scale}&key=${KEY}`;
     jobs.push(_loadImgEl(url).then(im=>{ try{ ctx.drawImage(im,i*tilePx,j*tilePx,tilePx,tilePx); }catch(e){} }).catch(()=>{}));
@@ -25728,7 +25745,7 @@ async function ptOpenSatellite(keepTrace){
   if(keepTrace && PT.satBase) ctr=PT.satBase.center;
   { const home=_ptHome(); if(home && !(keepTrace&&PT.satBase)) ctr=home; }   // the project's address wins over wherever the map drifted
   if(!ctr || (Math.abs(ctr.lat)<0.02&&Math.abs(ctr.lng)<0.02)){ _toast("Enter the property address first so the map centers on it.","#B23F3C"); return; }
-  const tileZoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||21, grid=3, scale=2;   // zoom 21 = max real detail; 3×3 tiles
+  const tileZoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||21, grid=_satGridFor(), scale=2;   // zoom 21 = max detail; grid follows the screen shape
   _toast("Loading high-res satellite (a few tiles)…","#6A4FA3");
   let stit; try{ stit=await _fetchSatStitched(ctr, tileZoom, grid, scale); }catch(e){ _toast("Couldn't load the satellite image — check the connection.","#B23F3C"); return; }
   const sb=stit.sb;
