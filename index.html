@@ -1849,6 +1849,9 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkbar.wide .tkb-tog span{display:inline}
 .tkbar .tkb-tog:active{background:rgba(255,255,255,.2)}
 .tkrow{position:relative;overflow:hidden;border-top:1px solid rgba(255,255,255,.13)}
+.tkrow-exc{position:absolute;left:0;top:0;bottom:0;width:96px;border:0;background:#2C5F9E;color:#fff;
+  font:700 13px var(--tkf);cursor:pointer;letter-spacing:.01em}
+.tkrow-body.is-exc{opacity:.62}
 .tkrow-del{position:absolute;right:0;top:0;bottom:0;width:96px;border:0;background:#C0524F;color:#fff;
   font:700 13px var(--tkf);cursor:pointer;letter-spacing:.01em}
 .tkrow-body{position:relative;display:flex;align-items:center;gap:11px;padding:11px 8px;cursor:pointer;
@@ -3306,7 +3309,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v815</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v816</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26820,22 +26823,46 @@ function _ptHoles(){
   });
   return holes;
 }
-function ptTotals(){ const a={}; if(typeof PT==="undefined") return a;
+function ptTotals(scoped){ const a={}; if(typeof PT==="undefined") return a;
   const holes=_ptHoles();
   PT.polys.forEach((p,i)=>{
+    if(scoped&&p._excl) return;
     if(p.kind==="linear"){ a[p.mode]=(a[p.mode]||0)+(+p.lf||0); return; }
     const v=+p.sf||0;
     a[p.mode]=(a[p.mode]||0)+(holes.has(i)?-v:v);     // a hole subtracts from its own category
   });
-  PT.polys.forEach((p,i)=>{ if(holes.has(i)||PT_CUTS.indexOf(p.mode)<0) return;
+  PT.polys.forEach((p,i)=>{ if(holes.has(i)||(scoped&&p._excl)||PT_CUTS.indexOf(p.mode)<0) return;
     const cut=_tkCutSF(p); if(!(cut>0)) return;
     const host=_ptEnclosing(p,PT.polys); if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-cut); });
   // a fire pit or fireplace is a mark, but it still stands on something
-  (PT.trees||[]).forEach(t=>{ const m=_ptMarkMode(t); const fp=TK_FOOTPRINT[m]; if(!(fp>0)) return;
+  (PT.trees||[]).forEach(t=>{ if(scoped&&t._excl) return; const m=_ptMarkMode(t); const fp=TK_FOOTPRINT[m]; if(!(fp>0)) return;
     const host=_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:m,kind:"area"},PT.polys);
     if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-fp); });
   Object.keys(a).forEach(k=>{ if(a[k]<0) a[k]=0; });
   return a; }
+// ── EXCLUDED FROM THE SCOPE ─────────────────────────────────────────────────
+// An existing driveway you are not touching is still worth tracing — it is real ground, it shows
+// on the plan, and it explains where the lot went. It just is not yours to price. Excluding a
+// category takes it out of the money and out of the landscape area, and leaves it drawn.
+// The flag lives on the shapes, so it saves, loads and undoes with everything else.
+function ptExcl(mode){
+  if(typeof PT==="undefined"||!PT.polys) return false;
+  const all=PT.polys.filter(p=>p.mode===mode)
+    .concat((PT.trees||[]).filter(t=>_ptMarkMode(t)===mode));
+  return all.length>0 && all.every(x=>x._excl);
+}
+function ptExclToggle(mode){
+  const on=!ptExcl(mode); ptSnap();
+  PT.polys.forEach(p=>{ if(p.mode===mode){ if(on) p._excl=true; else delete p._excl; } });
+  (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)===mode){ if(on) t._excl=true; else delete t._excl; } });
+  PT._openRow=null;
+  const md=_ptMode(mode);
+  _toast(on?`${md.label} excluded — out of the estimate and out of the landscape area.`
+           :`${md.label} back in the estimate.`, on?"#2C4E7A":"#2F5B23");
+  try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+}
+// Totals with the excluded ground taken out — what the estimate actually works from.
+function ptScoped(){ return ptTotals(true); }
 function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
 function _ptCutHost(mode){ const p=PT.polys.find(x=>x.mode===mode&&x.kind==="area");
   if(!p) return null; const h=_ptEnclosing(p,PT.polys);
@@ -26940,6 +26967,7 @@ function _tkWallFrom(lf, heightFt){
 }
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 function ptPriceFor(mode, qty){
+  if(ptExcl(mode)) return null;                 // out of the scope, so it has no price
   const cat=TK_CAT2EST[mode]; if(!cat||!(qty>0)) return null;
   const m=_ptMode(mode); const unit=(m&&m.kind==="linear")?"LF":"SF";
   // Turf is laid, not designed — it prices off sod or artificial turf, never off the shrub
@@ -27172,7 +27200,7 @@ function _tkCutSF(p){
 function ptDerived(){
   const rows=[]; let sum=0;
   if(typeof PT==="undefined"||!PT.polys) return {rows,sum};
-  const t=ptTotals();
+  const t=ptScoped();
   const soft=(t.planting||0)+(t.turf||0);
   const hard=(t.paving||0)+(t.driveway||0);
   const feature=(t.pool||0)+(t.spa||0)+(t.water||0)+(t.shade||0);
@@ -27267,7 +27295,9 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
   try{ ptStampBar(); }catch(e){}
   // a row left open stays open through a redraw
   if(PT._openRow){ const r=el.querySelector('.tkrow-body[data-mode="'+PT._openRow+'"]');
-    if(r){ r.style.transition="none"; r.style.transform="translateX(-"+TK_ROW_W+"px)"; r.dataset.open="1"; }
+    const right=(PT._openDir==="r");
+    if(r){ r.style.transition="none"; r.style.transform="translateX("+(right?"":"-")+TK_ROW_W+"px)";
+      r.dataset.open=right?"r":"1"; }
     else PT._openRow=null; }
 }
 function _tkInspector(G){ const i=PT.selPoly; if(i==null) return "";
@@ -27300,7 +27330,8 @@ function _tkTargetCard(G,tot,live){ const t=ptTargets();
       ${tg?`<div style="font-size:.6rem;margin-top:3px;color:${over?'#A8443F':'#6C7A5F'};font-weight:${over?'700':'400'}">${over?`${_tkFmt(n-tg)} SF over target`:`${_tkFmt(tg-n)} SF left`}</div>`:''}
     </div>`; }).join('');
   const lim=tot.limit||0, lot=tot.lot||0;
-  const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(tot[k]||0),0);
+  const _sc=ptScoped();
+  const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(_sc[k]||0),0);
   const against=lim||lot;
   return `<div style="position:absolute;right:13px;top:13px;width:216px;padding:11px 12px;${G}">
     <div style="display:flex;align-items:center;margin-bottom:9px">
@@ -27322,7 +27353,8 @@ function _tkLedgerBar(tot,live){
   // Every square foot you have drawn — that is what "traced" means against the lot. The house
   // and an excluded court are accounted for too; they are ground you have dealt with. Irrigation
   // zones and demo overlay other surfaces, so they would double-count and stay out of it.
-  const surf=PT_GROUND.reduce((s,k)=>s+(tot[k]||0),0);
+  const _sc=ptScoped();
+  const surf=PT_GROUND.reduce((s,k)=>s+(_sc[k]||0),0);
   const MN2=MN;
   const cap=(tot.limit||0)||(tot.lot||0);
   const capNm=tot.limit?"Limit of work":"Lot";
@@ -27344,13 +27376,16 @@ function _tkLedgerBar(tot,live){
     if(side){
       // ── the money leads: it is the number that moves while you trace ──
       const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
-        const note=(m.k==="exclude")?"existing — not in the scope"
+        const note=ptExcl(m.k)?"excluded — existing, staying as it is"
+                 :(m.k==="exclude")?"existing — not in the scope"
                  :(m.k==="building")?"footprint"
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)} — not priced yet`
                  :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
+        const ex=ptExcl(m.k);
         return `<div class="tkrow"><button class="tkrow-del" onclick="ptDeleteCategory('${m.k}')">Delete</button>
-          <div class="tkrow-body" data-mode="${m.k}" onclick="ptRowTap(event,'${m.k}')"
+          <button class="tkrow-exc" onclick="ptExclToggle('${m.k}')">${ex?"Include":"Exclude"}</button>
+          <div class="tkrow-body${ex?" is-exc":""}" data-mode="${m.k}" onclick="ptRowTap(event,'${m.k}')"
             onpointerdown="ptRowDown(event)" onpointermove="ptRowMove(event)"
             onpointerup="ptRowUp(event)" onpointercancel="ptRowUp(event)">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
@@ -27359,7 +27394,7 @@ function _tkLedgerBar(tot,live){
             ${note?`<span style="display:block;font:600 11px ${F};color:#8FA383">${note}</span>`:''}</span>
           <span style="margin-left:auto;text-align:right">
             <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
-            <span style="display:block;font:700 12px ${MN};color:${pr&&pr.from==="assumed"?"#C9D8BE":"#8FE07A"}">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
+            <span style="display:block;font:700 12px ${MN};color:${ex?"#7FA7DE":(pr&&pr.from==="assumed"?"#C9D8BE":"#8FE07A")}">${ex?"excluded":(pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—")}</span></span>
         </div></div>`; }).join('')
         + (()=>{ const d=ptDerived(); if(!d.rows.length) return '';
             return `<div style="padding:13px 8px 2px;font:800 9.5px ${F};letter-spacing:.11em;
@@ -27454,7 +27489,7 @@ function _tkLedgerBar(tot,live){
       <em style="display:block;font-style:normal;font:700 9px ${F};letter-spacing:.1em;text-transform:uppercase;color:#9FBF95">${lab}</em>
       <b style="display:block;font:750 15px ${MN};letter-spacing:-.03em;${acc?"color:#8FE07A":""}">${val}</b></span>`;
     const hr=`<hr style="width:26px;border:0;border-top:1px solid rgba(255,255,255,.18);margin:2px 0">`;
-    return `<div id="pt-card" onclick="ptTkShutSet(false)" ontouchstart="ptTkSwipeStart(event)" ontouchend="ptTkSwipeEnd(event)"
+    return `<div id="pt-card" onclick="ptTkShutSet(false)"
         title="Open the take-off" style="position:absolute;${pos};z-index:3;pointer-events:auto;cursor:pointer;
         background:rgba(20,26,16,.92);box-shadow:0 18px 44px -14px rgba(0,0,0,.55);
         display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:10px 0;font-family:${F}">
@@ -27465,7 +27500,7 @@ function _tkLedgerBar(tot,live){
       ${cap?st("Of "+(tot.limit?"LOW":"lot"), pctLot+"%"):""}
     </div>`;
   }
-  return `<div id="pt-card" ontouchstart="ptTkSwipeStart(event)" ontouchend="ptTkSwipeEnd(event)"
+  return `<div id="pt-card"
       style="position:absolute;${pos};z-index:3;
       background:rgba(18,24,15,.93);backdrop-filter:blur(10px);padding:${side?"16px 18px 16px 26px":"6px 12px 14px"};pointer-events:auto;
       display:flex;flex-direction:column;overflow:hidden;
@@ -27473,22 +27508,14 @@ function _tkLedgerBar(tot,live){
     ${grip}
     ${side?`<div style="display:flex;align-items:center;gap:9px;flex:none">
         <span style="flex:1;min-width:0">${seg}</span>
-        <button onclick="ptTkShutSet(true)" title="Close — or swipe it shut"
+        <button onclick="ptTkShutSet(true)" title="Close the take-off"
           style="flex:none;width:34px;height:34px;border:0;border-radius:12px;background:rgba(255,255,255,.12);
           color:#EAF0E4;font-size:15px;cursor:pointer;margin-bottom:13px">›</button>
       </div>`:seg}${liveRow}<div style="overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;touch-action:pan-y;overscroll-behavior:contain">${body}</div></div>`;
 }
-// Swipe the side-docked card shut and open again.
+// The card closes on its own arrow only — swiping across it is for the rows inside it.
 function ptTkShut(){ return !!PT._tkShut; }
 function ptTkShutSet(v){ PT._tkShut=!!v; ptRenderFloat(); }
-let _tkSw=null;
-function ptTkSwipeStart(e){ const t=e.touches&&e.touches[0]; if(!t) return; _tkSw={x:t.clientX,y:t.clientY}; }
-function ptTkSwipeEnd(e){ const t=e.changedTouches&&e.changedTouches[0]; if(!t||!_tkSw) return;
-  const dx=t.clientX-_tkSw.x, dy=t.clientY-_tkSw.y; _tkSw=null;
-  if(Math.abs(dx)<45||Math.abs(dy)>Math.abs(dx)) return;      // a scroll, not a swipe
-  const d=ptTkDock();
-  if(d==="right") ptTkShutSet(dx>0);
-}
 function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
 // Swipe a row left and it slides over to show a red Delete. Tap the row to see the workings.
 const TK_ROW_W=96;
@@ -27500,7 +27527,8 @@ function ptRowCloseAll(except){
 }
 function ptRowDown(e){
   const el=e.currentTarget;
-  _tkRow={el, x:e.clientX, y:e.clientY, base:el.dataset.open?-TK_ROW_W:0, moved:false};
+  const base=el.dataset.open==="r"?TK_ROW_W:(el.dataset.open?-TK_ROW_W:0);
+  _tkRow={el, x:e.clientX, y:e.clientY, base, moved:false};
   el.style.transition="none";
 }
 function ptRowMove(e){
@@ -27509,16 +27537,18 @@ function ptRowMove(e){
   if(!_tkRow.moved && Math.abs(dx)<6) return;
   if(!_tkRow.moved && Math.abs(dy)>Math.abs(dx)){ _tkRow=null; return; }   // that is a scroll
   _tkRow.moved=true; e.preventDefault();
-  const x=Math.max(-TK_ROW_W, Math.min(0, _tkRow.base+dx));
+  const x=Math.max(-TK_ROW_W, Math.min(TK_ROW_W, _tkRow.base+dx));
   _tkRow.el.style.transform="translateX("+x+"px)";
 }
 function ptRowUp(e){
   const r=_tkRow; _tkRow=null; if(!r) return;
   const el=r.el; el.style.transition="transform .18s";
-  if(!r.moved){ el.style.transform=el.dataset.open?"translateX(-"+TK_ROW_W+"px)":"translateX(0)"; return; }
+  if(!r.moved){ el.style.transform=el.dataset.open?("translateX("+(el.dataset.open==="r"?"":"-")+TK_ROW_W+"px)"):"translateX(0)"; return; }
   const now=(el.style.transform.match(/-?[\d.]+/)||[0])[0]*1;
   if(now < -TK_ROW_W/2){ el.style.transform="translateX(-"+TK_ROW_W+"px)"; el.dataset.open="1";
-    PT._openRow=el.dataset.mode||null; ptRowCloseAll(el); }
+    PT._openRow=el.dataset.mode||null; PT._openDir="l"; ptRowCloseAll(el); }
+  else if(now > TK_ROW_W/2){ el.style.transform="translateX("+TK_ROW_W+"px)"; el.dataset.open="r";
+    PT._openRow=el.dataset.mode||null; PT._openDir="r"; ptRowCloseAll(el); }
   else _tkRowClose(el);
   el._swallowClick=true; setTimeout(()=>{ el._swallowClick=false; }, 60);
 }
@@ -27886,7 +27916,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
         s+=`<g style="${pe}" onclick="ptEditPoly(${idx})">${lead}<rect x="${(mid.x-lw/2).toFixed(1)}" y="${(ly-9.5).toFixed(1)}" width="${lw.toFixed(0)}" height="19" rx="4" fill="#fff" stroke="${c}" stroke-width="1.5"/><text x="${mid.x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="700" fill="#333">${lbl}</text></g>`; }
       return; }
     const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
-    s+=`<polygon points="${pts}" fill="${c}" fill-opacity="${md.noFill?0:0.25}" stroke="${c}" stroke-width="2.5"/>`;
+    s+=`<polygon points="${pts}" fill="${c}" fill-opacity="${md.noFill?0:(p._excl?0.09:0.25)}" stroke="${c}" stroke-width="2.5"${p._excl?' stroke-dasharray="9 6" stroke-opacity="0.7"':''}/>`;
     if(!hide && !(_holes&&_holes.has(idx))){ const ct=_toCanvas(_ptLabelPoint(p.pts));
       // A capsule with the number always, and the name only when the shape is big enough to
       // carry it — so "LED tape light" never dwarfs the run it belongs to.
@@ -28935,8 +28965,10 @@ function _uniformTag(sources){ let L=null,P=null,T=null,okL=true,okP=true,okT=tr
 function _stampItem(it,tag){ if(!it||!tag) return; if(tag.loc) it.loc=tag.loc; if(tag.phase) it.phase=tag.phase; if(tag.tags) it.tags=tag.tags; }
 function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert("Trace at least one area, line, or tree first."); return; } if(!PT.ppf){ alert("Set the scale first so measurements convert to real dimensions."); return; }
   try{ ptAutoSave(); }catch(e){}   // persist the trace before applying, so a hiccup can never lose it
-  const areaSum={}, linSum={}, byType={}; PT.polys.forEach(p=>{ if(p.kind==="linear"){ linSum[p.mode]=(linSum[p.mode]||0)+(p.lf||0); } else { areaSum[p.mode]=(areaSum[p.mode]||0)+(p.sf||0); if(p.type){ byType[p.mode]=byType[p.mode]||{}; byType[p.mode][p.type]=(byType[p.mode][p.type]||0)+(p.sf||0); } } });
-  const cmark={}; PT.trees.forEach(t=>{ const m=_ptMarkMode(t); if(m==="tree"){ cmark.tree=cmark.tree||{}; cmark.tree[t.size]=(cmark.tree[t.size]||0)+1; } else { cmark[m]=(cmark[m]||0)+1; } });
+  const areaSum={}, linSum={}, byType={}; PT.polys.forEach(p=>{
+    if(p._excl){ if(p.kind!=="linear") areaSum.exclude=(areaSum.exclude||0)+(p.sf||0); return; }
+    if(p.kind==="linear"){ linSum[p.mode]=(linSum[p.mode]||0)+(p.lf||0); } else { areaSum[p.mode]=(areaSum[p.mode]||0)+(p.sf||0); if(p.type){ byType[p.mode]=byType[p.mode]||{}; byType[p.mode][p.type]=(byType[p.mode][p.type]||0)+(p.sf||0); } } });
+  const cmark={}; PT.trees.forEach(t=>{ if(t._excl) return; const m=_ptMarkMode(t); if(m==="tree"){ cmark.tree=cmark.tree||{}; cmark.tree[t.size]=(cmark.tree[t.size]||0)+1; } else { cmark[m]=(cmark[m]||0)+1; } });
   const treeBy=cmark.tree||{}; const cN=(m)=>cmark[m]||0;
   const R=(o,k)=>Math.round(o[k]||0);
   const measMap={planting:(R(areaSum,"planting")+R(areaSum,"turf")),paving:R(areaSum,"paving"),lot:R(areaSum,"lot"),limit:R(areaSum,"limit"),building:R(areaSum,"building"),driveway:R(areaSum,"driveway"),demo:R(areaSum,"demo"),exclusion:R(areaSum,"exclude")};
