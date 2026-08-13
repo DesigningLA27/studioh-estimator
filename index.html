@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v786</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v787</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25770,7 +25770,29 @@ function ptMapBuild(center, zoom){
 // Pen events are caught on the way down — before the map's own listeners — and handled
 // here. Fingers and mouse are left alone, so pinch and pan still belong to the map.
 let _ptPen=null;
-function ptPenBind(){ /* the map handles its own input — nothing to intercept */ }
+// The map never turns an Apple Pencil tap into a click — it reads the pencil as a drag and pans.
+// So a pen TAP is handled here, and nothing else is: no preventDefault, no capture layer. A pen
+// drag falls straight through to the map and pans exactly as it always did.
+let _ptTap=null;
+function ptPenBind(){ const w=document.getElementById("pt-stagewrap"); if(!w||w._penBound) return;
+  w.addEventListener("pointerdown",e=>{ if(e.pointerType!=="pen") return;
+    let onUi=false, onHandle=false;
+    try{ onUi=!!(e.target&&e.target.closest&&e.target.closest("#pt-card,.tkpop,#pt-toolbar,#pt-float button")); }catch(_){}
+    try{ onHandle=!!_ptHandleAt(e); }catch(_){}
+    _ptTap={x:e.clientX, y:e.clientY, onUi, onHandle};
+  },true);
+  w.addEventListener("pointerup",e=>{ if(e.pointerType!=="pen") return;
+    const t=_ptTap; _ptTap=null; if(!t||t.onUi||t.onHandle) return;
+    if(Math.abs(e.clientX-t.x)+Math.abs(e.clientY-t.y)>8) return;   // that was a pan, not a tap
+    if(!ptMapLive()||!PT.open) return;
+    PT._penTapAt=Date.now();          // so the map's own click, if it comes, is not counted twice
+    const c=ptCanvasXY(e), q=_toPdf(c);
+    if(PT.selectMode){ const hit=_ptHitTest(q,c);
+      if(hit&&hit.type==="poly") ptSelect(hit.idx); else if(hit) ptEditTree(hit.idx); else ptSelClear();
+      return; }
+    ptAddAt(q,c,e);
+  },true);
+  w._penBound=true; }
 // The parcel lookup is a network round trip. If the tracer opened first, add the
 // property line the moment it lands rather than making you reopen the tab.
 function ptParcelWhenReady(tries){
@@ -25801,6 +25823,7 @@ function ptPenModeToggle(){ PT._pen=!ptPenModeGet();
   _toast(PT._pen?"Pencil mode on — only the Pencil can place a point":"Pencil mode off — a tap places a point again","#2F5B23"); }
 function ptPenModeApply(){ /* the map keeps its own gestures in every mode */ }
 function ptMapClick(e){ if(!e||!e.latLng) return;
+  if(PT._penTapAt && Date.now()-PT._penTapAt<500){ PT._penTapAt=0; return; }   // already placed by the pen
   if(ptPenModeGet()){ const t=e.domEvent&&e.domEvent.pointerType; if(t&&t!=="pen") return; }
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
   const c=_llToPx(p);
