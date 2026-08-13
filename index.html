@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v781</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v782</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25775,14 +25775,18 @@ function ptPenBind(){ const w=document.getElementById("pt-stagewrap"); if(!w||w.
   w.addEventListener("pointercancel",ptPenUp,true);
   w._penBound=true; }
 function _ptIsPen(e){ return e && e.pointerType==="pen"; }
-function ptPenDown(e){ if(!ptMapLive()||!_ptIsPen(e)) return;
+function ptPenDown(e){
+  if(ptTouchDown(e)){ e.stopPropagation(); e.preventDefault(); return; }
+  if(!ptMapLive()||!_ptIsPen(e)) return;
   // the card and the popovers are UI, not canvas — let the Pencil use them normally
   try{ if(e.target&&e.target.closest&&e.target.closest("#pt-card,.tkpop,#pt-toolbar")) return; }catch(_){}
   e.stopPropagation(); e.preventDefault();
   const c=ptCanvasXY(e);
   if(ptVertexDown(e)){ _ptPen={mode:"vertex"}; try{ e.target.setPointerCapture&&e.target.setPointerCapture(e.pointerId); }catch(_){} return; }
   _ptPen={mode:"tap", x0:e.clientX, y0:e.clientY, lx:e.clientX, ly:e.clientY, c}; }
-function ptPenMove(e){ if(!_ptPen||!_ptIsPen(e)) return;
+function ptPenMove(e){
+  if(ptTouchMove(e)){ e.stopPropagation(); e.preventDefault(); return; }
+  if(!_ptPen||!_ptIsPen(e)) return;
   e.stopPropagation(); e.preventDefault();
   if(_ptPen.mode==="vertex"){ ptVertexMove(e); return; }
   const dx=e.clientX-_ptPen.lx, dy=e.clientY-_ptPen.ly;
@@ -25790,7 +25794,9 @@ function ptPenMove(e){ if(!_ptPen||!_ptIsPen(e)) return;
     _ptPen.mode="pan";                       // a pencil drag pans, the same as a finger
     try{ PT.map.panBy(-dx,-dy); }catch(err){}
     _ptPen.lx=e.clientX; _ptPen.ly=e.clientY; } }
-function ptPenUp(e){ if(!_ptPen) return;
+function ptPenUp(e){
+  if(ptTouchUp(e)){ e.stopPropagation(); e.preventDefault(); return; }
+  if(!_ptPen) return;
   if(_ptIsPen(e)){ e.stopPropagation(); e.preventDefault(); }
   const p=_ptPen; _ptPen=null;
   if(p.mode==="vertex"){ ptVertexUp(); return; }
@@ -25832,7 +25838,36 @@ function ptPenModeToggle(){ PT._pen=!ptPenModeGet();
   ptPenModeApply(); ptRenderModal();
   _toast(PT._pen?"Pencil mode on — rest your hand, two fingers to pan and zoom":"Pencil mode off — fingers draw again","#2F5B23"); }
 function ptPenModeApply(){ if(!ptMapLive()||!PT.map) return;
-  try{ PT.map.setOptions({gestureHandling: ptPenModeGet()?"cooperative":"greedy"}); }catch(e){} }
+  try{ PT.map.setOptions({gestureHandling: ptPenModeGet()?"none":"greedy"}); }catch(e){}
+  const el=document.getElementById("pt-map"); if(el) el.style.touchAction=ptPenModeGet()?"none":"";
+  _ptTouch={}; }
+// Two fingers still pan and zoom while the map itself is deaf — one finger, or a palm, does nothing.
+let _ptTouch={};
+function _ptTouchList(){ return Object.keys(_ptTouch).map(k=>_ptTouch[k]); }
+function _ptTouchGesture(){ const ps=_ptTouchList(); if(ps.length<2) return null;
+  const a=ps[0], b=ps[1];
+  return {cx:(a.x+b.x)/2, cy:(a.y+b.y)/2, d:Math.hypot(a.x-b.x,a.y-b.y)}; }
+function ptTouchDown(e){ if(!ptPenModeGet()||!ptMapLive()||e.pointerType!=="touch") return false;
+  _ptTouch[e.pointerId]={x:e.clientX,y:e.clientY};
+  const g=_ptTouchGesture(); if(g) _ptTouch._g=g;
+  return true; }
+function ptTouchMove(e){ if(!ptPenModeGet()||!ptMapLive()||e.pointerType!=="touch") return false;
+  if(!(e.pointerId in _ptTouch)) return false;
+  _ptTouch[e.pointerId]={x:e.clientX,y:e.clientY};
+  const g=_ptTouchGesture(); const p=_ptTouch._g;
+  if(g&&p){
+    try{ PT.map.panBy(-(g.cx-p.cx), -(g.cy-p.cy)); }catch(err){}
+    const r=p.d>4?g.d/p.d:1;
+    if(r>1.35||r<0.74){ try{ PT.map.setZoom(Math.max(15,Math.min(22,PT.map.getZoom()+(r>1?1:-1)))); }catch(err){}
+      _ptTouch._g={cx:g.cx,cy:g.cy,d:g.d}; }
+    else _ptTouch._g={cx:g.cx,cy:g.cy,d:p.d};
+  }
+  return true; }
+function ptTouchUp(e){ if(e.pointerType!=="touch") return false;
+  if(!(e.pointerId in _ptTouch)) return false;
+  delete _ptTouch[e.pointerId];
+  if(_ptTouchList().length<2) delete _ptTouch._g;
+  return true; }
 function ptMapClick(e){ if(!e||!e.latLng) return;
   if(ptPenModeGet()){ const t=e.domEvent&&e.domEvent.pointerType; if(t&&t!=="pen") return; }
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
@@ -26776,7 +26811,6 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   const _proj=((typeof S!=="undefined"&&S.pi)&&(S.pi.project||S.pi.client||S.pi.address))||"";
   const _ic=(d)=>`<svg viewBox="0 0 24 24">${d}</svg>`;
   const _tbHTML=`<div class="tkb-left">
-    <span class="tkb-ttl"><b>Take-offs</b>${_proj?`<span>${String(_proj).replace(/</g,"&lt;")}</span>`:''}</span>
     <div class="tkb-grp">
       <button class="tkb-b" onclick="ptBasePopover()" title="What you are tracing on">${_ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/>')}${ptBaseLabel()}</button>
       ${PT.live?'':`<button class="tkb-b${PT.ppf?'':' warn'}" onclick="ptOpenScale()">${PT.ppf?'Scale set':'① Set scale'}</button>`}
