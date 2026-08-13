@@ -3262,7 +3262,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v777</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v778</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25750,7 +25750,9 @@ function ptMapBuild(center, zoom){
   PT.map=new google.maps.Map(el,{ center, zoom:zoom||20, mapTypeId:"satellite", tilt:0,
     gestureHandling:"greedy", disableDoubleClickZoom:true, mapTypeControl:false,
     streetViewControl:false, fullscreenControl:false, zoomControl:true, rotateControl:false,
-    keyboardShortcuts:false, clickableIcons:false });
+    keyboardShortcuts:false, clickableIcons:false,
+    zoomControlOptions:{position:google.maps.ControlPosition.RIGHT_CENTER},   // clear of the bottom bar
+    draggableCursor:"crosshair", draggingCursor:"grabbing" });
   PT._ov=new google.maps.OverlayView();
   PT._ov.onAdd=function(){}; PT._ov.draw=function(){}; PT._ov.onRemove=function(){};
   PT._ov.setMap(PT.map);
@@ -25808,6 +25810,9 @@ function ptParcelWhenReady(tries){
   if((tries||0)>30) return;                       // ~15s, then stop asking
   setTimeout(()=>ptParcelWhenReady((tries||0)+1),500);
 }
+// Crosshair says "I am placing points"; the default arrow says "I am selecting".
+function ptMapCursor(){ if(!ptMapLive()||!PT.map) return;
+  try{ PT.map.setOptions({draggableCursor: PT.selectMode?"default":"crosshair"}); }catch(e){} }
 function ptMapClick(e){ if(!e||!e.latLng||PT.selectMode) return;
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
   ptAddAt(p,_llToPx(p)); }
@@ -26010,6 +26015,26 @@ function _ptLineLF(pts){ if(!pts||pts.length<2) return 0;
   if(ptMapLive()){ try{ return google.maps.geometry.spherical.computeLength(pts.map(q=>new google.maps.LatLng(q.y,q.x)))*3.280839895; }catch(e){ return 0; } }
   if(!PT.ppf) return 0; return _ptLineLenPdf(pts)/PT.ppf; }
 function _ptCentroid(pts){ let a=0,cx=0,cy=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; const cr=pts[i].x*pts[j].y-pts[j].x*pts[i].y; a+=cr; cx+=(pts[i].x+pts[j].x)*cr; cy+=(pts[i].y+pts[j].y)*cr; } a*=0.5; if(Math.abs(a)<1e-6){ const n=pts.length||1; return {x:pts.reduce((s,p)=>s+p.x,0)/n,y:pts.reduce((s,p)=>s+p.y,0)/n}; } return {x:cx/(6*a),y:cy/(6*a)}; }
+// The area centroid of an L-shaped or crescent bed can land outside the bed. This finds the
+// interior point furthest from any edge — where a draughtsman would write the number.
+function _ptLabelPoint(pts){
+  const c=_ptCentroid(pts);
+  if(_ptPointInPoly(c,pts) && _ptEdgeDist(c,pts) > _ptBBoxSpan(pts)*0.06) return c;
+  let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
+  pts.forEach(p=>{ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; });
+  let best=c, bd=-1; const N=12;
+  for(let i=1;i<N;i++) for(let j=1;j<N;j++){
+    const q={x:x0+(x1-x0)*i/N, y:y0+(y1-y0)*j/N};
+    if(!_ptPointInPoly(q,pts)) continue;
+    const d=_ptEdgeDist(q,pts); if(d>bd){ bd=d; best=q; } }
+  return best; }
+function _ptEdgeDist(q,pts){ let m=Infinity;
+  for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length];
+    const d=_ptSegDist(q.x,q.y,a.x,a.y,b.x,b.y); if(d<m) m=d; }
+  return m; }
+function _ptBBoxSpan(pts){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
+  pts.forEach(p=>{ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; });
+  return Math.min(x1-x0, y1-y0); }
 function _ptPointInPoly(pt,pts){ let inside=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y; const hit=((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/((yj-yi)||1e-9)+xi); if(hit) inside=!inside; } return inside; }
 function ptDelPoly(i){ PT.polys.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
 function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
@@ -26017,7 +26042,7 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; } PT.polys.push({mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page}); } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
-function ptSetMode(m){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
+function ptSetMode(m){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
 function ptSetSubtype(v){ let rerender=false; if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):",""); const L=parseFloat(l),W=parseFloat(w); if(L>0&&W>0){ v=`${L}×${W}`; rerender=true; } else { ptRenderModal(); return; } } PT.subtype[PT.mode]=v; if(rerender) ptRenderModal(); }
 function ptStartCalib(){ PT.calibrating=true; PT.calib=[]; PT.cur=[]; const d=document.getElementById("pt-scale-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 const PT_SCALES=[["1/16\" = 1'-0\"",0.0625],["3/32\" = 1'-0\"",0.09375],["1/8\" = 1'-0\"",0.125],["3/16\" = 1'-0\"",0.1875],["1/4\" = 1'-0\"",0.25],["3/8\" = 1'-0\"",0.375],["1/2\" = 1'-0\"",0.5],["3/4\" = 1'-0\"",0.75],["1\" = 1'-0\"",1.0],["1-1/2\" = 1'-0\"",1.5],["1\" = 10'",0.1],["1\" = 20'",0.05],["1\" = 30'",0.033333],["1\" = 40'",0.025],["1\" = 50'",0.02],["1\" = 60'",0.016667],["1\" = 100'",0.01]];
@@ -26068,7 +26093,8 @@ async function ptFitPage(){ if(ptMapLive()) return;   // the map owns its own fr
 async function ptPage(d){ const n=PT.page+d; if(n<1||n>PT.numPages) return; PT.page=n; PT.cur=[]; await ptRenderPage(); ptRenderModal(); await ptRenderPage(); }
 function ptDelTree(i){ ptSnap(); PT.trees.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
 function _ptInteractive(mode){ return PT.cur.length===0 && !PT.calibrating && (PT.selectMode || PT.mode===mode); } // clickable on its own layer, or any layer in Select mode
-function ptSelectMode(){ PT.selectMode=!PT.selectMode; if(PT.selectMode) PT.cur=[]; else { PT.selPoly=null; PT._selStart=null; } ptRenderModal(); ptRenderPage(); }
+function ptSelectMode(){ PT.selectMode=!PT.selectMode; if(PT.selectMode) PT.cur=[]; else { PT.selPoly=null; PT._selStart=null; }
+  ptMapCursor(); ptRenderModal(); ptRenderPage(); }
 function _ptSegDist(px,py,ax,ay,bx,by){ const dx=bx-ax,dy=by-ay; const L=dx*dx+dy*dy; let t=L?((px-ax)*dx+(py-ay)*dy)/L:0; t=Math.max(0,Math.min(1,t)); const cx=ax+t*dx,cy=ay+t*dy; return Math.hypot(px-cx,py-cy); }
 function _ptHitTest(q,cxy){ // q=model coords, cxy=canvas coords; return {type:'tree'|'poly',idx}
   // On a live map the model is lat/lng, where a fixed tolerance means nothing —
@@ -26458,7 +26484,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       return; }
     const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
     s+=`<polygon points="${pts}" fill="${c}" fill-opacity="${md.noFill?0:0.25}" stroke="${c}" stroke-width="2.5"/>`;
-    if(!hide){ const ct=_toCanvas(_ptCentroid(p.pts));
+    if(!hide){ const ct=_toCanvas(_ptLabelPoint(p.pts));
       const nm=p.name||""; const meta=(p.zone?p.zone+" · ":"")+(p.sf?Math.round(p.sf).toLocaleString()+" SF":"—")+(p.type?" · "+p.type:"");
       const lbl=nm?nm:meta; const w=Math.max(50, Math.max(lbl.length, nm?meta.length*0.85:0)*7.2); const h=nm?32:18;
       const cy=_ptPlaceLabel(_placed, ct.x, ct.y, w, h);
