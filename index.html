@@ -3306,7 +3306,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v814</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v815</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25730,8 +25730,8 @@ function _ptCurType(m){ const md=_ptMode(m); if(!md.types) return null; return P
 function _ptMarkMode(t){ return t.mode||(t.pot?"pots":"tree"); }
 // undo/redo — snapshot polys/trees/cur before each change
 function ptSnap(){ try{ PT.undo.push(JSON.stringify({p:PT.polys,t:PT.trees,c:PT.cur})); if(PT.undo.length>60) PT.undo.shift(); PT.redo.length=0; }catch(e){} }
-function ptUndoAct(){ if(!PT.undo.length) return; PT.selPoly=null; PT._selStart=null; try{ PT.redo.push(JSON.stringify({p:PT.polys,t:PT.trees,c:PT.cur})); const s=JSON.parse(PT.undo.pop()); PT.polys=s.p; PT.trees=s.t; PT.cur=s.c; }catch(e){} ptDrawOverlay(); ptUpdateInfo(); }
-function ptRedoAct(){ if(!PT.redo.length) return; PT.selPoly=null; PT._selStart=null; try{ PT.undo.push(JSON.stringify({p:PT.polys,t:PT.trees,c:PT.cur})); const s=JSON.parse(PT.redo.pop()); PT.polys=s.p; PT.trees=s.t; PT.cur=s.c; }catch(e){} ptDrawOverlay(); ptUpdateInfo(); }
+function ptUndoAct(){ if(!PT.undo.length) return; if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selPoly=null; PT._selStart=null; try{ PT.redo.push(JSON.stringify({p:PT.polys,t:PT.trees,c:PT.cur})); const s=JSON.parse(PT.undo.pop()); PT.polys=s.p; PT.trees=s.t; PT.cur=s.c; }catch(e){} ptDrawOverlay(); ptUpdateInfo(); }
+function ptRedoAct(){ if(!PT.redo.length) return; if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selPoly=null; PT._selStart=null; try{ PT.undo.push(JSON.stringify({p:PT.polys,t:PT.trees,c:PT.cur})); const s=JSON.parse(PT.redo.pop()); PT.polys=s.p; PT.trees=s.t; PT.cur=s.c; }catch(e){} ptDrawOverlay(); ptUpdateInfo(); }
 function ptToggleLabels(){ PT.hideLabels=!PT.hideLabels; ptRenderModal(); ptRenderPage(); }
 function _ptLoadLib(){ return new Promise((res,rej)=>{ if(window.pdfjsLib){res(window.pdfjsLib);return;} const s=document.createElement("script"); s.src=PT_PDFJS; s.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc=PT_PDFJS.replace("pdf.min.js","pdf.worker.min.js"); }catch(e){} res(window.pdfjsLib); }; s.onerror=()=>rej(new Error("Could not load the PDF engine — check your connection.")); document.head.appendChild(s); }); }
 function _ab2b64(buf){ const bytes=new Uint8Array(buf); let bin=""; const chunk=0x8000; for(let i=0;i<bytes.length;i+=chunk){ bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk)); } return btoa(bin); }
@@ -25902,12 +25902,45 @@ function ptStampStart(mode){
   let c=null;
   try{ const m=PT.map&&PT.map.getCenter(); if(m) c={x:m.lng(), y:m.lat()}; }catch(e){}
   if(!c) return false;
+  if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null;
   PT.stamp={mode, len:d.len, dep:d.dep, rot:0, c, shape:"straight", ret:0};
   PT.cur=[]; PT.selPoly=null;
   ptRenderModal(); try{ ptDrawOverlay(); }catch(e){}
   return true;
 }
-function ptStampCancel(){ PT.stamp=null; ptRenderModal(); try{ ptDrawOverlay(); }catch(e){} }
+// What it takes to rebuild this element exactly — kept on the shape so tapping it later
+// brings back the same size, shape and rotation controls it was placed with.
+function _stampState(st){
+  const o={mode:st.mode, len:st.len, dep:st.dep, rot:st.rot||0,
+    c:{x:st.c.x, y:st.c.y}, shape:st.shape||"straight", ret:st.ret||0};
+  if(st.custom){ o.custom=st.custom.map(p=>({x:p.x,y:p.y})); o.scale=st.scale||1; }
+  return o;
+}
+// Elements placed before this was recorded: a plain rectangle can be read straight back
+// off its own corners, so those stay adjustable too.
+function _stampFromPoly(p){
+  if(p._stamp) return p._stamp;
+  if(!(+p._lenFt>0)||!p.pts||p.pts.length!==4||!ptMapLive()) return null;
+  const c=_tkBboxCtr(p.pts); const a=p.pts[0], b=p.pts[1];
+  const rot=((Math.atan2((a.y-b.y)*FT_PER_DEG_LAT,(b.x-a.x)*_ftPerDegLng(c.y))*180/Math.PI)+360)%360;
+  return {mode:p.mode, len:+p._lenFt, dep:+p._depFt||1, rot, c, shape:"straight", ret:0};
+}
+function _tkBboxCtr(pts){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
+  pts.forEach(q=>{ if(q.x<x0)x0=q.x; if(q.x>x1)x1=q.x; if(q.y<y0)y0=q.y; if(q.y>y1)y1=q.y; });
+  return {x:(x0+x1)/2, y:(y0+y1)/2}; }
+// Tap an element already on the plan and its own controls come back — same handles, same
+// steppers. Cancel puts it back untouched; Done writes it in place, keeping its label and zone.
+function ptStampReopen(idx){
+  const p=PT.polys[idx]; if(!p) return false;
+  const st0=_stampFromPoly(p); if(!st0) return false;
+  if(PT.stamp) ptStampCancel();
+  ptSnap();
+  PT.stamp=Object.assign(JSON.parse(JSON.stringify(st0)), {editIdx:idx});
+  PT.cur=[]; PT.selPoly=null; PT._selStart=null;
+  ptRenderModal(); try{ ptDrawOverlay(); ptRenderFloat(); }catch(e){}
+  return true;
+}
+function ptStampCancel(){ PT.stamp=null; ptRenderModal(); try{ ptDrawOverlay(); ptRenderFloat(); }catch(e){} }
 function ptStampSize(which, delta){
   const st=PT.stamp; if(!st) return;
   if(st.custom && (which==="len"||which==="dep")){       // a drawn shape scales as a whole
@@ -25928,12 +25961,22 @@ function _ftTxt(v){ const f=Math.floor(v), i=Math.round((v-f)*12); return i?`${f
 function ptStampPlace(){
   const st=PT.stamp; if(!st) return;
   const pts=ptStampPts(st); if(pts.length<3){ ptStampCancel(); return; }
-  ptSnap();
   const md=_ptMode(st.mode);
+  const runLF=(TK_STAMP[st.mode]&&TK_STAMP[st.mode].run)
+      ? (st.custom ? _tkLongestRun(pts) : (st.len + (st.shape==="L"?(st.ret||0):0))) : 0;
+  if(st.editIdx!=null){                     // adjusting one that is already on the plan
+    const p=PT.polys[st.editIdx];
+    if(p){ p.pts=pts; p.sf=_ptPolySF(pts); p._lenFt=st.custom?0:st.len; p._depFt=st.custom?0:st.dep;
+      p._runLF=runLF; p._stamp=_stampState(st); }
+    PT.stamp=null;
+    ptRenderModal(); try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+    _toast(`${md.label} moved — ${Math.round((p&&p.sf)||0).toLocaleString()} SF`,"#2F5B23");
+    return;
+  }
+  ptSnap();
   const poly={mode:st.mode, kind:"area", pts, page:PT.page, name:"", zone:"", phase:"", tags:"",
     type:_ptCurType(st.mode)||"", _lenFt:st.custom?0:st.len, _depFt:st.custom?0:st.dep,
-    _runLF: (TK_STAMP[st.mode]&&TK_STAMP[st.mode].run)
-      ? (st.custom ? _tkLongestRun(ptStampPts(st)) : (st.len + (st.shape==="L"?(st.ret||0):0))) : 0};
+    _runLF:runLF, _stamp:_stampState(st)};
   poly.sf=_ptPolySF(pts);
   PT.polys.push(poly);
   PT.stamp=null;
@@ -25945,11 +25988,19 @@ let _tkStampDrag=null;
 function ptStampDown(e){
   const st=PT.stamp; if(!st) return false;
   const c=ptCanvasXY(e); const pts=ptStampPts(st).map(_toCanvas);
-  const ctr=_toCanvas(st.c);
-  const rotH={x:ctr.x, y:ctr.y-Math.max(46,(st.dep*_tkPxPerFt())/2+34)};
-  if(Math.hypot(c.x-rotH.x,c.y-rotH.y)<=18){ _tkStampDrag={mode:"rot"}; return true; }
+  const ctr=_toCanvas(st.c); const arm=_tkStampArm(st);
+  if(Math.hypot(c.x-ctr.x,c.y-(ctr.y-arm))<=20){ _tkStampDrag={mode:"rot"}; return true; }
+  if(Math.hypot(c.x-ctr.x,c.y-(ctr.y+arm))<=20){ _tkStampDrag={mode:"move", from:_toPdf(c), c0:{x:st.c.x,y:st.c.y}}; return true; }
   if(_ptPointInPoly(c,pts)){ _tkStampDrag={mode:"move", from:_toPdf(c), c0:{x:st.c.x,y:st.c.y}}; return true; }
   return false;
+}
+// How far above and below the shape the handles sit — clear of the outline at any rotation,
+// so the thing you are lining up is never hidden by the tools you line it up with.
+function _tkStampArm(st){
+  try{ const cp=ptStampPts(st).map(_toCanvas), ctr=_toCanvas(st.c); let m=0;
+    cp.forEach(q=>{ m=Math.max(m, Math.abs(q.y-ctr.y)); });
+    return Math.max(42, m+30);
+  }catch(e){ return 46; }
 }
 function _tkPxPerFt(){
   try{ const a=_toCanvas({x:PT.stamp.c.x, y:PT.stamp.c.y});
@@ -25988,16 +26039,17 @@ function ptStampBar(){
       box-shadow:0 16px 40px -14px rgba(0,0,0,.55)">
       <span style="display:flex;align-items:center;gap:8px;padding-right:10px;border-right:1px solid rgba(255,255,255,.13)">
         <i style="width:12px;height:12px;border-radius:4px;background:${md.color};display:block"></i>
-        <b style="font:700 13.5px ${F};color:#EAF0E4">${md.label}</b></span>
+        <b style="font:700 13.5px ${F};color:#EAF0E4">${md.label}</b>
+        ${st.editIdx!=null?`<em style="font-style:normal;font:700 9px ${F};letter-spacing:.09em;text-transform:uppercase;color:#8FE07A">Adjusting</em>`:""}</span>
       ${st.custom?step("len","Size",Math.round((st.scale||1)*100)+"%")
         :`${step("len","Length",_ftTxt(st.len))}${step("dep","Depth",_ftTxt(st.dep))}${st.shape==="L"?step("ret","Return",_ftTxt(st.ret||0)):""}`}
       ${run?`<span style="display:flex;gap:5px;padding-left:4px">
         <button onclick="ptStampShape('straight')" style="border:0;border-radius:10px;padding:9px 11px;cursor:pointer;font:600 12.5px ${F};background:${st.shape!=="L"?"#5BA34A":"rgba(255,255,255,.12)"};color:${st.shape!=="L"?"#0F2409":"#EAF0E4"}">Straight</button>
         <button onclick="ptStampShape('L')" style="border:0;border-radius:10px;padding:9px 11px;cursor:pointer;font:600 12.5px ${F};background:${st.shape==="L"?"#5BA34A":"rgba(255,255,255,.12)"};color:${st.shape==="L"?"#0F2409":"#EAF0E4"}">L-shape</button></span>`:""}
       <span style="font:700 12px ${MN};color:#8FE07A;padding:0 4px">${Math.round(ptStampSF(st)).toLocaleString()} SF</span>
-      ${st.custom?"":`<button onclick="ptSheetOpen('${st.mode}')" style="border:0;border-radius:11px;padding:10px 13px;cursor:pointer;font:600 13px ${F};background:rgba(255,255,255,.12);color:#EAF0E4">Freeform…</button>`}
+      ${(st.custom||st.editIdx!=null)?"":`<button onclick="ptSheetOpen('${st.mode}')" style="border:0;border-radius:11px;padding:10px 13px;cursor:pointer;font:600 13px ${F};background:rgba(255,255,255,.12);color:#EAF0E4">Freeform…</button>`}
       <button onclick="ptStampCancel()" style="border:0;border-radius:11px;padding:10px 13px;cursor:pointer;font:600 13px ${F};background:rgba(255,255,255,.12);color:#EAF0E4">Cancel</button>
-      <button onclick="ptStampPlace()" style="border:0;border-radius:11px;padding:11px 18px;cursor:pointer;font:750 13.5px ${F};background:#6FBF5C;color:#0F2409">Place</button>
+      <button onclick="ptStampPlace()" style="border:0;border-radius:11px;padding:11px 18px;cursor:pointer;font:750 13.5px ${F};background:#6FBF5C;color:#0F2409">${st.editIdx!=null?"Done":"Place"}</button>
     </div>`;
 }
 // ── THE FREEFORM SHEET ──────────────────────────────────────────────────────
@@ -26562,7 +26614,7 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
     } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
-function ptSetMode(m){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
+function ptSetMode(m){ if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
 function ptSetSubtype(v){ let rerender=false; if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):",""); const L=parseFloat(l),W=parseFloat(w); if(L>0&&W>0){ v=`${L}×${W}`; rerender=true; } else { ptRenderModal(); return; } } PT.subtype[PT.mode]=v; if(rerender) ptRenderModal(); }
 function ptStartCalib(){ PT.calibrating=true; PT.calib=[]; PT.cur=[]; const d=document.getElementById("pt-scale-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 const PT_SCALES=[["1/16\" = 1'-0\"",0.0625],["3/32\" = 1'-0\"",0.09375],["1/8\" = 1'-0\"",0.125],["3/16\" = 1'-0\"",0.1875],["1/4\" = 1'-0\"",0.25],["3/8\" = 1'-0\"",0.375],["1/2\" = 1'-0\"",0.5],["3/4\" = 1'-0\"",0.75],["1\" = 1'-0\"",1.0],["1-1/2\" = 1'-0\"",1.5],["1\" = 10'",0.1],["1\" = 20'",0.05],["1\" = 30'",0.033333],["1\" = 40'",0.025],["1\" = 50'",0.02],["1\" = 60'",0.016667],["1\" = 100'",0.01]];
@@ -26623,7 +26675,7 @@ function _ptHitTest(q,cxy){ // q=model coords, cxy=canvas coords; return {type:'
   const tol=live?14:14/(PT.renderScale||1); // model units within ~14px
   for(let i=PT.trees.length-1;i>=0;i--){ const t=PT.trees[i]; if(t.page!==PT.page||PT.hidden[_ptMarkMode(t)]) continue; const tc=X(t); if(Math.hypot(tc.x-q.x,tc.y-q.y)<=tol*1.3) return {type:"tree",idx:i}; }
   // lines/edges
-  for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue; const pts=p.pts; if(!pts||pts.length<2) continue;
+  for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]||(PT.stamp&&PT.stamp.editIdx===i)) continue; const pts=p.pts; if(!pts||pts.length<2) continue;
     const segs=p.kind==="linear"?pts.length-1:pts.length; for(let s=0;s<segs;s++){ const a=X(pts[s]), b=X(pts[(s+1)%pts.length]); if(_ptSegDist(q.x,q.y,a.x,a.y,b.x,b.y)<=tol) return {type:"poly",idx:i}; } }
   // inside filled areas
   // area is not always stored (an unscaled trace has none), so fall back to the
@@ -27585,6 +27637,9 @@ function ptSelClear(){ PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRe
 // Clear the whole trace. Undo still gets it back, and the property line redraws itself.
 // Delete is always there. With nothing picked it hands you the Select tool rather than doing nothing.
 function ptDeleteTap(){
+  if(PT.stamp&&PT.stamp.editIdx!=null){ const i=PT.stamp.editIdx; PT.stamp=null;
+    PT.polys.splice(i,1); ptRenderModal(); try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+    _toast("Deleted — Undo brings it back.","#8A6D1F"); return; }
   if(PT.selPoly!=null){ ptSelDelete(); return; }
   if(!PT.selectMode) ptSelectMode();
   _toast("Tap an area on the plan to delete it.","#6A4FA3");
@@ -27605,6 +27660,7 @@ function ptResetAll(){
 function ptSelDelete(){ const i=PT.selPoly; if(i==null) return; ptSnap(); PT.polys.splice(i,1);
   PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptUpdateInfo(); }
 function ptSelect(idx){ const p=PT.polys[idx]; if(!p) return;
+  if(ptStampReopen(idx)) return;            // a placed element re-opens with its own controls
   PT.selPoly=idx; PT._selStart=(p.kind==="linear")?(+p.lf||0):(+p.sf||0);
   ptDrawOverlay(); ptRenderFloat(); }
 function _ptRemeasure(p){ if(!p) return;
@@ -27620,6 +27676,23 @@ function _ptHandleAt(e){ if(PT.selPoly==null) return null; const p=PT.polys[PT.s
     const q={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
     if(Math.hypot(c.x-q.x,c.y-q.y)<=tol) return {pi:i+1,mid:true}; }
   return null; }
+// Move and rotate for any traced shape: grip below to slide it, twist above to spin it
+// about its own centre. Feet-space rotation, so a shape never skews as it turns.
+function _ptSelArms(p){
+  const cpx=p.pts.map(_toCanvas); const ctr=_toCanvas(_tkBboxCtr(p.pts));
+  let top=1e12, bot=-1e12;
+  cpx.forEach(q=>{ if(q.y<top)top=q.y; if(q.y>bot)bot=q.y; });
+  return {ctr, arm:Math.max(40, Math.max(ctr.y-top, bot-ctr.y)+30)};
+}
+function _ptRotPts(orig, c, deg){
+  const r=deg*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r);
+  if(!ptMapLive()) return orig.map(q=>{ const x=q.x-c.x, y=q.y-c.y;
+    return {x:c.x+(x*cs-y*sn), y:c.y+(x*sn+y*cs)}; });
+  const fLat=FT_PER_DEG_LAT, fLng=_ftPerDegLng(c.y);
+  return orig.map(q=>{ const x=(q.x-c.x)*fLng, y=(c.y-q.y)*fLat;
+    const rx=x*cs-y*sn, ry=x*sn+y*cs;
+    return {x:c.x+rx/fLng, y:c.y-ry/fLat}; });
+}
 let _ptVDrag=null;
 // The overlay is transparent to the map except on its own handles, so the drag
 // listeners live on the SVG and capture the pointer once a handle is grabbed.
@@ -27632,13 +27705,34 @@ function ptSvgMove(e){ if(PT.stamp && ptStampMove(e)){ e.preventDefault(); e.sto
 function ptSvgUp(e){ if(ptStampUp()){ e.preventDefault(); e.stopPropagation(); return; }
   if(ptVertexUp()){ e.preventDefault(); e.stopPropagation(); } }
 function ptVertexDown(e){ if(ptUiGet()==="classic"||PT.selPoly==null||PT.calibrating) return false;
+  const p0=PT.polys[PT.selPoly];
+  if(p0&&p0.pts&&p0.pts.length>1&&p0.page===PT.page){
+    const c=ptCanvasXY(e), A=_ptSelArms(p0);
+    const orig=p0.pts.map(q=>({x:q.x,y:q.y}));
+    const sc0=p0._stamp?{x:p0._stamp.c.x, y:p0._stamp.c.y}:null, sr0=p0._stamp?(p0._stamp.rot||0):0;
+    if(Math.hypot(c.x-A.ctr.x, c.y-(A.ctr.y-A.arm))<=20){
+      ptSnap(); _ptVDrag={kind:"rot", orig, sc0, sr0, c:_tkBboxCtr(orig),
+        a0:Math.atan2(c.y-A.ctr.y, c.x-A.ctr.x)*180/Math.PI}; return true; }
+    if(Math.hypot(c.x-A.ctr.x, c.y-(A.ctr.y+A.arm))<=20){
+      ptSnap(); _ptVDrag={kind:"move", orig, sc0, from:_toPdf(c)}; return true; }
+  }
   const h=_ptHandleAt(e); if(!h) return false;
   const p=PT.polys[PT.selPoly]; if(!p) return false;
   ptSnap();
   if(h.mid) p.pts.splice(h.pi,0,_toPdf(ptCanvasXY(e)));   // a midpoint becomes a real corner
   _ptVDrag={pi:h.pi}; return true; }
 function ptVertexMove(e){ if(!_ptVDrag) return false; const p=PT.polys[PT.selPoly]; if(!p){ _ptVDrag=null; return false; }
-  p.pts[_ptVDrag.pi]=_toPdf(ptCanvasXY(e)); _ptRemeasure(p);
+  const d=_ptVDrag;
+  if(d.kind==="move"){ const q=_toPdf(ptCanvasXY(e));
+    const dx=q.x-d.from.x, dy=q.y-d.from.y;
+    p.pts=d.orig.map(o=>({x:o.x+dx, y:o.y+dy}));
+    if(p._stamp&&d.sc0) p._stamp.c={x:d.sc0.x+dx, y:d.sc0.y+dy};
+  } else if(d.kind==="rot"){ const c=ptCanvasXY(e); const A=_ptSelArms(p);
+    const deg=Math.atan2(c.y-A.ctr.y, c.x-A.ctr.x)*180/Math.PI-d.a0;
+    p.pts=_ptRotPts(d.orig, d.c, deg);
+    if(p._stamp&&d.sc0){ p._stamp.c=_ptRotPts([d.sc0], d.c, deg)[0]; p._stamp.rot=((d.sr0+deg)%360+360)%360; }
+  } else { p.pts[d.pi]=_toPdf(ptCanvasXY(e)); }
+  _ptRemeasure(p);
   ptDrawOverlay(); ptRenderFloat(); return true; }
 function ptVertexUp(){ if(!_ptVDrag) return false; _ptVDrag=null;
   const p=PT.polys[PT.selPoly]; if(p) _ptRemeasure(p);
@@ -27650,6 +27744,7 @@ function _ptHandlesSvg(){ if(ptUiGet()==="classic"||PT.selPoly==null) return "";
   const segs=(p.kind==="linear")?p.pts.length-1:p.pts.length;
   for(let i=0;i<segs;i++){ const a=_toCanvas(p.pts[i]), b=_toCanvas(p.pts[(i+1)%p.pts.length]);
     s+=`<circle cx="${(a.x+b.x)/2}" cy="${(a.y+b.y)/2}" r="4.5" fill="rgba(255,255,255,.8)" stroke="${md.color}" stroke-width="1.6" style="pointer-events:auto;cursor:copy"/>`; }
+  if(p.pts.length>1){ const A=_ptSelArms(p); s+=_ptArmSvg(A.ctr, A.arm, md.color, false); }
   p.pts.forEach(q=>{ const c=_toCanvas(q);
     s+=`<circle cx="${c.x}" cy="${c.y}" r="6.5" fill="#fff" stroke="${md.color}" stroke-width="2.4" style="pointer-events:auto;cursor:move"/>`; });
   return s; }
@@ -27767,8 +27862,21 @@ function _ptPlaceLabel(placed, cx, cy, w, h){
   placed.push({x1:cx-w/2, x2:cx+w/2, y1:y-h/2, y2:y+h/2});
   return y;
 }
+// Twist above, grip below. Both sit off the shape so the outline stays visible while you
+// line it up — the numbers live in the bar, never on top of what you are looking at.
+function _ptArmSvg(ctr, arm, color, live){
+  const x=ctr.x.toFixed(1), up=(ctr.y-arm).toFixed(1), dn=(ctr.y+arm).toFixed(1);
+  const halo=live?"":`stroke-opacity="0.75" `;
+  let s=`<line x1="${x}" y1="${(ctr.y-arm+15).toFixed(1)}" x2="${x}" y2="${(ctr.y-14).toFixed(1)}" stroke="${color}" ${halo}stroke-width="2" stroke-dasharray="4 3"/>`;
+  s+=`<circle cx="${x}" cy="${up}" r="14" fill="#fff" stroke="${color}" stroke-width="2.5" style="pointer-events:auto;cursor:grab"/>`;
+  s+=`<text x="${x}" y="${up}" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="700" fill="${color}" style="pointer-events:none">↻</text>`;
+  s+=`<line x1="${x}" y1="${(ctr.y+14).toFixed(1)}" x2="${x}" y2="${(ctr.y+arm-15).toFixed(1)}" stroke="${color}" ${halo}stroke-width="2" stroke-dasharray="4 3"/>`;
+  s+=`<circle cx="${x}" cy="${dn}" r="14" fill="#fff" stroke="${color}" stroke-width="2.5" style="pointer-events:auto;cursor:move"/>`;
+  s+=`<text x="${x}" y="${dn}" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="700" fill="${color}" style="pointer-events:none">✥</text>`;
+  return s;
+}
 function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) return; let s=""; const hide=PT.hideLabels; const _placed=[]; const _dots=[]; const _holes=_ptHoles();
-  PT.polys.forEach((p,idx)=>{ if(p.page!==PT.page||PT.hidden[p.mode]) return; const md=_ptMode(p.mode); const c=_ptFill(p); const cpts=p.pts.map(_toCanvas);
+  PT.polys.forEach((p,idx)=>{ if(p.page!==PT.page||PT.hidden[p.mode]||(PT.stamp&&PT.stamp.editIdx===idx)) return; const md=_ptMode(p.mode); const c=_ptFill(p); const cpts=p.pts.map(_toCanvas);
     const act=_ptInteractive(p.mode); const pe=act?'pointer-events:auto;cursor:pointer':'pointer-events:none';
     if(p.kind==="linear"){ const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "); const dash=(p.mode==="drainline"||p.mode==="tapelight")?` stroke-dasharray="${p.mode==='tapelight'?'2 5':'10 7'}"`:"";
       s+=`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
@@ -27852,17 +27960,10 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     if(cp.length===2) s+=`<line x1="${cp[0].x}" y1="${cp[0].y}" x2="${cp[1].x}" y2="${cp[1].y}" stroke="#C0524F" stroke-width="2"/>`; }
   // the stamp being positioned
   if(PT.stamp){ const st=PT.stamp; const md=_ptMode(st.mode);
-    const cp=ptStampPts(st).map(_toCanvas); const ctr=_toCanvas(st.c);
-    const rr=Math.max(46,(st.dep*_tkPxPerFt())/2+34);
-    s+=`<polygon points="${cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}44" stroke="${md.color}" stroke-width="2.5" style="pointer-events:auto;cursor:move"/>`;
-    s+=`<line x1="${ctr.x.toFixed(1)}" y1="${(ctr.y-rr+16).toFixed(1)}" x2="${ctr.x.toFixed(1)}" y2="${ctr.y.toFixed(1)}" stroke="${md.color}" stroke-width="2"/>`;
-    s+=`<circle cx="${ctr.x.toFixed(1)}" cy="${(ctr.y-rr).toFixed(1)}" r="13" fill="#fff" stroke="${md.color}" stroke-width="2.5" style="pointer-events:auto;cursor:grab"/>`;
-    s+=`<text x="${ctr.x.toFixed(1)}" y="${(ctr.y-rr).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="13" fill="${md.color}">↻</text>`;
-    cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="5" fill="#fff" stroke="${md.color}" stroke-width="2"/>`; });
-    const dimTxt=st.custom?(Math.round(ptStampSF(st)).toLocaleString()+" SF"):(_ftTxt(st.len)+" × "+_ftTxt(st.dep));
-    const w=Math.max(96,dimTxt.length*7.6);
-    s+=`<rect x="${(ctr.x-w/2).toFixed(1)}" y="${(ctr.y-12).toFixed(1)}" width="${w.toFixed(0)}" height="24" rx="12" fill="#fff" fill-opacity="0.97"/>`;
-    s+=`<text x="${ctr.x.toFixed(1)}" y="${ctr.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="750" fill="#141A10" font-family="ui-monospace,Menlo,monospace">${dimTxt}</text>`;
+    const cp=ptStampPts(st).map(_toCanvas); const ctr=_toCanvas(st.c); const arm=_tkStampArm(st);
+    s+=`<polygon points="${cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}33" stroke="${md.color}" stroke-width="2.5" style="pointer-events:auto;cursor:move"/>`;
+    cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="3.5" fill="#fff" stroke="${md.color}" stroke-width="1.8"/>`; });
+    s+=_ptArmSvg(ctr, arm, md.color, true);
   }
   // the wet stroke under the nib
   if(PT._inkPts&&PT._inkPts.length>1){ const mdI=_ptMode(PT.mode);
