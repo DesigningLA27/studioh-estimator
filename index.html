@@ -3199,7 +3199,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v772</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v773</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25666,6 +25666,39 @@ async function ptReopen(){
 // per-zone name/phase, live estimate) with a Google satellite image as the base "page". A tiny
 // pdf.js shim makes the image look like a 1-page plan, so no other PT code changes. Real-world scale
 // (ppf) is computed from the satellite zoom + latitude — no manual calibration needed. ──
+// ── TRACING ON A LIVE MAP ───────────────────────────────────────────────────
+// The map widget already pans, pinches, zooms and goes full screen, and never runs
+// out of edge. So the trace sits on a real Google map rather than a stitched still.
+// Points are stored as {x:lng, y:lat} — the same .x/.y shape every geometry helper
+// already expects; only area and length switch to spherical maths.
+function ptMapLive(){ return !!PT.live; }
+function _ptProj(){ try{ return (PT._ov&&PT._ov.getProjection)?PT._ov.getProjection():null; }catch(e){ return null; } }
+function _llToPx(pt){ const pr=_ptProj(); if(!pr) return {x:-9999,y:-9999};
+  try{ const q=pr.fromLatLngToContainerPixel(new google.maps.LatLng(pt.y,pt.x)); return {x:q.x,y:q.y}; }catch(e){ return {x:-9999,y:-9999}; } }
+function _pxToLl(x,y){ const pr=_ptProj(); if(!pr) return {x:0,y:0};
+  try{ const ll=pr.fromContainerPixelToLatLng(new google.maps.Point(x,y)); return {x:ll.lng(),y:ll.lat()}; }catch(e){ return {x:0,y:0}; } }
+function ptMapBuild(center, zoom){
+  const el=document.getElementById("pt-map"); if(!el) return;
+  if(!(window.google&&google.maps&&google.maps.Map)){ _toast("Maps is still loading — try again in a moment.","#B23F3C"); return; }
+  PT.map=new google.maps.Map(el,{ center, zoom:zoom||20, mapTypeId:"satellite", tilt:0,
+    gestureHandling:"greedy", disableDoubleClickZoom:true, mapTypeControl:false,
+    streetViewControl:false, fullscreenControl:false, zoomControl:true, rotateControl:false,
+    keyboardShortcuts:false, clickableIcons:false });
+  PT._ov=new google.maps.OverlayView();
+  PT._ov.onAdd=function(){}; PT._ov.draw=function(){}; PT._ov.onRemove=function(){};
+  PT._ov.setMap(PT.map);
+  const redraw=()=>{ try{ ptRenderPage(); }catch(e){} };
+  ["bounds_changed","zoom_changed","drag","idle"].forEach(ev=>{ try{ PT.map.addListener(ev,redraw); }catch(e){} });
+  try{ PT.map.addListener("click",e=>ptMapClick(e)); }catch(e){}
+  try{ google.maps.event.addListenerOnce(PT.map,"idle",()=>{ PT._mapReady=true; redraw(); }); }catch(e){}
+}
+function ptMapClick(e){ if(!e||!e.latLng||PT.selectMode) return;
+  const p={x:e.latLng.lng(), y:e.latLng.lat()};
+  ptAddAt(p,_llToPx(p)); }
+// Keep the map honest about its own size after a full-screen or panel change.
+function ptMapResize(){ if(!ptMapLive()||!PT.map) return;
+  try{ google.maps.event.trigger(PT.map,"resize"); }catch(e){}
+  try{ ptRenderPage(); }catch(e){} }
 function _ptImageDoc(img,w,h){ return { numPages:1,
   getPage:()=>Promise.resolve({
     getViewport:(o)=>{ const s=(o&&o.scale)||1; return {width:w*s,height:h*s,scale:s}; },
@@ -25743,27 +25776,34 @@ async function ptOpenSatellite(keepTrace){
     }
   }
   let ctr=null; try{ if(typeof map!=="undefined"&&map&&map.getCenter){ const c=map.getCenter(); if(c) ctr={lat:c.lat(),lng:c.lng()}; } }catch(e){}
-  if(keepTrace && PT.satBase) ctr=PT.satBase.center;
+  if(keepTrace && PT.satBase && PT.satBase.center) ctr=PT.satBase.center;
   { const home=_ptHome(); if(home && !(keepTrace&&PT.satBase)) ctr=home; }   // the project's address wins over wherever the map drifted
   if(!ctr || (Math.abs(ctr.lat)<0.02&&Math.abs(ctr.lng)<0.02)){ _toast("Enter the property address first so the map centers on it.","#B23F3C"); return; }
-  const tileZoom=(keepTrace&&PT.satBase&&PT.satBase.zoom)||21, grid=_satGridFor(), scale=2;   // zoom 21 = max detail; grid follows the screen shape
-  _toast("Loading high-res satellite (a few tiles)…","#6A4FA3");
-  let stit; try{ stit=await _fetchSatStitched(ctr, tileZoom, grid, scale); }catch(e){ _toast("Couldn't load the satellite image — check the connection.","#B23F3C"); return; }
-  const sb=stit.sb;
-  const mpp=156543.03392*Math.cos(ctr.lat*Math.PI/180)/Math.pow(2,sb.zoom)/scale;   // metres per stitched pixel
-  const ppf=1/(mpp*3.28084);   // pixels per foot (real-world scale)
-  try{ sb.for=(S.pi&&S.pi.address)||""; }catch(e){}   // which property this framing belongs to
-  PT.doc=_ptImageDoc(stit.canvas,sb.w,sb.h); PT.pdfData=null; PT.satBase=sb;
-  PT.numPages=1; PT.page=1; PT.ppf=ppf;
-  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.subtype={};
-    // Drop in the county-parcel boundary as the property line (Lot mode = outline only), reprojected
-    // to this satellite image. Same parcel data the map already fetched on address entry.
-    try{ const pd=window._parcelData; if(pd&&pd.paths&&pd.paths.length){ pd.paths.forEach(ring=>{ if(!ring||ring.length<3) return;
-      const pts=ring.map(ll=>_satLatLngToPx(ll.lat,ll.lng,PT.satBase)); const poly={mode:"lot",kind:"area",page:1,pts,name:"Property line",_parcel:true}; poly.sf=_ptPolySF(pts); PT.polys.push(poly); }); } }catch(e){}
+  // An older trace was drawn in the pixels of a stitched still. Convert it to lat/lng
+  // once, here, so it lands on the same ground on the live map.
+  if(keepTrace && PT.satBase && !PT.satBase.live && PT.satBase.w){
+    const sb0=PT.satBase;
+    const conv=pt=>{ const ll=_satPxToLatLng(pt.x,pt.y,sb0); return {x:ll.lng,y:ll.lat}; };
+    try{ PT.polys.forEach(p=>{ if(p.pts) p.pts=p.pts.map(conv); });
+      PT.trees.forEach(t=>{ const q=conv({x:t.x,y:t.y}); t.x=q.x; t.y=q.y; }); }catch(e){}
   }
-  PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
-  PT.detectedScale=null; PT.sheetIn=null;
-  ptRenderModal(); try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ refreshTraceButtons(); }catch(e){}
+  const zoom=(keepTrace&&PT.satBase&&PT.satBase.live&&PT.satBase.zoom)||20;
+  PT.live=true; PT.doc=null; PT.pdfData=null;
+  PT.satBase={center:{lat:+ctr.lat,lng:+ctr.lng}, zoom, live:true, for:((S.pi&&S.pi.address)||"")};
+  PT.numPages=1; PT.page=1; PT.ppf=1;   // measurements are geodesic on a live map; ppf only gates the old paths
+  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.subtype={};
+    // Drop in the county-parcel boundary as the property line — straight to lat/lng now.
+    try{ const pd=window._parcelData; if(pd&&pd.paths&&pd.paths.length){ pd.paths.forEach(ring=>{ if(!ring||ring.length<3) return;
+      const pts=ring.map(ll=>({x:ll.lng, y:ll.lat}));
+      const poly={mode:"lot",kind:"area",page:1,pts,name:"Property line",_parcel:true};
+      poly.sf=_ptPolySF(pts); PT.polys.push(poly); }); } }catch(e){}
+  } else { PT.polys.forEach(p=>{ if(p.kind==="linear") p.lf=_ptLineLF(p.pts); else if(p.pts&&p.pts.length>2) p.sf=_ptPolySF(p.pts); }); }
+  PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode=PT.mode||"planting"; PT.open=true;
+  PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
+  PT.selPoly=null; PT._selStart=null; PT.detectedScale=null; PT.sheetIn=null;
+  ptRenderModal();
+  ptMapBuild(PT.satBase.center, zoom);
+  try{ await ptRenderPage(); }catch(e){} try{ refreshTraceButtons(); }catch(e){}
   _toast("Satellite loaded (hi-res). Scale set automatically — trace away.","#2f5b23");
 }
 function ptHasTrace(){ return (typeof PT!=="undefined") && !!PT.pdfData; }
@@ -25772,7 +25812,7 @@ async function _ptOpenDocBuf(buf, keepTrace){
   let lib; try{ lib=await _ptLoadLib(); }catch(e){ alert(e.message); return false; }
   let b64=null; try{ b64=_ab2b64(buf); }catch(e){}
   try{ PT.doc=await lib.getDocument({data:new Uint8Array(buf.slice(0))}).promise; }catch(e){ alert("Couldn't read that PDF."); return false; }
-  PT.pdfData=b64; PT.satBase=null;   // a PDF and a satellite image are alternative bases, never both
+  PT.pdfData=b64; PT.satBase=null; PT.live=false;   // a PDF and a map are alternative bases, never both
   PT.numPages=PT.doc.numPages; PT.page=1;
   if(!keepTrace){ PT.ppf=null; PT.polys=[]; PT.trees=[]; PT.subtype={}; }
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
@@ -25791,6 +25831,8 @@ function _ptParseScale(t){ if(!t) return null; t=t.replace(/\s+/g," ");
   m=t.match(/1\s*["″]?\s*=\s*(\d+)\s*'/); if(m){ const n=parseFloat(m[1]); if(n>0) return 1/n; }
   return null; }
 function ptClose(){ PT.open=false;
+  try{ if(PT._ov) PT._ov.setMap(null); }catch(e){}
+  PT._ov=null; PT.map=null; PT._mapReady=false;
   // MUST fully exit fullscreen BEFORE removing the fullscreen element, or the browser
   // is left showing a blank (white/black) screen. exitFullscreen() is async, so we wait
   // for it to actually finish before pulling the modal out of the DOM.
@@ -25805,18 +25847,30 @@ function ptClose(){ PT.open=false;
     setTimeout(fin, 500);   // safety net if no event/promise fires
   } else { removeModal(); }
 }
-async function ptRenderPage(){ if(!PT.doc) return; const page=await PT.doc.getPage(PT.page);
+async function ptRenderPage(){
+  if(ptMapLive()){ const el=document.getElementById("pt-map"), svg=document.getElementById("pt-svg");
+    if(el&&svg){ const w=el.clientWidth||1, h=el.clientHeight||1;
+      svg.setAttribute("width",w); svg.setAttribute("height",h); svg.setAttribute("viewBox","0 0 "+w+" "+h); }
+    PT.renderScale=1; ptDrawOverlay(); ptUpdateInfo(); return; }
+  if(!PT.doc) return; const page=await PT.doc.getPage(PT.page);
   const vp=page.getViewport({scale:PT.scale}); PT.renderScale=PT.scale; PT.canvasW=vp.width; PT.canvasH=vp.height;
   const cv=document.getElementById("pt-canvas"); if(!cv) return; cv.width=vp.width; cv.height=vp.height;
   const ctx=cv.getContext("2d"); await page.render({canvasContext:ctx,viewport:vp}).promise;
   const svg=document.getElementById("pt-svg"); if(svg){ svg.setAttribute("width",vp.width); svg.setAttribute("height",vp.height); svg.setAttribute("viewBox",`0 0 ${vp.width} ${vp.height}`); }
   ptDrawOverlay(); ptUpdateInfo(); }
 function _ptShoelace(pts){ let a=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; a+=pts[i].x*pts[j].y-pts[j].x*pts[i].y; } return Math.abs(a)/2; }
-function _ptPolySF(pdfPts){ if(!PT.ppf||pdfPts.length<3) return 0; return _ptShoelace(pdfPts)/(PT.ppf*PT.ppf); }
-function ptCanvasXY(e){ const cv=document.getElementById("pt-canvas"); const r=cv.getBoundingClientRect(); const x=(e.clientX-r.left)*(cv.width/r.width); const y=(e.clientY-r.top)*(cv.height/r.height); return {x,y}; }
-function _toPdf(pt){ return {x:pt.x/PT.renderScale, y:pt.y/PT.renderScale}; }
-function _toCanvas(pt){ return {x:pt.x*PT.renderScale, y:pt.y*PT.renderScale}; }
-function ptCanvasClick(e){ if(!PT.doc) return; const c=ptCanvasXY(e); const p=_toPdf(c);
+function _ptPolySF(pdfPts){ if(!pdfPts||pdfPts.length<3) return 0;
+  if(ptMapLive()){ try{ return google.maps.geometry.spherical.computeArea(pdfPts.map(q=>new google.maps.LatLng(q.y,q.x)))*10.7639104; }catch(e){ return 0; } }
+  if(!PT.ppf) return 0; return _ptShoelace(pdfPts)/(PT.ppf*PT.ppf); }
+function ptCanvasXY(e){
+  if(ptMapLive()){ const el=document.getElementById("pt-map"); if(!el) return {x:0,y:0};
+    const r=el.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+  const cv=document.getElementById("pt-canvas"); const r=cv.getBoundingClientRect(); const x=(e.clientX-r.left)*(cv.width/r.width); const y=(e.clientY-r.top)*(cv.height/r.height); return {x,y}; }
+function _toPdf(pt){ return ptMapLive()?_pxToLl(pt.x,pt.y):{x:pt.x/PT.renderScale, y:pt.y/PT.renderScale}; }
+function _toCanvas(pt){ return ptMapLive()?_llToPx(pt):{x:pt.x*PT.renderScale, y:pt.y*PT.renderScale}; }
+function ptCanvasClick(e){ if(!PT.doc&&!ptMapLive()) return; const c=ptCanvasXY(e); const p=_toPdf(c); ptAddAt(p,c,e); }
+// p = a point in whatever the base measures in; c = the same point in screen pixels.
+function ptAddAt(p,c,e){
   if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c);
     // Canvas-first layouts keep the selection live so the corner handles stay up,
     // instead of throwing a popover over the drawing you are editing.
@@ -25833,7 +25887,9 @@ function ptCanvasClick(e){ if(!PT.doc) return; const c=ptCanvasXY(e); const p=_t
   if(PT.cur.length>=3){ const f=_toCanvas(PT.cur[0]); if(Math.hypot(c.x-f.x,c.y-f.y)<14){ ptFinishPoly(); return; } }
   ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); }
 function _ptLineLenPdf(pts){ let d=0; for(let i=1;i<pts.length;i++){ d+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y); } return d; }
-function _ptLineLF(pts){ if(!PT.ppf||pts.length<2) return 0; return _ptLineLenPdf(pts)/PT.ppf; }
+function _ptLineLF(pts){ if(!pts||pts.length<2) return 0;
+  if(ptMapLive()){ try{ return google.maps.geometry.spherical.computeLength(pts.map(q=>new google.maps.LatLng(q.y,q.x)))*3.280839895; }catch(e){ return 0; } }
+  if(!PT.ppf) return 0; return _ptLineLenPdf(pts)/PT.ppf; }
 function _ptCentroid(pts){ let a=0,cx=0,cy=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; const cr=pts[i].x*pts[j].y-pts[j].x*pts[i].y; a+=cr; cx+=(pts[i].x+pts[j].x)*cr; cy+=(pts[i].y+pts[j].y)*cr; } a*=0.5; if(Math.abs(a)<1e-6){ const n=pts.length||1; return {x:pts.reduce((s,p)=>s+p.x,0)/n,y:pts.reduce((s,p)=>s+p.y,0)/n}; } return {x:cx/(6*a),y:cy/(6*a)}; }
 function _ptPointInPoly(pt,pts){ let inside=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y; const hit=((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/((yj-yi)||1e-9)+xi); if(hit) inside=!inside; } return inside; }
 function ptDelPoly(i){ PT.polys.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
@@ -25872,8 +25928,9 @@ function ptToggleFullscreen(){ const el=document.getElementById("pt-modal"); if(
   const isFs=d.fullscreenElement||d.webkitFullscreenElement;
   try{ if(!isFs){ const req=el.requestFullscreen||el.webkitRequestFullscreen; if(req){ req.call(el); } else { el.classList.add("pt-fs-fallback"); } }
     else { const ex=d.exitFullscreen||d.webkitExitFullscreen; if(ex){ ex.call(d); } el.classList.remove("pt-fs-fallback"); } }catch(e){ el.classList.toggle("pt-fs-fallback"); }
-  setTimeout(()=>{ try{ ptFitPage().then(ptRenderPage); }catch(e){} }, 350); }
-function ptZoom(f){ PT.scale=Math.min(4,Math.max(0.12,PT.scale*f)); ptRenderPage(); }
+  setTimeout(()=>{ try{ if(ptMapLive()) ptMapResize(); else ptFitPage().then(ptRenderPage); }catch(e){} }, 350); }
+function ptZoom(f){ if(ptMapLive()){ try{ PT.map.setZoom(Math.max(15,Math.min(22,PT.map.getZoom()+(f>1?1:-1)))); }catch(e){} return; }
+  PT.scale=Math.min(4,Math.max(0.12,PT.scale*f)); ptRenderPage(); }
 let _ptPan=null;
 function ptDown(e){ const cv=e.currentTarget;
   if(ptVertexDown(e)){ try{ cv.setPointerCapture(e.pointerId); }catch(_){} return; } try{ cv.setPointerCapture(e.pointerId); }catch(_){} const st=document.getElementById("pt-stage"); _ptPan={x:e.clientX,y:e.clientY,moved:false,sl:st?st.scrollLeft:0,stp:st?st.scrollTop:0}; }
@@ -25885,7 +25942,8 @@ function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.g
   const mx=(e.clientX-rect.left)+st.scrollLeft, my=(e.clientY-rect.top)+st.scrollTop; const old=PT.scale; const ratio=e.deltaY<0?1.12:0.89;
   PT.scale=Math.min(4,Math.max(0.12,PT.scale*ratio)); const f=PT.scale/old;
   ptRenderPage().then(()=>{ st.scrollLeft=mx*f-(e.clientX-rect.left); st.scrollTop=my*f-(e.clientY-rect.top); }); }
-async function ptFitPage(){ if(!PT.doc) return; const page=await PT.doc.getPage(PT.page); const vp1=page.getViewport({scale:1});
+async function ptFitPage(){ if(ptMapLive()) return;   // the map owns its own framing
+  if(!PT.doc) return; const page=await PT.doc.getPage(PT.page); const vp1=page.getViewport({scale:1});
   const st=document.getElementById("pt-stage"); const cw=(st?st.clientWidth:1000)-48, ch=(st?st.clientHeight:700)-48;
   let s=Math.min(cw/vp1.width, ch/vp1.height); if(!isFinite(s)||s<=0) s=1; PT.scale=Math.max(0.12,Math.min(3,s)); PT._fitScale=PT.scale; }
 async function ptPage(d){ const n=PT.page+d; if(n<1||n>PT.numPages) return; PT.page=n; PT.cur=[]; await ptRenderPage(); ptRenderModal(); await ptRenderPage(); }
@@ -25893,12 +25951,15 @@ function ptDelTree(i){ ptSnap(); PT.trees.splice(i,1); ptDrawOverlay(); ptUpdate
 function _ptInteractive(mode){ return PT.cur.length===0 && !PT.calibrating && (PT.selectMode || PT.mode===mode); } // clickable on its own layer, or any layer in Select mode
 function ptSelectMode(){ PT.selectMode=!PT.selectMode; if(PT.selectMode) PT.cur=[]; else { PT.selPoly=null; PT._selStart=null; } ptRenderModal(); ptRenderPage(); }
 function _ptSegDist(px,py,ax,ay,bx,by){ const dx=bx-ax,dy=by-ay; const L=dx*dx+dy*dy; let t=L?((px-ax)*dx+(py-ay)*dy)/L:0; t=Math.max(0,Math.min(1,t)); const cx=ax+t*dx,cy=ay+t*dy; return Math.hypot(px-cx,py-cy); }
-function _ptHitTest(q,cxy){ // q=pdf coords, cxy=canvas coords; return {type:'tree'|'poly',idx}
-  const tol=14/(PT.renderScale||1); // pdf units within ~14px
-  for(let i=PT.trees.length-1;i>=0;i--){ const t=PT.trees[i]; if(t.page!==PT.page||PT.hidden[_ptMarkMode(t)]) continue; if(Math.hypot(t.x-q.x,t.y-q.y)<=tol*1.3) return {type:"tree",idx:i}; }
+function _ptHitTest(q,cxy){ // q=model coords, cxy=canvas coords; return {type:'tree'|'poly',idx}
+  // On a live map the model is lat/lng, where a fixed tolerance means nothing —
+  // so everything is compared in screen pixels instead.
+  const live=ptMapLive(); const X=live?(pt=>_toCanvas(pt)):(pt=>pt); if(live) q=cxy;
+  const tol=live?14:14/(PT.renderScale||1); // model units within ~14px
+  for(let i=PT.trees.length-1;i>=0;i--){ const t=PT.trees[i]; if(t.page!==PT.page||PT.hidden[_ptMarkMode(t)]) continue; const tc=X(t); if(Math.hypot(tc.x-q.x,tc.y-q.y)<=tol*1.3) return {type:"tree",idx:i}; }
   // lines/edges
   for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue; const pts=p.pts; if(!pts||pts.length<2) continue;
-    const segs=p.kind==="linear"?pts.length-1:pts.length; for(let s=0;s<segs;s++){ const a=pts[s], b=pts[(s+1)%pts.length]; if(_ptSegDist(q.x,q.y,a.x,a.y,b.x,b.y)<=tol) return {type:"poly",idx:i}; } }
+    const segs=p.kind==="linear"?pts.length-1:pts.length; for(let s=0;s<segs;s++){ const a=X(pts[s]), b=X(pts[(s+1)%pts.length]); if(_ptSegDist(q.x,q.y,a.x,a.y,b.x,b.y)<=tol) return {type:"poly",idx:i}; } }
   // inside filled areas
   // area is not always stored (an unscaled trace has none), so fall back to the
   // bounding span — it ranks shapes the same way for picking purposes
@@ -25908,8 +25969,9 @@ function _ptHitTest(q,cxy){ // q=pdf coords, cxy=canvas coords; return {type:'tr
   let best=-1, bestSF=Infinity;
   for(let i=PT.polys.length-1;i>=0;i--){ const p=PT.polys[i]; if(p.page!==PT.page||PT.hidden[p.mode]) continue;
     if(p.kind!=="area"||!p.pts||p.pts.length<3) continue;
-    if(!_ptPointInPoly(q,p.pts)) continue;
-    const sf=(+p.sf||0)||_ptSpan(p.pts);
+    const ring=live?p.pts.map(X):p.pts;
+    if(!_ptPointInPoly(q,ring)) continue;
+    const sf=(+p.sf||0)||_ptSpan(ring);
     if(sf<bestSF){ bestSF=sf; best=i; } }
   if(best>=0) return {type:"poly",idx:best};
   return null; }
@@ -26145,6 +26207,13 @@ function _ptHandleAt(e){ if(PT.selPoly==null) return null; const p=PT.polys[PT.s
     if(Math.hypot(c.x-q.x,c.y-q.y)<=tol) return {pi:i+1,mid:true}; }
   return null; }
 let _ptVDrag=null;
+// The overlay is transparent to the map except on its own handles, so the drag
+// listeners live on the SVG and capture the pointer once a handle is grabbed.
+function ptSvgDown(e){ if(!ptVertexDown(e)) return;
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  e.preventDefault(); e.stopPropagation(); }
+function ptSvgMove(e){ if(ptVertexMove(e)){ e.preventDefault(); e.stopPropagation(); } }
+function ptSvgUp(e){ if(ptVertexUp()){ e.preventDefault(); e.stopPropagation(); } }
 function ptVertexDown(e){ if(ptUiGet()==="classic"||PT.selPoly==null||PT.calibrating) return false;
   const h=_ptHandleAt(e); if(!h) return false;
   const p=PT.polys[PT.selPoly]; if(!p) return false;
@@ -26361,12 +26430,13 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
         <div style="display:flex;flex-direction:column;gap:.25rem">${group("count")}</div>
       </div>`:''}
       <div id="pt-stagewrap" style="flex:1;position:relative;display:flex;overflow:hidden">
-      <div id="pt-stage" style="flex:1;overflow:auto;background:#3a4030;position:relative;display:flex;align-items:safe center;justify-content:safe center;padding:1rem">
+      ${PT.live?`<div id="pt-map" style="position:absolute;inset:0;background:#3a4030"></div>
+      <svg id="pt-svg" style="position:absolute;inset:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>`:`<div id="pt-stage" style="flex:1;overflow:auto;background:#3a4030;position:relative;display:flex;align-items:safe center;justify-content:safe center;padding:1rem">
         <div style="position:relative;line-height:0">
           <canvas id="pt-canvas" onpointerdown="ptDown(event)" onpointermove="ptMove(event)" onpointerup="ptUp(event)" style="cursor:crosshair;box-shadow:0 4px 24px rgba(0,0,0,.5);touch-action:none"></canvas>
           <svg id="pt-svg" style="position:absolute;top:0;left:0;pointer-events:none"></svg>
         </div>
-      </div>
+      </div>`}
       <div id="pt-float" style="position:absolute;inset:0;pointer-events:none"></div>
       </div>
       ${_ptUiNow!=="classic"?"":(PT.panelOpen?`<div style="width:280px;background:#fff;padding:0;overflow:auto;display:flex;flex-direction:column">
@@ -26434,7 +26504,7 @@ function _bidPayload(){ return { v:1, app:"studioh-estimator", savedAt:new Date(
 // hand back the trace the project was loaded with — otherwise routine autosaves quietly erase it.
 function _bidTrace(){
   if(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length))
-    return {polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null)};
+    return {polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),live:!!PT.live};
   const keep=window._traceBackup;                 // copied: the save path nulls .pdf on what it's given
   return keep?Object.assign({},keep):null;
 }
@@ -27125,7 +27195,7 @@ function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a save
   if(bid.trace&&typeof PT!=="undefined"){ PT.polys=bid.trace.polys||[]; PT.trees=bid.trace.trees||[]; if(bid.trace.ppf!=null) PT.ppf=bid.trace.ppf; if(bid.trace.subtype) PT.subtype=bid.trace.subtype; if(bid.trace.pdf) PT.pdfData=bid.trace.pdf;
     // A satellite trace has no PDF — its base is the map itself. Keep where/how it was framed so
     // reopening re-stitches the same image and the polygons land back on the same pixels.
-    PT.satBase=bid.trace.sat||null;
+    PT.satBase=bid.trace.sat||null; PT.live=!!(bid.trace.live||(PT.satBase&&PT.satBase.live));
     // Old saves predate `sat`. Polygons but no base of either kind = a satellite trace; recover its
     // framing from the property address so the trace is reachable instead of offering a fresh start.
     if(!PT.satBase && !PT.pdfData && PT.polys.length){ try{ if(S.pi&&S.pi.lat&&S.pi.lng)
@@ -27167,7 +27237,7 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
   Object.keys(measMap).forEach(k=>{ if(measMap[k]>0 && typeof measured==="object" && k in measured) measured[k]=measMap[k]; });
   const segs=(mode)=>PT.polys.filter(p=>p.mode===mode&&p.kind==="linear").map(p=>({label:p.type||"Run",lf:Math.round(p.lf||0)}));
   // coping LF = perimeter of pool + spa polygons (auto-derived for the pool builder)
-  const perimOf=(mode)=>{ let lf=0; if(!PT.ppf) return 0; PT.polys.forEach(p=>{ if(p.mode===mode&&p.kind==="area"){ let d=0; const pts=p.pts; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; d+=Math.hypot(pts[j].x-pts[i].x,pts[j].y-pts[i].y);} lf+=d/PT.ppf; } }); return Math.round(lf); };
+  const perimOf=(mode)=>{ let lf=0; PT.polys.forEach(p=>{ if(p.mode===mode&&p.kind==="area"&&p.pts&&p.pts.length>2){ lf+=_ptLineLF(p.pts.concat([p.pts[0]])); } }); return Math.round(lf); };
   const copingLF=perimOf("pool")+perimOf("spa");
   const stepperSizes={}; PT.trees.forEach(t=>{ if(_ptMarkMode(t)==="stepper"){ const k=t.size||"unspecified"; stepperSizes[k]=(stepperSizes[k]||0)+1; } });
   const irrZones=PT.polys.filter(p=>p.mode==="irrigation").map(p=>({zone:p.name||"",location:p.zone||"",type:p.type||"",phase:p.phase||"",sf:Math.round(p.sf||0)}));
