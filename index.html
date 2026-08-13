@@ -3302,7 +3302,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v812</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v813</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26222,11 +26222,12 @@ function ptStylusUp(ev,pt){
   }
   // Smoothing must never delete what you drew: back the tolerance off until the shape survives.
   const need=(kind==="linear"?2:3);
-  let tol=ptSmooth(), simp=_ptSimplify(st.pts, tol);
+  let tol=ptSmooth(PT.mode), simp=_ptSimplify(st.pts, tol);
   while(simp.length<need && tol>0.2){ tol/=2; simp=_ptSimplify(st.pts, tol); }
   if(simp.length<need) simp=st.pts.slice();
   if(simp.length<need){ try{ ptDrawOverlay(); }catch(_){} return; }
   ptSnap();
+  PT._drawTol=tol;                       // recorded on the shape, so it is never re-tidied
   PT.cur=simp.map(_toPdf);
   if(PT.cur.some(q=>!q||(!q.x&&!q.y))){ PT.cur=[];      // the map could not place it — say so
     _toast("The map is still loading — give it a moment and draw again.","#B23F3C");
@@ -26236,10 +26237,17 @@ function ptStylusUp(ev,pt){
 // Douglas–Peucker: keeps the corners you drew, drops the wobble in between.
 // How tightly a Pencil stroke is followed. Low keeps every wobble — good for curves. High
 // straightens it out — good for a run of paving. Remembered per browser.
-function ptSmooth(){ if(PT._smooth==null){ let v=null; try{ v=localStorage.getItem("studioh_pt_smooth"); }catch(e){}
-    const n=parseFloat(v); PT._smooth=(n>=0.5&&n<=10)?n:2.5; } return PT._smooth; }
-function ptSmoothSet(v){ const n=Math.max(0.5,Math.min(10,parseFloat(v)||2.5)); PT._smooth=n;
-  try{ localStorage.setItem("studioh_pt_smooth",String(n)); }catch(e){}
+function _ptSmoothAll(){ if(!PT._smoothBy){ let o=null;
+    try{ o=JSON.parse(localStorage.getItem("studioh_pt_smooth_by")||"null"); }catch(e){}
+    PT._smoothBy=(o&&typeof o==="object")?o:{}; } return PT._smoothBy; }
+// Kept per category: a planting bed wants every wobble, a paving edge wants straightening.
+// It only ever affects the next stroke — nothing already drawn is re-simplified, and each shape
+// records the setting it was drawn with.
+function ptSmooth(mode){ const m=mode||PT.mode; const all=_ptSmoothAll();
+  const n=parseFloat(all[m]); return (n>=0.5&&n<=10)?n:2.5; }
+function ptSmoothSet(v){ const n=Math.max(0.5,Math.min(10,parseFloat(v)||2.5));
+  const all=_ptSmoothAll(); all[PT.mode]=n;
+  try{ localStorage.setItem("studioh_pt_smooth_by",JSON.stringify(all)); }catch(e){}
   const lb=document.getElementById("pt-smooth-val"); if(lb) lb.textContent=ptSmoothLabel(n); }
 function ptSmoothLabel(n){ return n<=1.2?"Every wobble":n<=2.2?"Detailed":n<=3.5?"Balanced":n<=6?"Smoothed":"Straightened"; }
 function ptSmoothPopover(){ let d=document.getElementById("pt-smooth-pop"); if(d){ d.remove(); return; }
@@ -26247,12 +26255,15 @@ function ptSmoothPopover(){ let d=document.getElementById("pt-smooth-pop"); if(d
   d=document.createElement("div"); d.id="pt-smooth-pop"; d.className="tkpop";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
   d.style.cssText+=`;top:20px;left:${(ptRailWide()?196:64)+40}px;width:min(320px,90vw)`;
-  const n=ptSmooth();
+  const n=ptSmooth(); const smd=_ptMode(PT.mode);
   _ptPopOutside(d.id);
   d.innerHTML=`<div class="tkh"><h3>Pencil</h3><button class="cls" onclick="ptPopClose()">✕</button></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span style="width:11px;height:11px;border-radius:4px;background:${smd.color}"></span>
+      <b style="font:700 13.5px var(--tkf);color:#EAF0E4">${smd.label}</b></div>
     <div style="font:600 12.5px var(--tkf);color:#8FA383;line-height:1.5;margin-bottom:12px">
-      How closely a stroke follows your hand. Fewer points draw straighter and are easier to adjust;
-      more points hold a curve.</div>
+      How closely a stroke follows your hand, for this category only. It applies to the next thing
+      you draw — nothing already on the plan changes.</div>
     <input type="range" min="0.5" max="10" step="0.5" value="${n}" oninput="ptSmoothSet(this.value)"
       style="width:100%;accent-color:#8FE07A">
     <div style="display:flex;justify-content:space-between;font:600 11px var(--tkf);color:#8FA383;margin-top:4px">
@@ -26536,7 +26547,7 @@ function ptDelPoly(i){ PT.polys.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
 function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   if(kind==="linear"){ if(PT.cur.length>=2){ const lf=_ptLineLF(PT.cur); PT.polys.push({mode:PT.mode,kind:"linear",pts:PT.cur.slice(),lf,type:_ptCurType(PT.mode),name:"",zone:"",phase:"",tags:"",page:PT.page}); } }
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
-      const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page};
+      const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page,_tol:PT._drawTol||null};
       PT.polys.push(np);
       if(PT.mode==="exclude"){
         _toast(`${Math.round(sf).toLocaleString()} SF excluded — off the landscape area, not part of any surface`,"#8A6D1F");
@@ -27198,6 +27209,10 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
   if(ui==="F") extra=_tkLedgerBar(tot,live);
   el.innerHTML=`<div id="pt-stampbar"></div>`+tray+liveBox+extra;
   try{ ptStampBar(); }catch(e){}
+  // a row left open stays open through a redraw
+  if(PT._openRow){ const r=el.querySelector('.tkrow-body[data-mode="'+PT._openRow+'"]');
+    if(r){ r.style.transition="none"; r.style.transform="translateX(-"+TK_ROW_W+"px)"; r.dataset.open="1"; }
+    else PT._openRow=null; }
 }
 function _tkInspector(G){ const i=PT.selPoly; if(i==null) return "";
   const p=PT.polys[i]; if(!p) return ""; const m=_ptMode(p.mode);
@@ -27279,7 +27294,7 @@ function _tkLedgerBar(tot,live){
                  :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
         return `<div class="tkrow"><button class="tkrow-del" onclick="ptDeleteCategory('${m.k}')">Delete</button>
-          <div class="tkrow-body" onclick="ptRowTap(event,'${m.k}')"
+          <div class="tkrow-body" data-mode="${m.k}" onclick="ptRowTap(event,'${m.k}')"
             onpointerdown="ptRowDown(event)" onpointermove="ptRowMove(event)"
             onpointerup="ptRowUp(event)" onpointercancel="ptRowUp(event)">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
@@ -27422,7 +27437,8 @@ function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
 // Swipe a row left and it slides over to show a red Delete. Tap the row to see the workings.
 const TK_ROW_W=96;
 let _tkRow=null;
-function _tkRowClose(el){ if(el){ el.style.transition="transform .18s"; el.style.transform="translateX(0)"; el.dataset.open=""; } }
+function _tkRowClose(el){ if(el){ el.style.transition="transform .18s"; el.style.transform="translateX(0)"; el.dataset.open=""; }
+  PT._openRow=null; }
 function ptRowCloseAll(except){
   document.querySelectorAll(".tkrow-body").forEach(b=>{ if(b!==except&&b.dataset.open) _tkRowClose(b); });
 }
@@ -27445,7 +27461,8 @@ function ptRowUp(e){
   const el=r.el; el.style.transition="transform .18s";
   if(!r.moved){ el.style.transform=el.dataset.open?"translateX(-"+TK_ROW_W+"px)":"translateX(0)"; return; }
   const now=(el.style.transform.match(/-?[\d.]+/)||[0])[0]*1;
-  if(now < -TK_ROW_W/2){ el.style.transform="translateX(-"+TK_ROW_W+"px)"; el.dataset.open="1"; ptRowCloseAll(el); }
+  if(now < -TK_ROW_W/2){ el.style.transform="translateX(-"+TK_ROW_W+"px)"; el.dataset.open="1";
+    PT._openRow=el.dataset.mode||null; ptRowCloseAll(el); }
   else _tkRowClose(el);
   el._swallowClick=true; setTimeout(()=>{ el._swallowClick=false; }, 60);
 }
@@ -27475,36 +27492,63 @@ function ptWhy(mode){
   const pr=ptPriceFor(mode, qty);
   const src={built:"designed in its builder", rate:"a rate you have set in the price book",
              assumed:"an assumption, until you price it"}[pr&&pr.from]||"nothing yet";
-  const gross=PT.polys.filter(p=>p.mode===mode).reduce((a,p)=>a+(+p.sf||+p.lf||0),0);
   let cut=0;
   PT.polys.forEach((x,xi)=>{ if(PT_CUTS.indexOf(x.mode)<0) return;
     const h=_ptEnclosing(x,PT.polys); if(h&&h.mode===mode) cut+=_tkCutSF(x); });
   (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
     const h=_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys);
     if(h&&h.mode===mode) cut+=fp; });
-  const shapes=PT.polys.filter(p=>p.mode===mode).length;
+  const shapes=PT.polys.filter(p=>p.mode===mode);
   const marks=PT.trees.filter(t=>_ptMarkMode(t)===mode).length;
+  const rate=pr?pr.per:0;
+  // every shape traced in this category, with what each one is worth
+  const each=shapes.map((p,i)=>{
+    const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0);
+    let taken=0;
+    PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0) return;
+      if(_ptEnclosing(x,PT.polys)===p) taken+=_tkCutSF(x); });
+    (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
+      if(_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys)===p) taken+=fp; });
+    const net=Math.max(0, raw-taken);
+    const nm=(p.name&&p.name.trim())||p.type||`${md.label} ${i+1}`;
+    return {nm, net, taken, sub:p.type&&p.name?p.type:"", cost:rate*net};
+  });
   const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
-  d.style.cssText+=";top:20px;right:376px;width:min(340px,88vw);max-height:74vh;overflow:auto";
-  const line=(k,v)=>`<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.10)">
-      <span style="font:600 13px var(--tkf);color:#9FBF95;flex:1">${k}</span>
-      <b style="font:700 13px ui-monospace,Menlo,monospace;color:#EAF0E4;white-space:nowrap">${v}</b></div>`;
+  d.style.cssText+=";top:20px;right:376px;width:min(360px,88vw);max-height:74vh;overflow:auto";
   _ptPopOutside(d.id);
+  _ptWhyRender(d, md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length});
+}
+function _ptWhyRender(d, md, mode, x){
+  const {unit, qty, pr, src, cut, each, marks, shapes}=x;
+  const line=(k,v,acc)=>`<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.10)">
+      <span style="font:600 13px var(--tkf);color:#9FBF95;flex:1">${k}</span>
+      <b style="font:700 13px ui-monospace,Menlo,monospace;color:${acc||"#EAF0E4"};white-space:nowrap">${v}</b></div>`;
+  const rows=each.map(e=>`<div style="display:flex;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid rgba(255,255,255,.10)">
+      <span style="flex:1;min-width:0">
+        <b style="display:block;font:650 13px var(--tkf);color:#EAF0E4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.nm}</b>
+        ${e.taken?`<span style="display:block;font:600 10.5px var(--tkf);color:#8FA383">less ${_tkFmt(e.taken)} taken out</span>`:""}</span>
+      <span style="text-align:right;white-space:nowrap">
+        <b style="display:block;font:700 13px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${unit}</b>
+        <span style="display:block;font:700 11.5px ui-monospace,Menlo,monospace;color:#8FE07A">${e.cost>0?fmtN(e.cost):"—"}</span></span>
+    </div>`).join('');
   d.innerHTML=`<div class="tkh"><h3 style="display:flex;align-items:center;gap:9px">
       <span style="width:12px;height:12px;border-radius:4px;background:${md.color}"></span>${md.label}</h3>
       <button class="cls" onclick="ptPopClose()">✕</button></div>
-    <div style="font:600 12px var(--tkf);color:#8FA383;margin-bottom:4px">How this number was made</div>
-    ${shapes?line("Shapes traced", shapes):""}
-    ${marks?line("Marks placed", marks):""}
-    ${gross&&cut?line("Measured", `${_tkFmt(gross)} ${unit}`):""}
-    ${cut?line("Taken out by what sits on it", `− ${_tkFmt(cut)} ${unit}`):""}
-    ${line("Quantity used", `${_tkFmt(qty)} ${unit}`)}
-    ${pr?line("Rate", `$${pr.per.toFixed(2)} / ${unit||"ea"}`):""}
-    ${pr?line("Cost", fmtN(pr.total)):line("Cost","not priced yet")}
+    ${each.length?`<div style="font:600 12px var(--tkf);color:#8FA383;margin-bottom:2px">
+        ${each.length} trace${each.length===1?"":"s"}${pr?` at ${fmtN(pr.per)} / ${unit}`:""}</div>${rows}
+      <div style="display:flex;gap:10px;padding:10px 0 2px;border-top:2px solid rgba(255,255,255,.28);margin-top:4px">
+        <span style="font:700 13px var(--tkf);color:#EAF0E4;flex:1">Total</span>
+        <b style="font:750 15px ui-monospace,Menlo,monospace;color:#8FE07A">${pr?fmtN(pr.total):"not priced yet"}</b></div>`
+    :`<div style="font:600 12px var(--tkf);color:#8FA383;margin-bottom:4px">How this number was made</div>
+      ${marks?line("Marks placed", marks):""}
+      ${line("Quantity used", `${_tkFmt(qty)} ${unit}`)}
+      ${pr?line("Rate", `$${pr.per.toFixed(2)} / ${unit||"ea"}`):""}
+      ${pr?line("Cost", fmtN(pr.total), "#8FE07A"):line("Cost","not priced yet")}`}
     <div style="font:600 12px var(--tkf);color:#8FA383;margin-top:12px;line-height:1.5">
-      The rate comes from ${src}.${cut?" Anything sitting on this surface has already been removed above.":""}</div>`;
+      The rate comes from ${src}.${cut?" Anything sitting on these has already been taken off above.":""}</div>`;
 }
+
 // Where the take-off card lives. Drag it and it settles on whichever edge you let go nearest.
 function ptTkDock(){ if(PT._dock==null){ let v=null; try{ v=localStorage.getItem("studioh_pt_dock"); }catch(e){}
     // the tool rail owns the left edge now, so a panel docked there is squeezed against it
