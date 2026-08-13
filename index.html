@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v784</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v785</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25758,7 +25758,9 @@ function ptMapBuild(center, zoom){
   PT._ov=new google.maps.OverlayView();
   PT._ov.onAdd=function(){}; PT._ov.draw=function(){}; PT._ov.onRemove=function(){};
   PT._ov.setMap(PT.map);
-  const redraw=()=>{ try{ ptRenderPage(); }catch(e){} };
+  let _rq=0;
+  const redraw=()=>{ if(_rq) return;                      // one repaint per frame, not per event
+    _rq=requestAnimationFrame(()=>{ _rq=0; try{ ptRenderPage(); }catch(e){} }); };
   ["bounds_changed","zoom_changed","drag","idle"].forEach(ev=>{ try{ PT.map.addListener(ev,redraw); }catch(e){} });
   try{ PT.map.addListener("click",e=>ptMapClick(e)); }catch(e){}
   try{ google.maps.event.addListenerOnce(PT.map,"idle",()=>{ PT._mapReady=true; redraw(); }); }catch(e){}
@@ -25794,7 +25796,7 @@ function ptPenMove(e){
   const dx=e.clientX-_ptPen.lx, dy=e.clientY-_ptPen.ly;
   if(Math.abs(e.clientX-_ptPen.x0)+Math.abs(e.clientY-_ptPen.y0)>10){
     _ptPen.mode="pan";                       // a pencil drag pans, the same as a finger
-    try{ PT.map.panBy(-dx,-dy); }catch(err){}
+    _ptPanPixels(-dx,-dy);
     _ptPen.lx=e.clientX; _ptPen.ly=e.clientY; } }
 function ptPenUp(e){
   if(ptTouchUp(e)){ e.stopPropagation(); e.preventDefault(); return; }
@@ -25857,7 +25859,7 @@ function ptTouchMove(e){ if(!ptPenModeGet()||!ptMapLive()||e.pointerType!=="touc
   _ptTouch[e.pointerId]={x:e.clientX,y:e.clientY};
   const g=_ptTouchGesture(); const p=_ptTouch._g;
   if(g&&p){
-    try{ PT.map.panBy(-(g.cx-p.cx), -(g.cy-p.cy)); }catch(err){}
+    _ptPanPixels(-(g.cx-p.cx), -(g.cy-p.cy));
     const r=p.d>4?g.d/p.d:1;
     if(r>1.35||r<0.74){ try{ PT.map.setZoom(Math.max(15,Math.min(22,PT.map.getZoom()+(r>1?1:-1)))); }catch(err){}
       _ptTouch._g={cx:g.cx,cy:g.cy,d:g.d}; }
@@ -25869,6 +25871,11 @@ function ptTouchUp(e){ if(e.pointerType!=="touch") return false;
   delete _ptTouch[e.pointerId];
   if(_ptTouchList().length<2) delete _ptTouch._g;
   return true; }
+function _ptPanPixels(dx,dy){ if(!PT.map) return;
+  const pr=_ptProj(); if(!pr){ try{ PT.map.panBy(dx,dy); }catch(e){} return; }
+  try{ const c=PT.map.getCenter(); const cp=pr.fromLatLngToContainerPixel(c);
+    PT.map.setCenter(pr.fromContainerPixelToLatLng(new google.maps.Point(cp.x+dx, cp.y+dy))); }catch(e){}
+}
 function ptMapClick(e){ if(!e||!e.latLng) return;
   if(ptPenModeGet()){ const t=e.domEvent&&e.domEvent.pointerType; if(t&&t!=="pen") return; }
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
