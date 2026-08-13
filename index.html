@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v779</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v780</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25777,6 +25777,8 @@ function ptPenBind(){ const w=document.getElementById("pt-stagewrap"); if(!w||w.
   w._penBound=true; }
 function _ptIsPen(e){ return e && e.pointerType==="pen"; }
 function ptPenDown(e){ if(!ptMapLive()||!_ptIsPen(e)) return;
+  // the card and the popovers are UI, not canvas — let the Pencil use them normally
+  try{ if(e.target&&e.target.closest&&e.target.closest("#pt-card,.tkpop,#pt-toolbar")) return; }catch(_){}
   e.stopPropagation(); e.preventDefault();
   const c=ptCanvasXY(e);
   if(ptVertexDown(e)){ _ptPen={mode:"vertex"}; try{ e.target.setPointerCapture&&e.target.setPointerCapture(e.pointerId); }catch(_){} return; }
@@ -25794,7 +25796,13 @@ function ptPenUp(e){ if(!_ptPen) return;
   const p=_ptPen; _ptPen=null;
   if(p.mode==="vertex"){ ptVertexUp(); return; }
   if(p.mode==="pan") return;
-  const c=p.c; ptAddAt(_toPdf(c), c, e);      // a pencil tap drops a point
+  const c=p.c; const q=_toPdf(c);
+  if(PT.selectMode){ const hit=_ptHitTest(q,c);
+    if(hit&&hit.type==="poly") ptSelect(hit.idx);
+    else if(hit) ptEditTree(hit.idx);
+    else ptSelClear();
+    return; }
+  ptAddAt(q, c, e);                            // a pencil tap drops a point
 }
 // The parcel lookup is a network round trip. If the tracer opened first, add the
 // property line the moment it lands rather than making you reopen the tab.
@@ -25826,10 +25834,16 @@ function ptPenModeToggle(){ PT._pen=!ptPenModeGet();
   _toast(PT._pen?"Pencil mode on — rest your hand, two fingers to pan and zoom":"Pencil mode off — fingers draw again","#2F5B23"); }
 function ptPenModeApply(){ if(!ptMapLive()||!PT.map) return;
   try{ PT.map.setOptions({gestureHandling: ptPenModeGet()?"cooperative":"greedy"}); }catch(e){} }
-function ptMapClick(e){ if(!e||!e.latLng||PT.selectMode) return;
+function ptMapClick(e){ if(!e||!e.latLng) return;
   if(ptPenModeGet()){ const t=e.domEvent&&e.domEvent.pointerType; if(t&&t!=="pen") return; }
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
-  ptAddAt(p,_llToPx(p)); }
+  const c=_llToPx(p);
+  if(PT.selectMode){ const hit=_ptHitTest(p,c);
+    if(hit&&hit.type==="poly") ptSelect(hit.idx);
+    else if(hit) ptEditTree(hit.idx);
+    else ptSelClear();
+    return; }
+  ptAddAt(p,c); }
 // Keep the map honest about its own size after a full-screen or panel change.
 function ptMapResize(){ if(!ptMapLive()||!PT.map) return;
   try{ google.maps.event.trigger(PT.map,"resize"); }catch(e){}
@@ -26042,6 +26056,13 @@ function _ptLabelPoint(pts){
     if(!_ptPointInPoly(q,pts)) continue;
     const d=_ptEdgeDist(q,pts); if(d>bd){ bd=d; best=q; } }
   return best; }
+// Boundary outlines (lot, limit of work) carry their label just outside the top edge, so it
+// never sits over the property. Everything else keeps its label inside its own shape.
+function _ptOutsideLabel(cpts){
+  let x0=1e12,y0=1e12,x1=-1e12;
+  cpts.forEach(q=>{ if(q.x<x0)x0=q.x; if(q.x>x1)x1=q.x; if(q.y<y0)y0=q.y; });
+  return {x:(x0+x1)/2, y:y0-22};
+}
 function _ptEdgeDist(q,pts){ let m=Infinity;
   for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length];
     const d=_ptSegDist(q.x,q.y,a.x,a.y,b.x,b.y); if(d<m) m=d; }
@@ -26053,7 +26074,13 @@ function _ptPointInPoly(pt,pts){ let inside=false; for(let i=0,j=pts.length-1;i<
 function ptDelPoly(i){ PT.polys.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
 function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   if(kind==="linear"){ if(PT.cur.length>=2){ const lf=_ptLineLF(PT.cur); PT.polys.push({mode:PT.mode,kind:"linear",pts:PT.cur.slice(),lf,type:_ptCurType(PT.mode),name:"",zone:"",phase:"",tags:"",page:PT.page}); } }
-  else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; } PT.polys.push({mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page}); } }
+  else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
+      const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page};
+      PT.polys.push(np);
+      if(PT.mode==="exclude"){ const host=_ptEnclosing(np,PT.polys);
+        if(host) _toast(`${Math.round(sf).toLocaleString()} SF taken out of ${(host.name||_ptMode(host.mode).label)}`,"#8A6D1F");
+        else _toast("Nothing under this exclusion — draw it inside the area you want it taken out of.","#B23F3C"); }
+    } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
 function ptSetMode(m){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
@@ -26338,7 +26365,7 @@ function _tkLedgerBar(tot,live){
   </div>`;
   let body="";
   if(tab==="traced"){
-    const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit"].indexOf(m.k)<0).slice(0,4);
+    const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit"].indexOf(m.k)<0).slice(0, ptTkDock()==="bottom"?4:99);
     body=`<div style="display:flex;align-items:center;padding:2px 12px 8px">
         <span style="text-align:left"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">Traced</em>
           <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${_tkFmt(surf)}</b></span>
@@ -26349,10 +26376,10 @@ function _tkLedgerBar(tot,live){
         <span style="text-align:right"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">${capNm}</em>
           <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${cap?_tkFmt(cap):"—"}</b></span>
       </div>
-      <div style="display:flex;background:#F6F5EF;border-radius:18px;padding:11px 4px">
-        ${cells.length?cells.map((m,i)=>`<span style="flex:1;text-align:center;position:relative;${i?'border-left:1px solid #E2E6DA':''}">
-            <em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088;margin-bottom:2px">${m.label}</em>
-            <b style="display:block;font:750 15px ${F};color:#141A10">${_tkFmt(tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b></span>`).join('')
+      <div style="display:${ptTkDock()==="bottom"?"flex":"block"};background:#F6F5EF;border-radius:18px;padding:11px 4px;overflow-x:auto">
+        ${cells.length?cells.map((m,i)=>`<span style="${ptTkDock()==="bottom"?`flex:1;text-align:center;${i?'border-left:1px solid #E2E6DA':''}`:`display:flex;align-items:baseline;gap:8px;padding:6px 10px;${i?'border-top:1px solid #E2E6DA':''}`};position:relative">
+            <em style="font-style:normal;font:600 11.5px ${F};color:#94A088;${ptTkDock()==="bottom"?"display:block;margin-bottom:2px":""}">${m.label}</em>
+            <b style="font:750 15px ${F};color:#141A10;${ptTkDock()==="bottom"?"display:block":"margin-left:auto"}">${_tkFmt(tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b></span>`).join('')
           :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#68765B;padding:4px 0">Nothing traced yet — pick a category and click around an area.</span>`}
       </div>`;
   } else {
@@ -26380,12 +26407,46 @@ function _tkLedgerBar(tot,live){
       <span style="margin-left:auto;font:750 15px ${MN};color:#2F5B23">${_tkFmt(live.n)} ${live.u}</span>
       <span style="font:600 12px ${F};color:#94A088">${live.pts} pt</span>
     </div>`:"";
-  return `<div style="position:absolute;left:50%;transform:translateX(-50%);bottom:18px;width:min(600px,94%);
-      background:rgba(255,255,255,.97);border-radius:26px;padding:9px 9px 11px;pointer-events:auto;
+  const dock=ptTkDock();
+  const pos = dock==="left"  ? "left:16px;top:16px;bottom:16px;width:300px"
+            : dock==="right" ? "right:16px;top:16px;bottom:16px;width:300px"
+            :                  "left:50%;transform:translateX(-50%);bottom:18px;width:min(600px,94%)";
+  const grip=`<div onpointerdown="ptTkDragStart(event)" title="Drag to move — bottom, left or right"
+      style="height:16px;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none">
+      <span style="width:38px;height:4px;border-radius:4px;background:#DBE0D1"></span></div>`;
+  return `<div id="pt-card" style="position:absolute;${pos};z-index:3;
+      background:rgba(255,255,255,.97);border-radius:26px;padding:4px 9px 11px;pointer-events:auto;
+      display:flex;flex-direction:column;overflow:hidden;
       box-shadow:0 18px 44px -14px rgba(0,0,0,.5);font-family:${F}">
-    ${seg}${liveRow}${body}</div>`;
+    ${grip}${seg}${liveRow}<div style="overflow:auto;flex:1;min-height:0">${body}</div></div>`;
 }
 function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
+// Where the take-off card lives. Drag it and it settles on whichever edge you let go nearest.
+function ptTkDock(){ if(PT._dock==null){ let v=null; try{ v=localStorage.getItem("studioh_pt_dock"); }catch(e){}
+    PT._dock=(["bottom","left","right"].indexOf(v)>=0?v:"bottom"); } return PT._dock; }
+function ptTkDockSet(d){ PT._dock=d; try{ localStorage.setItem("studioh_pt_dock",d); }catch(e){} ptRenderFloat();
+  if(ptMapLive()) setTimeout(ptMapResize,60); }
+let _tkDrag=null;
+function ptTkDragStart(e){ const card=document.getElementById("pt-card"); if(!card) return;
+  _tkDrag={id:e.pointerId};
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  e.preventDefault(); e.stopPropagation();
+  card.style.opacity=".75";
+  const move=(ev)=>{ if(!_tkDrag) return; _tkDrag.x=ev.clientX; _tkDrag.y=ev.clientY; };
+  const up=(ev)=>{
+    window.removeEventListener("pointermove",move,true);
+    window.removeEventListener("pointerup",up,true);
+    card.style.opacity="";
+    const wrap=document.getElementById("pt-stagewrap"); if(!wrap||!_tkDrag){ _tkDrag=null; return; }
+    const r=wrap.getBoundingClientRect();
+    const x=(_tkDrag.x!=null?_tkDrag.x:ev.clientX)-r.left, y=(_tkDrag.y!=null?_tkDrag.y:ev.clientY)-r.top;
+    _tkDrag=null;
+    // nearest edge wins; the bottom third always means bottom
+    if(y > r.height*0.66) return ptTkDockSet("bottom");
+    ptTkDockSet(x < r.width/2 ? "left" : "right");
+  };
+  window.addEventListener("pointermove",move,true);
+  window.addEventListener("pointerup",up,true); }
 // ── selection & vertex editing ──────────────────────────────────────────────
 function ptSelClear(){ PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
 function ptSelDelete(){ const i=PT.selPoly; if(i==null) return; ptSnap(); PT.polys.splice(i,1);
@@ -26553,20 +26614,35 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       let bx0=1e12,by0=1e12,bx1=-1e12,by1=-1e12;
       cpx.forEach(q=>{ if(q.x<bx0)bx0=q.x; if(q.x>bx1)bx1=q.x; if(q.y<by0)by0=q.y; if(q.y>by1)by1=q.y; });
       const bw=bx1-bx0, bh=by1-by0;
+      // What this surface measures after anything excluded inside it has been taken out.
+      let netSF=+p.sf||0, cut=0;
+      if(p.kind==="area" && ["exclude","lot","limit"].indexOf(p.mode)<0){
+        PT.polys.forEach(x=>{ if(x.mode!=="exclude"||!(+x.sf>0)) return;
+          const h=_ptEnclosing(x,PT.polys); if(h===p) cut+=(+x.sf||0); });
+        netSF=Math.max(0,netSF-cut);
+      }
       const val=p.kind==="linear"
         ? (p.lf?Math.round(p.lf).toLocaleString()+" LF":"—")
-        : (p.sf?Math.round(p.sf).toLocaleString()+" SF":"—");
+        : (netSF?Math.round(netSF).toLocaleString()+" SF":"—");
       const nm=(p.name||"").trim()||_ptMode(p.mode).label;
-      const sub=(p.zone?p.zone+" · ":"")+(p.type||"");
+      const sub=(cut?`less ${Math.round(cut).toLocaleString()}`:"")+((cut&&(p.zone||p.type))?" · ":"")+(p.zone?p.zone+" · ":"")+(p.type||"");
       const valW=val.length*8.4;
       const nmW=Math.max(nm.length, sub.length)*6.6;
       const roomy=(bw>Math.max(112, nmW+40) && bh>52);
       const w=Math.round(roomy?Math.max(valW+30, nmW+30):valW+30);
       const h=roomy?38:26;
-      const cy=_ptPlaceLabel(_placed, ct.x, ct.y, w, h);
-      const moved=Math.abs(cy-ct.y)>2;
-      const lead=moved?`<line x1="${ct.x.toFixed(1)}" y1="${ct.y.toFixed(1)}" x2="${ct.x.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="#fff" stroke-width="1.4" stroke-dasharray="3 3" opacity="0.75"/><circle cx="${ct.x.toFixed(1)}" cy="${ct.y.toFixed(1)}" r="2.5" fill="#fff"/>`:"";
-      const x=ct.x, r=h/2;
+      let ax=ct.x, ay=ct.y;
+      if(p.kind==="area" && ["lot","limit"].indexOf(p.mode)>=0){ const o=_ptOutsideLabel(cpx); ax=o.x; ay=o.y; }
+      const cy0=_ptPlaceLabel(_placed, ax, ay, w, h);
+      // A nudge must not push the label off its own shape — pull it back inside if it does.
+      let cy=cy0;
+      if(p.kind==="area" && ["lot","limit"].indexOf(p.mode)<0){
+        const inside=(yy)=>_ptPointInPoly({x:ax,y:yy}, cpx);
+        if(!inside(cy) && inside(ct.y)) cy=ct.y;
+      }
+      const moved=Math.abs(cy-ay)>2;
+      const lead=moved?`<line x1="${ax.toFixed(1)}" y1="${ct.y.toFixed(1)}" x2="${ax.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="#fff" stroke-width="1.4" stroke-dasharray="3 3" opacity="0.75"/><circle cx="${ax.toFixed(1)}" cy="${ct.y.toFixed(1)}" r="2.5" fill="#fff"/>`:"";
+      const x=ax, r=h/2;
       s+=`<g style="${pe}" onclick="ptEditPoly(${idx})">${lead}`;
       s+=`<rect x="${(x-w/2).toFixed(1)}" y="${(cy-h/2).toFixed(1)}" width="${w}" height="${h}" rx="${r}" fill="#fff" fill-opacity="0.97"/>`;
       s+=`<circle cx="${(x-w/2+14).toFixed(1)}" cy="${cy.toFixed(1)}" r="4.5" fill="${md.color}"/>`;
