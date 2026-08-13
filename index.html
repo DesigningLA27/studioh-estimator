@@ -3302,7 +3302,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v808</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v809</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25701,7 +25701,7 @@ const PT_MODES=[
   {k:"tapelight",label:"LED tape light",color:"#D9A521",kind:"linear"},
   {k:"tree",label:"Trees",color:"#2E7D32",kind:"count",badge:"T",types:["15 gal","24\" box","36\" box","48\" box","60\" box","72\" box"]},
   {k:"pots",label:"Pots",color:"#C1663A",kind:"count",badge:"P"},
-  {k:"firepit",label:"Fire pit",color:"#E07B39",kind:"count",badge:"🔥"},
+  {k:"firepit",label:"Fire pit",color:"#E07B39",kind:"area"},
   {k:"fireplace",label:"Fireplace",color:"#C0392B",kind:"count",badge:"FP"},
   {k:"gate",label:"Gates",color:"#4A7BA6",kind:"count",badge:"G"},
   {k:"pilaster",label:"Pilasters",color:"#7A7267",kind:"count",badge:"PL"},
@@ -25803,10 +25803,34 @@ async function ptReopen(){
 // already expects; only area and length switch to spherical maths.
 function ptMapLive(){ return !!PT.live; }
 function _ptProj(){ try{ return (PT._ov&&PT._ov.getProjection)?PT._ov.getProjection():null; }catch(e){ return null; } }
-function _llToPx(pt){ const pr=_ptProj(); if(!pr) return {x:-9999,y:-9999};
-  try{ const q=pr.fromLatLngToContainerPixel(new google.maps.LatLng(pt.y,pt.x)); return {x:q.x,y:q.y}; }catch(e){ return {x:-9999,y:-9999}; } }
-function _pxToLl(x,y){ const pr=_ptProj(); if(!pr) return {x:0,y:0};
-  try{ const ll=pr.fromContainerPixelToLatLng(new google.maps.Point(x,y)); return {x:ll.lng(),y:ll.lat()}; }catch(e){ return {x:0,y:0}; } }
+// The overlay's projection is the good path, but it is null until the map's first draw. Without
+// a fallback a stroke made in that window silently became a zero-area shape. Mercator against
+// the map's own bounds is exact enough to draw with and always available.
+const _mY=(lat)=>Math.log(Math.tan(Math.PI/4+(Math.max(-85,Math.min(85,lat))*Math.PI/180)/2));
+const _mYinv=(y)=>(2*Math.atan(Math.exp(y))-Math.PI/2)*180/Math.PI;
+function _ptBoundsBox(){
+  try{ const b=PT.map&&PT.map.getBounds(); const el=document.getElementById("pt-map");
+    if(!b||!el||!el.clientWidth) return null;
+    return {ne:b.getNorthEast(), sw:b.getSouthWest(), w:el.clientWidth, h:el.clientHeight};
+  }catch(e){ return null; } }
+function _llToPx(pt){
+  const pr=_ptProj();
+  if(pr){ try{ const q=pr.fromLatLngToContainerPixel(new google.maps.LatLng(pt.y,pt.x));
+      if(q) return {x:q.x,y:q.y}; }catch(e){} }
+  const b=_ptBoundsBox(); if(!b) return {x:-9999,y:-9999};
+  const yT=_mY(b.ne.lat()), yB=_mY(b.sw.lat());
+  const y=(yT===yB)?0:((_mY(pt.y)-yT)/(yB-yT))*b.h;
+  const lngSpan=(b.ne.lng()-b.sw.lng())||1e-9;
+  return {x:((pt.x-b.sw.lng())/lngSpan)*b.w, y};
+}
+function _pxToLl(x,y){
+  const pr=_ptProj();
+  if(pr){ try{ const ll=pr.fromContainerPixelToLatLng(new google.maps.Point(x,y));
+      if(ll) return {x:ll.lng(), y:ll.lat()}; }catch(e){} }
+  const b=_ptBoundsBox(); if(!b) return {x:0,y:0};
+  const yT=_mY(b.ne.lat()), yB=_mY(b.sw.lat());
+  return {x:b.sw.lng()+(b.ne.lng()-b.sw.lng())*(x/b.w), y:_mYinv(yT+(yB-yT)*(y/b.h))};
+}
 function ptMapBuild(center, zoom){
   const el=document.getElementById("pt-map"); if(!el) return;
   if(!(window.google&&google.maps&&google.maps.Map)){ _toast("Maps is still loading — try again in a moment.","#B23F3C"); return; }
@@ -25860,6 +25884,9 @@ function _ptPt(ev,pt){ const el=document.getElementById("pt-map"); if(!el) retur
   const r=el.getBoundingClientRect(); return {x:pt.clientX-r.left, y:pt.clientY-r.top}; }
 function ptStylusDown(ev,pt){
   if(!ptMapLive()||!PT.open) return;
+  // Palm rejection: once the nib is down, any other touch is a hand on the glass. Swallow it
+  // here so the map never sees it — no map settings are changed, so nothing else breaks.
+  if(_ptStroke && !(pt||_ptStylusTouch(ev))){ ev.preventDefault(); ev.stopPropagation(); return; }
   const t=pt||_ptStylusTouch(ev); if(!t) return;
   if(_ptUiTarget(ev.target)) return;                       // the card and the toolbar are not canvas
   ev.preventDefault(); ev.stopPropagation();               // the map must not see this
@@ -25870,7 +25897,8 @@ function ptStylusDown(ev,pt){
 }
 function ptStylusMove(ev,pt){
   if(!_ptStroke) return;
-  const t=pt||_ptStylusTouch(ev); if(!t) return;
+  const t=pt||_ptStylusTouch(ev);
+  if(!t){ ev.preventDefault(); ev.stopPropagation(); return; }   // a palm dragging mid-stroke
   ev.preventDefault(); ev.stopPropagation();
   const p=_ptPt(ev,t); if(!p) return;
   const last=_ptStroke.pts[_ptStroke.pts.length-1];
@@ -25882,6 +25910,7 @@ function ptStylusMove(ev,pt){
 }
 function ptStylusUp(ev,pt){
   const st=_ptStroke; if(!st) return;
+  if(!(pt||_ptStylusTouch(ev))){ ev.preventDefault(); ev.stopPropagation(); return; }  // palm lifting
   _ptStroke=null; PT._inkPts=null;
   try{ ev.preventDefault(); ev.stopPropagation(); }catch(_){}
   if(st.onHandle){ try{ ptVertexUp(); }catch(_){} return; }
@@ -25906,13 +25935,44 @@ function ptStylusUp(ev,pt){
     const c={x:cx/st.pts.length, y:cy/st.pts.length};
     ptAddAt(_toPdf(c), c, ev); return;
   }
-  const simp=_ptSimplify(st.pts, 2.5);
-  if(simp.length<(kind==="linear"?2:3)){ try{ ptDrawOverlay(); }catch(_){} return; }
+  // Smoothing must never delete what you drew: back the tolerance off until the shape survives.
+  const need=(kind==="linear"?2:3);
+  let tol=ptSmooth(), simp=_ptSimplify(st.pts, tol);
+  while(simp.length<need && tol>0.2){ tol/=2; simp=_ptSimplify(st.pts, tol); }
+  if(simp.length<need) simp=st.pts.slice();
+  if(simp.length<need){ try{ ptDrawOverlay(); }catch(_){} return; }
   ptSnap();
   PT.cur=simp.map(_toPdf);
+  if(PT.cur.some(q=>!q||(!q.x&&!q.y))){ PT.cur=[];      // the map could not place it — say so
+    _toast("The map is still loading — give it a moment and draw again.","#B23F3C");
+    try{ ptDrawOverlay(); }catch(_){} return; }
   ptFinishPoly();
 }
 // Douglas–Peucker: keeps the corners you drew, drops the wobble in between.
+// How tightly a Pencil stroke is followed. Low keeps every wobble — good for curves. High
+// straightens it out — good for a run of paving. Remembered per browser.
+function ptSmooth(){ if(PT._smooth==null){ let v=null; try{ v=localStorage.getItem("studioh_pt_smooth"); }catch(e){}
+    const n=parseFloat(v); PT._smooth=(n>=0.5&&n<=10)?n:2.5; } return PT._smooth; }
+function ptSmoothSet(v){ const n=Math.max(0.5,Math.min(10,parseFloat(v)||2.5)); PT._smooth=n;
+  try{ localStorage.setItem("studioh_pt_smooth",String(n)); }catch(e){}
+  const lb=document.getElementById("pt-smooth-val"); if(lb) lb.textContent=ptSmoothLabel(n); }
+function ptSmoothLabel(n){ return n<=1.2?"Every wobble":n<=2.2?"Detailed":n<=3.5?"Balanced":n<=6?"Smoothed":"Straightened"; }
+function ptSmoothPopover(){ let d=document.getElementById("pt-smooth-pop"); if(d){ d.remove(); return; }
+  ptPopClose();
+  d=document.createElement("div"); d.id="pt-smooth-pop"; d.className="tkpop";
+  (document.getElementById("pt-modal")||document.body).appendChild(d);
+  d.style.cssText+=`;top:20px;left:${(ptRailWide()?196:64)+40}px;width:min(320px,90vw)`;
+  const n=ptSmooth();
+  d.innerHTML=`<div class="tkh"><h3>Pencil</h3><button class="cls" onclick="ptPopClose()">✕</button></div>
+    <div style="font:600 12.5px var(--tkf);color:#8FA383;line-height:1.5;margin-bottom:12px">
+      How closely a stroke follows your hand. Fewer points draw straighter and are easier to adjust;
+      more points hold a curve.</div>
+    <input type="range" min="0.5" max="10" step="0.5" value="${n}" oninput="ptSmoothSet(this.value)"
+      style="width:100%;accent-color:#8FE07A">
+    <div style="display:flex;justify-content:space-between;font:600 11px var(--tkf);color:#8FA383;margin-top:4px">
+      <span>More points</span><span>Straighter</span></div>
+    <div id="pt-smooth-val" style="font:750 16px var(--tkf);color:#EAF0E4;margin-top:10px">${ptSmoothLabel(n)}</div>`;
+}
 function _ptSimplify(pts,tol){
   if(!pts||pts.length<3) return pts||[];
   const keep=new Array(pts.length).fill(false);
@@ -26568,10 +26628,19 @@ function ptPriceFor(mode, qty){
   }
   // fire pits and fireplaces are counted, and priced per unit
   if(mode==="firepit"||mode==="fireplace"){
-    const r=(mode==="firepit")
+    const ea=(mode==="firepit")
       ? (_tkRate("firepit",/Custom Masonry Fire Pit — Structure/i)||_tkRate("firepit",/Prefab Fire Pit — Gas/i))
       : (_tkRate("firepit",/Outdoor Fireplace/i)||_tkRate("amenities",/Fireplace/i));
-    if(r>0) return {total:r*qty, per:r, from:"rate"};
+    if(ea>0){
+      const m2=_ptMode(mode);
+      if(m2&&m2.kind==="area"){
+        // that rate buys a typical one; you drew a specific size, so scale it
+        const ref=TK_FOOTPRINT[mode]||20;
+        const per=ea/ref;
+        return {total:per*qty, per, from:"rate"};
+      }
+      return {total:ea*qty, per:ea, from:"rate"};
+    }
   }
   if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)){
     let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
@@ -27299,7 +27368,7 @@ function ptCatFilter(q){ q=(q||"").toLowerCase().trim();
     sec.querySelectorAll("button").forEach(b=>{ const hit=!q||b.textContent.toLowerCase().indexOf(q)>=0;
       b.style.display=hit?"flex":"none"; if(hit) any=true; });
     sec.style.display=any?"":"none"; }); }
-function ptPopClose(){ ["pt-why-pop","pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-sheet"]
+function ptPopClose(){ ["pt-smooth-pop","pt-why-pop","pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-sheet"]
   .forEach(id=>{ const e=document.getElementById(id); if(e) e.remove(); }); }
 // Everything that isn't a decision you make while drawing.
 function ptOverflow(){ let d=document.getElementById("pt-ovf-pop"); if(d){ d.remove(); return; }
@@ -27548,6 +27617,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <button onclick="ptPage(-1)" title="Previous page">‹</button>
       <button onclick="ptPage(1)" title="Next page">›</button></div>
       ${_wide?`<div class="tkb-lb" style="text-align:center">Page ${PT.page} of ${PT.numPages}</div>`:''}`:''}
+    ${_t({label:"Pencil", act:"ptSmoothPopover()", title:"How closely a stroke follows your hand",
+      icon:_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')})}
     ${_t({label:"More", act:"ptOverflow()", title:"Labels, layers, layout, trace files", icon:'<span class="tkb-dots">⋯</span>'})}
     ${_t({label:"Reset", act:"ptResetAll()", title:"Clear everything traced — Undo brings it back",
       icon:_ic('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>')})}
