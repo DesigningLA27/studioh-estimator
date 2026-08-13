@@ -3199,7 +3199,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v773</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v774</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25691,6 +25691,38 @@ function ptMapBuild(center, zoom){
   ["bounds_changed","zoom_changed","drag","idle"].forEach(ev=>{ try{ PT.map.addListener(ev,redraw); }catch(e){} });
   try{ PT.map.addListener("click",e=>ptMapClick(e)); }catch(e){}
   try{ google.maps.event.addListenerOnce(PT.map,"idle",()=>{ PT._mapReady=true; redraw(); }); }catch(e){}
+  ptPenBind();
+}
+// The map swallows Apple Pencil input as a drag, so a pencil tap never becomes a click.
+// Pen events are caught on the way down — before the map's own listeners — and handled
+// here. Fingers and mouse are left alone, so pinch and pan still belong to the map.
+let _ptPen=null;
+function ptPenBind(){ const w=document.getElementById("pt-stagewrap"); if(!w||w._penBound) return;
+  w.addEventListener("pointerdown",ptPenDown,true);
+  w.addEventListener("pointermove",ptPenMove,true);
+  w.addEventListener("pointerup",ptPenUp,true);
+  w.addEventListener("pointercancel",ptPenUp,true);
+  w._penBound=true; }
+function _ptIsPen(e){ return e && e.pointerType==="pen"; }
+function ptPenDown(e){ if(!ptMapLive()||!_ptIsPen(e)) return;
+  e.stopPropagation(); e.preventDefault();
+  const c=ptCanvasXY(e);
+  if(ptVertexDown(e)){ _ptPen={mode:"vertex"}; try{ e.target.setPointerCapture&&e.target.setPointerCapture(e.pointerId); }catch(_){} return; }
+  _ptPen={mode:"tap", x0:e.clientX, y0:e.clientY, lx:e.clientX, ly:e.clientY, c}; }
+function ptPenMove(e){ if(!_ptPen||!_ptIsPen(e)) return;
+  e.stopPropagation(); e.preventDefault();
+  if(_ptPen.mode==="vertex"){ ptVertexMove(e); return; }
+  const dx=e.clientX-_ptPen.lx, dy=e.clientY-_ptPen.ly;
+  if(Math.abs(e.clientX-_ptPen.x0)+Math.abs(e.clientY-_ptPen.y0)>10){
+    _ptPen.mode="pan";                       // a pencil drag pans, the same as a finger
+    try{ PT.map.panBy(-dx,-dy); }catch(err){}
+    _ptPen.lx=e.clientX; _ptPen.ly=e.clientY; } }
+function ptPenUp(e){ if(!_ptPen) return;
+  if(_ptIsPen(e)){ e.stopPropagation(); e.preventDefault(); }
+  const p=_ptPen; _ptPen=null;
+  if(p.mode==="vertex"){ ptVertexUp(); return; }
+  if(p.mode==="pan") return;
+  const c=p.c; ptAddAt(_toPdf(c), c, e);      // a pencil tap drops a point
 }
 function ptMapClick(e){ if(!e||!e.latLng||PT.selectMode) return;
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
@@ -26386,6 +26418,10 @@ function ptUpdateInfo(){ try{ ptRenderFloat(); }catch(e){}
   el.innerHTML=`<div style="font-size:.72rem;margin-bottom:.4rem">${PT.ppf?'✓ Scale set':'<span style="color:#C0524F">⚠ Not calibrated — set scale first</span>'}</div>${html}`;
   if(PT.polys.length||PT.trees.length) ptAutoSave(); }
 function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=document.createElement("div"); d.id="pt-modal"; document.body.appendChild(d); }
+  // Lift the live map out before the rewrite and put it back after, so a category tap
+  // doesn't blow away the map, its zoom, or where you had panned to.
+  const _keepMap=document.getElementById("pt-map");
+  if(_keepMap&&_keepMap.parentNode) _keepMap.parentNode.removeChild(_keepMap);
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.85);z-index:10000;display:flex;flex-direction:column";
   const chip=(m)=>{ const used=_ptModeUsed(m.k); const sel=PT.mode===m.k; const filled=used||sel; const bg=filled?m.color:"#fff"; const col=filled?"#fff":"#333"; const border=sel?`2.5px solid ${_ptDarken(m.color)}`:`1px solid ${m.color}`; return `<button onclick="ptSetMode('${m.k}')" style="padding:.28rem .5rem;font-size:.72rem;border-radius:7px;border:${border};cursor:pointer;text-align:left;background:${bg};color:${col};${sel?'font-weight:700':''}">${m.label}${used&&!sel?' ✓':''}</button>`; };
   const group=(kind)=>PT_MODES.filter(m=>m.kind===kind).map(chip).join('');
@@ -26454,6 +26490,9 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
         <div style="font-size:.68rem;color:var(--tl);padding:.4rem .9rem .9rem;line-height:1.45">Pick a category, click around the area. <strong>Areas</strong>: click the first point to close. <strong>Lines</strong>: click the last point to finish. Click any label to name / phase / tag / delete it.</div>
       </div>`:`<div style="width:34px;background:#fff;display:flex;flex-direction:column;align-items:center;padding-top:.7rem"><button onclick="ptTogglePanel()" title="Expand take-off" style="border:none;background:#F1ECE3;color:var(--tm);border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:.9rem">‹</button><div style="writing-mode:vertical-rl;transform:rotate(180deg);margin-top:.6rem;font-size:.68rem;color:var(--tm);text-transform:uppercase;font-weight:800;letter-spacing:.1em">Take-off</div></div>`)}
     </div>`;
+  if(_keepMap){ const fresh=document.getElementById("pt-map");
+    if(fresh&&fresh!==_keepMap&&fresh.parentNode) fresh.parentNode.replaceChild(_keepMap,fresh); }
+  try{ ptPenBind(); }catch(e){}
   try{ ptRenderFloat(); }catch(e){}
 }
 function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
