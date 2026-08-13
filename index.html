@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v780</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v781</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25752,9 +25752,8 @@ function ptMapBuild(center, zoom){
   if(!(window.google&&google.maps&&google.maps.Map)){ _toast("Maps is still loading — try again in a moment.","#B23F3C"); return; }
   PT.map=new google.maps.Map(el,{ center, zoom:zoom||20, mapTypeId:"satellite", tilt:0,
     gestureHandling:"greedy", disableDoubleClickZoom:true, mapTypeControl:false,
-    streetViewControl:false, fullscreenControl:false, zoomControl:true, rotateControl:false,
-    keyboardShortcuts:false, clickableIcons:false,
-    zoomControlOptions:{position:google.maps.ControlPosition.RIGHT_CENTER},   // clear of the bottom bar
+    streetViewControl:false, fullscreenControl:false, zoomControl:false, rotateControl:false,
+    keyboardShortcuts:false, clickableIcons:false,   // zoom is our own pill, so it matches the card
     draggableCursor:"crosshair", draggingCursor:"grabbing" });
   PT._ov=new google.maps.OverlayView();
   PT._ov.onAdd=function(){}; PT._ov.draw=function(){}; PT._ov.onRemove=function(){};
@@ -25949,7 +25948,7 @@ async function ptOpenSatellite(keepTrace){
   } else { PT.polys.forEach(p=>{ if(p.kind==="linear") p.lf=_ptLineLF(p.pts); else if(p.pts&&p.pts.length>2) p.sf=_ptPolySF(p.pts); }); }
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode=PT.mode||"planting"; PT.open=true;
   PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
-  PT.selPoly=null; PT._selStart=null; PT.detectedScale=null; PT.sheetIn=null;
+  PT.selPoly=null; PT._selStart=null; PT._open={}; PT.detectedScale=null; PT.sheetIn=null;
   ptRenderModal();
   ptMapBuild(PT.satBase.center, zoom);
   try{ await ptRenderPage(); }catch(e){} try{ refreshTraceButtons(); }catch(e){}
@@ -26077,9 +26076,8 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
       const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page};
       PT.polys.push(np);
-      if(PT.mode==="exclude"){ const host=_ptEnclosing(np,PT.polys);
-        if(host) _toast(`${Math.round(sf).toLocaleString()} SF taken out of ${(host.name||_ptMode(host.mode).label)}`,"#8A6D1F");
-        else _toast("Nothing under this exclusion — draw it inside the area you want it taken out of.","#B23F3C"); }
+      if(PT_CUTS.indexOf(PT.mode)>=0){ const host=_ptEnclosing(np,PT.polys);
+        if(host) _toast(`${Math.round(sf).toLocaleString()} SF taken out of ${(host.name||_ptMode(host.mode).label)}`,"#8A6D1F"); }
     } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
@@ -26161,6 +26159,10 @@ function _ptHitTest(q,cxy){ // q=model coords, cxy=canvas coords; return {type:'
     if(sf<bestSF){ bestSF=sf; best=i; } }
   if(best>=0) return {type:"poly",idx:best};
   return null; }
+// One tap opens a label, another closes it. Only one stays open at a time so the plan stays clear.
+function ptLabelOpen(idx){ if(!PT._open) PT._open={};
+  const was=!!PT._open[idx]; PT._open={}; if(!was) PT._open[idx]=true;
+  ptDrawOverlay(); }
 function ptToggleLayer(m){ PT.hidden[m]=!PT.hidden[m]; ptDrawOverlay(); ptLayersPopover(true); }
 function ptToggleAllLayers(show){ PT_MODES.forEach(m=>{ if(_ptModeUsed(m.k)) PT.hidden[m.k]=!show; }); ptDrawOverlay(); ptLayersPopover(true); }
 // What the trace is drawn on. Both bases are reachable from inside the tool, so
@@ -26266,7 +26268,7 @@ function ptSheetFilter(q){ q=(q||"").toLowerCase().trim();
 // Running totals by category, exclusions already netted out of their host surface.
 function ptTotals(){ const a={}; if(typeof PT==="undefined") return a;
   PT.polys.forEach(p=>{ if(p.kind==="linear"){ a[p.mode]=(a[p.mode]||0)+(+p.lf||0); } else a[p.mode]=(a[p.mode]||0)+(+p.sf||0); });
-  PT.polys.forEach(p=>{ if(p.kind==="linear"||p.mode!=="exclude"||!(+p.sf>0)) return;
+  PT.polys.forEach(p=>{ if(p.kind==="linear"||PT_CUTS.indexOf(p.mode)<0||!(+p.sf>0)) return;
     const host=_ptEnclosing(p,PT.polys); if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-(+p.sf||0)); });
   return a; }
 function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
@@ -26291,7 +26293,14 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
   const ui=ptUiGet(); if(ui==="classic"){ el.innerHTML=""; return; }
   const G="background:rgba(255,255,255,.96);border:1px solid rgba(0,0,0,.07);border-radius:11px;box-shadow:0 10px 30px -14px rgba(0,0,0,.55);pointer-events:auto";
   const tot=ptTotals(); const live=ptLiveSF();
-  const tray="";   // the toolbar chip picks the category now; the map keeps the bottom of the screen
+  // zoom, as a pill in the same language as the card
+  const tray=PT.live?`<div style="position:absolute;right:16px;top:50%;transform:translateY(-50%);
+      display:flex;flex-direction:column;background:rgba(255,255,255,.97);border-radius:999px;padding:5px;
+      box-shadow:0 10px 30px -12px rgba(0,0,0,.5);pointer-events:auto">
+      <button onclick="ptZoom(1.2)" title="Zoom in" style="width:44px;height:44px;border:0;background:none;border-radius:999px;cursor:pointer;font-size:22px;font-weight:600;color:#141A10;line-height:1">＋</button>
+      <span style="height:1px;background:#E2E6DA;margin:0 10px"></span>
+      <button onclick="ptZoom(0.83)" title="Zoom out" style="width:44px;height:44px;border:0;background:none;border-radius:999px;cursor:pointer;font-size:22px;font-weight:600;color:#141A10;line-height:1">－</button>
+    </div>`:"";
   // live readout of the shape being drawn
   const liveBox=(live&&ui!=="F")?`<div style="position:absolute;left:14px;bottom:16px;padding:9px 13px;${G}">
       <div style="font-size:.68rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:#98A38C">${_ptMode(PT.mode).label} · drawing</div>
@@ -26365,7 +26374,11 @@ function _tkLedgerBar(tot,live){
   </div>`;
   let body="";
   if(tab==="traced"){
-    const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit"].indexOf(m.k)<0).slice(0, ptTkDock()==="bottom"?4:99);
+    const cut={};   // what each surface had taken out of it, to show where the number came from
+    PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0||!(+x.sf>0)) return;
+      const h=_ptEnclosing(x,PT.polys); if(h) cut[h.mode]=(cut[h.mode]||0)+(+x.sf||0); });
+    const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit","exclude"].indexOf(m.k)<0)
+      .slice(0, ptTkDock()==="bottom"?4:99);
     body=`<div style="display:flex;align-items:center;padding:2px 12px 8px">
         <span style="text-align:left"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">Traced</em>
           <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${_tkFmt(surf)}</b></span>
@@ -26379,7 +26392,8 @@ function _tkLedgerBar(tot,live){
       <div style="display:${ptTkDock()==="bottom"?"flex":"block"};background:#F6F5EF;border-radius:18px;padding:11px 4px;overflow-x:auto">
         ${cells.length?cells.map((m,i)=>`<span style="${ptTkDock()==="bottom"?`flex:1;text-align:center;${i?'border-left:1px solid #E2E6DA':''}`:`display:flex;align-items:baseline;gap:8px;padding:6px 10px;${i?'border-top:1px solid #E2E6DA':''}`};position:relative">
             <em style="font-style:normal;font:600 11.5px ${F};color:#94A088;${ptTkDock()==="bottom"?"display:block;margin-bottom:2px":""}">${m.label}</em>
-            <b style="font:750 15px ${F};color:#141A10;${ptTkDock()==="bottom"?"display:block":"margin-left:auto"}">${_tkFmt(tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b></span>`).join('')
+            <b style="font:750 15px ${F};color:#141A10;${ptTkDock()==="bottom"?"display:block":"margin-left:auto"}">${_tkFmt(tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b>
+            ${cut[m.k]?`<span style="display:block;font:600 10.5px ${F};color:#94A088;margin-top:1px">less ${_tkFmt(cut[m.k])} taken out</span>`:''}</span>`).join('')
           :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#68765B;padding:4px 0">Nothing traced yet — pick a category and click around an area.</span>`}
       </div>`;
   } else {
@@ -26616,8 +26630,8 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       const bw=bx1-bx0, bh=by1-by0;
       // What this surface measures after anything excluded inside it has been taken out.
       let netSF=+p.sf||0, cut=0;
-      if(p.kind==="area" && ["exclude","lot","limit"].indexOf(p.mode)<0){
-        PT.polys.forEach(x=>{ if(x.mode!=="exclude"||!(+x.sf>0)) return;
+      if(p.kind==="area" && PT_SURFACES.indexOf(p.mode)>=0){
+        PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0||!(+x.sf>0)) return;
           const h=_ptEnclosing(x,PT.polys); if(h===p) cut+=(+x.sf||0); });
         netSF=Math.max(0,netSF-cut);
       }
@@ -26633,6 +26647,14 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       const h=roomy?38:26;
       let ax=ct.x, ay=ct.y;
       if(p.kind==="area" && ["lot","limit"].indexOf(p.mode)>=0){ const o=_ptOutsideLabel(cpx); ax=o.x; ay=o.y; }
+      // Collapsed to a dot by default so the plan reads. Tap it — or select the shape — to open it.
+      const open=!!(PT._open&&PT._open[idx]) || PT.selPoly===idx;
+      if(!open){
+        s+=`<g style="pointer-events:auto;cursor:pointer" onclick="ptLabelOpen(${idx})">
+          <circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="9" fill="#fff" fill-opacity=".93"/>
+          <circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="5" fill="${md.color}"/></g>`;
+        return;
+      }
       const cy0=_ptPlaceLabel(_placed, ax, ay, w, h);
       // A nudge must not push the label off its own shape — pull it back inside if it does.
       let cy=cy0;
@@ -26643,7 +26665,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       const moved=Math.abs(cy-ay)>2;
       const lead=moved?`<line x1="${ax.toFixed(1)}" y1="${ct.y.toFixed(1)}" x2="${ax.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="#fff" stroke-width="1.4" stroke-dasharray="3 3" opacity="0.75"/><circle cx="${ax.toFixed(1)}" cy="${ct.y.toFixed(1)}" r="2.5" fill="#fff"/>`:"";
       const x=ax, r=h/2;
-      s+=`<g style="${pe}" onclick="ptEditPoly(${idx})">${lead}`;
+      s+=`<g style="pointer-events:auto;cursor:pointer" onclick="ptLabelOpen(${idx})">${lead}`;
       s+=`<rect x="${(x-w/2).toFixed(1)}" y="${(cy-h/2).toFixed(1)}" width="${w}" height="${h}" rx="${r}" fill="#fff" fill-opacity="0.97"/>`;
       s+=`<circle cx="${(x-w/2+14).toFixed(1)}" cy="${cy.toFixed(1)}" r="4.5" fill="${md.color}"/>`;
       if(roomy){
@@ -26883,12 +26905,16 @@ function _bidTrace(){
 // Recompute traced area totals from the polygons (for older bids saved without `measured`)
 function _ptCentroid(pts){ let x=0,y=0; pts.forEach(p=>{ x+=p.x; y+=p.y; }); return {x:x/pts.length,y:y/pts.length}; }
 // Which surface, if any, a shape sits inside — the smallest one that contains it.
+// A pool, spa, water feature or shade structure drawn on paving is not paving. These come out
+// of whatever surface they sit on, exactly as an exclusion does — so you trace the pool once.
+const PT_CUTS=["exclude","pool","spa","water","shade"];
+const PT_SURFACES=["planting","turf","paving","driveway"];
 function _ptEnclosing(poly,list){
   const c=_ptCentroid(poly.pts||[]); let best=null;
   (list||[]).forEach(o=>{
     if(o===poly||o.kind==="linear"||!o.pts||o.pts.length<3) return;
     if(o.page!==poly.page) return;
-    if(["exclude","lot","limit"].indexOf(o.mode)>=0) return;      // containers, not surfaces
+    if(PT_SURFACES.indexOf(o.mode)<0) return;      // only a real surface can host a cut
     if(!_ptPointInPoly(c,o.pts)) return;
     if(!best||(+o.sf||0)<(+best.sf||0)) best=o;
   });
@@ -26898,7 +26924,7 @@ function _measuredFromTrace(){ if(typeof PT==="undefined"||!PT.ppf) return null;
   const a={}; PT.polys.forEach(p=>{ if(p.kind!=="linear") a[p.mode]=(a[p.mode]||0)+(p.sf||0); });
   // subtract each exclusion from the surface it sits within
   PT.polys.forEach(p=>{
-    if(p.kind==="linear"||p.mode!=="exclude"||!(+p.sf>0)) return;
+    if(p.kind==="linear"||PT_CUTS.indexOf(p.mode)<0||!(+p.sf>0)) return;
     const host=_ptEnclosing(p,PT.polys);
     if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-(+p.sf||0));
   });
