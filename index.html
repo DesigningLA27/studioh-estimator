@@ -3289,7 +3289,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v798</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v799</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26424,21 +26424,83 @@ function ptUnitRate(cat, unit){
   try{ r*=sectionMult(cat); }catch(e){}
   return r;
 }
+// A built section only knows its cost once something has actually been designed into it. An
+// empty planting section at consultation should be assumed, not priced at whatever sundries
+// happen to be ticked.
+function _tkBuiltEmpty(cat){
+  try{
+    if(cat==="planting"){ const z=(S.planting&&S.planting.zones)||[];
+      return !z.some(x=>(x.shrubRows&&x.shrubRows.length)||(x.gcRows&&x.gcRows.length)
+                      ||(x.treeRows&&x.treeRows.length)||(x.palmRows&&x.palmRows.length)); }
+    if(cat==="pool")    return !((S.pools||[]).length);
+    if(cat==="walls")   return !((S.walls||[]).length);
+    if(cat==="kitchen") return !((S.kitchens||[]).length);
+    if(cat==="pergola") return !((S.pergolas||[]).length);
+    if(cat==="water")   return !((S.waterFeatures||[]).length);
+  }catch(e){}
+  return false;
+}
 function ptPriceFor(mode, qty){
   const cat=TK_CAT2EST[mode]; if(!cat||!(qty>0)) return null;
   const m=_ptMode(mode); const unit=(m&&m.kind==="linear")?"LF":"SF";
   // a built section already knows what it costs; share it by traced area across its categories
-  if(TK_BUILT.indexOf(cat)>=0){
+  if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)){
     let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
-    if(!(total>0)) return null;
-    const tot=ptTotals(); let share=0;
-    Object.keys(TK_CAT2EST).forEach(k=>{ if(TK_CAT2EST[k]===cat) share+=(tot[k]||0); });
-    const money=total*((share>0)?(qty/share):1);
-    return {total:money, per:(qty>0?money/qty:0), from:"built"};
+    if(total>0){
+      // Planting is priced per square foot at the density you designed — the zones' own area,
+      // not the area you traced. Otherwise two zones spread over a big trace collapse the rate.
+      if(cat==="planting"){
+        let designed=0; try{ ((S.planting&&S.planting.zones)||[]).forEach(z=>{ designed+=+z.areaSF||0; }); }catch(e){}
+        if(designed>0){ const r=total/designed; return {total:r*qty, per:r, from:"built"}; }
+      } else {
+        const tot=ptTotals(); let share=0;
+        Object.keys(TK_CAT2EST).forEach(k=>{ if(TK_CAT2EST[k]===cat) share+=(tot[k]||0); });
+        const money=total*((share>0)?(qty/share):1);
+        return {total:money, per:(qty>0?money/qty:0), from:"built"};
+      }
+    }
   }
   const rate=ptUnitRate(cat, unit);
-  if(!(rate>0)) return null;                       // nothing checked on that section yet
-  return {total:rate*qty, per:rate, from:"rate"};
+  if(rate>0) return {total:rate*qty, per:rate, from:"rate"};
+  const b=ptBenchRate(cat, unit);                  // nothing priced yet — assume a normal build
+  if(b.rate>0) return {total:b.rate*qty, per:b.rate, from:"assumed", parts:b.parts};
+  return null;
+}
+// ── ASSUMED RATES ───────────────────────────────────────────────────────────
+// At consultation there is no plant palette and no material picked, but a designer still has to
+// give a number. So a category with nothing priced falls back to a benchmark: the lines a normal
+// job of that kind carries, at the price book's Standard tier. It is labelled as an assumption
+// everywhere it appears, and the moment you check a real line the real rate takes over.
+// `per` on an EA line is "one of these per N square feet" — how a planting allowance is built.
+const TK_BENCH={
+  paving:   [{m:/Concrete Flatwork/i},{m:/Base|Sub-?base|Excavat/i}],
+  planting: [{m:/Soil Prep/i},{m:/Mulch/i},{m:/Groundcover & Perennials/i},
+             {m:/Shrubs — 5 gal|Shrubs — 5-gal|Shrubs.*5\s*gal/i,per:25},
+             {m:/Trees — 24|Tree.*24"/i,per:400}],
+  irrigation:[{m:/Drip Irrigation/i},{m:/Spray \/ Rotor/i}],
+  drainage: [{m:/Permeable Base|Solid Pipe/i}],
+  lighting: [{m:/Path \/ Area|Path Light/i,per:250}],
+  sitework: [{m:/Clearing & Grubbing/i},{m:/Fine Grading/i}]
+};
+function _tkStdUC(it, cat){
+  const tiers=(typeof SEC_TIERS!=="undefined"&&SEC_TIERS[cat])||["Low","Standard","High"];
+  let ti=tiers.indexOf("Standard"); if(ti<0) ti=Math.floor((tiers.length-1)/2);
+  try{ return +tierUC(it,tiers,ti)||0; }catch(e){ return +it.std||Math.round(((+it.lo||0)+(+it.hi||0))/2); }
+}
+// What a normal job of this kind costs per square foot, before anyone has priced anything.
+function ptBenchRate(cat, unit){
+  const spec=TK_BENCH[cat]; const cs=(typeof S!=="undefined"&&S.cats)?S.cats[cat]:null;
+  if(!spec||!cs||!cs.items) return {rate:0, parts:[]};
+  let rate=0; const parts=[];
+  spec.forEach(rule=>{
+    const it=cs.items.find(x=>x&&rule.m.test(x.n||"")); if(!it) return;
+    const u=String(it.u||"").toUpperCase(); const uc=_tkStdUC(it,cat);
+    if(!(uc>0)) return;
+    if(u===unit){ rate+=uc; parts.push(it.n); }
+    else if(u==="EA"&&rule.per>0){ rate+=uc/rule.per; parts.push(`${it.n} (1 per ${rule.per} ${unit})`); }
+  });
+  try{ rate*=sectionMult(cat); }catch(e){}
+  return {rate, parts};
 }
 // Permits, grading, drainage runs, irrigation heads — the parts of the job that are not an area
 // you trace. Without them the card's total is not the job's total.
@@ -26584,7 +26646,7 @@ function _tkLedgerBar(tot,live){
         const note=(m.k==="exclude")?"existing — not in the scope"
                  :(m.k==="building")?"footprint"
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)}`
-                 :(pr?`$${pr.per.toFixed(2)} / ${u}`
+                 :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
         return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13)">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
@@ -26593,7 +26655,7 @@ function _tkLedgerBar(tot,live){
             ${note?`<span style="display:block;font:600 11px ${F};color:#8FA383">${note}</span>`:''}</span>
           <span style="margin-left:auto;text-align:right">
             <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
-            <span style="display:block;font:700 12px ${MN};color:#8FE07A">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
+            <span style="display:block;font:700 12px ${MN};color:${pr&&pr.from==="assumed"?"#C9D8BE":"#8FE07A"}">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
         </div>`; }).join('')
         + (()=>{ const o=ptOtherCost(); if(!(o.sum>0)) return '';
             const names=o.rows.slice(0,4).map(r=>r.name).join(", ")+(o.rows.length>4?` and ${o.rows.length-4} more`:"");
