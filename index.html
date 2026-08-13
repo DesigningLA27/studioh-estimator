@@ -3302,7 +3302,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v811</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v812</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25874,6 +25874,13 @@ function _ftPerDegLng(lat){ return FT_PER_DEG_LAT*Math.cos((lat||34)*Math.PI/180
 // The outline of the stamp, in lat/lng, from its size, rotation and where it sits.
 function ptStampPts(st){
   if(!st) return [];
+  if(st.custom){
+    const r=(st.rot||0)*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r), k=st.scale||1;
+    const fLat=FT_PER_DEG_LAT, fLng=_ftPerDegLng(st.c.y);
+    return st.custom.map(p=>{ const x=p.x*k, y=p.y*k;
+      const rx=x*cs-y*sn, ry=x*sn+y*cs;
+      return {x: st.c.x + rx/fLng, y: st.c.y - ry/fLat}; });
+  }
   const hl=st.len/2, hd=st.dep/2;
   let corners=[[-hl,-hd],[hl,-hd],[hl,hd],[-hl,hd]];
   if(st.shape==="L"){ const rl=st.ret||Math.max(2,Math.round(st.len*0.5));
@@ -25899,6 +25906,10 @@ function ptStampStart(mode){
 function ptStampCancel(){ PT.stamp=null; ptRenderModal(); try{ ptDrawOverlay(); }catch(e){} }
 function ptStampSize(which, delta){
   const st=PT.stamp; if(!st) return;
+  if(st.custom && (which==="len"||which==="dep")){       // a drawn shape scales as a whole
+    st.scale=Math.max(0.2, Math.min(6, (st.scale||1)*(delta>0?1.05:1/1.05)));
+    ptStampBar(); try{ ptDrawOverlay(); }catch(e){} return;
+  }
   if(which==="len") st.len=Math.max(1, Math.round((st.len+delta)*2)/2);
   else if(which==="dep") st.dep=Math.max(0.5, Math.round((st.dep+delta)*2)/2);
   else if(which==="ret") st.ret=Math.max(0, Math.round((st.ret+delta)*2)/2);
@@ -25916,8 +25927,9 @@ function ptStampPlace(){
   ptSnap();
   const md=_ptMode(st.mode);
   const poly={mode:st.mode, kind:"area", pts, page:PT.page, name:"", zone:"", phase:"", tags:"",
-    type:_ptCurType(st.mode)||"", _lenFt:st.len, _depFt:st.dep,
-    _runLF: (TK_STAMP[st.mode]&&TK_STAMP[st.mode].run) ? (st.len + (st.shape==="L"?(st.ret||0):0)) : 0};
+    type:_ptCurType(st.mode)||"", _lenFt:st.custom?0:st.len, _depFt:st.custom?0:st.dep,
+    _runLF: (TK_STAMP[st.mode]&&TK_STAMP[st.mode].run)
+      ? (st.custom ? _tkLongestRun(ptStampPts(st)) : (st.len + (st.shape==="L"?(st.ret||0):0))) : 0};
   poly.sf=_ptPolySF(pts);
   PT.polys.push(poly);
   PT.stamp=null;
@@ -25973,17 +25985,160 @@ function ptStampBar(){
       <span style="display:flex;align-items:center;gap:8px;padding-right:10px;border-right:1px solid rgba(255,255,255,.13)">
         <i style="width:12px;height:12px;border-radius:4px;background:${md.color};display:block"></i>
         <b style="font:700 13.5px ${F};color:#EAF0E4">${md.label}</b></span>
-      ${step("len","Length",_ftTxt(st.len))}
-      ${step("dep","Depth",_ftTxt(st.dep))}
-      ${st.shape==="L"?step("ret","Return",_ftTxt(st.ret||0)):""}
+      ${st.custom?step("len","Size",Math.round((st.scale||1)*100)+"%")
+        :`${step("len","Length",_ftTxt(st.len))}${step("dep","Depth",_ftTxt(st.dep))}${st.shape==="L"?step("ret","Return",_ftTxt(st.ret||0)):""}`}
       ${run?`<span style="display:flex;gap:5px;padding-left:4px">
         <button onclick="ptStampShape('straight')" style="border:0;border-radius:10px;padding:9px 11px;cursor:pointer;font:600 12.5px ${F};background:${st.shape!=="L"?"#5BA34A":"rgba(255,255,255,.12)"};color:${st.shape!=="L"?"#0F2409":"#EAF0E4"}">Straight</button>
         <button onclick="ptStampShape('L')" style="border:0;border-radius:10px;padding:9px 11px;cursor:pointer;font:600 12.5px ${F};background:${st.shape==="L"?"#5BA34A":"rgba(255,255,255,.12)"};color:${st.shape==="L"?"#0F2409":"#EAF0E4"}">L-shape</button></span>`:""}
       <span style="font:700 12px ${MN};color:#8FE07A;padding:0 4px">${Math.round(ptStampSF(st)).toLocaleString()} SF</span>
+      ${st.custom?"":`<button onclick="ptSheetOpen('${st.mode}')" style="border:0;border-radius:11px;padding:10px 13px;cursor:pointer;font:600 13px ${F};background:rgba(255,255,255,.12);color:#EAF0E4">Freeform…</button>`}
       <button onclick="ptStampCancel()" style="border:0;border-radius:11px;padding:10px 13px;cursor:pointer;font:600 13px ${F};background:rgba(255,255,255,.12);color:#EAF0E4">Cancel</button>
       <button onclick="ptStampPlace()" style="border:0;border-radius:11px;padding:11px 18px;cursor:pointer;font:750 13.5px ${F};background:#6FBF5C;color:#0F2409">Place</button>
     </div>`;
 }
+// ── THE FREEFORM SHEET ──────────────────────────────────────────────────────
+// Graph paper at a real scale. Draw the footprint with the Pencil and it is tidied: runs that are
+// nearly straight become straight, curves keep their curve. Every edge carries its length and the
+// area updates as you go. Place hands it to the same positioning controls a stamp uses, so it
+// lands on the plan at exactly the size you drew.
+let SH=null;
+function ptSheetOpen(mode){
+  ptPopClose();
+  const md=_ptMode(mode); if(!md) return;
+  SH={mode, ppf:14, pts:[], snap:true, raw:null, wet:null};
+  let d=document.getElementById("pt-sheet-wrap"); if(d) d.remove();
+  d=document.createElement("div"); d.id="pt-sheet-wrap";
+  (document.getElementById("pt-modal")||document.body).appendChild(d);
+  d.style.cssText="position:absolute;inset:20px;z-index:6";
+  ptSheetRender();
+}
+function ptSheetClose(){ SH=null; const d=document.getElementById("pt-sheet-wrap"); if(d) d.remove(); }
+function ptSheetSnap(on){ if(!SH) return; SH.snap=!!on; if(SH.raw) ptSheetTidy(SH.raw); ptSheetRender(); }
+function ptSheetClear(){ if(!SH) return; SH.pts=[]; SH.raw=null; ptSheetRender(); }
+function ptSheetZoom(f){ if(!SH) return; SH.ppf=Math.max(5,Math.min(40,SH.ppf*f));
+  if(SH.raw) ptSheetTidy(SH.raw); ptSheetRender(); }
+function ptSheetTidy(raw){
+  if(!SH||!raw||raw.length<3){ if(SH) SH.pts=[]; return; }
+  let p=_ptSimplify(raw, 4);
+  if(p.length>2){ const f=p[0], l=p[p.length-1];
+    if(Math.hypot(f.x-l.x,f.y-l.y)<26) p=p.slice(0,-1); }
+  if(SH.snap && p.length>2){
+    const out=[p[0]];
+    for(let i=1;i<p.length;i++){
+      const a2=out[out.length-1], b2=p[i];
+      const dx=b2.x-a2.x, dy=b2.y-a2.y, len=Math.hypot(dx,dy);
+      if(len<4) continue;
+      let ang=Math.atan2(dy,dx)*180/Math.PI;
+      const snapped=Math.round(ang/15)*15;
+      if(Math.abs(snapped-ang)<7) ang=snapped;
+      const r=ang*Math.PI/180;
+      out.push({x:a2.x+Math.cos(r)*len, y:a2.y+Math.sin(r)*len});
+    }
+    p=out;
+  }
+  SH.pts=p;
+}
+function ptSheetArea(){ if(!SH||SH.pts.length<3) return 0; return _ptShoelace(SH.pts)/(SH.ppf*SH.ppf); }
+function _shFt(px){ return px/SH.ppf; }
+function ptSheetRender(){
+  const d=document.getElementById("pt-sheet-wrap"); if(!d||!SH) return;
+  const md=_ptMode(SH.mode);
+  const F="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif";
+  const MN="ui-monospace,SFMono-Regular,Menlo,monospace";
+  const g=SH.ppf; const edges=[];
+  for(let i=0;i<SH.pts.length;i++){
+    const a2=SH.pts[i], b2=SH.pts[(i+1)%SH.pts.length];
+    const len=_shFt(Math.hypot(b2.x-a2.x,b2.y-a2.y));
+    if(len>0.8) edges.push({a:a2,b:b2,len});
+  }
+  const btn=(on)=>`border:0;border-radius:10px;padding:9px 12px;cursor:pointer;font:600 12.5px ${F};background:${on?"#5BA34A":"rgba(255,255,255,.12)"};color:${on?"#0F2409":"#EAF0E4"}`;
+  d.innerHTML=`<div style="position:absolute;inset:0;background:rgba(18,24,15,.95);
+      -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-radius:18px;padding:14px;
+      display:flex;flex-direction:column;color:#EAF0E4;font-family:${F};
+      box-shadow:0 22px 60px -18px rgba(0,0,0,.6)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex:none">
+      <span style="width:12px;height:12px;border-radius:4px;background:${md.color}"></span>
+      <b style="font:700 15px ${F}">${md.label} — draw the footprint</b>
+      <span style="margin-left:auto;font:600 12px ${F};color:#8FA383">one square = 1 foot</span>
+      <button onclick="ptSheetClose()" style="width:34px;height:34px;border:0;border-radius:11px;
+        background:rgba(255,255,255,.12);color:#EAF0E4;font-size:15px;cursor:pointer">✕</button>
+    </div>
+    <div id="pt-sheet-grid" style="flex:1;min-height:0;position:relative;border-radius:12px;overflow:hidden;
+        touch-action:none;cursor:crosshair;
+        background:repeating-linear-gradient(0deg,rgba(255,255,255,.13) 0 1px,transparent 1px ${g}px),
+                   repeating-linear-gradient(90deg,rgba(255,255,255,.13) 0 1px,transparent 1px ${g}px),
+                   rgba(255,255,255,.04)"
+        onpointerdown="ptSheetDown(event)" onpointermove="ptSheetMove(event)"
+        onpointerup="ptSheetUp(event)" onpointercancel="ptSheetUp(event)">
+      <svg id="pt-sheet-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg>
+      ${SH.pts.length?'':`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+        font:600 14px ${F};color:#8FA383;text-align:center;padding:20px;pointer-events:none">Draw the outline with the Pencil.<br>
+        Nearly-straight runs are straightened; curves stay curved.</div>`}
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:11px;flex:none;flex-wrap:wrap">
+      <button onclick="ptSheetSnap(${!SH.snap})" style="${btn(SH.snap)}">${SH.snap?"Tidying on":"Tidying off"}</button>
+      <button onclick="ptSheetZoom(0.8)" style="${btn(false)}">Zoom out</button>
+      <button onclick="ptSheetZoom(1.25)" style="${btn(false)}">Zoom in</button>
+      <button onclick="ptSheetClear()" style="${btn(false)}">Clear</button>
+      <span style="margin-left:auto;display:flex;align-items:baseline;gap:12px">
+        <span style="font:600 12px ${F};color:#8FA383">${edges.length?edges.length+" edges":"nothing drawn"}</span>
+        <b style="font:750 18px ${MN};color:#8FE07A">${Math.round(ptSheetArea()).toLocaleString()} SF</b>
+      </span>
+      <button onclick="ptSheetPlace()" ${SH.pts.length<3?'disabled':''}
+        style="border:0;border-radius:11px;padding:11px 18px;cursor:pointer;font:750 13.5px ${F};
+        background:${SH.pts.length<3?"rgba(255,255,255,.12)":"#6FBF5C"};color:${SH.pts.length<3?"#8FA383":"#0F2409"}">
+        Place on plan</button>
+    </div>
+  </div>`;
+  ptSheetDraw(edges);
+}
+function ptSheetDraw(edges){
+  const svg=document.getElementById("pt-sheet-svg"); if(!svg||!SH) return;
+  const md=_ptMode(SH.mode); let s2="";
+  if(SH.wet&&SH.wet.length>1)
+    s2+=`<polyline points="${SH.wet.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2.5" stroke-linecap="round"/>`;
+  if(SH.pts.length>2)
+    s2+=`<polygon points="${SH.pts.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}44" stroke="${md.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  SH.pts.forEach(q=>{ s2+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="4.5" fill="#fff" stroke="${md.color}" stroke-width="2"/>`; });
+  (edges||[]).forEach(e=>{
+    const mx=(e.a.x+e.b.x)/2, my=(e.a.y+e.b.y)/2;
+    const t=_ftTxt(e.len), w=t.length*7.4+10;
+    s2+=`<rect x="${(mx-w/2).toFixed(1)}" y="${(my-9).toFixed(1)}" width="${w.toFixed(0)}" height="18" rx="9" fill="rgba(18,24,15,.9)"/>`;
+    s2+=`<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" fill="#8FE07A" font-family="ui-monospace,Menlo,monospace">${t}</text>`;
+  });
+  svg.innerHTML=s2;
+}
+function _shXY(e){ const el=document.getElementById("pt-sheet-grid"); const r=el.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+function ptSheetDown(e){ if(!SH) return; e.preventDefault();
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  SH.wet=[_shXY(e)]; ptSheetDraw([]); }
+function ptSheetMove(e){ if(!SH||!SH.wet) return; e.preventDefault();
+  SH.wet.push(_shXY(e)); ptSheetDraw([]); }
+function ptSheetUp(e){ if(!SH||!SH.wet) return;
+  const raw=SH.wet; SH.wet=null;
+  if(raw.length<3){ ptSheetDraw([]); return; }
+  SH.raw=raw; ptSheetTidy(raw); ptSheetRender(); }
+function ptSheetPlace(){
+  if(!SH||SH.pts.length<3) return;
+  let cx=0, cy=0; SH.pts.forEach(p=>{ cx+=p.x; cy+=p.y; });
+  cx/=SH.pts.length; cy/=SH.pts.length;
+  const feet=SH.pts.map(p=>({x:(p.x-cx)/SH.ppf, y:(p.y-cy)/SH.ppf}));
+  let c=null; try{ const m=PT.map&&PT.map.getCenter(); if(m) c={x:m.lng(), y:m.lat()}; }catch(e){}
+  if(!c){ _toast("The map is still loading.","#B23F3C"); return; }
+  const mode=SH.mode;
+  ptSheetClose();
+  PT.stamp={mode, custom:feet, scale:1, rot:0, c, shape:"custom",
+            len:Math.max.apply(null,feet.map(p=>p.x))-Math.min.apply(null,feet.map(p=>p.x)),
+            dep:Math.max.apply(null,feet.map(p=>p.y))-Math.min.apply(null,feet.map(p=>p.y))};
+  ptRenderModal(); try{ ptDrawOverlay(); }catch(e){}
+  _toast("Drop it where it goes — drag to move, twist to rotate.","#2F5B23");
+}
+// For a drawn run, the length that gets priced is the longest side of what you drew.
+function _tkLongestRun(pts){ let m=0;
+  for(let i=0;i<pts.length;i++){ const a2=pts[i], b2=pts[(i+1)%pts.length];
+    const lf=_ptLineLF([a2,b2]); if(lf>m) m=lf; }
+  return Math.round(m); }
 // ── APPLE PENCIL ────────────────────────────────────────────────────────────
 // Two things were wrong for a long time. First, the map reads a Pencil as a drag and pans, and
 // never turns a Pencil tap into a click. Second, and the bigger one: you draw with a Pencil, you
@@ -27652,9 +27807,10 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     s+=`<circle cx="${ctr.x.toFixed(1)}" cy="${(ctr.y-rr).toFixed(1)}" r="13" fill="#fff" stroke="${md.color}" stroke-width="2.5" style="pointer-events:auto;cursor:grab"/>`;
     s+=`<text x="${ctr.x.toFixed(1)}" y="${(ctr.y-rr).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="13" fill="${md.color}">↻</text>`;
     cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="5" fill="#fff" stroke="${md.color}" stroke-width="2"/>`; });
-    const w=Math.max(96,(_ftTxt(st.len)+" × "+_ftTxt(st.dep)).length*7.6);
+    const dimTxt=st.custom?(Math.round(ptStampSF(st)).toLocaleString()+" SF"):(_ftTxt(st.len)+" × "+_ftTxt(st.dep));
+    const w=Math.max(96,dimTxt.length*7.6);
     s+=`<rect x="${(ctr.x-w/2).toFixed(1)}" y="${(ctr.y-12).toFixed(1)}" width="${w.toFixed(0)}" height="24" rx="12" fill="#fff" fill-opacity="0.97"/>`;
-    s+=`<text x="${ctr.x.toFixed(1)}" y="${ctr.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="750" fill="#141A10" font-family="ui-monospace,Menlo,monospace">${_ftTxt(st.len)} × ${_ftTxt(st.dep)}</text>`;
+    s+=`<text x="${ctr.x.toFixed(1)}" y="${ctr.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="750" fill="#141A10" font-family="ui-monospace,Menlo,monospace">${dimTxt}</text>`;
   }
   // the wet stroke under the nib
   if(PT._inkPts&&PT._inkPts.length>1){ const mdI=_ptMode(PT.mode);
