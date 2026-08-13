@@ -3296,7 +3296,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v802</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v803</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26509,6 +26509,99 @@ function ptBenchRate(cat, unit){
   try{ rate*=sectionMult(cat); }catch(e){}
   return {rate, parts};
 }
+// ── DESIGNING THE FIRST PASS ────────────────────────────────────────────────
+// At consultation nobody has picked plants, but the app already knows the Sunset zone, holds a
+// plant book with mature spreads, water use and cost classes, and has a density model that turns
+// an area into counts. So it designs a defensible starter palette and prices THAT, instead of
+// guessing a rate. Everything it picks is a real plant you can swap, not a placeholder.
+function _tkZoneOK(sunset, z){
+  if(!z) return true;                                   // zone unknown — do not exclude anything
+  if(!sunset) return false;
+  return String(sunset).split(",").some(part=>{
+    const m=part.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if(m) return z>=+m[1] && z<=+m[2];
+    return +part.trim()===z;
+  });
+}
+// Low water first: it is what LA and OC ask for, and it is what MWELO rewards.
+function _tkPlantScore(p){
+  let s=0;
+  const wu=String(p.wu||"").toUpperCase();
+  s += (wu==="VL")?40:(wu==="L")?34:(wu==="M")?14:0;
+  const tags=(p.tags||[]).join(" ");
+  if(/drought-tolerant|low-water/.test(tags)) s+=12;
+  if(/california-native|native/.test(tags)) s+=8;
+  if(/low-fire/.test(tags)) s+=5;
+  if(/pollinator/.test(tags)) s+=3;
+  s -= ({common:0, moderate:2, slow:5, premium:9})[p.cls||"common"]||0;   // keep a starter palette sane
+  return s;
+}
+let _tkOutOfZone=false;
+function _tkPick(kind, n, zone){
+  const all=(typeof PLANT_DB!=="undefined"&&PLANT_DB[kind])?PLANT_DB[kind]:[];
+  const ok=all.filter(p=>p&&p.id&&_tkZoneOK(p.sunset, zone));
+  if(zone && !ok.length) _tkOutOfZone=true;      // the book has nothing for this climate
+  const pool=ok.length?ok:all.filter(p=>p&&p.id);
+  // deterministic: score, then botanical name — the same site always gets the same palette
+  return pool.slice().sort((a,b)=>{
+    const d=_tkPlantScore(b)-_tkPlantScore(a); if(d) return d;
+    return String(a.b||a.c||a.id).localeCompare(String(b.b||b.c||b.id));
+  }).slice(0,n);
+}
+// Fill a traced planting zone with a palette that suits the site. Never touches a zone that
+// already has plants in it.
+function ptAutoPalette(z){
+  if(!z) return null;
+  const has=(z.shrubRows&&z.shrubRows.length)||(z.gcRows&&z.gcRows.length)
+          ||(z.treeRows&&z.treeRows.length)||(z.palmRows&&z.palmRows.length);
+  if(has) return null;
+  const zone=(typeof projSunsetZone==="function")?projSunsetZone():0;
+  const area=+z.areaSF||0; if(!(area>0)) return null;
+  _tkOutOfZone=false;
+
+  const shrubs=_tkPick("shrub", 5, zone);
+  const SPLIT=[30,25,20,15,10];
+  // A real bed is not all one-gallon: mostly 5-gal with some 15-gal for immediate presence.
+  // The app already prices a container mix per row, so the palette uses it.
+  const MIX={"5g":70, "15g":30};
+  z.shrubRows=shrubs.map((p,i)=>({pid:p.id, pct:SPLIT[i]||10, sz:"5g", mix:Object.assign({},MIX)}));
+  z.shrubDensity=100;                                    // a properly planted bed, the app's own default
+
+  const gcs=_tkPick("gc", 2, zone);
+  z.gcRows=gcs.map((p,i)=>({pid:p.id, pct:i===0?60:40}));
+  z.gcDensity=90;
+
+  // One tree per 350 SF, in a mix of sizes the way a planting plan actually reads: mostly
+  // 24" box with a few 36" for structure. Capped so a big lawn does not become an orchard.
+  const nTrees=Math.min(40, Math.round(area/350));
+  if(nTrees>0){
+    const trees=_tkPick("tree", 2, zone);
+    const nBig=Math.max(1, Math.round(nTrees*0.25));      // a quarter go in at 36" box
+    const nStd=Math.max(0, nTrees-nBig);
+    z.treeRows=[];
+    if(trees[0]&&nStd>0) z.treeRows.push({pid:trees[0].id, sz:"24", n:nStd});
+    if(trees[1]||trees[0]) z.treeRows.push({pid:(trees[1]||trees[0]).id, sz:"36", n:nBig});
+  }
+  z._auto=true;
+  return {zone, shrubs:shrubs.length, gc:gcs.length, trees:nTrees, outOfZone:_tkOutOfZone,
+    names:shrubs.map(p=>p.c||p.b).concat(gcs.map(p=>p.c||p.b))};
+}
+// A traced pool with no pool in the builder gets one, sized from what you drew, so the pool
+// builder prices it properly — shell, coping, equipment — instead of an area guess.
+function ptAutoPool(sf, perimLF){
+  if(!(sf>0)) return null;
+  try{
+    if(!S.pools) S.pools=[];
+    if(S.pools.length) return null;
+    const p=newPool();
+    p.title="Pool — from the take-off";
+    p.useSF=true; p.sfDirect=Math.round(sf);
+    if(perimLF>0){ p.perimLF=Math.round(perimLF); p.copingLF=Math.round(perimLF); p.edgeLF=Math.round(perimLF); }
+    p._auto=true;
+    S.pools.push(p);
+    return {sf:Math.round(sf)};
+  }catch(e){ return null; }
+}
 // ── WHAT THE TRACE IMPLIES ──────────────────────────────────────────────────
 // The work that isn't an area you draw, but that the area you drew tells you about. It starts at
 // nothing and every line has to be earned by something on the plan: no trees, no uplights; no
@@ -28086,10 +28179,12 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
       if(cs.items.some(it=>it&&it.checked)) return;      // already priced by hand — leave it
       if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)) return;   // already designed
       const qty=_byCat[cat];
-      // A built section's total comes from what you design into it — zones, pools, wall runs — so
-      // writing line items there would be ignored. It carries the assumption as the allowance the
-      // section already supports, which you switch off the moment you start designing.
+      // Planting and pools are designed, not rated. The app knows the Sunset zone and holds the
+      // plant book, so it designs a starter palette and lets the real builder price it. Only if
+      // that is impossible does it fall back to an allowance.
       if(TK_BUILT.indexOf(cat)>=0){
+        if(cat==="planting") return;     // handled by the palette below, after the zones exist
+        if(cat==="pool") return;         // handled by the pool builder below
         const b=ptBenchRate(cat,"SF");
         if(b.rate>0){ cs.on=true; cs.lumpOn=true; cs.lumpSum=Math.round(b.rate*qty); cs._assumed=true;
           _seeded.push(`${(PB.find(x=>x.id===cat)||{}).name||cat} — allowance ${fmtN(cs.lumpSum)} (${b.rate.toFixed(2)}/SF × ${qty.toLocaleString()})`); }
@@ -28108,12 +28203,28 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
       if(n){ cs.on=true; _seeded.push(`${(PB.find(x=>x.id===cat)||{}).name||cat} — ${n} line${n===1?"":"s"} at ${qty.toLocaleString()}`); }
     });
   }catch(e){ console.error("seed:",e); }
+  // A traced pool with nothing in the pool builder gets one, sized from the trace.
+  try{ if(R(areaSum,"pool")>0){ const r=ptAutoPool(R(areaSum,"pool"), perimOf("pool"));
+      if(r){ if(S.cats.pool){ S.cats.pool.on=true; S.cats.pool.lumpOn=false; }
+        _seeded.push(`Pool — ${r.sf.toLocaleString()} SF built in the pool builder from your trace`); } } }catch(e){}
   // PLANTING — one estimator zone per distinct traced planting label (carry location + phase)
   try{ const pp=PT.polys.filter(p=>p.mode==="planting");
     if(pp.length){ const groups={}, order=[]; pp.forEach((p,i)=>{ const key=(p.name&&p.name.trim())||(p.zone&&p.zone.trim())||("Planting "+(i+1)); if(!(key in groups)){ groups[key]={sf:0,loc:(p.zone||"").trim(),phase:(p.phase||"").trim()}; order.push(key); } groups[key].sf+=(p.sf||0); if(!groups[key].loc&&p.zone) groups[key].loc=p.zone.trim(); if(!groups[key].phase&&p.phase) groups[key].phase=p.phase.trim(); });
       const pl=ensurePlanting();
       const kept=pl.zones.filter(z=>(z.shrubRows&&z.shrubRows.length)||(z.gcRows&&z.gcRows.length)||(z.treeRows&&z.treeRows.length)||(z.palmRows&&z.palmRows.length));
       const out=[]; order.forEach(k=>{ let z=kept.find(z=>(z.name||"").toLowerCase()===k.toLowerCase()); if(!z) z=newZone(k); z.name=k; z.areaSF=Math.round(groups[k].sf); z._touched=true; if(groups[k].loc) z.location=groups[k].loc; if(groups[k].phase) z.phase=groups[k].phase; out.push(z); });
+      // A zone you have planted but not traced is still your design — carry it through rather
+      // than dropping it because no polygon happened to carry its name.
+      // Design a starter palette into any zone that has none, from the plant book and this site's
+      // Sunset zone. It prices through the normal planting builder, so it is a real estimate.
+      try{ let picked=null, nz=0;
+        out.forEach(z=>{ const r=ptAutoPalette(z); if(r){ picked=picked||r; nz++; } });
+        if(picked){ const cs=S.cats.planting; if(cs){ cs.on=true; cs.lumpOn=false; }
+          _seeded.push(`Planting — ${nz} zone${nz===1?"":"s"} designed ${picked.outOfZone?`(no plant in the book suits Sunset ${picked.zone} — palette NOT climate-filtered, review it)`:`for Sunset ${picked.zone||"—"}`}: `
+            + picked.names.slice(0,3).join(", ") + (picked.names.length>3?` and ${picked.names.length-3} more`:"")
+            + (picked.trees?`, ${picked.trees} trees`:""));
+        }
+      }catch(e){ console.error("palette:",e); }
       kept.forEach(z=>{ if(out.indexOf(z)<0) out.push(z); });
       pl.zones = out.length?out:[newZone("Zone 1")];
       S.cats.planting.on=true; try{ plantRefresh(); }catch(e){}
