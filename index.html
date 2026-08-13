@@ -1848,6 +1848,11 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkbar.wide .tkb-tog{width:auto;height:36px}
 .tkbar.wide .tkb-tog span{display:inline}
 .tkbar .tkb-tog:active{background:rgba(255,255,255,.2)}
+.tkrow{position:relative;overflow:hidden;border-top:1px solid rgba(255,255,255,.13)}
+.tkrow-del{position:absolute;right:0;top:0;bottom:0;width:96px;border:0;background:#C0524F;color:#fff;
+  font:700 13px var(--tkf);cursor:pointer;letter-spacing:.01em}
+.tkrow-body{position:relative;display:flex;align-items:center;gap:11px;padding:11px 8px;cursor:pointer;
+  background:rgba(18,24,15,.99);touch-action:pan-y;will-change:transform}
 .tkb-lb{font:800 9px var(--tkf);letter-spacing:.12em;text-transform:uppercase;color:#8FA383;padding:5px 6px 1px}
 .tkb-hr{width:30px;border:0;border-top:1px solid rgba(255,255,255,.13);margin:3px 0}
 .tkb-t{width:52px;padding:7px 2px 5px;border:0;background:none;border-radius:13px;cursor:pointer;
@@ -3297,7 +3302,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v807</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v808</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26912,8 +26917,10 @@ function _tkLedgerBar(tot,live){
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)} — not priced yet`
                  :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
-        return `<div onclick="ptWhy('${m.k}')" ontouchstart="ptRowSwipeStart(event)" ontouchend="ptRowSwipeEnd(event,'${m.k}')"
-            style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13);cursor:pointer">
+        return `<div class="tkrow"><button class="tkrow-del" onclick="ptDeleteCategory('${m.k}')">Delete</button>
+          <div class="tkrow-body" onclick="ptRowTap(event,'${m.k}')"
+            onpointerdown="ptRowDown(event)" onpointermove="ptRowMove(event)"
+            onpointerup="ptRowUp(event)" onpointercancel="ptRowUp(event)">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
           <span style="min-width:0">
             <b style="display:block;font:650 14px ${F};color:#EAF0E4;line-height:1.25">${m.label}</b>
@@ -26921,7 +26928,7 @@ function _tkLedgerBar(tot,live){
           <span style="margin-left:auto;text-align:right">
             <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
             <span style="display:block;font:700 12px ${MN};color:${pr&&pr.from==="assumed"?"#C9D8BE":"#8FE07A"}">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
-        </div>`; }).join('')
+        </div></div>`; }).join('')
         + (()=>{ const d=ptDerived(); if(!d.rows.length) return '';
             return `<div style="padding:13px 8px 2px;font:800 9.5px ${F};letter-spacing:.11em;
                 text-transform:uppercase;color:#8FA383;border-top:1px solid rgba(255,255,255,.13)">What this implies</div>`
@@ -27051,13 +27058,41 @@ function ptTkSwipeEnd(e){ const t=e.changedTouches&&e.changedTouches[0]; if(!t||
   if(d==="right") ptTkShutSet(dx>0);
 }
 function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
-// Swipe a row left to clear that category off the trace; tap it to see how its number was made.
-let _tkRowSw=null;
-function ptRowSwipeStart(e){ const t=e.touches&&e.touches[0]; if(!t) return; _tkRowSw={x:t.clientX,y:t.clientY,t:Date.now()}; }
-function ptRowSwipeEnd(e,mode){ const t=e.changedTouches&&e.changedTouches[0]; const s0=_tkRowSw; _tkRowSw=null;
-  if(!t||!s0) return;
-  const dx=t.clientX-s0.x, dy=t.clientY-s0.y;
-  if(dx<-45 && Math.abs(dy)<40){ e.preventDefault(); e.stopPropagation(); ptDeleteCategory(mode); }
+// Swipe a row left and it slides over to show a red Delete. Tap the row to see the workings.
+const TK_ROW_W=96;
+let _tkRow=null;
+function _tkRowClose(el){ if(el){ el.style.transition="transform .18s"; el.style.transform="translateX(0)"; el.dataset.open=""; } }
+function ptRowCloseAll(except){
+  document.querySelectorAll(".tkrow-body").forEach(b=>{ if(b!==except&&b.dataset.open) _tkRowClose(b); });
+}
+function ptRowDown(e){
+  const el=e.currentTarget;
+  _tkRow={el, x:e.clientX, y:e.clientY, base:el.dataset.open?-TK_ROW_W:0, moved:false};
+  el.style.transition="none";
+}
+function ptRowMove(e){
+  if(!_tkRow||_tkRow.el!==e.currentTarget) return;
+  const dx=e.clientX-_tkRow.x, dy=e.clientY-_tkRow.y;
+  if(!_tkRow.moved && Math.abs(dx)<6) return;
+  if(!_tkRow.moved && Math.abs(dy)>Math.abs(dx)){ _tkRow=null; return; }   // that is a scroll
+  _tkRow.moved=true; e.preventDefault();
+  const x=Math.max(-TK_ROW_W, Math.min(0, _tkRow.base+dx));
+  _tkRow.el.style.transform="translateX("+x+"px)";
+}
+function ptRowUp(e){
+  const r=_tkRow; _tkRow=null; if(!r) return;
+  const el=r.el; el.style.transition="transform .18s";
+  if(!r.moved){ el.style.transform=el.dataset.open?"translateX(-"+TK_ROW_W+"px)":"translateX(0)"; return; }
+  const now=(el.style.transform.match(/-?[\d.]+/)||[0])[0]*1;
+  if(now < -TK_ROW_W/2){ el.style.transform="translateX(-"+TK_ROW_W+"px)"; el.dataset.open="1"; ptRowCloseAll(el); }
+  else _tkRowClose(el);
+  el._swallowClick=true; setTimeout(()=>{ el._swallowClick=false; }, 60);
+}
+function ptRowTap(e,mode){
+  const el=e.currentTarget;
+  if(el._swallowClick) return;                 // that was the end of a swipe
+  if(el.dataset.open){ _tkRowClose(el); return; }
+  ptRowCloseAll(null); ptWhy(mode);
 }
 function ptDeleteCategory(mode){
   const md=_ptMode(mode);
@@ -27138,6 +27173,12 @@ function ptTkDragStart(e){ const card=document.getElementById("pt-card"); if(!ca
 // ── selection & vertex editing ──────────────────────────────────────────────
 function ptSelClear(){ PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
 // Clear the whole trace. Undo still gets it back, and the property line redraws itself.
+// Delete is always there. With nothing picked it hands you the Select tool rather than doing nothing.
+function ptDeleteTap(){
+  if(PT.selPoly!=null){ ptSelDelete(); return; }
+  if(!PT.selectMode) ptSelectMode();
+  _toast("Tap an area on the plan to delete it.","#6A4FA3");
+}
 function ptResetAll(){
   const n=(PT.polys?PT.polys.length:0)+(PT.trees?PT.trees.length:0);
   if(!n){ _toast("Nothing traced yet.","#6A4FA3"); return; }
@@ -27491,8 +27532,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <button id="pt-redo-btn" onclick="ptRedoAct()" title="Redo">${_ic('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h6"/>')}</button>
     </div>
     ${_drawing?`<button class="tkb-fin" onclick="ptFinishPoly()">${_md.kind==="linear"?"Finish line":"Close area"}</button>`:''}
-    ${PT.selPoly!=null?_t({label:"Delete", act:"ptSelDelete()", cls:"warn", title:"Delete the selected area",
-      icon:_ic('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>')}):''}
+    ${_t({label:"Delete", act:"ptDeleteTap()", cls:(PT.selPoly!=null?"warn":""), title:"Delete the selected area",
+      icon:_ic('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>')})}
     ${_hr}${_lb("Category")}
     <button class="tkb-sw" onclick="ptCatMenu()" title="Pick what you are tracing">
       <i style="background:${_md.color}"></i>
