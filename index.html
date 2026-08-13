@@ -1889,6 +1889,10 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkb-fin{width:52px;padding:8px 2px;border:0;border-radius:13px;background:#5BA34A;color:#fff;
   font:750 9.5px/1.15 var(--tkf);cursor:pointer}
 .tkbar.wide .tkb-fin{width:auto;height:38px;font-size:13px;border-radius:11px}
+.tkb-scroll{flex:1;min-height:0;width:100%;overflow-y:auto;overflow-x:hidden;
+  display:flex;flex-direction:column;align-items:center;gap:6px;scrollbar-width:none}
+.tkb-scroll::-webkit-scrollbar{display:none}
+.tkbar.wide .tkb-scroll{align-items:stretch}
 .tkb-sp{flex:1;min-height:6px}
 .tkb-go{width:52px;height:52px;border:0;border-radius:16px;background:#6FBF5C;color:#0F2409;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
@@ -3302,7 +3306,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v813</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v814</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27588,7 +27592,10 @@ function ptDeleteTap(){
 function ptResetAll(){
   const n=(PT.polys?PT.polys.length:0)+(PT.trees?PT.trees.length:0);
   if(!n){ _toast("Nothing traced yet.","#6A4FA3"); return; }
-  if(!confirm(`Clear all ${n} traced item${n===1?"":"s"}?\n\nUndo will bring them back. The property line redraws itself.`)) return;
+  const cats={}; PT.polys.forEach(p=>{ cats[p.mode]=(cats[p.mode]||0)+1; });
+  PT.trees.forEach(t=>{ const m=_ptMarkMode(t); cats[m]=(cats[m]||0)+1; });
+  const list=Object.keys(cats).map(k=>`  • ${_ptMode(k).label} × ${cats[k]}`).join("\n");
+  if(!confirm(`Clear the whole trace?\n\nThis removes every zone and element you have drawn — all ${n} of them:\n\n${list}\n\nThe estimate keeps whatever you have already applied. Undo brings the trace back, and the property line redraws itself.`)) return;
   ptSnap();
   PT.polys=[]; PT.trees=[]; PT.cur=[]; PT.selPoly=null; PT._selStart=null; PT._open={};
   try{ ptParcelWhenReady(0); }catch(e){}
@@ -27732,7 +27739,6 @@ function ptOverflow(){ let d=document.getElementById("pt-ovf-pop"); if(d){ d.rem
   d.style.cssText+=`;top:20px;left:${(ptRailWide()?196:64)+40}px;width:min(300px,92vw)`;
   _ptPopOutside(d.id);
   d.innerHTML=`<div class="tkh"><h3>More</h3><button class="cls" onclick="ptPopClose()">✕</button></div>
-    <button class="${PT.hideLabels?'':'on'}" onclick="ptToggleLabels()">${PT.hideLabels?'Show labels':'Hide labels'}</button>
     <button onclick="ptPopClose();ptLayersPopover()">Layers</button>
     <button onclick="ptPopClose();ptUiPopover()">Layout</button>
     <button onclick="ptPopClose();ptToggleFullscreen()">Full screen</button>
@@ -27741,7 +27747,9 @@ function ptOverflow(){ let d=document.getElementById("pt-ovf-pop"); if(d){ d.rem
     <button onclick="ptPopClose();ptListPopover()">Full take-off list</button>
     <button onclick="ptSaveTrace()">Save trace to file</button>
     <label>Load trace file<input type="file" accept="application/json,.json" style="display:none" onchange="ptPopClose();ptLoadTraceFile(this)"></label>
-    <button onclick="ptRestoreLast()">Restore last (this browser)</button>`;
+    <button onclick="ptRestoreLast()">Restore last (this browser)</button>
+    <div class="sep"></div>
+    <button onclick="ptPopClose();ptResetAll()" style="color:#E0908A">Clear the whole trace…</button>`;
 }
 function ptLayersPopover(refresh){ let d=document.getElementById("pt-layers-pop"); if(d&&!refresh){ d.remove(); return; } if(!d){ d=document.createElement("div"); d.id="pt-layers-pop"; (document.getElementById("pt-modal")||document.body).appendChild(d); }
   const used=PT_MODES.filter(m=>_ptModeUsed(m.k)); 
@@ -27954,6 +27962,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   const _hr=_wide?'':'<hr class="tkb-hr">';
   const _tbHTML=`
     <button class="tkb-tog" onclick="ptRailToggle()" title="${_wide?'Narrow the tools':'Widen the tools'}">${_wide?'‹':'›'}<span>${_wide?'Narrow':''}</span></button>
+    <div class="tkb-scroll">
     ${_lb("Tracing on")}
     ${_t({label:ptBaseLabel(), act:"ptBasePopover()", title:"What you are tracing on",
       icon:_ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/>')})}
@@ -27986,11 +27995,13 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <button onclick="ptPage(-1)" title="Previous page">‹</button>
       <button onclick="ptPage(1)" title="Next page">›</button></div>
       ${_wide?`<div class="tkb-lb" style="text-align:center">Page ${PT.page} of ${PT.numPages}</div>`:''}`:''}
+    ${_t({label:PT.hideLabels?"Labels off":"Labels on", act:"ptToggleLabels()", on:!PT.hideLabels,
+      title:"Show or hide the figures on the plan",
+      icon:_ic('<path d="M4 7h16M4 12h10M4 17h7"/>')})}
     ${_t({label:"Pencil", act:"ptSmoothPopover()", title:"How closely a stroke follows your hand",
       icon:_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')})}
-    ${_t({label:"More", act:"ptOverflow()", title:"Labels, layers, layout, trace files", icon:'<span class="tkb-dots">⋯</span>'})}
-    ${_t({label:"Reset", act:"ptResetAll()", title:"Clear everything traced — Undo brings it back",
-      icon:_ic('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>')})}
+    ${_t({label:"More", act:"ptOverflow()", title:"Layers, layout, reset, trace files", icon:'<span class="tkb-dots">⋯</span>'})}
+    </div>
     <span class="tkb-sp"></span>
     <button class="tkb-go" onclick="ptApply()" title="Apply to estimate">
       ${_ic('<polyline points="5,13 10,18 19,7"/>')}<span>${_wide?"Apply to estimate":"Apply"}</span></button>
