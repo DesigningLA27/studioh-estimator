@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v794</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v795</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26147,7 +26147,11 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
       const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page};
       PT.polys.push(np);
-      if(PT_CUTS.indexOf(PT.mode)>=0){ const host=_ptEnclosing(np,PT.polys);
+      if(PT.mode==="exclude"){
+        _toast(`${Math.round(sf).toLocaleString()} SF excluded — off the landscape area, not part of any surface`,"#8A6D1F");
+      } else if(_ptHoles().has(PT.polys.length-1)){
+        _toast(`${Math.round(sf).toLocaleString()} SF cut out of ${md.label}`,"#8A6D1F");
+      } else if(PT_CUTS.indexOf(PT.mode)>=0){ const host=_ptEnclosing(np,PT.polys);
         if(host) _toast(`${Math.round(sf).toLocaleString()} SF taken out of ${(host.name||_ptMode(host.mode).label)}`,"#8A6D1F"); }
     } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
@@ -26337,10 +26341,34 @@ function ptSheetFilter(q){ q=(q||"").toLowerCase().trim();
       b.style.display=hit?"flex":"none"; if(hit) any=true; });
     sec.style.display=any?"":"none"; }); }
 // Running totals by category, exclusions already netted out of their host surface.
+// An area drawn inside a bigger one of the same category is a hole in it, not another of them.
+function _ptHoles(){
+  const holes=new Set(); if(typeof PT==="undefined") return holes;
+  // Even-odd, so nesting works the way a draughtsman expects: an island inside a hole is
+  // solid again. One container deep is a hole, two deep is material, three is a hole.
+  PT.polys.forEach((p,i)=>{
+    if(p.kind!=="area"||!p.pts||p.pts.length<3) return;
+    const c=_ptCentroid(p.pts); let depth=0;
+    PT.polys.forEach((o,j)=>{
+      if(j===i||o.mode!==p.mode||o.kind!=="area"||!o.pts||o.pts.length<3) return;
+      if(o.page!==p.page) return;
+      if((+o.sf||0)<=(+p.sf||0)) return;              // the container has to be the bigger one
+      if(_ptPointInPoly(c,o.pts)) depth++;
+    });
+    if(depth%2===1) holes.add(i);
+  });
+  return holes;
+}
 function ptTotals(){ const a={}; if(typeof PT==="undefined") return a;
-  PT.polys.forEach(p=>{ if(p.kind==="linear"){ a[p.mode]=(a[p.mode]||0)+(+p.lf||0); } else a[p.mode]=(a[p.mode]||0)+(+p.sf||0); });
-  PT.polys.forEach(p=>{ if(p.kind==="linear"||PT_CUTS.indexOf(p.mode)<0||!(+p.sf>0)) return;
+  const holes=_ptHoles();
+  PT.polys.forEach((p,i)=>{
+    if(p.kind==="linear"){ a[p.mode]=(a[p.mode]||0)+(+p.lf||0); return; }
+    const v=+p.sf||0;
+    a[p.mode]=(a[p.mode]||0)+(holes.has(i)?-v:v);     // a hole subtracts from its own category
+  });
+  PT.polys.forEach((p,i)=>{ if(p.kind==="linear"||holes.has(i)||PT_CUTS.indexOf(p.mode)<0||!(+p.sf>0)) return;
     const host=_ptEnclosing(p,PT.polys); if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-(+p.sf||0)); });
+  Object.keys(a).forEach(k=>{ if(a[k]<0) a[k]=0; });
   return a; }
 function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
 function _ptCutHost(mode){ const p=PT.polys.find(x=>x.mode===mode&&x.kind==="area");
@@ -26473,7 +26501,8 @@ function _tkLedgerBar(tot,live){
   const F="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif";
   const MN="ui-monospace,SFMono-Regular,Menlo,monospace";
   const md=_ptMode(PT.mode);
-  const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(tot[k]||0),0);
+  const surf=Math.max(0,["planting","turf","paving","driveway","pool","spa","shade","water"]
+    .reduce((s,k)=>s+(tot[k]||0),0) - (tot.exclude||0));
   const MN2=MN;
   const cap=(tot.limit||0)||(tot.lot||0);
   const capNm=tot.limit?"Limit of work":"Lot";
@@ -26487,9 +26516,6 @@ function _tkLedgerBar(tot,live){
   </div>`;
   let body="";
   if(tab==="traced"){
-    const cut={};   // what each surface had taken out of it, to show where the number came from
-    PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0||!(+x.sf>0)) return;
-      const h=_ptEnclosing(x,PT.polys); if(h) cut[h.mode]=(cut[h.mode]||0)+(+x.sf||0); });
     const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit"].indexOf(m.k)<0)
       .slice(0, dock==="bottom"?4:99);
     let money=0; cells.forEach(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); if(pr) money+=pr.total; });
@@ -26497,7 +26523,7 @@ function _tkLedgerBar(tot,live){
     if(side){
       // ── the money leads: it is the number that moves while you trace ──
       const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
-        const note=cut[m.k]?`less ${_tkFmt(cut[m.k])} taken out`
+        const note=(m.k==="exclude")?"off the landscape area"
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)?`taken out of ${_ptCutHost(m.k)}`
                  :(pr?`$${pr.per.toFixed(2)} / ${u}`:""));
         return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13)">
@@ -26545,7 +26571,7 @@ function _tkLedgerBar(tot,live){
             <em style="display:block;font-style:normal;font:600 11.5px ${F};color:#8FA383;margin-bottom:2px">${m.label}</em>
             <b style="display:block;font:750 15px ${F};color:#EAF0E4">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b>
             ${(()=>{ const pr=ptPriceFor(m.k, tot[m.k]); return pr?`<span style="display:block;font:700 12px ${MN};color:#8FE07A;margin-top:2px">${_tkRollSpan("tk$-"+m.k, pr.total, "$")}</span>`:''; })()}
-            ${cut[m.k]?`<span style="display:block;font:600 10.5px ${F};color:#8FA383;margin-top:1px">less ${_tkFmt(cut[m.k])}</span>`:''}</span>`).join('')
+</span>`).join('')
           :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#9FBF95;padding:4px 0">Nothing traced yet — pick a category and draw around an area.</span>`}
       </div>`;
     }
@@ -26803,7 +26829,7 @@ function _ptPlaceLabel(placed, cx, cy, w, h){
   placed.push({x1:cx-w/2, x2:cx+w/2, y1:y-h/2, y2:y+h/2});
   return y;
 }
-function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) return; let s=""; const hide=PT.hideLabels; const _placed=[]; const _dots=[];
+function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) return; let s=""; const hide=PT.hideLabels; const _placed=[]; const _dots=[]; const _holes=_ptHoles();
   PT.polys.forEach((p,idx)=>{ if(p.page!==PT.page||PT.hidden[p.mode]) return; const md=_ptMode(p.mode); const c=_ptFill(p); const cpts=p.pts.map(_toCanvas);
     const act=_ptInteractive(p.mode); const pe=act?'pointer-events:auto;cursor:pointer':'pointer-events:none';
     if(p.kind==="linear"){ const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "); const dash=(p.mode==="drainline"||p.mode==="tapelight")?` stroke-dasharray="${p.mode==='tapelight'?'2 5':'10 7'}"`:"";
@@ -26815,7 +26841,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       return; }
     const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
     s+=`<polygon points="${pts}" fill="${c}" fill-opacity="${md.noFill?0:0.25}" stroke="${c}" stroke-width="2.5"/>`;
-    if(!hide){ const ct=_toCanvas(_ptLabelPoint(p.pts));
+    if(!hide && !(_holes&&_holes.has(idx))){ const ct=_toCanvas(_ptLabelPoint(p.pts));
       // A capsule with the number always, and the name only when the shape is big enough to
       // carry it — so "LED tape light" never dwarfs the run it belongs to.
       const cpx=p.pts.map(_toCanvas);
@@ -26824,9 +26850,11 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       const bw=bx1-bx0, bh=by1-by0;
       // What this surface measures after anything excluded inside it has been taken out.
       let netSF=+p.sf||0, cut=0;
-      if(p.kind==="area" && PT_SURFACES.indexOf(p.mode)>=0){
-        PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0||!(+x.sf>0)) return;
-          const h=_ptEnclosing(x,PT.polys); if(h===p) cut+=(+x.sf||0); });
+      if(p.kind==="area"){
+        PT.polys.forEach((x,xi)=>{ if(!(+x.sf>0)) return;
+          if(_holes.has(xi)){ if(x.mode===p.mode && _ptPointInPoly(_ptCentroid(x.pts),p.pts)) cut+=(+x.sf||0); return; }
+          if(PT_SURFACES.indexOf(p.mode)<0||PT_CUTS.indexOf(x.mode)<0) return;
+          if(_ptEnclosing(x,PT.polys)===p) cut+=(+x.sf||0); });
         netSF=Math.max(0,netSF-cut);
       }
       const val=p.kind==="linear"
@@ -26834,7 +26862,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
         : (netSF?Math.round(netSF).toLocaleString()+" SF":"—");
       const nm=(p.name||"").trim()||_ptMode(p.mode).label;
       // the material lives in the take-off list, not on the drawing — it never fitted the pill
-      const sub=(cut?`less ${Math.round(cut).toLocaleString()} taken out`:"")||(p.zone||"");
+      const sub=(p.zone||"");     // the number is already net; there is nothing to explain
       const valW=val.length*8.4;
       const nmW=Math.max(nm.length, sub.length)*6.6;
       const roomy=(bw>Math.max(112, nmW+40) && bh>52);
@@ -27102,9 +27130,14 @@ function _bidTrace(){
 // Recompute traced area totals from the polygons (for older bids saved without `measured`)
 function _ptCentroid(pts){ let x=0,y=0; pts.forEach(p=>{ x+=p.x; y+=p.y; }); return {x:x/pts.length,y:y/pts.length}; }
 // Which surface, if any, a shape sits inside — the smallest one that contains it.
-// A pool, spa, water feature or shade structure drawn on paving is not paving. These come out
-// of whatever surface they sit on, exactly as an exclusion does — so you trace the pool once.
-const PT_CUTS=["exclude","pool","spa","water","shade"];
+// Three ways an area can come off another, and only three:
+//  1. Draw the SAME category inside itself — that is a hole. Paving inside paving is a courtyard
+//     cut out of the paving; the paving number simply goes down. Nothing to explain.
+//  2. A pool, spa, water feature or shade structure sitting on a surface is not that surface, so
+//     it comes out of whatever it sits on. You trace the pool once and it counts once.
+//  3. Exclude is for ground that leaves the job altogether — an existing tennis court that stays.
+//     It belongs to no surface; it comes off the landscape area.
+const PT_CUTS=["pool","spa","water","shade"];
 const PT_SURFACES=["planting","turf","paving","driveway"];
 function _ptEnclosing(poly,list){
   const c=_ptCentroid(poly.pts||[]); let best=null;
