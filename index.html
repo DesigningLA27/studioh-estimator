@@ -3199,7 +3199,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v774</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v775</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25030,14 +25030,15 @@ function renderMoreParcelDetails(fields){
 }
 
 function drawParcelGeoJSON(geom, fields){
-  if(!map||!geom) return;
+  if(!geom) return;
   let polys=[];
   if(geom.type==="Polygon") polys=[geom.coordinates];
   else if(geom.type==="MultiPolygon") polys=geom.coordinates;
   else return;
   const paths=[];
   polys.forEach(poly=>poly.forEach(ring=>paths.push(ring.map(pt=>({lat:pt[1], lng:pt[0]})))));
-  if(!window._parcelData) window._parcelData={}; window._parcelData.paths=paths;   // keep the lat/lng rings for the satellite tracer's property line
+  if(!window._parcelData) window._parcelData={}; window._parcelData.paths=paths;   // keep the lat/lng rings for the tracer's property line
+  if(!map) return;                 // rings are stored; drawing them needs the Project Info map, the tracer does not
   if(parcelOutline){ parcelOutline.setMap(null); }
   parcelOutline=new google.maps.Polygon({paths, strokeColor:"#FFD700", strokeOpacity:0.95, strokeWeight:2.5, fillColor:"#FFD700", fillOpacity:0.08, map:map, zIndex:10, clickable:false});
   let totalSF=0;
@@ -25105,12 +25106,15 @@ function handleParcelResponse(data, fields, countyName){
   console.log("Parcel attributes from "+countyName+":", JSON.stringify(attr));
 
   // Draw parcel boundary on map
-  if(feat.geometry && feat.geometry.rings && map){
-    if(parcelOutline){parcelOutline.setMap(null);}
+  if(feat.geometry && feat.geometry.rings){
     const rings=feat.geometry.rings.map(ring=>
       ring.map(pt=>({lat:pt[1], lng:pt[0]}))
     );
-    if(!window._parcelData) window._parcelData={}; window._parcelData.paths=rings;   // keep rings for the satellite tracer property line
+    if(!window._parcelData) window._parcelData={}; window._parcelData.paths=rings;   // keep rings for the tracer property line
+  }
+  if(feat.geometry && feat.geometry.rings && map){
+    if(parcelOutline){parcelOutline.setMap(null);}
+    const rings=window._parcelData.paths;
     parcelOutline=new google.maps.Polygon({
       paths:rings,
       strokeColor:"#FFD700",
@@ -25724,6 +25728,23 @@ function ptPenUp(e){ if(!_ptPen) return;
   if(p.mode==="pan") return;
   const c=p.c; ptAddAt(_toPdf(c), c, e);      // a pencil tap drops a point
 }
+// The parcel lookup is a network round trip. If the tracer opened first, add the
+// property line the moment it lands rather than making you reopen the tab.
+function ptParcelWhenReady(tries){
+  if(!PT.open||!ptMapLive()) return;
+  const pd=window._parcelData;
+  if(pd&&pd.paths&&pd.paths.length){
+    if(PT.polys.some(p=>p._parcel)) return;
+    pd.paths.forEach(ring=>{ if(!ring||ring.length<3) return;
+      const pts=ring.map(ll=>({x:ll.lng, y:ll.lat}));
+      const poly={mode:"lot",kind:"area",page:1,pts,name:"Property line",_parcel:true};
+      poly.sf=_ptPolySF(pts); PT.polys.push(poly); });
+    try{ ptRenderPage(); }catch(e){}
+    return;
+  }
+  if((tries||0)>30) return;                       // ~15s, then stop asking
+  setTimeout(()=>ptParcelWhenReady((tries||0)+1),500);
+}
 function ptMapClick(e){ if(!e||!e.latLng||PT.selectMode) return;
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
   ptAddAt(p,_llToPx(p)); }
@@ -25829,6 +25850,7 @@ async function ptOpenSatellite(keepTrace){
       const pts=ring.map(ll=>({x:ll.lng, y:ll.lat}));
       const poly={mode:"lot",kind:"area",page:1,pts,name:"Property line",_parcel:true};
       poly.sf=_ptPolySF(pts); PT.polys.push(poly); }); } }catch(e){}
+    if(!PT.polys.length) ptParcelWhenReady(0);   // still fetching? drop the property line in when it arrives
   } else { PT.polys.forEach(p=>{ if(p.kind==="linear") p.lf=_ptLineLF(p.pts); else if(p.pts&&p.pts.length>2) p.sf=_ptPolySF(p.pts); }); }
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode=PT.mode||"planting"; PT.open=true;
   PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
@@ -26418,10 +26440,7 @@ function ptUpdateInfo(){ try{ ptRenderFloat(); }catch(e){}
   el.innerHTML=`<div style="font-size:.72rem;margin-bottom:.4rem">${PT.ppf?'✓ Scale set':'<span style="color:#C0524F">⚠ Not calibrated — set scale first</span>'}</div>${html}`;
   if(PT.polys.length||PT.trees.length) ptAutoSave(); }
 function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=document.createElement("div"); d.id="pt-modal"; document.body.appendChild(d); }
-  // Lift the live map out before the rewrite and put it back after, so a category tap
-  // doesn't blow away the map, its zoom, or where you had panned to.
-  const _keepMap=document.getElementById("pt-map");
-  if(_keepMap&&_keepMap.parentNode) _keepMap.parentNode.removeChild(_keepMap);
+
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.85);z-index:10000;display:flex;flex-direction:column";
   const chip=(m)=>{ const used=_ptModeUsed(m.k); const sel=PT.mode===m.k; const filled=used||sel; const bg=filled?m.color:"#fff"; const col=filled?"#fff":"#333"; const border=sel?`2.5px solid ${_ptDarken(m.color)}`:`1px solid ${m.color}`; return `<button onclick="ptSetMode('${m.k}')" style="padding:.28rem .5rem;font-size:.72rem;border-radius:7px;border:${border};cursor:pointer;text-align:left;background:${bg};color:${col};${sel?'font-weight:700':''}">${m.label}${used&&!sel?' ✓':''}</button>`; };
   const group=(kind)=>PT_MODES.filter(m=>m.kind===kind).map(chip).join('');
@@ -26429,8 +26448,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   const md=_ptMode(PT.mode); const finishLbl = md.kind==="linear"?"✓ Finish line":(md.kind==="count"?"":"✓ Close area");
   const _cur=_ptCurType(PT.mode); const _opts=md.types?(md.types.includes(_cur)||_cur==null?md.types:[_cur].concat(md.types)):[];
   const toolbarType = md.types?`<span style="opacity:.5">|</span><span style="font-size:.72rem;opacity:.85">${md.kind==="count"?"Size:":"Type:"}</span><select onchange="ptSetSubtype(this.value)" style="font-size:.76rem;padding:.25rem .3rem;border:none;border-radius:6px;background:#fff;color:#222;font-weight:600">${_opts.map(t=>`<option value="${t}" ${_cur===t?'selected':''}>${t}</option>`).join('')}</select>`:'';
-  d.innerHTML=`
-    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.6rem .8rem;background:#35502A;color:#fff">
+  const _tbHTML=`    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.6rem .8rem;background:#35502A;color:#fff">
       <strong style="font-size:.9rem">Plan Trace</strong>
       <button onclick="ptBasePopover()" style="padding:.3rem .6rem;font-size:.72rem;border:none;border-radius:7px;background:#3a4a30;color:#fff;cursor:pointer" title="What you are tracing on — switch between a PDF plan and the satellite image">▤ ${ptBaseLabel()} ▾</button>
       <button onclick="ptOpenScale()" style="padding:.3rem .7rem;font-size:.78rem;border:none;border-radius:7px;background:${PT.ppf?'#4C7B3D':'#C0524F'};color:#fff;cursor:pointer">${PT.ppf?'✓ Scale set — change':'① Set scale'}</button>
@@ -26455,8 +26473,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
         <button onclick="ptApply()" style="padding:.35rem .9rem;font-size:.8rem;border:none;border-radius:7px;background:#5BA34A;color:#fff;font-weight:700;cursor:pointer">Apply to estimate</button>
         <button onclick="ptClose()" style="padding:.35rem .7rem;font-size:.8rem;border:none;border-radius:7px;background:#7a3a38;color:#fff;cursor:pointer">Close</button>
       </div>
-    </div>
-    <div style="flex:1;display:flex;overflow:hidden">
+    </div>`;
+  const _bodyHTML=`    <div style="flex:1;display:flex;overflow:hidden">
       ${_ptUiNow==="classic"?`<div style="width:196px;background:#f3f1ec;padding:.7rem;overflow:auto;border-right:1px solid var(--br)">
         <div style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.3rem">Areas (SF)</div>
         <div style="display:flex;flex-direction:column;gap:.25rem">${group("area")}</div>
@@ -26490,9 +26508,13 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
         <div style="font-size:.68rem;color:var(--tl);padding:.4rem .9rem .9rem;line-height:1.45">Pick a category, click around the area. <strong>Areas</strong>: click the first point to close. <strong>Lines</strong>: click the last point to finish. Click any label to name / phase / tag / delete it.</div>
       </div>`:`<div style="width:34px;background:#fff;display:flex;flex-direction:column;align-items:center;padding-top:.7rem"><button onclick="ptTogglePanel()" title="Expand take-off" style="border:none;background:#F1ECE3;color:var(--tm);border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:.9rem">‹</button><div style="writing-mode:vertical-rl;transform:rotate(180deg);margin-top:.6rem;font-size:.68rem;color:var(--tm);text-transform:uppercase;font-weight:800;letter-spacing:.1em">Take-off</div></div>`)}
     </div>`;
-  if(_keepMap){ const fresh=document.getElementById("pt-map");
-    if(fresh&&fresh!==_keepMap&&fresh.parentNode) fresh.parentNode.replaceChild(_keepMap,fresh); }
-  try{ ptPenBind(); }catch(e){}
+  // Only the toolbar changes when you pick a category. Rewriting the whole modal would
+  // detach the live map, which unloads its tiles and leaves a blank green panel.
+  const _tb=document.getElementById("pt-toolbar");
+  const _bodyOk=_tb && document.getElementById("pt-stagewrap") &&
+    (PT.live ? !!document.getElementById("pt-map") : !!document.getElementById("pt-canvas"));
+  if(_bodyOk){ _tb.innerHTML=_tbHTML; }
+  else { d.innerHTML=`<div id="pt-toolbar" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.6rem .8rem;background:#35502A;color:#fff">${_tbHTML}</div>${_bodyHTML}`; }
   try{ ptRenderFloat(); }catch(e){}
 }
 function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
