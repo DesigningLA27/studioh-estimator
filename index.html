@@ -3297,7 +3297,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v805</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v806</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26454,6 +26454,36 @@ function _tkBuiltEmpty(cat){
   }catch(e){}
   return false;
 }
+// A traced pool, spa or water feature has nothing in its builder until you Apply — but it still
+// has to carry a price on the card. So the builders cost a throwaway copy sized from your trace.
+// The same shapes Apply will really create, so the preview and the estimate cannot disagree.
+function _tkPerim(mode){ let lf=0;
+  try{ (PT.polys||[]).forEach(p=>{ if(p.mode!==mode||p.kind!=="area"||!p.pts||p.pts.length<3) return;
+    lf+=_ptLineLF(p.pts.concat([p.pts[0]])); }); }catch(e){}
+  return Math.round(lf); }
+function _tkPoolFrom(sf, perim){
+  const p=newPool(); p.useSF=true; p.sfDirect=Math.max(1,Math.round(sf));
+  if(perim>0){ p.perimLF=perim; p.copingLF=perim; p.edgeLF=perim; }
+  return p; }
+function _tkPreviewPool(sf, perim){ try{ return poolCost(_tkPoolFrom(sf,perim)); }catch(e){ return 0; } }
+// A spa attached to a pool costs what it adds to that pool. On its own it is its own small vessel.
+function _tkPreviewSpa(sf, perim, hasPool){
+  try{
+    if(hasPool){ const base=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool"));
+      const withSpa=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool")); withSpa.spa=true; withSpa.spaType="attached";
+      return Math.max(0, poolCost(withSpa)-poolCost(base)); }
+    return poolCost(_tkPoolFrom(sf, perim));
+  }catch(e){ return 0; } }
+function _ptSum(mode){ let a=0; (PT.polys||[]).forEach(p=>{ if(p.mode===mode&&p.kind==="area") a+=(+p.sf||0); }); return a; }
+function _tkWaterFrom(sf, title){
+  const w=newWaterFeature("custom"); if(title) w.title=title;
+  const a=Math.max(1,Math.round(+sf||0));
+  const side=Math.max(2, Math.round(Math.sqrt(a)));
+  w.basinLen=side; w.basinWidth=Math.max(2, Math.round(a/side));
+  return w; }
+function _tkPreviewWater(){ let t=0;
+  try{ (PT.polys||[]).forEach(p=>{ if(p.mode==="water"&&p.kind==="area") t+=waterCost(_tkWaterFrom(p.sf)); }); }catch(e){ return 0; }
+  return t; }
 function ptPriceFor(mode, qty){
   const cat=TK_CAT2EST[mode]; if(!cat||!(qty>0)) return null;
   const m=_ptMode(mode); const unit=(m&&m.kind==="linear")?"LF":"SF";
@@ -26470,6 +26500,20 @@ function ptPriceFor(mode, qty){
     return null;
   }
   // a built section already knows what it costs; share it by traced area across its categories
+  // nothing in the builder yet — cost what Apply is going to build
+  if(mode==="pool" && _tkBuiltEmpty("pool")){
+    const c=_tkPreviewPool(qty, _tkPerim("pool"));
+    if(c>0) return {total:c, per:c/qty, from:"built"};
+  }
+  if(mode==="spa"){
+    const hasPool=_ptSum("pool")>0 || !_tkBuiltEmpty("pool");
+    const c=_tkPreviewSpa(qty, _tkPerim("spa"), hasPool);
+    if(c>0) return {total:c, per:c/qty, from:"built"};
+  }
+  if(mode==="water" && _tkBuiltEmpty("water")){
+    const c=_tkPreviewWater();
+    if(c>0) return {total:c, per:c/qty, from:"built"};
+  }
   if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)){
     let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
     if(total>0){
@@ -26802,7 +26846,7 @@ function _tkLedgerBar(tot,live){
       const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
         const note=(m.k==="exclude")?"existing — not in the scope"
                  :(m.k==="building")?"footprint"
-                 :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)}`
+                 :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)} — not priced yet`
                  :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
         return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13)">
@@ -28243,6 +28287,27 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
   try{ if(R(areaSum,"pool")>0){ const r=ptAutoPool(R(areaSum,"pool"), perimOf("pool"));
       if(r){ if(S.cats.pool){ S.cats.pool.on=true; S.cats.pool.lumpOn=false; }
         _seeded.push(`Pool — ${r.sf.toLocaleString()} SF built in the pool builder from your trace`); } } }catch(e){}
+  // A traced spa goes on the pool if there is one, or becomes its own vessel if there is not.
+  try{ const spaSF=R(areaSum,"spa");
+    if(spaSF>0){ if(!S.pools) S.pools=[];
+      const already=S.pools.some(p=>p&&(p.spa||p._spaOnly));
+      const host=already?null:S.pools.find(p=>p&&!p.spa&&!p._spaOnly);
+      if(host){ host.spa=true; host.spaType="attached"; host._auto=true;
+          _seeded.push(`Spa — ${spaSF.toLocaleString()} SF attached to the pool`); }
+      else if(!already){
+        const sp=newPool(); sp.title="Spa — from the take-off"; sp.useSF=true; sp.sfDirect=spaSF;
+        const per=perimOf("spa"); if(per>0){ sp.perimLF=per; sp.copingLF=per; sp.edgeLF=per; }
+        sp._spaOnly=true; sp._auto=true; S.pools.push(sp);
+        _seeded.push(`Spa — ${spaSF.toLocaleString()} SF built as its own vessel`); }
+      if(S.cats.pool){ S.cats.pool.on=true; S.cats.pool.lumpOn=false; } } }catch(e){}
+  // Each traced water feature becomes one in the water builder.
+  try{ const wf=PT.polys.filter(p=>p.mode==="water"&&p.kind==="area");
+    if(wf.length){ if(!S.waterFeatures) S.waterFeatures=[];
+      if(!S.waterFeatures.length){
+        wf.forEach((p,i)=>{ const w=_tkWaterFrom(p.sf, p.name||`Water feature ${i+1}`);
+          w._auto=true; S.waterFeatures.push(w); });
+        if(S.cats.water){ S.cats.water.on=true; S.cats.water.lumpOn=false; }
+        _seeded.push(`Water feature — ${wf.length} built from your trace`); } } }catch(e){}
   // PLANTING — one estimator zone per distinct traced planting label (carry location + phase)
   try{ const pp=PT.polys.filter(p=>p.mode==="planting");
     if(pp.length){ const groups={}, order=[]; pp.forEach((p,i)=>{ const key=(p.name&&p.name.trim())||(p.zone&&p.zone.trim())||("Planting "+(i+1)); if(!(key in groups)){ groups[key]={sf:0,loc:(p.zone||"").trim(),phase:(p.phase||"").trim()}; order.push(key); } groups[key].sf+=(p.sf||0); if(!groups[key].loc&&p.zone) groups[key].loc=p.zone.trim(); if(!groups[key].phase&&p.phase) groups[key].phase=p.phase.trim(); });
