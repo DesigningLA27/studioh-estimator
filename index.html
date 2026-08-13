@@ -1835,8 +1835,11 @@ body:not(.sp-on) #sp-open{display:grid}
 /* ── Take-offs toolbar: one row, iPad-sized targets, the iPad's own interface face ── */
 .tkbar{--tkf:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,sans-serif;
   display:flex;align-items:center;gap:10px;padding:0 12px;height:56px;background:#2F4526;color:#EDF2E7;
-  font-family:var(--tkf);flex:none;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
-.tkbar::-webkit-scrollbar{display:none}
+  font-family:var(--tkf);flex:none;overflow:hidden}
+.tkb-left{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0;
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.tkb-left::-webkit-scrollbar{display:none}
+.tkb-right{display:flex;align-items:center;gap:10px;flex:none}
 .tkb-ttl{display:flex;flex-direction:column;line-height:1.12;flex:none;max-width:190px}
 .tkb-ttl b{font-size:14.5px;font-weight:750;letter-spacing:-.01em}
 .tkb-ttl span{font-size:11.5px;color:#A9C29C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -3262,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v778</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v779</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25760,7 +25763,7 @@ function ptMapBuild(center, zoom){
   ["bounds_changed","zoom_changed","drag","idle"].forEach(ev=>{ try{ PT.map.addListener(ev,redraw); }catch(e){} });
   try{ PT.map.addListener("click",e=>ptMapClick(e)); }catch(e){}
   try{ google.maps.event.addListenerOnce(PT.map,"idle",()=>{ PT._mapReady=true; redraw(); }); }catch(e){}
-  ptPenBind();
+  ptPenBind(); ptPenModeApply(); ptMapCursor();
 }
 // The map swallows Apple Pencil input as a drag, so a pencil tap never becomes a click.
 // Pen events are caught on the way down — before the map's own listeners — and handled
@@ -25813,7 +25816,18 @@ function ptParcelWhenReady(tries){
 // Crosshair says "I am placing points"; the default arrow says "I am selecting".
 function ptMapCursor(){ if(!ptMapLive()||!PT.map) return;
   try{ PT.map.setOptions({draggableCursor: PT.selectMode?"default":"crosshair"}); }catch(e){} }
+// Resting a hand on the glass while drawing with the Pencil pans the map and drops stray points.
+// In Pencil mode the map only answers to two fingers, and only pen input can place a point.
+function ptPenModeGet(){ if(PT._pen==null){ let v=null; try{ v=localStorage.getItem("studioh_pt_pen"); }catch(e){}
+    PT._pen=(v==="1"); } return PT._pen; }
+function ptPenModeToggle(){ PT._pen=!ptPenModeGet();
+  try{ localStorage.setItem("studioh_pt_pen", PT._pen?"1":"0"); }catch(e){}
+  ptPenModeApply(); ptRenderModal();
+  _toast(PT._pen?"Pencil mode on — rest your hand, two fingers to pan and zoom":"Pencil mode off — fingers draw again","#2F5B23"); }
+function ptPenModeApply(){ if(!ptMapLive()||!PT.map) return;
+  try{ PT.map.setOptions({gestureHandling: ptPenModeGet()?"cooperative":"greedy"}); }catch(e){} }
 function ptMapClick(e){ if(!e||!e.latLng||PT.selectMode) return;
+  if(ptPenModeGet()){ const t=e.domEvent&&e.domEvent.pointerType; if(t&&t!=="pen") return; }
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
   ptAddAt(p,_llToPx(p)); }
 // Keep the map honest about its own size after a full-screen or panel change.
@@ -26166,7 +26180,7 @@ function ptBaseSwitch(kind){
 const PT_UIS=[
   {k:"D",label:"Labels on shapes",note:"Every area labelled where it sits; drag its corners to resize"},
   {k:"E",label:"Design to a budget",note:"Track each category against a target square footage"},
-  {k:"F",label:"Bottom ledger",note:"Every category total along one bar at the bottom"}
+  {k:"F",label:"Take-off card",note:"A floating card — what you have traced, and how it sits against target"}
 ];
 const TK_GROUPS=[
   {t:"Boundary", keys:["lot","limit","building","exclude","demo"]},
@@ -26176,7 +26190,7 @@ const TK_GROUPS=[
 ];
 const TK_TRAY_DEFAULT=["planting","turf","paving","pool","limit","tree"];
 function ptUiGet(){ if(!PT._ui){ let v=null; try{ v=localStorage.getItem("studioh_pt_ui"); }catch(e){}
-    PT._ui=(PT_UIS.some(u=>u.k===v)?v:"D"); }    // anyone still on the retired rail layout lands on D
+    PT._ui=(PT_UIS.some(u=>u.k===v)?v:"F"); }    // the take-off card is the default
   return PT._ui; }
 function ptUiSet(k){ if(!PT_UIS.some(u=>u.k===k)) return; PT._ui=k;
   try{ localStorage.setItem("studioh_pt_ui",k); }catch(e){}
@@ -26252,7 +26266,7 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
   const tot=ptTotals(); const live=ptLiveSF();
   const tray="";   // the toolbar chip picks the category now; the map keeps the bottom of the screen
   // live readout of the shape being drawn
-  const liveBox=live?`<div style="position:absolute;left:14px;bottom:${ui==="F"?"64px":"16px"};padding:9px 13px;${G}">
+  const liveBox=(live&&ui!=="F")?`<div style="position:absolute;left:14px;bottom:16px;padding:9px 13px;${G}">
       <div style="font-size:.68rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:#98A38C">${_ptMode(PT.mode).label} · drawing</div>
       <div style="font-size:1.5rem;font-weight:750;font-variant-numeric:tabular-nums;color:#2F5B23;letter-spacing:-.02em;font-family:ui-monospace,Menlo,monospace">${_tkFmt(live.n)}<span style="font-size:.8rem;font-weight:700;color:#6C7A5F;margin-left:4px;font-family:inherit">${live.u}</span></div>
       <div style="font-size:.78rem;font-weight:600;color:#6C7A5F">${live.pts} point${live.pts===1?"":"s"}${live.u==="SF"&&live.pts<3?" · need 3":""}</div>
@@ -26306,24 +26320,72 @@ function _tkTargetCard(G,tot,live){ const t=ptTargets();
       <div style="font-size:.6rem;color:${surf>against?'#A8443F':'#6C7A5F'};margin-top:2px;font-weight:${surf>against?'700':'400'}">${surf>against?`${_tkFmt(surf-against)} SF more than the boundary holds`:`${_tkFmt(against-surf)} SF still untraced`}</div>`:''}
   </div>`;
 }
-function _tkLedgerBar(tot,live){ const md=_ptMode(PT.mode);
-  const keys=PT_MODES.filter(m=>tot[m.k]>0).map(m=>m.k);
+// B2 — one card, floating clear of the edge. Segment flips between what has been traced
+// and how it sits against target. The map runs underneath it.
+function _tkLedgerBar(tot,live){
+  const F="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif";
+  const MN="ui-monospace,SFMono-Regular,Menlo,monospace";
+  const md=_ptMode(PT.mode);
   const surf=["planting","turf","paving","driveway","pool","spa","shade","water"].reduce((s,k)=>s+(tot[k]||0),0);
-  return `<div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #DCE1D2;padding:8px 10px;display:flex;align-items:center;gap:9px;pointer-events:auto">
-    <div style="display:flex;align-items:center;gap:7px;padding-right:11px;border-right:1px solid #DCE1D2;flex:none">
-      <span style="width:22px;height:22px;border-radius:7px;background:${md.color}"></span>
-      <span><b style="display:block;font-size:.66rem;line-height:1.25">${md.label}${_ptCurType(PT.mode)?" · "+_ptCurType(PT.mode):""}</b>
-        <span style="font-size:.62rem;font-weight:700;color:#2F5B23;font-family:ui-monospace,Menlo,monospace">${live?`${_tkFmt(live.n)} ${live.u} · ${live.pts} pt`:"nothing in progress"}</span></span></div>
-    <div style="display:flex;gap:5px;overflow-x:auto;flex:1">
-      ${keys.map(k=>{ const m=_ptMode(k); const u=m.kind==="linear"?"LF":"SF";
-        return `<button onclick="ptSetMode('${k}')" style="display:flex;align-items:center;gap:6px;padding:5px 9px;border:0;border-radius:8px;background:${PT.mode===k?'#EAF3E6':'#EAEEE3'};font-size:.64rem;color:#3A452F;white-space:nowrap;flex:none;cursor:pointer">
-          <span style="width:7px;height:7px;border-radius:50%;background:${m.color}"></span>${m.label}
-          <b style="font-size:.66rem;font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace">${_tkFmt(tot[k])}<span style="font-weight:400;color:#6C7A5F"> ${u}</span></b></button>`; }).join('')
-        ||'<span style="font-size:.66rem;color:#6C7A5F;align-self:center">Nothing traced yet — pick a category and click around an area.</span>'}
-    </div>
-    <span style="display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:8px;background:#2F5B23;color:#fff;font-size:.64rem;flex:none">Landscape <b style="font-family:ui-monospace,Menlo,monospace">${_tkFmt(surf)} SF</b></span>
+  const cap=(tot.limit||0)||(tot.lot||0);
+  const capNm=tot.limit?"Limit of work":"Lot";
+  const pct=cap?Math.min(100,Math.round(surf/cap*100)):0;
+  const over=cap&&surf>cap;
+  const tab=PT._tkTab==="target"?"target":"traced";
+  const seg=`<div style="display:flex;background:#F1F0E9;border-radius:999px;padding:4px;margin-bottom:11px">
+    ${[["traced","This take-off"],["target","Against target"]].map(([k,l])=>
+      `<button onclick="ptTkTab('${k}')" style="flex:1;border:0;cursor:pointer;padding:9px 0;border-radius:999px;font:700 14px ${F};background:${tab===k?'#141A10':'transparent'};color:${tab===k?'#fff':'#68765B'}">${l}</button>`).join('')}
   </div>`;
+  let body="";
+  if(tab==="traced"){
+    const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit"].indexOf(m.k)<0).slice(0,4);
+    body=`<div style="display:flex;align-items:center;padding:2px 12px 8px">
+        <span style="text-align:left"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">Traced</em>
+          <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${_tkFmt(surf)}</b></span>
+        <span style="flex:1;height:4px;background:#E9EDE2;border-radius:4px;margin:0 18px;position:relative;top:4px">
+          <i style="display:block;height:100%;width:${pct}%;background:${over?'#A8443F':'#141A10'};border-radius:4px"></i>
+          ${cap?`<span style="position:absolute;left:50%;top:-26px;transform:translateX(-50%);background:${over?'#F7DEDD':'#DFF3D2'};color:${over?'#A8443F':'#2F5B23'};border-radius:999px;padding:3px 10px;font:700 11.5px ${F};white-space:nowrap">${over?`${_tkFmt(surf-cap)} SF over`:`${pct}% of ${capNm.toLowerCase()}`}</span>`:''}
+        </span>
+        <span style="text-align:right"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">${capNm}</em>
+          <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${cap?_tkFmt(cap):"—"}</b></span>
+      </div>
+      <div style="display:flex;background:#F6F5EF;border-radius:18px;padding:11px 4px">
+        ${cells.length?cells.map((m,i)=>`<span style="flex:1;text-align:center;position:relative;${i?'border-left:1px solid #E2E6DA':''}">
+            <em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088;margin-bottom:2px">${m.label}</em>
+            <b style="display:block;font:750 15px ${F};color:#141A10">${_tkFmt(tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b></span>`).join('')
+          :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#68765B;padding:4px 0">Nothing traced yet — pick a category and click around an area.</span>`}
+      </div>`;
+  } else {
+    const t=ptTargets();
+    const keys=PT_MODES.filter(m=>m.kind==="area"&&["lot","limit","building","demo","exclude"].indexOf(m.k)<0&&(t[m.k]||tot[m.k]>0)).map(m=>m.k);
+    body=`<div style="display:flex;flex-direction:column;gap:9px;padding:2px 4px 4px">
+      ${keys.length?keys.map(k=>{ const m=_ptMode(k); let n=tot[k]||0;
+        if(live&&PT.mode===k&&live.u==="SF") n+=live.n;
+        const tg=t[k]||0, p2=tg?Math.min(100,(n/tg)*100):100, ov=tg&&n>tg;
+        return `<span>
+          <span style="display:flex;align-items:baseline;gap:8px;font:600 13px ${F};color:#38432D">
+            <i style="width:9px;height:9px;border-radius:50%;background:${m.color}"></i>${m.label}
+            <b style="margin-left:auto;font:750 14px ${MN};color:#141A10">${_tkFmt(n)}<button onclick="ptTargetSet('${k}')" style="border:0;background:none;cursor:pointer;color:#94A088;font:600 13px ${MN};padding:0 0 0 4px"> / ${tg?_tkFmt(tg):"set"}</button></b></span>
+          <span style="display:block;height:5px;background:#E9EDE2;border-radius:5px;margin-top:5px;overflow:hidden">
+            <i style="display:block;height:100%;width:${p2}%;background:${ov?'#A8443F':m.color};${tg?'':'opacity:.35'}"></i></span>
+          ${tg?`<span style="display:block;font:${ov?'700':'500'} 11.5px ${F};color:${ov?'#A8443F':'#68765B'};margin-top:3px">${ov?`${_tkFmt(n-tg)} SF over target`:`${_tkFmt(tg-n)} SF left`}</span>`:''}
+        </span>`; }).join('')
+        :`<span style="font:600 13px ${F};color:#68765B;padding:6px 8px">No targets yet. Trace something, then tap a figure to set what you're aiming for.</span>`}
+      <button onclick="ptTargetAdd()" style="align-self:flex-start;border:0;background:none;cursor:pointer;font:700 13px ${F};color:#2F5B23;padding:2px 6px">＋ Add a target</button>
+    </div>`;
+  }
+  const liveRow=live?`<div style="display:flex;align-items:center;gap:10px;padding:0 12px 10px">
+      <span style="width:11px;height:11px;border-radius:50%;background:${md.color};flex:none"></span>
+      <span style="font:700 13px ${F};color:#141A10">${md.label}${_ptCurType(PT.mode)?" · "+_ptCurType(PT.mode):""}</span>
+      <span style="margin-left:auto;font:750 15px ${MN};color:#2F5B23">${_tkFmt(live.n)} ${live.u}</span>
+      <span style="font:600 12px ${F};color:#94A088">${live.pts} pt</span>
+    </div>`:"";
+  return `<div style="position:absolute;left:50%;transform:translateX(-50%);bottom:18px;width:min(600px,94%);
+      background:rgba(255,255,255,.97);border-radius:26px;padding:9px 9px 11px;pointer-events:auto;
+      box-shadow:0 18px 44px -14px rgba(0,0,0,.5);font-family:${F}">
+    ${seg}${liveRow}${body}</div>`;
 }
+function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
 // ── selection & vertex editing ──────────────────────────────────────────────
 function ptSelClear(){ PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
 function ptSelDelete(){ const i=PT.selPoly; if(i==null) return; ptSnap(); PT.polys.splice(i,1);
@@ -26485,16 +26547,35 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     const pts=cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
     s+=`<polygon points="${pts}" fill="${c}" fill-opacity="${md.noFill?0:0.25}" stroke="${c}" stroke-width="2.5"/>`;
     if(!hide){ const ct=_toCanvas(_ptLabelPoint(p.pts));
-      const nm=p.name||""; const meta=(p.zone?p.zone+" · ":"")+(p.sf?Math.round(p.sf).toLocaleString()+" SF":"—")+(p.type?" · "+p.type:"");
-      const lbl=nm?nm:meta; const w=Math.max(50, Math.max(lbl.length, nm?meta.length*0.85:0)*7.2); const h=nm?32:18;
+      // A capsule with the number always, and the name only when the shape is big enough to
+      // carry it — so "LED tape light" never dwarfs the run it belongs to.
+      const cpx=p.pts.map(_toCanvas);
+      let bx0=1e12,by0=1e12,bx1=-1e12,by1=-1e12;
+      cpx.forEach(q=>{ if(q.x<bx0)bx0=q.x; if(q.x>bx1)bx1=q.x; if(q.y<by0)by0=q.y; if(q.y>by1)by1=q.y; });
+      const bw=bx1-bx0, bh=by1-by0;
+      const val=p.kind==="linear"
+        ? (p.lf?Math.round(p.lf).toLocaleString()+" LF":"—")
+        : (p.sf?Math.round(p.sf).toLocaleString()+" SF":"—");
+      const nm=(p.name||"").trim()||_ptMode(p.mode).label;
+      const sub=(p.zone?p.zone+" · ":"")+(p.type||"");
+      const valW=val.length*8.4;
+      const nmW=Math.max(nm.length, sub.length)*6.6;
+      const roomy=(bw>Math.max(112, nmW+40) && bh>52);
+      const w=Math.round(roomy?Math.max(valW+30, nmW+30):valW+30);
+      const h=roomy?38:26;
       const cy=_ptPlaceLabel(_placed, ct.x, ct.y, w, h);
       const moved=Math.abs(cy-ct.y)>2;
-      const lead=moved?`<line x1="${ct.x.toFixed(1)}" y1="${ct.y.toFixed(1)}" x2="${ct.x.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="2 2" opacity="0.7"/><circle cx="${ct.x.toFixed(1)}" cy="${ct.y.toFixed(1)}" r="2" fill="${c}"/>`:"";
+      const lead=moved?`<line x1="${ct.x.toFixed(1)}" y1="${ct.y.toFixed(1)}" x2="${ct.x.toFixed(1)}" y2="${cy.toFixed(1)}" stroke="#fff" stroke-width="1.4" stroke-dasharray="3 3" opacity="0.75"/><circle cx="${ct.x.toFixed(1)}" cy="${ct.y.toFixed(1)}" r="2.5" fill="#fff"/>`:"";
+      const x=ct.x, r=h/2;
       s+=`<g style="${pe}" onclick="ptEditPoly(${idx})">${lead}`;
-      s+=`<rect x="${(ct.x-w/2).toFixed(1)}" y="${(cy-h/2).toFixed(1)}" width="${w.toFixed(0)}" height="${h}" rx="5" fill="#fff" fill-opacity="0.94" stroke="${c}" stroke-width="1.5"/>`;
-      if(nm){ s+=`<text x="${ct.x.toFixed(1)}" y="${(cy-6).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="800" fill="#1a1a1a">${nm}</text>`;
-        s+=`<text x="${ct.x.toFixed(1)}" y="${(cy+8).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="600" fill="#666">${meta}</text>`; }
-      else { s+=`<text x="${ct.x.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11.5" font-weight="700" fill="#222">${meta}</text>`; }
+      s+=`<rect x="${(x-w/2).toFixed(1)}" y="${(cy-h/2).toFixed(1)}" width="${w}" height="${h}" rx="${r}" fill="#fff" fill-opacity="0.97"/>`;
+      s+=`<circle cx="${(x-w/2+14).toFixed(1)}" cy="${cy.toFixed(1)}" r="4.5" fill="${md.color}"/>`;
+      if(roomy){
+        s+=`<text x="${(x-w/2+25).toFixed(1)}" y="${(cy-6).toFixed(1)}" dominant-baseline="central" font-size="12.5" font-weight="700" fill="#141A10">${nm}</text>`;
+        s+=`<text x="${(x-w/2+25).toFixed(1)}" y="${(cy+9).toFixed(1)}" dominant-baseline="central" font-size="12.5" font-weight="750" fill="#2F5B23" font-family="ui-monospace,Menlo,monospace">${val}${sub?`<tspan font-family="inherit" font-size="10.5" font-weight="600" fill="#68765B"> · ${sub}</tspan>`:''}</text>`;
+      } else {
+        s+=`<text x="${(x-w/2+25).toFixed(1)}" y="${cy.toFixed(1)}" dominant-baseline="central" font-size="13" font-weight="750" fill="#141A10" font-family="ui-monospace,Menlo,monospace">${val}</text>`;
+      }
       s+=`</g>`; }
   });
   const mS=Math.max(0.5,Math.min(1.25,(PT.renderScale||1)/(PT._fitScale||PT.renderScale||1)));
@@ -26596,7 +26677,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   const _drawing=PT.cur.length>=(_md.kind==="linear"?2:3);
   const _proj=((typeof S!=="undefined"&&S.pi)&&(S.pi.project||S.pi.client||S.pi.address))||"";
   const _ic=(d)=>`<svg viewBox="0 0 24 24">${d}</svg>`;
-  const _tbHTML=`
+  const _tbHTML=`<div class="tkb-left">
     <span class="tkb-ttl"><b>Take-offs</b>${_proj?`<span>${String(_proj).replace(/</g,"&lt;")}</span>`:''}</span>
     <div class="tkb-grp">
       <button class="tkb-b" onclick="ptBasePopover()" title="What you are tracing on">${_ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/>')}${ptBaseLabel()}</button>
@@ -26606,6 +26687,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <button class="tkb-b${PT.selectMode?'':' on'}" onclick="if(PT.selectMode)ptSelectMode()" title="Draw new areas">${_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/>')}Draw</button>
       <button class="tkb-b${PT.selectMode?' on':''}" onclick="if(!PT.selectMode)ptSelectMode()" title="Select, reshape or delete what you traced">${_ic('<path d="M4 3l7 17 2-7 7-2L4 3Z"/>')}Select</button>
     </div>
+    ${PT.live?`<div class="tkb-grp">
+      <button class="tkb-b${ptPenModeGet()?' on':''}" onclick="ptPenModeToggle()" title="Pencil mode — the map ignores fingers so your hand can rest on the glass">${_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')}Pencil</button></div>`:''}
     <div class="tkb-grp">
       <button class="tkb-b ico" id="pt-undo-btn" onclick="ptUndo()" title="Undo">${_ic('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10H9"/>')}</button>
       <button class="tkb-b ico" id="pt-redo-btn" onclick="ptRedoAct()" title="Redo">${_ic('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h6"/>')}</button>
@@ -26616,7 +26699,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <button class="tkb-b ico" onclick="ptZoom(0.83)" title="Zoom out">－</button>
       <button class="tkb-b" onclick="ptFitPage().then(ptRenderPage)">Fit</button></div>`}
     ${PT.numPages>1?`<div class="tkb-grp"><button class="tkb-b ico" onclick="ptPage(-1)">‹</button><span class="tkb-b" style="pointer-events:none">pg ${PT.page}/${PT.numPages}</span><button class="tkb-b ico" onclick="ptPage(1)">›</button></div>`:''}
-    <span class="tkb-sp"></span>
+    </div><div class="tkb-right">
     <button class="tkb-cat" onclick="ptCatMenu()" title="Pick what you are tracing">
       <span class="dot" style="background:${_md.color}"></span>
       <span class="nm">${_md.label}${_ptCurType(PT.mode)?` · ${_ptCurType(PT.mode)}`:''}</span>
@@ -26625,7 +26708,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
     </button>
     <div class="tkb-grp"><button class="tkb-b ico" onclick="ptOverflow()" title="Labels, layers, layout, trace files">⋯</button></div>
     <button class="tkb-go" onclick="ptApply()">Apply to estimate</button>
-    <button class="tkb-x" onclick="ptClose()" title="Close">${_ic('<path d="M6 6l12 12M18 6L6 18"/>')}</button>`;
+    <button class="tkb-x" onclick="ptClose()" title="Close">${_ic('<path d="M6 6l12 12M18 6L6 18"/>')}</button></div>`;
   const _bodyHTML=`    <div style="flex:1;display:flex;overflow:hidden">
       ${_ptUiNow==="classic"?`<div style="width:196px;background:#f3f1ec;padding:.7rem;overflow:auto;border-right:1px solid var(--br)">
         <div style="font-size:.6rem;color:var(--tl);text-transform:uppercase;font-weight:700;margin-bottom:.3rem">Areas (SF)</div>
