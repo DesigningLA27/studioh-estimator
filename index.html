@@ -3265,7 +3265,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v791</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v792</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26321,6 +26321,9 @@ function ptTotals(){ const a={}; if(typeof PT==="undefined") return a;
     const host=_ptEnclosing(p,PT.polys); if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-(+p.sf||0)); });
   return a; }
 function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
+function _ptCutHost(mode){ const p=PT.polys.find(x=>x.mode===mode&&x.kind==="area");
+  if(!p) return null; const h=_ptEnclosing(p,PT.polys);
+  return h?(h.name||_ptMode(h.mode).label).toLowerCase():null; }
 // What each traced category is worth, taken straight from the estimate — the same section
 // subtotals the summary uses, so the card and the estimate can never disagree.
 const TK_CAT2EST={planting:"planting", turf:"planting", paving:"paving", driveway:"paving",
@@ -26343,13 +26346,16 @@ function tkRoll(id, to, pre, post){
   const el=document.getElementById(id); if(!el) return;
   const from=+el.getAttribute("data-v")||0; to=+to||0;
   el.setAttribute("data-v",to);
-  if(from===to){ el.textContent=(pre||"")+_tkFmt(to)+(post||""); return; }
-  const t0=(window.performance&&performance.now)?performance.now():0, dur=520;
-  const step=(now)=>{ const k=Math.min(1,((now||0)-t0)/dur);
-    const e=1-Math.pow(1-k,3);
-    el.textContent=(pre||"")+_tkFmt(from+(to-from)*e)+(post||"");
-    if(k<1) requestAnimationFrame(step); };
+  const show=(v)=>{ el.textContent=(pre||"")+_tkFmt(v)+(post||""); };
+  if(from===to){ show(to); return; }
+  // Wall-clock, not frame timestamps: a throttled or backgrounded tab must still land on the
+  // real number. And a final snap guarantees it even if the frames never come at all.
+  const t0=Date.now(), dur=520;
+  const step=()=>{ const k=Math.max(0,Math.min(1,(Date.now()-t0)/dur));
+    show(from+(to-from)*(1-Math.pow(1-k,3)));
+    if(k<1 && +el.getAttribute("data-v")===to) requestAnimationFrame(step); };
   requestAnimationFrame(step);
+  setTimeout(()=>{ if(+el.getAttribute("data-v")===to) show(to); }, dur+90);
 }
 function _tkRollSpan(id, v, pre, post, style){
   setTimeout(()=>tkRoll(id, v, pre, post), 0);
@@ -26451,6 +26457,7 @@ function _tkLedgerBar(tot,live){
   const capNm=tot.limit?"Limit of work":"Lot";
   const pct=cap?Math.min(100,Math.round(surf/cap*100)):0;
   const over=cap&&surf>cap;
+  const dock=ptTkDock(), side=(dock==="left"||dock==="right"), shut=side&&ptTkShut();
   const tab=PT._tkTab==="target"?"target":"traced";
   const seg=`<div style="display:flex;background:#F1F0E9;border-radius:999px;padding:4px;margin-bottom:11px">
     ${[["traced","This take-off"],["target","Against target"]].map(([k,l])=>
@@ -26461,31 +26468,65 @@ function _tkLedgerBar(tot,live){
     const cut={};   // what each surface had taken out of it, to show where the number came from
     PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0||!(+x.sf>0)) return;
       const h=_ptEnclosing(x,PT.polys); if(h) cut[h.mode]=(cut[h.mode]||0)+(+x.sf||0); });
-    const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit","exclude"].indexOf(m.k)<0)
-      .slice(0, ptTkDock()==="bottom"?4:99);
-    body=`<div style="display:flex;align-items:center;padding:2px 12px 8px">
+    const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit"].indexOf(m.k)<0)
+      .slice(0, dock==="bottom"?4:99);
+    let money=0; cells.forEach(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); if(pr) money+=pr.total; });
+    const pct=cap?Math.min(100,Math.round(surf/cap*100)):0;
+    if(side){
+      // ── the money leads: it is the number that moves while you trace ──
+      const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
+        const note=cut[m.k]?`less ${_tkFmt(cut[m.k])} taken out`
+                 :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)?`taken out of ${_ptCutHost(m.k)}`
+                 :(pr?`$${pr.per.toFixed(2)} / ${u}`:""));
+        return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid #E3E6DC">
+          <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
+          <span style="min-width:0">
+            <b style="display:block;font:650 14px ${F};color:#141A10;line-height:1.25">${m.label}</b>
+            ${note?`<span style="display:block;font:600 11px ${F};color:#94A088">${note}</span>`:''}</span>
+          <span style="margin-left:auto;text-align:right">
+            <b style="display:block;font:750 15px ${MN};color:#141A10;letter-spacing:-.02em">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
+            <span style="display:block;font:700 12px ${MN};color:#2F5B23">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
+        </div>`; }).join('');
+      body=`<div style="flex:none;margin-bottom:12px">
+          <div style="font:600 11.5px ${F};color:#94A088">Priced from the estimate</div>
+          <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;color:#141A10">${_tkRollSpan("tk$-all", money, "$")}</div>
+          <div style="display:flex;align-items:baseline;gap:7px;margin-top:3px">
+            <b style="font:750 17px ${MN};color:#2F5B23">${_tkRollSpan("tk-surf", surf)} SF</b>
+            <em style="font-style:normal;font:600 11.5px ${F};color:#94A088">traced${cap?` · ${pct}% of the ${tot.limit?"limit of work":"lot"}`:""}</em></div>
+          ${cap?`<div style="height:6px;border-radius:6px;background:#EFEEE7;margin-top:11px;overflow:hidden">
+              <i style="display:block;height:100%;border-radius:6px;width:${pct}%;background:${surf>cap?'#A8443F':'#141A10'}"></i></div>
+            <div style="display:flex;margin-top:5px;font:600 11px ${F};color:#94A088">
+              ${tot.limit?"Limit of work":"Lot"} ${_tkFmt(cap)} SF
+              <b style="margin-left:auto;color:#38432D;font-weight:700">${surf>cap?`${_tkFmt(surf-cap)} SF over`:`${_tkFmt(cap-surf)} SF left`}</b></div>`:''}
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;margin:0 -4px">${rows||
+          `<div style="font:600 13px ${F};color:#68765B;padding:10px 8px">Nothing traced yet — pick a category and draw around an area.</div>`}</div>
+        ${money>0?`<div style="flex:none;border-top:2px solid #141A10;margin-top:8px;padding-top:11px;display:flex;align-items:baseline">
+          <em style="font-style:normal;font:700 11.5px ${F};letter-spacing:.09em;text-transform:uppercase;color:#68765B">Total</em>
+          <b style="margin-left:auto;font:750 24px ${MN};color:#2F5B23;letter-spacing:-.03em">${_tkRollSpan("tk$-foot", money, "$")}</b></div>`:''}`;
+    } else {
+      body=`<div style="display:flex;align-items:center;padding:2px 12px 8px">
         <span style="text-align:left"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">Traced</em>
-          <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${_tkFmt(surf)}</b></span>
+          <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${_tkRollSpan("tk-surf", surf)}</b></span>
         <span style="flex:1;height:4px;background:#E9EDE2;border-radius:4px;margin:0 18px;position:relative;top:4px">
-          <i style="display:block;height:100%;width:${pct}%;background:${over?'#A8443F':'#141A10'};border-radius:4px"></i>
-          ${cap?`<span style="position:absolute;left:50%;top:-26px;transform:translateX(-50%);background:${over?'#F7DEDD':'#DFF3D2'};color:${over?'#A8443F':'#2F5B23'};border-radius:999px;padding:3px 10px;font:700 11.5px ${F};white-space:nowrap">${over?`${_tkFmt(surf-cap)} SF over`:`${pct}% of ${capNm.toLowerCase()}`}</span>`:''}
+          <i style="display:block;height:100%;width:${pct}%;background:${surf>cap?'#A8443F':'#141A10'};border-radius:4px"></i>
+          ${cap?`<span style="position:absolute;left:50%;top:-26px;transform:translateX(-50%);background:${surf>cap?'#F7DEDD':'#DFF3D2'};color:${surf>cap?'#A8443F':'#2F5B23'};border-radius:999px;padding:3px 10px;font:700 11.5px ${F};white-space:nowrap">${surf>cap?`${_tkFmt(surf-cap)} SF over`:`${pct}% of ${capNm.toLowerCase()}`}</span>`:''}
         </span>
         <span style="text-align:right"><em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088">${capNm}</em>
           <b style="display:block;font:750 21px ${MN};color:#141A10;letter-spacing:-.03em">${cap?_tkFmt(cap):"—"}</b></span>
       </div>
-      ${(()=>{ let money=0, any=false;
-        PT_MODES.forEach(m=>{ if(!(tot[m.k]>0)) return; const pr=ptPriceFor(m.k, tot[m.k]); if(pr){ money+=pr.total; any=true; } });
-        return any?`<div style="display:flex;align-items:baseline;padding:0 12px 10px">
-          <span style="font:600 11.5px ${F};color:#94A088">Priced from the estimate</span>
-          <b style="margin-left:auto;font:750 20px ${MN};color:#2F5B23;letter-spacing:-.03em">${_tkRollSpan("tk$-all", money, "$")}</b></div>`:''; })()}
-      <div style="display:${ptTkDock()==="bottom"?"flex":"block"};background:#F6F5EF;border-radius:18px;padding:11px 4px;overflow-x:auto">
-        ${cells.length?cells.map((m,i)=>`<span style="${ptTkDock()==="bottom"?`flex:1;text-align:center;${i?'border-left:1px solid #E2E6DA':''}`:`display:flex;align-items:baseline;gap:8px;padding:6px 10px;${i?'border-top:1px solid #E2E6DA':''}`};position:relative">
-            <em style="font-style:normal;font:600 11.5px ${F};color:#94A088;${ptTkDock()==="bottom"?"display:block;margin-bottom:2px":""}">${m.label}</em>
-            <b style="font:750 15px ${F};color:#141A10;${ptTkDock()==="bottom"?"display:block":"margin-left:auto"}">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b>
-            ${(()=>{ const pr=ptPriceFor(m.k, tot[m.k]); return pr?`<span style="display:block;font:700 12px ${MN};color:#2F5B23;margin-top:2px">${_tkRollSpan("tk$-"+m.k, pr.total, "$")}<span style="font:600 10.5px ${F};color:#94A088"> · $${pr.per.toFixed(2)}/${m.kind==="linear"?"LF":"SF"}</span></span>`:''; })()}
-            ${cut[m.k]?`<span style="display:block;font:600 10.5px ${F};color:#94A088;margin-top:1px">less ${_tkFmt(cut[m.k])} taken out</span>`:''}</span>`).join('')
-          :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#68765B;padding:4px 0">Nothing traced yet — pick a category and click around an area.</span>`}
+      ${money>0?`<div style="display:flex;align-items:baseline;padding:0 12px 10px">
+        <span style="font:600 11.5px ${F};color:#94A088">Priced from the estimate</span>
+        <b style="margin-left:auto;font:750 20px ${MN};color:#2F5B23;letter-spacing:-.03em">${_tkRollSpan("tk$-all", money, "$")}</b></div>`:''}
+      <div style="display:flex;background:#F6F5EF;border-radius:18px;padding:11px 4px;overflow-x:auto">
+        ${cells.length?cells.map((m,i)=>`<span style="flex:1;text-align:center;${i?'border-left:1px solid #E2E6DA':''};position:relative">
+            <em style="display:block;font-style:normal;font:600 11.5px ${F};color:#94A088;margin-bottom:2px">${m.label}</em>
+            <b style="display:block;font:750 15px ${F};color:#141A10">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b>
+            ${(()=>{ const pr=ptPriceFor(m.k, tot[m.k]); return pr?`<span style="display:block;font:700 12px ${MN};color:#2F5B23;margin-top:2px">${_tkRollSpan("tk$-"+m.k, pr.total, "$")}</span>`:''; })()}
+            ${cut[m.k]?`<span style="display:block;font:600 10.5px ${F};color:#94A088;margin-top:1px">less ${_tkFmt(cut[m.k])}</span>`:''}</span>`).join('')
+          :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#68765B;padding:4px 0">Nothing traced yet — pick a category and draw around an area.</span>`}
       </div>`;
+    }
   } else {
     const t=ptTargets();
     const keys=PT_MODES.filter(m=>m.kind==="area"&&["lot","limit","building","demo","exclude"].indexOf(m.k)<0&&(t[m.k]||tot[m.k]>0)).map(m=>m.k);
@@ -26511,9 +26552,8 @@ function _tkLedgerBar(tot,live){
       <span style="margin-left:auto;font:750 15px ${MN};color:#2F5B23">${_tkFmt(live.n)} ${live.u}</span>
       <span style="font:600 12px ${F};color:#94A088">${live.pts} pt</span>
     </div>`:"";
-  const dock=ptTkDock(), side=(dock==="left"||dock==="right"), shut=side&&ptTkShut();
-  const pos = dock==="left"  ? `left:0;top:0;bottom:0;width:${shut?44:320}px;border-radius:0 22px 22px 0`
-            : dock==="right" ? `right:0;top:0;bottom:0;width:${shut?44:320}px;border-radius:22px 0 0 22px`
+  const pos = dock==="left"  ? `left:0;top:0;bottom:0;width:${shut?56:320}px;border-radius:0 22px 22px 0`
+            : dock==="right" ? `right:0;top:0;bottom:0;width:${shut?56:320}px;border-radius:22px 0 0 22px`
             :                  "left:50%;transform:translateX(-50%);bottom:18px;width:min(600px,calc(100% - 150px));border-radius:26px";
   const grip=side
     ? `<div onpointerdown="ptTkDragStart(event)" title="Drag to move — bottom, left or right"
@@ -26524,14 +26564,21 @@ function _tkLedgerBar(tot,live){
         style="height:16px;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none;flex:none">
         <span style="width:38px;height:4px;border-radius:4px;background:#DBE0D1"></span></div>`;
   if(shut){
+    let money=0; PT_MODES.forEach(m=>{ if(!(tot[m.k]>0)) return; const pr=ptPriceFor(m.k,tot[m.k]); if(pr) money+=pr.total; });
+    const pctLot=cap?Math.round(surf/cap*100):0;
+    const st=(lab,val,acc)=>`<span style="text-align:center;color:#EAF0E4">
+      <em style="display:block;font-style:normal;font:700 8.5px ${F};letter-spacing:.1em;text-transform:uppercase;color:#9FBF95">${lab}</em>
+      <b style="display:block;font:750 12.5px ${MN};letter-spacing:-.02em;${acc?"color:#8FE07A":""}">${val}</b></span>`;
+    const hr=`<hr style="width:26px;border:0;border-top:1px solid rgba(255,255,255,.18);margin:2px 0">`;
     return `<div id="pt-card" onclick="ptTkShutSet(false)" ontouchstart="ptTkSwipeStart(event)" ontouchend="ptTkSwipeEnd(event)"
         title="Open the take-off" style="position:absolute;${pos};z-index:3;pointer-events:auto;cursor:pointer;
-        background:rgba(255,255,255,.97);box-shadow:0 18px 44px -14px rgba(0,0,0,.5);
-        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:${F}">
-      <span style="font-size:19px;color:#2F5B23">${dock==="left"?"›":"‹"}</span>
-      <span style="writing-mode:vertical-rl;transform:rotate(180deg);font:800 10.5px ${F};
-        letter-spacing:.12em;text-transform:uppercase;color:#68765B">Take-off</span>
-      <b style="writing-mode:vertical-rl;transform:rotate(180deg);font:750 13px ${MN};color:#141A10">${_tkFmt(surf)} SF</b>
+        background:rgba(20,26,16,.92);box-shadow:0 18px 44px -14px rgba(0,0,0,.55);
+        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:10px 0;font-family:${F}">
+      <span style="width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.14);color:#EAF0E4;
+        display:flex;align-items:center;justify-content:center;font-size:16px">${dock==="left"?"›":"‹"}</span>
+      ${st("SF", _tkFmt(surf))}${hr}
+      ${money>0?st("Cost", "$"+(money>=10000?(money/1000).toFixed(1)+"k":_tkFmt(money)), true)+hr:""}
+      ${cap?st("Of "+(tot.limit?"LOW":"lot"), pctLot+"%"):""}
     </div>`;
   }
   return `<div id="pt-card" ontouchstart="ptTkSwipeStart(event)" ontouchend="ptTkSwipeEnd(event)"
