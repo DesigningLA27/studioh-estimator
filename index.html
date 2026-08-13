@@ -3297,7 +3297,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v806</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v807</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -4594,6 +4594,7 @@ const CATS=[
     {n:"Cap / Hearth — Stone",                    u:"LF",q:0, lo:35, hi:80, matf:0.5, role:"cap"},
     {n:"Burner / Pan / Ring",                     u:"EA",q:0, lo:300, hi:1200, std:600, role:"burner"},
     {n:"Electronic Ignition",                     u:"EA",q:0, lo:400, hi:1500, std:800, role:"ignition"},
+    {n:"Outdoor Fireplace — Masonry",             u:"EA",q:0, lo:8000,hi:30000, std:14000},
     {n:"Fire Media (glass / lava / stone)",       u:"LS",q:0, lo:150, hi:600, std:300, role:"media"},
     {n:"Gas Line Run",                            u:"LS",q:0, lo:800, hi:3000, std:1600, role:"gas"},
     {n:"Wind Guard / Accessories",                u:"EA",q:0, lo:100, hi:500, role:"acc"},
@@ -26407,8 +26408,13 @@ function ptTotals(){ const a={}; if(typeof PT==="undefined") return a;
     const v=+p.sf||0;
     a[p.mode]=(a[p.mode]||0)+(holes.has(i)?-v:v);     // a hole subtracts from its own category
   });
-  PT.polys.forEach((p,i)=>{ if(p.kind==="linear"||holes.has(i)||PT_CUTS.indexOf(p.mode)<0||!(+p.sf>0)) return;
-    const host=_ptEnclosing(p,PT.polys); if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-(+p.sf||0)); });
+  PT.polys.forEach((p,i)=>{ if(holes.has(i)||PT_CUTS.indexOf(p.mode)<0) return;
+    const cut=_tkCutSF(p); if(!(cut>0)) return;
+    const host=_ptEnclosing(p,PT.polys); if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-cut); });
+  // a fire pit or fireplace is a mark, but it still stands on something
+  (PT.trees||[]).forEach(t=>{ const m=_ptMarkMode(t); const fp=TK_FOOTPRINT[m]; if(!(fp>0)) return;
+    const host=_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:m,kind:"area"},PT.polys);
+    if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-fp); });
   Object.keys(a).forEach(k=>{ if(a[k]<0) a[k]=0; });
   return a; }
 function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
@@ -26420,6 +26426,7 @@ function _ptCutHost(mode){ const p=PT.polys.find(x=>x.mode===mode&&x.kind==="are
 // a section total divided by an area, which is what it used to be and which produced $3.35/SF
 // for natural stone. A category the estimate cannot price yet says so instead of guessing.
 const TK_CAT2EST={planting:"planting", turf:"planting", paving:"paving", driveway:"paving",
+  firepit:"firepit", fireplace:"firepit", building:"sitework",
   pool:"pool", spa:"pool", water:"water", shade:"pergola", kitchen:"kitchen", seating:"walls",
   wall:"walls", steps:"paving", irrigation:"irrigation", light:"lighting", tapelight:"lighting",
   drainline:"drainage", inlet:"drainage", demo:"sitework", tree:"planting"};
@@ -26484,6 +26491,31 @@ function _tkWaterFrom(sf, title){
 function _tkPreviewWater(){ let t=0;
   try{ (PT.polys||[]).forEach(p=>{ if(p.mode==="water"&&p.kind==="area") t+=waterCost(_tkWaterFrom(p.sf)); }); }catch(e){ return 0; }
   return t; }
+// Every element prices from the builder that owns it. A throwaway copy sized from the trace
+// gives the card its number before you Apply; Apply then creates the real one the same way.
+function _tkPergolaFrom(sf){
+  const before=(S.pergolas||[]).length;
+  try{ newPergola(); }catch(e){ return null; }
+  const p=(S.pergolas||[])[S.pergolas.length-1];
+  if(p){ const side=Math.max(6,Math.round(Math.sqrt(Math.max(1,sf))));
+    if("lenFt" in p) p.lenFt=side; if("widFt" in p) p.widFt=Math.max(6,Math.round(sf/side));
+    if("footprintSF" in p) p.footprintSF=Math.round(sf); }
+  if((S.pergolas||[]).length>before) S.pergolas.pop();   // preview only — put the world back
+  return p;
+}
+function _tkKitchenFrom(lf){
+  const before=(S.kitchens||[]).length;
+  try{ newKitchen(); }catch(e){ return null; }
+  const k=(S.kitchens||[])[S.kitchens.length-1];
+  if(k){ k.dimMode="run"; k.runLF=Math.max(1,Math.round(lf)); if(k.segs&&k.segs[0]) k.segs[0].len=Math.max(1,Math.round(lf)); }
+  if((S.kitchens||[]).length>before) S.kitchens.pop();
+  return k;
+}
+function _tkWallFrom(lf, heightFt){
+  return { label:"", height:heightFt||3, length:Math.max(1,Math.round(lf)),
+           bodyIdx:0, finishIdx:-1, sides:1, capIdx:-1, drain:false };
+}
+function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 function ptPriceFor(mode, qty){
   const cat=TK_CAT2EST[mode]; if(!cat||!(qty>0)) return null;
   const m=_ptMode(mode); const unit=(m&&m.kind==="linear")?"LF":"SF";
@@ -26513,6 +26545,28 @@ function ptPriceFor(mode, qty){
   if(mode==="water" && _tkBuiltEmpty("water")){
     const c=_tkPreviewWater();
     if(c>0) return {total:c, per:c/qty, from:"built"};
+  }
+  // shade structure → the pergola builder
+  if(mode==="shade" && !((S.pergolas||[]).length)){
+    try{ const p=_tkPergolaFrom(qty); const c=p?pergolaCost(p):0;
+      if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
+  }
+  // outdoor kitchen → the kitchen builder, priced on the run you traced
+  if(mode==="kitchen" && !((S.kitchens||[]).length)){
+    try{ const k=_tkKitchenFrom(qty); const c=k?kitchenCost(k):0;
+      if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
+  }
+  // walls and built-in seating → the wall builder, at the height each normally runs
+  if((mode==="wall"||mode==="seating") && !((S.walls||[]).length)){
+    try{ const c=segCost(_tkWallFrom(qty, mode==="seating"?1.5:3));
+      if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
+  }
+  // fire pits and fireplaces are counted, and priced per unit
+  if(mode==="firepit"||mode==="fireplace"){
+    const r=(mode==="firepit")
+      ? (_tkRate("firepit",/Custom Masonry Fire Pit — Structure/i)||_tkRate("firepit",/Prefab Fire Pit — Gas/i))
+      : (_tkRate("firepit",/Outdoor Fireplace/i)||_tkRate("amenities",/Fireplace/i));
+    if(r>0) return {total:r*qty, per:r, from:"rate"};
   }
   if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)){
     let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
@@ -26674,6 +26728,15 @@ function _tkItem(cat, re){ const cs=(typeof S!=="undefined"&&S.cats)?S.cats[cat]
   if(!cs||!cs.items) return null; return cs.items.find(x=>x&&re.test(x.n||"")); }
 function _tkRate(cat, re){ const it=_tkItem(cat,re); if(!it) return 0;
   let uc=_tkStdUC(it,cat); try{ uc*=sectionMult(cat); }catch(e){} return uc||0; }
+// A fire pit or a BBQ run occupies ground even though you place it as a mark or a line.
+// These are the footprints assumed until someone draws them properly.
+const TK_FOOTPRINT={firepit:20, fireplace:14, kitchen:2.5};   // SF each, or SF per LF for a run
+function _tkCutSF(p){
+  if(!p) return 0;
+  if(p.kind==="area") return +p.sf||0;
+  if(p.kind==="linear") return (+p.lf||0)*(TK_FOOTPRINT[p.mode]||0);
+  return 0;
+}
 function ptDerived(){
   const rows=[]; let sum=0;
   if(typeof PT==="undefined"||!PT.polys) return {rows,sum};
@@ -26849,7 +26912,8 @@ function _tkLedgerBar(tot,live){
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)} — not priced yet`
                  :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
-        return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13)">
+        return `<div onclick="ptWhy('${m.k}')" ontouchstart="ptRowSwipeStart(event)" ontouchend="ptRowSwipeEnd(event,'${m.k}')"
+            style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13);cursor:pointer">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
           <span style="min-width:0">
             <b style="display:block;font:650 14px ${F};color:#EAF0E4;line-height:1.25">${m.label}</b>
@@ -26987,6 +27051,63 @@ function ptTkSwipeEnd(e){ const t=e.changedTouches&&e.changedTouches[0]; if(!t||
   if(d==="right") ptTkShutSet(dx>0);
 }
 function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
+// Swipe a row left to clear that category off the trace; tap it to see how its number was made.
+let _tkRowSw=null;
+function ptRowSwipeStart(e){ const t=e.touches&&e.touches[0]; if(!t) return; _tkRowSw={x:t.clientX,y:t.clientY,t:Date.now()}; }
+function ptRowSwipeEnd(e,mode){ const t=e.changedTouches&&e.changedTouches[0]; const s0=_tkRowSw; _tkRowSw=null;
+  if(!t||!s0) return;
+  const dx=t.clientX-s0.x, dy=t.clientY-s0.y;
+  if(dx<-45 && Math.abs(dy)<40){ e.preventDefault(); e.stopPropagation(); ptDeleteCategory(mode); }
+}
+function ptDeleteCategory(mode){
+  const md=_ptMode(mode);
+  const n=PT.polys.filter(p=>p.mode===mode).length + PT.trees.filter(t=>_ptMarkMode(t)===mode).length;
+  if(!n) return;
+  if(!confirm(`Delete all ${n} ${md.label} item${n===1?"":"s"} from the trace?\n\nUndo brings them back.`)) return;
+  ptSnap();
+  PT.polys=PT.polys.filter(p=>p.mode!==mode);
+  PT.trees=PT.trees.filter(t=>_ptMarkMode(t)!==mode);
+  PT.selPoly=null; PT._selStart=null; PT._open={};
+  ptRenderModal(); try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+  _toast(`${md.label} cleared — Undo brings it back.`,"#8A6D1F");
+}
+// The workings behind a number: where the quantity came from, where the rate came from.
+function ptWhy(mode){
+  ptPopClose();
+  const md=_ptMode(mode); const tot=ptTotals(); const qty=tot[mode]||0;
+  const unit=md.kind==="linear"?"LF":(md.kind==="count"?"":"SF");
+  const pr=ptPriceFor(mode, qty);
+  const src={built:"designed in its builder", rate:"a rate you have set in the price book",
+             assumed:"an assumption, until you price it"}[pr&&pr.from]||"nothing yet";
+  const gross=PT.polys.filter(p=>p.mode===mode).reduce((a,p)=>a+(+p.sf||+p.lf||0),0);
+  let cut=0;
+  PT.polys.forEach((x,xi)=>{ if(PT_CUTS.indexOf(x.mode)<0) return;
+    const h=_ptEnclosing(x,PT.polys); if(h&&h.mode===mode) cut+=_tkCutSF(x); });
+  (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
+    const h=_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys);
+    if(h&&h.mode===mode) cut+=fp; });
+  const shapes=PT.polys.filter(p=>p.mode===mode).length;
+  const marks=PT.trees.filter(t=>_ptMarkMode(t)===mode).length;
+  const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
+  (document.getElementById("pt-modal")||document.body).appendChild(d);
+  d.style.cssText+=";top:20px;right:376px;width:min(340px,88vw);max-height:74vh;overflow:auto";
+  const line=(k,v)=>`<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.10)">
+      <span style="font:600 13px var(--tkf);color:#9FBF95;flex:1">${k}</span>
+      <b style="font:700 13px ui-monospace,Menlo,monospace;color:#EAF0E4;white-space:nowrap">${v}</b></div>`;
+  d.innerHTML=`<div class="tkh"><h3 style="display:flex;align-items:center;gap:9px">
+      <span style="width:12px;height:12px;border-radius:4px;background:${md.color}"></span>${md.label}</h3>
+      <button class="cls" onclick="ptPopClose()">✕</button></div>
+    <div style="font:600 12px var(--tkf);color:#8FA383;margin-bottom:4px">How this number was made</div>
+    ${shapes?line("Shapes traced", shapes):""}
+    ${marks?line("Marks placed", marks):""}
+    ${gross&&cut?line("Measured", `${_tkFmt(gross)} ${unit}`):""}
+    ${cut?line("Taken out by what sits on it", `− ${_tkFmt(cut)} ${unit}`):""}
+    ${line("Quantity used", `${_tkFmt(qty)} ${unit}`)}
+    ${pr?line("Rate", `$${pr.per.toFixed(2)} / ${unit||"ea"}`):""}
+    ${pr?line("Cost", fmtN(pr.total)):line("Cost","not priced yet")}
+    <div style="font:600 12px var(--tkf);color:#8FA383;margin-top:12px;line-height:1.5">
+      The rate comes from ${src}.${cut?" Anything sitting on this surface has already been removed above.":""}</div>`;
+}
 // Where the take-off card lives. Drag it and it settles on whichever edge you let go nearest.
 function ptTkDock(){ if(PT._dock==null){ let v=null; try{ v=localStorage.getItem("studioh_pt_dock"); }catch(e){}
     // the tool rail owns the left edge now, so a panel docked there is squeezed against it
@@ -27137,7 +27258,7 @@ function ptCatFilter(q){ q=(q||"").toLowerCase().trim();
     sec.querySelectorAll("button").forEach(b=>{ const hit=!q||b.textContent.toLowerCase().indexOf(q)>=0;
       b.style.display=hit?"flex":"none"; if(hit) any=true; });
     sec.style.display=any?"":"none"; }); }
-function ptPopClose(){ ["pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-sheet"]
+function ptPopClose(){ ["pt-why-pop","pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-sheet"]
   .forEach(id=>{ const e=document.getElementById(id); if(e) e.remove(); }); }
 // Everything that isn't a decision you make while drawing.
 function ptOverflow(){ let d=document.getElementById("pt-ovf-pop"); if(d){ d.remove(); return; }
@@ -27500,7 +27621,7 @@ function _ptCentroid(pts){ let x=0,y=0; pts.forEach(p=>{ x+=p.x; y+=p.y; }); ret
 //     It belongs to no surface; it comes off the landscape area.
 // A pool, spa or water feature replaces the ground it sits on. A shade structure or pergola
 // stands over it, so the paving underneath still gets built and still gets paid for.
-const PT_CUTS=["pool","spa","water"];
+const PT_CUTS=["pool","spa","water","building","firepit","fireplace","kitchen"];
 const PT_SURFACES=["planting","turf","paving","driveway"];
 // Ground each category physically occupies — used for "how much of the lot have I dealt with".
 const PT_GROUND=["planting","turf","paving","driveway","pool","spa","shade","water","building","exclude"];
@@ -28300,6 +28421,27 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
         sp._spaOnly=true; sp._auto=true; S.pools.push(sp);
         _seeded.push(`Spa — ${spaSF.toLocaleString()} SF built as its own vessel`); }
       if(S.cats.pool){ S.cats.pool.on=true; S.cats.pool.lumpOn=false; } } }catch(e){}
+  // A shade structure becomes a pergola, an outdoor kitchen run becomes a kitchen, wall and
+  // seating runs become wall segments. Same builders, sized from what you traced.
+  try{ const shSF=R(areaSum,"shade");
+    if(shSF>0 && !((S.pergolas||[]).length)){
+      newPergola(); const p=S.pergolas[S.pergolas.length-1];
+      const side=Math.max(6,Math.round(Math.sqrt(shSF)));
+      if("lenFt" in p) p.lenFt=side; if("widFt" in p) p.widFt=Math.max(6,Math.round(shSF/side));
+      if("footprintSF" in p) p.footprintSF=Math.round(shSF);
+      p._auto=true; _seeded.push(`Shade structure — ${shSF.toLocaleString()} SF built as a pergola`); } }catch(e){}
+  try{ const kLF=R(linSum,"kitchen");
+    if(kLF>0 && !((S.kitchens||[]).length)){
+      newKitchen(); const k=S.kitchens[S.kitchens.length-1];
+      k.dimMode="run"; k.runLF=Math.round(kLF); if(k.segs&&k.segs[0]) k.segs[0].len=Math.round(kLF);
+      k._auto=true; _seeded.push(`Outdoor kitchen — ${Math.round(kLF)} LF run built`); } }catch(e){}
+  try{ if(!((S.walls||[]).length)){
+      const wLF=R(linSum,"wall"), sLF=R(linSum,"seating"); const made=[];
+      if(!S.walls) S.walls=[];
+      if(wLF>0){ const w=_tkWallFrom(wLF,3); w.label="Wall — from the take-off"; w._auto=true; S.walls.push(w); made.push(`${Math.round(wLF)} LF of wall`); }
+      if(sLF>0){ const b=_tkWallFrom(sLF,1.5); b.label="Built-in seating — from the take-off"; b._auto=true; S.walls.push(b); made.push(`${Math.round(sLF)} LF of seating`); }
+      if(made.length){ if(S.cats.walls){ S.cats.walls.on=true; S.cats.walls.lumpOn=false; }
+        _seeded.push(`Walls — ${made.join(", ")} built`); } } }catch(e){}
   // Each traced water feature becomes one in the water builder.
   try{ const wf=PT.polys.filter(p=>p.mode==="water"&&p.kind==="area");
     if(wf.length){ if(!S.waterFeatures) S.waterFeatures=[];
