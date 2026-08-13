@@ -3289,7 +3289,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v797</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v798</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26401,22 +26401,57 @@ function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
 function _ptCutHost(mode){ const p=PT.polys.find(x=>x.mode===mode&&x.kind==="area");
   if(!p) return null; const h=_ptEnclosing(p,PT.polys);
   return h?(h.name||_ptMode(h.mode).label).toLowerCase():null; }
-// What each traced category is worth, taken straight from the estimate — the same section
-// subtotals the summary uses, so the card and the estimate can never disagree.
+// What each traced category is worth. The rate comes from the estimate's own unit costs —
+// the price you set on the line — and the money is that rate times what you traced. It is NOT
+// a section total divided by an area, which is what it used to be and which produced $3.35/SF
+// for natural stone. A category the estimate cannot price yet says so instead of guessing.
 const TK_CAT2EST={planting:"planting", turf:"planting", paving:"paving", driveway:"paving",
   pool:"pool", spa:"pool", water:"water", shade:"pergola", kitchen:"kitchen", seating:"walls",
   wall:"walls", steps:"paving", irrigation:"irrigation", light:"lighting", tapelight:"lighting",
   drainline:"drainage", inlet:"drainage", demo:"sitework", tree:"planting"};
+// These sections are built item by item — a pool, a wall run, a planting zone. Their subtotal
+// really is the cost of the thing you designed, so a rate can be read back off it.
+const TK_BUILT=["pool","water","kitchen","walls","pergola","planting"];
+// The unit cost the estimate would charge for one square foot (or one linear foot) of this
+// category: every checked line on that section measured in those units, stacked.
+function ptUnitRate(cat, unit){
+  const cs=(typeof S!=="undefined"&&S.cats)?S.cats[cat]:null;
+  if(!cs||!cs.items) return 0;
+  let r=0;
+  cs.items.forEach(it=>{ if(!it||!it.checked) return;
+    if(String(it.u||"").toUpperCase()!==unit) return;
+    r+=(+it.uc||0)*(1+(+it.madj||0)/100); });
+  try{ r*=sectionMult(cat); }catch(e){}
+  return r;
+}
 function ptPriceFor(mode, qty){
-  const cat=TK_CAT2EST[mode]; if(!cat) return null;
-  let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
-  if(!(total>0)) return null;
-  // the section can cover more than this one traced category, so share it by traced area
-  const tot=ptTotals();
-  let share=0; Object.keys(TK_CAT2EST).forEach(k=>{ if(TK_CAT2EST[k]===cat) share+=(tot[k]||0); });
-  const part=(share>0)?((tot[mode]||0)/share):1;
-  const money=total*part;
-  return {total:money, per:(qty>0?money/qty:0)};
+  const cat=TK_CAT2EST[mode]; if(!cat||!(qty>0)) return null;
+  const m=_ptMode(mode); const unit=(m&&m.kind==="linear")?"LF":"SF";
+  // a built section already knows what it costs; share it by traced area across its categories
+  if(TK_BUILT.indexOf(cat)>=0){
+    let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
+    if(!(total>0)) return null;
+    const tot=ptTotals(); let share=0;
+    Object.keys(TK_CAT2EST).forEach(k=>{ if(TK_CAT2EST[k]===cat) share+=(tot[k]||0); });
+    const money=total*((share>0)?(qty/share):1);
+    return {total:money, per:(qty>0?money/qty:0), from:"built"};
+  }
+  const rate=ptUnitRate(cat, unit);
+  if(!(rate>0)) return null;                       // nothing checked on that section yet
+  return {total:rate*qty, per:rate, from:"rate"};
+}
+// Permits, grading, drainage runs, irrigation heads — the parts of the job that are not an area
+// you trace. Without them the card's total is not the job's total.
+function ptOtherCost(){
+  const mapped={}; Object.keys(TK_CAT2EST).forEach(k=>{ mapped[TK_CAT2EST[k]]=true; });
+  const tot=ptTotals(); const seen={};
+  Object.keys(TK_CAT2EST).forEach(k=>{ if(tot[k]>0) seen[TK_CAT2EST[k]]=true; });
+  const rows=[]; let sum=0;
+  try{ (PB||[]).forEach(c=>{ if(!c||!c.id) return;
+    if(seen[c.id]) return;                          // already priced through a traced category
+    let v=0; try{ v=+catSubtotal(c.id)||0; }catch(e){}
+    if(v>0){ rows.push({id:c.id,name:c.name||c.id,v}); sum+=v; } }); }catch(e){}
+  return {rows, sum};
 }
 // Gas-pump digits: the number rolls up to its new value instead of snapping.
 function tkRoll(id, to, pre, post){
@@ -26541,13 +26576,16 @@ function _tkLedgerBar(tot,live){
     const cells=PT_MODES.filter(m=>tot[m.k]>0&&["lot","limit"].indexOf(m.k)<0)
       .slice(0, dock==="bottom"?4:99);
     let money=0; cells.forEach(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); if(pr) money+=pr.total; });
+    money+=ptOtherCost().sum;
     const pct=cap?Math.min(100,Math.round(surf/cap*100)):0;
     if(side){
       // ── the money leads: it is the number that moves while you trace ──
       const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
         const note=(m.k==="exclude")?"existing — not in the scope"
-                 :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)?`taken out of ${_ptCutHost(m.k)}`
-                 :(pr?`$${pr.per.toFixed(2)} / ${u}`:""));
+                 :(m.k==="building")?"footprint"
+                 :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)}`
+                 :(pr?`$${pr.per.toFixed(2)} / ${u}`
+                 :(TK_CAT2EST[m.k]?"not priced yet":"")));
         return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13)">
           <span style="width:11px;height:11px;border-radius:4px;background:${m.color};flex:none"></span>
           <span style="min-width:0">
@@ -26556,7 +26594,18 @@ function _tkLedgerBar(tot,live){
           <span style="margin-left:auto;text-align:right">
             <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
             <span style="display:block;font:700 12px ${MN};color:#8FE07A">${pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—"}</span></span>
-        </div>`; }).join('');
+        </div>`; }).join('')
+        + (()=>{ const o=ptOtherCost(); if(!(o.sum>0)) return '';
+            const names=o.rows.slice(0,4).map(r=>r.name).join(", ")+(o.rows.length>4?` and ${o.rows.length-4} more`:"");
+            return `<div style="display:flex;align-items:center;gap:11px;padding:11px 8px;border-top:1px solid rgba(255,255,255,.13)">
+              <span style="width:11px;height:11px;border-radius:4px;background:#8FA383;flex:none;opacity:.6"></span>
+              <span style="min-width:0">
+                <b style="display:block;font:650 14px ${F};color:#EAF0E4;line-height:1.25">Everything else</b>
+                <span style="display:block;font:600 11px ${F};color:#8FA383">${names}</span></span>
+              <span style="margin-left:auto;text-align:right">
+                <b style="display:block;font:750 15px ${MN};color:#8FA383;letter-spacing:-.02em">—</b>
+                <span style="display:block;font:700 12px ${MN};color:#8FE07A">${_tkRollSpan("tk$-other", o.sum, "$")}</span></span>
+            </div>`; })();
       body=`<div style="flex:none;margin-bottom:12px">
           <div style="font:600 11.5px ${F};color:#8FA383">Priced from the estimate</div>
           <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;color:#EAF0E4">${_tkRollSpan("tk$-all", money, "$")}</div>
