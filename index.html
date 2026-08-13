@@ -3302,7 +3302,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v810</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v811</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25693,8 +25693,8 @@ const PT_MODES=[
   {k:"building",label:"Building",color:"#8a8a8a",kind:"area"},
   {k:"demo",label:"Demo",color:"#FF6B35",kind:"area"},
   {k:"irrigation",label:"Irrigation zone",color:"#2FA8A8",kind:"area",autozone:true,types:["Drip","Pottery drip","Netafim","Spray — turf","Spray — shrubs","Spray — slope"]},
-  {k:"kitchen",label:"Outdoor kitchen",color:"#C0672E",kind:"linear",types:["Main run","Island","Bar / raised bar","Return","Other"]},
-  {k:"seating",label:"Built-in seating",color:"#9C6B3F",kind:"linear",types:["Bench run","Wall / seat bench","Concrete seat wall","Stone seat wall","Other"]},
+  {k:"kitchen",label:"Outdoor kitchen",color:"#C0672E",kind:"area",types:["Main run","Island","Bar / raised bar","Return","Other"]},
+  {k:"seating",label:"Built-in seating",color:"#9C6B3F",kind:"area",types:["Bench run","Wall / seat bench","Concrete seat wall","Stone seat wall","Other"]},
   {k:"wall",label:"Wall",color:"#6D4C41",kind:"linear"},
   {k:"steps",label:"Steps",color:"#E8B10C",kind:"linear"},
   {k:"drainline",label:"Drain line",color:"#3B7A9E",kind:"linear"},
@@ -25854,6 +25854,136 @@ function ptMapBuild(center, zoom){
 // Pen events are caught on the way down — before the map's own listeners — and handled
 // here. Fingers and mouse are left alone, so pinch and pan still belong to the map.
 let _ptPen=null;
+// ── STAMPING AN ELEMENT ─────────────────────────────────────────────────────
+// A 3ft counter is forty pixels at the zoom you trace a property at, so drawing one accurately is
+// hopeless. Pick the element instead and a correctly-sized shape appears: drag it where it goes,
+// twist it to line up with the house, nudge the size in six-inch steps. It lands as an ordinary
+// traced shape, so every handle and every measurement works on it afterwards.
+const TK_STAMP={
+  kitchen:  {len:8,  dep:2.5, run:true},
+  seating:  {len:8,  dep:1.5, run:true},
+  firepit:  {len:4,  dep:4},
+  fireplace:{len:5,  dep:2.5},
+  spa:      {len:8,  dep:8},
+  water:    {len:6,  dep:3},
+  shade:    {len:12, dep:12},
+  pool:     {len:30, dep:15}
+};
+const FT_PER_DEG_LAT=364000;
+function _ftPerDegLng(lat){ return FT_PER_DEG_LAT*Math.cos((lat||34)*Math.PI/180); }
+// The outline of the stamp, in lat/lng, from its size, rotation and where it sits.
+function ptStampPts(st){
+  if(!st) return [];
+  const hl=st.len/2, hd=st.dep/2;
+  let corners=[[-hl,-hd],[hl,-hd],[hl,hd],[-hl,hd]];
+  if(st.shape==="L"){ const rl=st.ret||Math.max(2,Math.round(st.len*0.5));
+    corners=[[-hl,-hd],[hl,-hd],[hl,hd],[hl-st.dep,hd],[hl-st.dep,hd+rl-st.dep],[-hl,hd+rl-st.dep]]; }
+  const r=(st.rot||0)*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r);
+  const fLat=FT_PER_DEG_LAT, fLng=_ftPerDegLng(st.c.y);
+  return corners.map(([x,y])=>{
+    const rx=x*cs-y*sn, ry=x*sn+y*cs;
+    return {x: st.c.x + rx/fLng, y: st.c.y - ry/fLat};
+  });
+}
+function ptStampSF(st){ try{ return _ptPolySF(ptStampPts(st)); }catch(e){ return 0; } }
+function ptStampStart(mode){
+  const d=TK_STAMP[mode]; if(!d) return false;
+  let c=null;
+  try{ const m=PT.map&&PT.map.getCenter(); if(m) c={x:m.lng(), y:m.lat()}; }catch(e){}
+  if(!c) return false;
+  PT.stamp={mode, len:d.len, dep:d.dep, rot:0, c, shape:"straight", ret:0};
+  PT.cur=[]; PT.selPoly=null;
+  ptRenderModal(); try{ ptDrawOverlay(); }catch(e){}
+  return true;
+}
+function ptStampCancel(){ PT.stamp=null; ptRenderModal(); try{ ptDrawOverlay(); }catch(e){} }
+function ptStampSize(which, delta){
+  const st=PT.stamp; if(!st) return;
+  if(which==="len") st.len=Math.max(1, Math.round((st.len+delta)*2)/2);
+  else if(which==="dep") st.dep=Math.max(0.5, Math.round((st.dep+delta)*2)/2);
+  else if(which==="ret") st.ret=Math.max(0, Math.round((st.ret+delta)*2)/2);
+  else if(which==="rot") st.rot=((st.rot||0)+delta+360)%360;
+  ptStampBar(); try{ ptDrawOverlay(); }catch(e){}
+}
+function ptStampShape(sh){ const st=PT.stamp; if(!st) return;
+  st.shape=sh; if(sh==="L"&&!st.ret) st.ret=Math.max(2,Math.round(st.len*0.5));
+  ptStampBar(); try{ ptDrawOverlay(); }catch(e){} }
+function _ftTxt(v){ const f=Math.floor(v), i=Math.round((v-f)*12); return i?`${f}′-${i}″`:`${f}′-0″`; }
+// Drop it onto the plan as a normal traced shape.
+function ptStampPlace(){
+  const st=PT.stamp; if(!st) return;
+  const pts=ptStampPts(st); if(pts.length<3){ ptStampCancel(); return; }
+  ptSnap();
+  const md=_ptMode(st.mode);
+  const poly={mode:st.mode, kind:"area", pts, page:PT.page, name:"", zone:"", phase:"", tags:"",
+    type:_ptCurType(st.mode)||"", _lenFt:st.len, _depFt:st.dep,
+    _runLF: (TK_STAMP[st.mode]&&TK_STAMP[st.mode].run) ? (st.len + (st.shape==="L"?(st.ret||0):0)) : 0};
+  poly.sf=_ptPolySF(pts);
+  PT.polys.push(poly);
+  PT.stamp=null;
+  ptRenderModal(); try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+  _toast(`${md.label} placed — ${_ftTxt(st.len)} × ${_ftTxt(st.dep)}, ${Math.round(poly.sf).toLocaleString()} SF`,"#2F5B23");
+}
+// Drag it around, and twist the handle above it to rotate.
+let _tkStampDrag=null;
+function ptStampDown(e){
+  const st=PT.stamp; if(!st) return false;
+  const c=ptCanvasXY(e); const pts=ptStampPts(st).map(_toCanvas);
+  const ctr=_toCanvas(st.c);
+  const rotH={x:ctr.x, y:ctr.y-Math.max(46,(st.dep*_tkPxPerFt())/2+34)};
+  if(Math.hypot(c.x-rotH.x,c.y-rotH.y)<=18){ _tkStampDrag={mode:"rot"}; return true; }
+  if(_ptPointInPoly(c,pts)){ _tkStampDrag={mode:"move", from:_toPdf(c), c0:{x:st.c.x,y:st.c.y}}; return true; }
+  return false;
+}
+function _tkPxPerFt(){
+  try{ const a=_toCanvas({x:PT.stamp.c.x, y:PT.stamp.c.y});
+    const b=_toCanvas({x:PT.stamp.c.x, y:PT.stamp.c.y + 10/FT_PER_DEG_LAT});
+    return Math.abs(b.y-a.y)/10 || 1;
+  }catch(e){ return 1; }
+}
+function ptStampMove(e){
+  const st=PT.stamp, d=_tkStampDrag; if(!st||!d) return false;
+  const c=ptCanvasXY(e);
+  if(d.mode==="move"){ const p=_toPdf(c);
+    st.c={x: d.c0.x + (p.x-d.from.x), y: d.c0.y + (p.y-d.from.y)}; }
+  else { const ctr=_toCanvas(st.c);
+    st.rot=((Math.atan2(c.y-ctr.y, c.x-ctr.x)*180/Math.PI)+90+360)%360; }
+  ptStampBar(); try{ ptDrawOverlay(); }catch(e){}
+  return true;
+}
+function ptStampUp(){ if(!_tkStampDrag) return false; _tkStampDrag=null; return true; }
+// The size bar, redrawn on its own so dragging never rebuilds the whole panel.
+function ptStampBar(){
+  const el=document.getElementById("pt-stampbar"); if(!el) return;
+  const st=PT.stamp; if(!st){ el.innerHTML=""; return; }
+  const md=_ptMode(st.mode); const run=TK_STAMP[st.mode]&&TK_STAMP[st.mode].run;
+  const F="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif";
+  const MN="ui-monospace,SFMono-Regular,Menlo,monospace";
+  const step=(w,label,val)=>`<span style="display:flex;flex-direction:column;gap:3px">
+      <em style="font-style:normal;font:700 9px ${F};letter-spacing:.1em;text-transform:uppercase;color:#8FA383">${label}</em>
+      <span style="display:flex;align-items:center;gap:4px">
+        <button onclick="ptStampSize('${w}',-0.5)" style="width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#EAF0E4;font-size:18px;cursor:pointer">−</button>
+        <b style="min-width:66px;text-align:center;font:750 15px ${MN};color:#EAF0E4">${val}</b>
+        <button onclick="ptStampSize('${w}',0.5)" style="width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#EAF0E4;font-size:18px;cursor:pointer">＋</button>
+      </span></span>`;
+  el.innerHTML=`<div style="position:absolute;left:50%;transform:translateX(-50%);bottom:20px;display:flex;
+      align-items:center;gap:12px;background:rgba(18,24,15,.94);-webkit-backdrop-filter:blur(14px);
+      backdrop-filter:blur(14px);border-radius:16px;padding:11px 13px;pointer-events:auto;font-family:${F};
+      box-shadow:0 16px 40px -14px rgba(0,0,0,.55)">
+      <span style="display:flex;align-items:center;gap:8px;padding-right:10px;border-right:1px solid rgba(255,255,255,.13)">
+        <i style="width:12px;height:12px;border-radius:4px;background:${md.color};display:block"></i>
+        <b style="font:700 13.5px ${F};color:#EAF0E4">${md.label}</b></span>
+      ${step("len","Length",_ftTxt(st.len))}
+      ${step("dep","Depth",_ftTxt(st.dep))}
+      ${st.shape==="L"?step("ret","Return",_ftTxt(st.ret||0)):""}
+      ${run?`<span style="display:flex;gap:5px;padding-left:4px">
+        <button onclick="ptStampShape('straight')" style="border:0;border-radius:10px;padding:9px 11px;cursor:pointer;font:600 12.5px ${F};background:${st.shape!=="L"?"#5BA34A":"rgba(255,255,255,.12)"};color:${st.shape!=="L"?"#0F2409":"#EAF0E4"}">Straight</button>
+        <button onclick="ptStampShape('L')" style="border:0;border-radius:10px;padding:9px 11px;cursor:pointer;font:600 12.5px ${F};background:${st.shape==="L"?"#5BA34A":"rgba(255,255,255,.12)"};color:${st.shape==="L"?"#0F2409":"#EAF0E4"}">L-shape</button></span>`:""}
+      <span style="font:700 12px ${MN};color:#8FE07A;padding:0 4px">${Math.round(ptStampSF(st)).toLocaleString()} SF</span>
+      <button onclick="ptStampCancel()" style="border:0;border-radius:11px;padding:10px 13px;cursor:pointer;font:600 13px ${F};background:rgba(255,255,255,.12);color:#EAF0E4">Cancel</button>
+      <button onclick="ptStampPlace()" style="border:0;border-radius:11px;padding:11px 18px;cursor:pointer;font:750 13.5px ${F};background:#6FBF5C;color:#0F2409">Place</button>
+    </div>`;
+}
 // ── APPLE PENCIL ────────────────────────────────────────────────────────────
 // Two things were wrong for a long time. First, the map reads a Pencil as a drag and pans, and
 // never turns a Pencil tap into a click. Second, and the bigger one: you draw with a Pencil, you
@@ -26198,6 +26328,7 @@ function _toCanvas(pt){ return ptMapLive()?_llToPx(pt):{x:pt.x*PT.renderScale, y
 function ptCanvasClick(e){ if(!PT.doc&&!ptMapLive()) return; const c=ptCanvasXY(e); const p=_toPdf(c); ptAddAt(p,c,e); }
 // p = a point in whatever the base measures in; c = the same point in screen pixels.
 function ptAddAt(p,c,e){
+  if(PT.stamp) return;                 // you are positioning something
   if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c);
     // Canvas-first layouts keep the selection live so the corner handles stay up,
     // instead of throwing a popover over the drawing you are editing.
@@ -26530,6 +26661,10 @@ function _tkBuiltEmpty(cat){
 // A traced pool, spa or water feature has nothing in its builder until you Apply — but it still
 // has to carry a price on the card. So the builders cost a throwaway copy sized from your trace.
 // The same shapes Apply will really create, so the preview and the estimate cannot disagree.
+// A stamped run remembers how long it is; that is what a kitchen or a bench is priced on.
+function _tkRunLF(mode){ let lf=0;
+  try{ (PT.polys||[]).forEach(p=>{ if(p.mode===mode) lf+=(+p._runLF||+p._lenFt||+p.lf||0); }); }catch(e){}
+  return Math.round(lf); }
 function _tkPerim(mode){ let lf=0;
   try{ (PT.polys||[]).forEach(p=>{ if(p.mode!==mode||p.kind!=="area"||!p.pts||p.pts.length<3) return;
     lf+=_ptLineLF(p.pts.concat([p.pts[0]])); }); }catch(e){}
@@ -26619,12 +26754,12 @@ function ptPriceFor(mode, qty){
   }
   // outdoor kitchen → the kitchen builder, priced on the run you traced
   if(mode==="kitchen" && !((S.kitchens||[]).length)){
-    try{ const k=_tkKitchenFrom(qty); const c=k?kitchenCost(k):0;
+    try{ const k=_tkKitchenFrom(_tkRunLF("kitchen")||qty); const c=k?kitchenCost(k):0;
       if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
   }
   // walls and built-in seating → the wall builder, at the height each normally runs
   if((mode==="wall"||mode==="seating") && !((S.walls||[]).length)){
-    try{ const c=segCost(_tkWallFrom(qty, mode==="seating"?1.5:3));
+    try{ const c=segCost(_tkWallFrom((mode==="seating"?_tkRunLF("seating"):0)||qty, mode==="seating"?1.5:3));
       if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
   }
   // fire pits and fireplaces are counted, and priced per unit
@@ -26906,7 +27041,8 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
   if(ui==="D") extra=_tkInspector(G);
   if(ui==="E") extra=_tkTargetCard(G,tot,live);
   if(ui==="F") extra=_tkLedgerBar(tot,live);
-  el.innerHTML=tray+liveBox+extra;
+  el.innerHTML=`<div id="pt-stampbar"></div>`+tray+liveBox+extra;
+  try{ ptStampBar(); }catch(e){}
 }
 function _tkInspector(G){ const i=PT.selPoly; if(i==null) return "";
   const p=PT.polys[i]; if(!p) return ""; const m=_ptMode(p.mode);
@@ -27281,11 +27417,14 @@ function _ptHandleAt(e){ if(PT.selPoly==null) return null; const p=PT.polys[PT.s
 let _ptVDrag=null;
 // The overlay is transparent to the map except on its own handles, so the drag
 // listeners live on the SVG and capture the pointer once a handle is grabbed.
-function ptSvgDown(e){ if(!ptVertexDown(e)) return;
+function ptSvgDown(e){ if(PT.stamp && ptStampDown(e)){ try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){} e.preventDefault(); e.stopPropagation(); return; }
+  if(!ptVertexDown(e)) return;
   try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
   e.preventDefault(); e.stopPropagation(); }
-function ptSvgMove(e){ if(ptVertexMove(e)){ e.preventDefault(); e.stopPropagation(); } }
-function ptSvgUp(e){ if(ptVertexUp()){ e.preventDefault(); e.stopPropagation(); } }
+function ptSvgMove(e){ if(PT.stamp && ptStampMove(e)){ e.preventDefault(); e.stopPropagation(); return; }
+  if(ptVertexMove(e)){ e.preventDefault(); e.stopPropagation(); } }
+function ptSvgUp(e){ if(ptStampUp()){ e.preventDefault(); e.stopPropagation(); return; }
+  if(ptVertexUp()){ e.preventDefault(); e.stopPropagation(); } }
 function ptVertexDown(e){ if(ptUiGet()==="classic"||PT.selPoly==null||PT.calibrating) return false;
   const h=_ptHandleAt(e); if(!h) return false;
   const p=PT.polys[PT.selPoly]; if(!p) return false;
@@ -27361,6 +27500,7 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
       ${types.map(t=>`<button class="${cur===t?'on':''}" onclick="ptTypePick('${String(t).replace(/'/g,"\\'")}')">${t}</button>`).join('')}</div>`:''}`;
 }
 function ptCatPick(k){ const m=_ptMode(k); ptSetMode(k);
+  if(TK_STAMP[k] && ptStampStart(k)){ ptPopClose(); return; }
   ptPopClose();
   if(m&&m.types) ptCatMenu();   // a category with materials or sizes stays open on its type row
 }
@@ -27503,6 +27643,19 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     cpts.forEach((q,i)=>{ const closer=isLine?(i===cpts.length-1&&cpts.length>=2):(i===0&&cpts.length>=3); s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${closer?7:5}" fill="${closer?c:'#fff'}" stroke="${c}" stroke-width="2.5"/>`; if(closer) s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="12" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2"/>`; }); }
   if(PT.calib.length){ const cp=PT.calib.map(_toCanvas); cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="5" fill="#fff" stroke="#C0524F" stroke-width="2"/>`; });
     if(cp.length===2) s+=`<line x1="${cp[0].x}" y1="${cp[0].y}" x2="${cp[1].x}" y2="${cp[1].y}" stroke="#C0524F" stroke-width="2"/>`; }
+  // the stamp being positioned
+  if(PT.stamp){ const st=PT.stamp; const md=_ptMode(st.mode);
+    const cp=ptStampPts(st).map(_toCanvas); const ctr=_toCanvas(st.c);
+    const rr=Math.max(46,(st.dep*_tkPxPerFt())/2+34);
+    s+=`<polygon points="${cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}44" stroke="${md.color}" stroke-width="2.5" style="pointer-events:auto;cursor:move"/>`;
+    s+=`<line x1="${ctr.x.toFixed(1)}" y1="${(ctr.y-rr+16).toFixed(1)}" x2="${ctr.x.toFixed(1)}" y2="${ctr.y.toFixed(1)}" stroke="${md.color}" stroke-width="2"/>`;
+    s+=`<circle cx="${ctr.x.toFixed(1)}" cy="${(ctr.y-rr).toFixed(1)}" r="13" fill="#fff" stroke="${md.color}" stroke-width="2.5" style="pointer-events:auto;cursor:grab"/>`;
+    s+=`<text x="${ctr.x.toFixed(1)}" y="${(ctr.y-rr).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="13" fill="${md.color}">↻</text>`;
+    cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="5" fill="#fff" stroke="${md.color}" stroke-width="2"/>`; });
+    const w=Math.max(96,(_ftTxt(st.len)+" × "+_ftTxt(st.dep)).length*7.6);
+    s+=`<rect x="${(ctr.x-w/2).toFixed(1)}" y="${(ctr.y-12).toFixed(1)}" width="${w.toFixed(0)}" height="24" rx="12" fill="#fff" fill-opacity="0.97"/>`;
+    s+=`<text x="${ctr.x.toFixed(1)}" y="${ctr.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="750" fill="#141A10" font-family="ui-monospace,Menlo,monospace">${_ftTxt(st.len)} × ${_ftTxt(st.dep)}</text>`;
+  }
   // the wet stroke under the nib
   if(PT._inkPts&&PT._inkPts.length>1){ const mdI=_ptMode(PT.mode);
     s+=`<polyline points="${PT._inkPts.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${_ptKind(PT.mode)==="linear"?"none":mdI.color+"33"}" stroke="${mdI.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" style="pointer-events:none"/>`; }
