@@ -3358,7 +3358,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v842</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v843</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25807,6 +25807,49 @@ const PT_MODES=[
   {k:"light",label:"Light fixtures",color:"#D3F547",kind:"count",badge:"✦",types:["Path / Area","Uplight / Accent","Step / Hardscape","Downlight / Moonlight","Underwater / Feature","Bollard","String / Festoon"]},
   {k:"furniture",label:"Furniture",color:"#B9A66E",kind:"count",badge:"◇",types:["Dining table","Dining chair","Lounge chair","Sun bed","Umbrella","Coffee table","Side table","Sofa","Love seat","Hammock","Bar stool","Bench","Specialty"]}
 ];
+// A tree in a can is not a tree in the ground. The box size is what you buy; the canopy is what
+// you have to design around, and that is the thing you cannot judge from a dot on a map. These
+// are 75% of mature spread — near enough to full grown to space a planting by, without drawing
+// the day the neighbours complain.
+const PT_TREE_CLASS=[
+  ["small",  "Small",  15, "redbud, Japanese maple, strawberry tree"],
+  ["medium", "Medium", 30, "crape myrtle, olive, California pepper"],
+  ["large",  "Large",  45, "oak, liquidambar, pine, sycamore"]
+];
+function _treeClass(k){ return PT_TREE_CLASS.find(c=>c[0]===k)||PT_TREE_CLASS[1]; }
+function _treeSpread(t){ return _treeClass(t&&t.cls)[2]; }
+function ptTreeClass(){ let v=null; try{ v=localStorage.getItem("studioh_pt_treecls"); }catch(e){}
+  return PT_TREE_CLASS.some(c=>c[0]===v)?v:"medium"; }
+function ptSetTreeClass(k){
+  try{ localStorage.setItem("studioh_pt_treecls", k); }catch(e){}
+  const c=_treeClass(k);
+  ptRenderModal(); try{ ptCatMenu(); if(!document.getElementById("pt-cat-pop")) ptCatMenu(); }catch(e){}
+  _toast(`Trees — ${c[1]}, ${c[2]}′ canopy`, "#2F5B23");
+}
+// Feet to pixels on whatever the trace is drawn on.
+function _ptPxPerFt(){
+  try{
+    if(ptMapLive()){ const c=PT.map.getCenter();
+      const a=_toCanvas({x:c.lng(), y:c.lat()});
+      const b=_toCanvas({x:c.lng(), y:c.lat()+10/FT_PER_DEG_LAT});
+      return Math.abs(b.y-a.y)/10 || 0;
+    }
+    return (PT.ppf||0)*(PT.renderScale||1);
+  }catch(e){ return 0; }
+}
+// The plan symbol: a lobed canopy, the way it is drawn on a planting plan, not a circle.
+function _treeCanopyPath(cx, cy, r, lobes){
+  const n=lobes||9, out=[];
+  for(let i=0;i<n;i++){
+    const a0=(i/n)*Math.PI*2 - Math.PI/2, a1=((i+1)/n)*Math.PI*2 - Math.PI/2;
+    const x0=cx+Math.cos(a0)*r*0.86, y0=cy+Math.sin(a0)*r*0.86;
+    const x1=cx+Math.cos(a1)*r*0.86, y1=cy+Math.sin(a1)*r*0.86;
+    const am=(a0+a1)/2, xm=cx+Math.cos(am)*r, ym=cy+Math.sin(am)*r;
+    if(i===0) out.push(`M${x0.toFixed(1)},${y0.toFixed(1)}`);
+    out.push(`Q${xm.toFixed(1)},${ym.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`);
+  }
+  return out.join(" ")+"Z";
+}
 const PT_TYPE_COLORS={
   "Wood deck":"#8B5A2B","Natural stone":"#5F7A8C","Concrete pavers":"#9AA0A6","Poured-in-place concrete":"#B7B7B2","Brick":"#B24A3C","Saltillo tile":"#C7743A","Decomposed granite":"#C9A66B","Rolled pebble":"#8FA36E","Porcelain pavers":"#6E8B9E","Gravel":"#AFA488","Other":"#C28A3E",
   "Real sod":"#5BA34A","Artificial turf":"#3FA36B",
@@ -26842,7 +26885,7 @@ function ptAddAt(p,c,e){
       if(!isNaN(ft)&&ft>0){ PT.ppf=distPdf/ft; } PT.calibrating=false; PT.calib=[]; ptRenderModal(); }
     ptDrawOverlay(); ptUpdateInfo(); return; }
   const kind=_ptKind(PT.mode);
-  if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
+  if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(kind==="linear"){ if(PT.cur.length>=2){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
     ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(PT.cur.length>=3){ const f=_toCanvas(PT.cur[0]); if(Math.hypot(c.x-f.x,c.y-f.y)<14){ ptFinishPoly(); return; } }
@@ -28248,6 +28291,29 @@ function ptWhy(mode){
     const h=_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys);
     if(h&&h.mode===mode) cut+=fp; });
   const shapes=[]; PT.polys.forEach((p,i)=>{ if(p.mode===mode) shapes.push(Object.assign({_i:i},{},p,{_i:i})); });
+  // A counted category has no shapes — what it has is a tally, so break it down by what you chose.
+  if(md.kind==="count"){
+    const g={};
+    (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!==mode) return;
+      const key=(t.size||"")+(mode==="tree"?"|"+(t.cls||"medium"):"");
+      const b=g[key]||(g[key]={size:t.size||"", cls:t.cls||"medium", n:0}); b.n++; });
+    const tot1=ptPriceFor(mode, 1);
+    const eachC=Object.keys(g).map(k=>{ const b=g[k];
+      let unit=0;
+      if(mode==="tree"){ const key=(String(b.size||'24" box').match(/(\d+)/)||[])[1];
+        unit=key?_tkRate("planting", new RegExp("Tree — "+key+(/gal/i.test(b.size||"")?"-gal":"\\\" box"),"i")):0;
+        if(!unit) unit=_tkRate("planting",/Tree — 24/i);
+      } else unit=tot1?tot1.per:0;
+      const nm=mode==="tree"
+        ? `${b.size||'24" box'} · ${_treeClass(b.cls)[1]} — ${_treeClass(b.cls)[2]}′ canopy`
+        : (b.size||md.label);
+      return {nm, net:b.n, taken:0, idx:null, demo:false, demoCost:0,
+              rate:unit, cost:unit*b.n}; });
+    eachC.sort((a,b)=>b.cost-a.cost);
+    _ptWhyPop(md, mode, {unit:"ea", qty:ptTotals()[mode]||0, pr:ptPriceFor(mode, ptTotals()[mode]||0),
+      src:"a rate you have set in the price book", cut:0, each:eachC, marks:eachC.reduce((a,e)=>a+e.net,0), shapes:[]});
+    return;
+  }
   const marks=PT.trees.filter(t=>_ptMarkMode(t)===mode).length;
   const rate=pr?pr.per:0;
   // every shape traced in this category, with what each one is worth
@@ -28265,11 +28331,15 @@ function ptWhy(mode){
             rawName:(p.name||""), zone:(p.zone||""),
             demoCost:dc.cost, sub:p.type&&p.name?p.type:"", cost:rate*net};
   });
+  _ptWhyPop(md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length});
+}
+function _ptWhyPop(md, mode, x){
   const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
-  d.style.cssText+=";top:20px;right:376px;width:min(360px,88vw);max-height:74vh;overflow:auto";
+  const off=(ptTkDock()==="right")?(ptTkShut()?132:432):24;
+  d.style.cssText+=`;top:20px;right:${off}px;width:min(380px,88vw);max-height:74vh;overflow:auto`;
   _ptPopOutside(d.id);
-  _ptWhyRender(d, md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length});
+  _ptWhyRender(d, md, mode, x);
 }
 // The implied costs are worked out, not traced — so tapping one shows the working: what rule
 // fired, the quantity it used, the rate it came from, and what that adds up to.
@@ -28329,6 +28399,7 @@ function _ptWhyRender(d, md, mode, x){
         color:${e.demo?"#1A1206":"#9FBF95"}">Demo</button>`:""}
       <span style="text-align:right;white-space:nowrap">
         <b style="display:block;font:700 13px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${unit}</b>
+        ${e.rate>0?`<span style="display:block;font:600 10.5px ui-monospace,Menlo,monospace;color:#8FA383">${fmtN(e.rate)} each</span>`:""}
         <span style="display:block;font:700 11.5px ui-monospace,Menlo,monospace;color:#8FE07A">${e.cost>0?fmtN(e.cost):"—"}</span></span>
     </div>`).join('');
   d.innerHTML=`<div class="tkh"><h3 style="display:flex;align-items:center;gap:9px">
@@ -28550,6 +28621,12 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
     </div>
     ${types?`<div class="tktypes" style="flex:none;max-height:32vh;overflow:auto"><span class="lb">${md.kind==="count"?"Size":"Type"} — ${md.label}</span>
       ${types.map(t=>`<button class="${cur===t?'on':''}" onclick="ptTypePick('${_attrJs(t)}')">${t}</button>`).join('')}</div>`:''}
+    ${PT.mode==="tree"?`<div class="tktypes" style="flex:none">
+      <span class="lb">Canopy at 75% grown — spaces the planting</span>
+      ${PT_TREE_CLASS.map(c=>`<button class="${ptTreeClass()===c[0]?'on':''}" onclick="ptSetTreeClass('${c[0]}')"
+        style="text-align:left;line-height:1.25">${c[1]} · ${c[2]}′
+        <span style="display:block;font:600 10.5px var(--tkf);opacity:.7">${c[3]}</span></button>`).join('')}
+    </div>`:''}
     <div id="pt-demo-panel" style="flex:none"></div>`;
   ptDemoPanelRender();
 }
@@ -28756,7 +28833,18 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     const act=_ptInteractive(mode); const pe=act?'pointer-events:auto;cursor:pointer':'pointer-events:none';
     const badge = mode==="tree" ? ((t.size||"").replace(/["\s]/g,"").replace("gal","g").replace("box","")) : (md.badge||"•");
     if(mode==="pots"||mode==="stepper"){ const hw=(9*mS); s+=`<g style="${pe}" onclick="ptEditTree(${idx})"><rect x="${(q.x-hw).toFixed(1)}" y="${(q.y-hw).toFixed(1)}" width="${(hw*2).toFixed(1)}" height="${(hw*2).toFixed(1)}" rx="2" fill="${c}" fill-opacity="0.92" stroke="#fff" stroke-width="${(1.5*mS).toFixed(2)}"/><text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="${(9*mS).toFixed(1)}" font-weight="700" fill="#fff">${badge}</text></g>`; }
-    else { const r=(mode==="tree"?13:11)*mS; s+=`<g style="${pe}" onclick="ptEditTree(${idx})"><circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${c}" fill-opacity="0.92" stroke="#fff" stroke-width="${(2*mS).toFixed(2)}"/><text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="${((mode==='tree'?10:9)*mS).toFixed(1)}" font-weight="800" fill="#fff">${badge}</text></g>`; }
+    if(mode==="tree"){
+      const ppf=_ptPxPerFt(), rad=(_treeSpread(t)/2)*ppf;
+      if(rad>7){
+        const cl=_treeClass(t.cls);
+        s+=`<g style="pointer-events:none">
+          <path d="${_treeCanopyPath(q.x,q.y,rad,cl[0]==="large"?11:(cl[0]==="small"?7:9))}"
+            fill="${c}" fill-opacity="0.16" stroke="${c}" stroke-opacity="0.75" stroke-width="1.6"/>
+          <circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${(rad*0.30).toFixed(1)}"
+            fill="none" stroke="${c}" stroke-opacity="0.45" stroke-width="1.1"/></g>`;
+      }
+    }
+    { const r=(mode==="tree"?13:11)*mS; s+=`<g style="${pe}" onclick="ptEditTree(${idx})"><circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${c}" fill-opacity="0.92" stroke="#fff" stroke-width="${(2*mS).toFixed(2)}"/><text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="${((mode==='tree'?10:9)*mS).toFixed(1)}" font-weight="800" fill="#fff">${badge}</text></g>`; }
   });
   if(PT.cur.length){ const cpts=PT.cur.map(_toCanvas); const c=_ptColor(PT.mode); const isLine=_ptKind(PT.mode)==="linear";
     if(cpts.length>1) s+=`<polyline points="${cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ")}" fill="${isLine?'none':c}" fill-opacity="0.12" stroke="${c}" stroke-width="${isLine?5:3.5}" stroke-dasharray="7 4"/>`;
