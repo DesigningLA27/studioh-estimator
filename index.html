@@ -3363,7 +3363,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v849</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v850</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25786,7 +25786,7 @@ const PT_MODES=[
   {k:"driveway",label:"Driveway",color:"#55606E",kind:"area"},
   {k:"pool",label:"Pool",color:"#86D9F5",kind:"area"},
   {k:"spa",label:"Spa",color:"#1F6FB2",kind:"area"},
-  {k:"shade",label:"Shade structure",color:"#F7D716",kind:"area"},
+  {k:"shade",label:"Shade structure",color:"#F7D716",kind:"area",types:["Open lattice","Louvered","Solid roof","Canvas / shade"]},
   {k:"water",label:"Water feature",color:"#4FA8D8",kind:"area"},
   {k:"exclude",label:"Exclude (existing)",color:"#C0392B",kind:"area"},
   {k:"lot",label:"Lot",color:"#E8CE6B",kind:"area",noFill:true},
@@ -25871,7 +25871,7 @@ const PT_HATCH={"planting": "#3E7D3A", "exclude": "#C0392B"};
 // Height order. The house is last of the zones — it is the one thing on the plan that nothing
 // else can be under, so it sits over everything and reads as solid black. Only the tree canopy
 // goes above it, because a canopy genuinely does overhang a roof.
-const PT_Z={"lot":0,"limit":0,"exclude":1,"demo":1,
+const PT_Z={"lot":10,"limit":0,"exclude":1,"demo":1,
   "paving":2,"driveway":2,"turf":3,"planting":3,"irrigation":3,
   "pool":4,"spa":4,"water":4,
   "firepit":5,"fireplace":5,"kitchen":5,"seating":5,
@@ -27523,6 +27523,34 @@ const TK_KIT_FIT=[
   ["Drawer Stack",18], ["Trash / Recycling Drawer",18], ["Refrigerator (outdoor)",24],
   ["Warming Drawer",24], ["Ice Maker",15]
 ];
+// The pergola builder already knows what a pergola costs — it was never being asked. A traced
+// shade structure fell through to a per-square-foot allowance, which is how 373 SF of louvered
+// pergola came back at $3,100. Build one at the size and type you traced and let it price itself.
+const TK_SHADE_KIND={"Open lattice":"open","Louvered":"louver","Solid roof":"solid","Canvas / shade":"canvas"};
+function _tkShadeKind(){
+  const tally={};
+  PT.polys.forEach(p=>{ if(p.mode!=="shade"||!p.type) return; tally[p.type]=(tally[p.type]||0)+(+p.sf||0); });
+  let best=null, bv=0;
+  Object.keys(tally).forEach(k=>{ if(tally[k]>bv){ bv=tally[k]; best=k; } });
+  return TK_SHADE_KIND[best||_ptCurType("shade")]||"open";
+}
+function _tkPergolaFrom(sf, kind){
+  const before=(S.pergolas||[]).length;
+  try{ newPergola(); }catch(e){ return null; }
+  const p=(S.pergolas||[])[S.pergolas.length-1];
+  if(p){
+    const a=Math.max(36, +sf||0);
+    const L=Math.max(8, Math.round(Math.sqrt(a*1.5)));   // a pergola is longer than it is deep
+    const W=Math.max(8, Math.round(a/L));
+    p.dimMode="dim"; p.L=L; p.W=W; p.footprintSF=0;
+    p.overhead=kind||"open";
+    if(kind==="open"){ p.rafterOn=true; p.lathOn=true; }
+    else if(kind==="louver"){ p.rafterOn=true; p.lathOn=false; }
+    else { p.rafterOn=true; p.lathOn=false; }
+  }
+  if((S.pergolas||[]).length>before) S.pergolas.pop();
+  return p;
+}
 function _tkKitchenFrom(lf){
   const before=(S.kitchens||[]).length;
   try{ newKitchen(); }catch(e){ return null; }
@@ -27619,6 +27647,11 @@ function ptPriceFor(mode, qty){
     const hasPool=_ptSum("pool")>0 || !_tkBuiltEmpty("pool");
     const c=_tkPreviewSpa(qty, _tkPerim("spa"), hasPool);
     if(c>0) return {total:c, per:c/qty, from:"built"};
+  }
+  if(mode==="shade" && _tkBuiltEmpty("pergola")){
+    try{ const p=_tkPergolaFrom(qty, _tkShadeKind());
+      const c=p?_tkAtPoint(()=>pergolaCost(p)):0;
+      if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
   }
   if(mode==="water" && _tkBuiltEmpty("water")){
     const c=_tkPreviewWater();
@@ -28685,6 +28718,12 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
     </div>
     ${types?`<div class="tktypes" style="flex:none;max-height:32vh;overflow:auto"><span class="lb">${md.kind==="count"?"Size":"Type"} — ${md.label}</span>
       ${types.map(t=>`<button class="${cur===t?'on':''}" onclick="ptTypePick('${_attrJs(t)}')">${t}</button>`).join('')}</div>`:''}
+    ${TK_STAMP[PT.mode]?`<div class="tktypes" style="flex:none">
+      <span class="lb">How to put it on the plan</span>
+      ${PT_PLACE.map(p=>`<button class="${ptPlaceMode()===p[0]?'on':''}" onclick="ptSetPlaceMode('${p[0]}',1)"
+        style="text-align:left;line-height:1.25">${p[1]}
+        <span style="display:block;font:600 10.5px var(--tkf);opacity:.7">${p[2]}</span></button>`).join('')}
+    </div>`:''}
     ${PT.mode==="tree"?`<div class="tktypes" style="flex:none">
       <span class="lb">Canopy to space by — what you will see, not the eventual spread</span>
       ${PT_TREE_CLASS.map(c=>`<button class="${ptTreeClass()===c[0]?'on':''}" onclick="ptSetTreeClass('${c[0]}')"
@@ -28722,11 +28761,31 @@ function ptDemoPanelRender(){
       <b style="margin-left:auto;font:750 16px ${MN};color:#D9A441">$${_tkFmt(sum)}</b></div>
   </div>`;
 }
+// Three ways to put a feature down, because they answer different questions. Draw it when you do
+// not know the size and the plan does. Set the size when you do know it. Draw it on graph paper
+// when the shape matters more than where it goes.
+const PT_PLACE=[["draw","Draw on plan","trace it where it goes, any shape"],
+                ["size","Set the size","type the dimensions, then drag and rotate"],
+                ["sheet","Freeform sheet","draw it to scale on graph paper"]];
+function ptPlaceMode(){ let v=null; try{ v=localStorage.getItem("studioh_pt_place"); }catch(e){}
+  return PT_PLACE.some(p=>p[0]===v)?v:"size"; }
+function ptSetPlaceMode(k, go){
+  try{ localStorage.setItem("studioh_pt_place", k); }catch(e){}
+  if(!go){ ptCatMenu(); if(!document.getElementById("pt-cat-pop")) ptCatMenu(); return; }
+  ptPlaceStart(PT.mode);
+}
+function ptPlaceStart(k){
+  const how=ptPlaceMode();
+  if(how==="sheet"){ ptPopClose(); ptSheetOpen(k); return; }
+  if(how==="size" && TK_STAMP[k] && ptStampStart(k)){ ptPopClose(); return; }
+  ptPopClose();   // draw it by hand, like any other zone
+  _toast(`${_ptMode(k).label} — trace it on the plan`, "#2F5B23");
+}
 function ptCatPick(k){
   if(k==="demo" && PT.mode==="demo"){ PT._demoOpen=!PT._demoOpen; ptDemoPanelRender(); return; }
   if(k==="demo") PT._demoOpen=true;
   const m=_ptMode(k); ptSetMode(k);
-  if(TK_STAMP[k] && ptStampStart(k)){ ptPopClose(); return; }
+  if(TK_STAMP[k]){ ptCatMenu(); if(!document.getElementById("pt-cat-pop")) ptCatMenu(); return; }
   ptPopClose();
   if(m&&m.types) ptCatMenu();   // a category with materials, sizes or counters stays open on them
 }
