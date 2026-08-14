@@ -3327,7 +3327,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v821</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v822</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -4376,8 +4376,18 @@ const CATS=[
    items:[
     {n:"Mobilization & Site Protection", u:"LS",q:0, lo:800, hi:4000, std:1500},
     {n:"Clearing & Grubbing",            u:"SF",q:0, lo:0.5, hi:2.5},
-    {n:"Demo — Concrete / Hardscape",    u:"SF",q:0, lo:3,   hi:9},
+    {n:"Demo — Concrete / Hardscape",    u:"SF",q:0, lo:3,   hi:9,     std:4.5},
     {n:"Demo — Structures / Misc",       u:"LS",q:0, lo:1500,hi:15000, std:4000},
+    // Element tear-outs. A pool is not an area rate — it is its own demolition job, with a permit,
+    // an engineered backfill, compaction testing and a final inspection. LA runs $5.8k–$26k,
+    // averaging around $16k for a gunite pool; a partial fill-in sits at the bottom of that.
+    {n:"Demo — Pool / Spa (remove & backfill)", u:"LS",q:0, lo:6000, hi:26000, std:15000},
+    {n:"Demo — Fireplace / Masonry",     u:"LS",q:0, lo:1500,hi:8000,  std:3500},
+    {n:"Demo — Outdoor Kitchen / BBQ",   u:"LS",q:0, lo:1200,hi:6500,  std:3000},
+    {n:"Demo — Shade Structure",         u:"LS",q:0, lo:800, hi:5000,  std:2200},
+    {n:"Demo — Water Feature",           u:"LS",q:0, lo:600, hi:4500,  std:1800},
+    {n:"Demo — Fire Pit",                u:"LS",q:0, lo:400, hi:2500,  std:1000},
+    {n:"Demo — Wall / Masonry Run",      u:"LF",q:0, lo:15,  hi:60,    std:30},
     {n:"Tree / Stump Removal",           u:"EA",q:0, lo:1000,hi:5500, std:2500},
     {n:"Rough Grading",                  u:"SF",q:0, lo:1,   hi:4},
     {n:"Fine Grading",                   u:"SF",q:0, lo:0.5, hi:2},
@@ -4922,7 +4932,7 @@ const AMENITY_DUPES=[
       else {
         if(!ex.id && di.id) ex.id=di.id; if((ex.csiRef==null||ex.csiRef==="") && di.csiRef) ex.csiRef=di.csiRef; else if(ex.csiRef===undefined) ex.csiRef=null;
         // Backfill new item-level fields a saved book predates (planting roles, material split, etc.)
-        ["role","csize","tsize","matf"].forEach(k=>{ if(ex[k]===undefined && di[k]!==undefined) ex[k]=di[k]; });
+        ["role","csize","tsize","matf","std"].forEach(k=>{ if(ex[k]===undefined && di[k]!==undefined) ex[k]=di[k]; });
       }
     });
     // Backfill category-level fields that may be missing on an older saved book
@@ -25717,7 +25727,7 @@ const PT_MODES=[
   {k:"limit",label:"Limit of work",color:"#8E6FD0",kind:"area",noFill:true},
   {k:"building",label:"Building",color:"#8a8a8a",kind:"area"},
   {k:"demo",label:"Demo",color:"#FF6B35",kind:"area",
-    types:["Hardscape — concrete / paving","Softscape — lawn & planting","Pool or spa","Structure / misc"]},
+    types:["Hardscape — concrete / paving","Softscape — lawn & planting","Pool or spa","Fireplace / masonry","Outdoor kitchen / BBQ","Water feature","Shade structure","Fire pit"]},
   {k:"irrigation",label:"Irrigation zone",color:"#2FA8A8",kind:"area",autozone:true,types:["Drip","Pottery drip","Netafim","Spray — turf","Spray — shrubs","Spray — slope"]},
   {k:"kitchen",label:"Outdoor kitchen",color:"#C0672E",kind:"area",types:["Main run","Island","Bar / raised bar","Return","Other"]},
   {k:"seating",label:"Built-in seating",color:"#9C6B3F",kind:"area",types:["Bench run","Wall / seat bench","Concrete seat wall","Stone seat wall","Other"]},
@@ -26907,26 +26917,41 @@ function ptDemoToggle(mode){
            :`${md.label} — demolition removed.`, on?"#7A5216":"#2F5B23");
   try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
 }
-// Hard surfaces come out with a saw and a bin; soft ground is cleared and grubbed.
-const TK_DEMO_HARD=["paving","driveway","pool","spa","building","water","shade","kitchen","exclude"];
-function _tkDemoRate(mode){
-  return TK_DEMO_HARD.indexOf(mode)>=0
-    ? (_tkRate("sitework",/Demo — Concrete/i)||_tkRate("sitework",/Demo/i))
-    : _tkRate("sitework",/Clearing & Grubbing/i);
+// What it costs to take one category out. Ground is an area rate — a saw, a skid-steer and a bin.
+// An element is not: a pool carries its own permit, engineered backfill, compaction test and
+// inspection, so it is priced as the whole job it is, and so is a fireplace or a kitchen.
+const TK_DEMO_LUMP={ pool:/Demo — Pool \/ Spa/i, spa:/Demo — Pool \/ Spa/i,
+  water:/Demo — Water Feature/i, shade:/Demo — Shade Structure/i,
+  kitchen:/Demo — Outdoor Kitchen/i, firepit:/Demo — Fire Pit/i, fireplace:/Demo — Fireplace/i };
+const TK_DEMO_SOFT=["planting","turf"];
+function ptDemoCost(mode, qty, n){
+  const lump=TK_DEMO_LUMP[mode];
+  if(lump){ const r=_tkRate("sitework",lump);
+    const c=Math.max(1, n||1); return {cost:r*c, each:r, n:c, unit:"ea"}; }
+  if(mode==="wall"||mode==="steps"){ const r=_tkRate("sitework",/Demo — Wall/i);
+    return {cost:r*(qty||0), each:r, n:qty||0, unit:"LF"}; }
+  const r=TK_DEMO_SOFT.indexOf(mode)>=0 ? _tkRate("sitework",/Clearing & Grubbing/i)
+                                        : (_tkRate("sitework",/Demo — Concrete/i)||_tkRate("sitework",/Demo/i));
+  return {cost:r*(qty||0), each:r, n:qty||0, unit:"SF"};
 }
-// Concrete comes out with a saw; a lawn comes out with a skid-steer; a pool has to be
-// demolished and backfilled. They are not the same money.
-function _tkDemoTypeRate(type){
-  const t=String(type||"");
-  if(/^Soft/i.test(t)) return _tkRate("sitework",/Clearing & Grubbing/i);
-  if(/^Pool/i.test(t)) return (_tkRate("sitework",/Demo — Concrete/i)||0)*2;   // break, backfill, compact
-  // A structure comes out with the same saw, crew and bin as a slab, so it carries the same rate
-  return _tkRate("sitework",/Demo — Concrete/i)||_tkRate("sitework",/Demo/i);
-}
-function ptDemoSF(){
-  const by={}; PT.polys.forEach(p=>{ if(!p._demo||p.kind==="linear"||p.mode==="demo") return;
-    by[p.mode]=(by[p.mode]||0)+(+p.sf||0); });
-  return by;
+// A Demo zone says what is coming out of it, and that decides how it is priced.
+const TK_DEMO_TYPE={"Hardscape — concrete / paving":"paving", "Softscape — lawn & planting":"planting",
+  "Pool or spa":"pool", "Fireplace / masonry":"fireplace", "Outdoor kitchen / BBQ":"kitchen",
+  "Water feature":"water", "Shade structure":"shade", "Fire pit":"firepit"};
+// Everything flagged for demolition, grouped by category, with the quantity that prices it —
+// square feet for ground, linear feet for a wall, and a count for an element.
+function ptDemoItems(){
+  const by={};
+  const put=(m,sf,lf)=>{ const b=by[m]||(by[m]={mode:m, sf:0, lf:0, n:0});
+    b.sf+=sf||0; b.lf+=lf||0; b.n++; };
+  PT.polys.forEach(p=>{ if(!p._demo||p.mode==="demo") return;
+    if(p.kind==="linear") put(p.mode,0,+p.lf||0); else put(p.mode,+p.sf||0,0); });
+  (PT.trees||[]).forEach(t=>{ if(!t._demo) return; put(_ptMarkMode(t),0,0); });
+  return Object.keys(by).map(k=>{ const b=by[k];
+    const q=(k==="wall"||k==="steps")?b.lf:b.sf;
+    const c=ptDemoCost(k, q, b.n);
+    return Object.assign(b, c);
+  }).filter(b=>b.cost>0);
 }
 // Totals with the excluded ground taken out — what the estimate actually works from.
 function ptScoped(){ return ptTotals(true); }
@@ -27041,9 +27066,9 @@ function ptPriceFor(mode, qty){
   if(mode==="demo"){
     let money=0;
     PT.polys.forEach(p=>{ if(p.mode!=="demo") return; const sf=+p.sf||0; if(!(sf>0)) return;
-      money+=sf*_tkDemoTypeRate(p.type); });
+      money+=ptDemoCost(TK_DEMO_TYPE[p.type]||"paving", sf, 1).cost; });
     if(money>0) return {total:money, per:money/qty, from:"rate"};
-    const r=_tkDemoTypeRate(""); if(r>0) return {total:r*qty, per:r, from:"rate"};
+    const r=ptDemoCost("paving",1,1).each; if(r>0) return {total:r*qty, per:r, from:"rate"};
     return null;
   }
   // Turf is laid, not designed — it prices off sod or artificial turf, never off the shrub
@@ -27145,6 +27170,9 @@ const TK_BENCH={
 function _tkStdUC(it, cat){
   const tiers=(typeof SEC_TIERS!=="undefined"&&SEC_TIERS[cat])||["Low","Standard","High"];
   let ti=tiers.indexOf("Standard"); if(ti<0) ti=Math.floor((tiers.length-1)/2);
+  // The book's own Standard figure, to the cent. tierUC rounds to whole dollars for display,
+  // and fifty cents on a square foot is fifteen thousand dollars across a thirty-thousand-foot lot.
+  if(tiers[ti]==="Standard" && it && it.std!=null && it.std!=="") return +it.std||0;
   try{ return +tierUC(it,tiers,ti)||0; }catch(e){ return +it.std||Math.round(((+it.lo||0)+(+it.hi||0))/2); }
 }
 // What a normal job of this kind costs per square foot, before anyone has priced anything.
@@ -27306,11 +27334,12 @@ function ptDerived(){
     add("Site prep", `clearing and fine grading, ${Math.round(worked).toLocaleString()} SF`, r*worked); }
 
   // Anything marked for demolition: the new surface is priced above, this is the old one leaving.
-  const demoBy=ptDemoSF(); const demoKeys=Object.keys(demoBy).filter(k=>demoBy[k]>0);
-  if(demoKeys.length){
+  const dItems=ptDemoItems();
+  if(dItems.length){
     let cost=0; const parts=[];
-    demoKeys.forEach(k=>{ const sf=demoBy[k], r=_tkDemoRate(k); cost+=r*sf;
-      parts.push(`${Math.round(sf).toLocaleString()} SF of ${_ptMode(k).label.toLowerCase()}`); });
+    dItems.forEach(b=>{ cost+=b.cost; const lbl=_ptMode(b.mode).label.toLowerCase();
+      parts.push(b.unit==="ea" ? `${b.n} ${lbl}${b.n===1?"":"s"} at ${_tkFmt(b.each)} each`
+               : `${_tkFmt(b.n)} ${b.unit} of ${lbl}`); });
     add("Demolition", `tear-out of ${parts.join(", ")}`, cost);
   }
   // A permit is triggered by what is being built, not by having drawn something.
