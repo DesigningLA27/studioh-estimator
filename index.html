@@ -1890,7 +1890,7 @@ body:not(.sp-on) #sp-open{display:grid}
 @keyframes tkrd{from{transform:translateY(-1em)}to{transform:translateY(0)}}
 @media (prefers-reduced-motion:reduce){.tkroll b{animation:none!important}
   .tkroll b.u{transform:translateY(-1em)}.tkroll b.d{transform:translateY(0)}}
-.tkrow-body{position:relative;display:flex;align-items:center;gap:11px;padding:11px 8px;cursor:pointer;
+.tkrow-body{position:relative;display:flex;align-items:center;gap:11px;padding:11px 4px 11px 8px;cursor:pointer;
   background:rgba(18,24,15,.99);touch-action:pan-y;will-change:transform}
 .tkb-lb{font:800 9px var(--tkf);letter-spacing:.12em;text-transform:uppercase;color:#8FA383;padding:5px 6px 1px}
 .tkb-hr{width:30px;border:0;border-top:1px solid rgba(255,255,255,.13);margin:3px 0}
@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v830</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v831</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27495,11 +27495,13 @@ function ptDerived(){
   const hard=(t.paving||0)+(t.driveway||0);
   const feature=(t.pool||0)+(t.spa||0)+(t.water||0)+(t.shade||0);
   const trees=PT.trees.filter(x=>_ptMarkMode(x)==="tree").length;
-  const add=(label,why,cost)=>{ if(cost>0){ rows.push({label,why,cost:Math.round(cost)}); sum+=cost; } };
+  const add=(label,why,cost,det)=>{ if(cost>0){ rows.push({label,why,cost:Math.round(cost),det:det||[]}); sum+=cost; } };
+  const L=(what,qty,unit,rate)=>({what,qty,unit,rate,cost:(qty||0)*(rate||0)});
 
   // Irrigation follows planting. No planting, no irrigation.
   if(soft>0){ const r=_tkRate("irrigation",/Drip Irrigation/i);
-    add("Irrigation", `drip through ${Math.round(soft).toLocaleString()} SF of planting`, r*soft); }
+    add("Irrigation", `drip through ${Math.round(soft).toLocaleString()} SF of planting`, r*soft,
+      [L("Drip irrigation through planting and turf", soft, "SF", r)]); }
 
   // Two uplights a tree is the rule of thumb; path lights follow the beds.
   if(trees>0||soft>0){
@@ -27508,16 +27510,20 @@ function ptDerived(){
     const nUp=trees*2, nPath=soft>0?Math.round(soft/400):0;
     const cost=nUp*up+nPath*path;
     const why=[nUp?`${nUp} uplights (2 per tree)`:"", nPath?`${nPath} path light${nPath===1?"":"s"}`:""].filter(Boolean).join(", ");
-    add("Lighting", why, cost);
+    add("Lighting", why, cost, [
+      nUp?L(`Uplights — 2 per tree, ${trees} tree${trees===1?"":"s"}`, nUp, "ea", up):null,
+      nPath?L("Path lights — one per 400 SF of planting", nPath, "ea", path):null].filter(Boolean));
   }
   // Hardscape sheds water; planting on its own usually does not.
   if(hard>0){ const nD=Math.max(1,Math.round(hard/1500)); const ea=_tkRate("drainage",/Area Drains/i);
-    add("Drainage", `${nD} area drain${nD===1?"":"s"} for ${Math.round(hard).toLocaleString()} SF of hardscape`, nD*ea); }
+    add("Drainage", `${nD} area drain${nD===1?"":"s"} for ${Math.round(hard).toLocaleString()} SF of hardscape`, nD*ea,
+      [L(`Area drains — one per 1,500 SF of hardscape (${_tkFmt(hard)} SF)`, nD, "ea", ea)]); }
 
   // Clearing and grading follow the ground you are actually working on.
   const worked=soft+hard+feature;
-  if(worked>0){ const r=_tkRate("sitework",/Clearing & Grubbing/i)+_tkRate("sitework",/Fine Grading/i);
-    add("Site prep", `clearing and fine grading, ${Math.round(worked).toLocaleString()} SF`, r*worked); }
+  if(worked>0){ const rc=_tkRate("sitework",/Clearing & Grubbing/i), rf=_tkRate("sitework",/Fine Grading/i);
+    add("Site prep", `clearing and fine grading, ${Math.round(worked).toLocaleString()} SF`, (rc+rf)*worked,
+      [L("Clearing & grubbing", worked, "SF", rc), L("Fine grading", worked, "SF", rf)]); }
 
   // Anything marked for demolition: the new surface is priced above, this is the old one leaving.
   const dItems=ptDemoItems(), dEach=ptDemoEach();
@@ -27528,7 +27534,10 @@ function ptDerived(){
     dItems.forEach(b=>{ cost+=b.cost; const lbl=_ptMode(b.mode).label.toLowerCase();
       parts.push(b.unit==="ea" ? `${b.n} ${lbl}${b.n===1?"":"s"}`
                : `${_tkFmt(b.n)} ${b.unit} of ${lbl}`); });
-    add("Demolition", `tear-out of ${parts.join(", ")}`, cost);
+    const det=[];
+    dEach.rows.forEach(r=>det.push(L(`${r.label} — counted`, r.n, r.unit, r.each)));
+    dItems.forEach(b=>det.push(L(`${_ptMode(b.mode).label} — marked for demo`, b.n, b.unit, b.each)));
+    add("Demolition", `tear-out of ${parts.join(", ")}`, cost, det);
   }
   // A permit is triggered by what is being built, not by having drawn something.
   const needsPermit=(t.pool>0||t.spa>0||t.water>0||t.shade>0||(t.wall||0)>0||hard>800);
@@ -27536,7 +27545,7 @@ function ptDerived(){
     const c=it?(_tkStdUC(it,"genconds")||0):0;
     const why=(t.pool>0||t.spa>0)?"pool or spa in the scope"
       :(t.shade>0||(t.wall||0)>0)?"structure or wall in the scope":"hardscape over 800 SF";
-    add("Permits", why, c);
+    add("Permits", why, c, [L("Building / planning permit — landscape", 1, "ea", c)]);
   }
   return {rows,sum};
 }
@@ -27731,7 +27740,7 @@ function _tkLedgerBar(tot,live){
         + (()=>{ const d=ptDerived(); if(!d.rows.length) return '';
             return `<div style="padding:13px 8px 2px;font:800 9.5px ${F};letter-spacing:.11em;
                 text-transform:uppercase;color:#8FA383;border-top:1px solid rgba(255,255,255,.13)">What this implies</div>`
-              + d.rows.map(r=>`<div style="display:flex;align-items:center;gap:11px;padding:9px 8px">
+              + d.rows.map(r=>`<div onclick="ptWhyDerived('${r.label.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:11px;padding:9px 8px;cursor:pointer">
                   <span style="min-width:0;flex:1">
                     <b style="display:block;font:650 13.5px ${F};color:#EAF0E4;line-height:1.25">${r.label}</b>
                     <span style="display:block;font:600 11px ${F};color:#8FA383;overflow:hidden;
@@ -27804,7 +27813,7 @@ function _tkLedgerBar(tot,live){
       <span style="font:600 12px ${F};color:#8FA383">${live.pts} pt</span>
     </div>`:"";
   const railW=(ptRailWide()?196:64)+40;
-  const pos = dock==="right" ? `right:20px;top:20px;bottom:20px;width:${shut?92:344}px;border-radius:18px`
+  const pos = dock==="right" ? `right:20px;top:20px;bottom:20px;width:${shut?92:392}px;border-radius:18px`
             :                    `left:${railW}px;bottom:20px;width:min(600px,calc(100% - ${railW+40}px));border-radius:22px`;
   const grip=side
     ? `<div onpointerdown="ptTkDragStart(event)" title="Drag to move — bottom, left or right"
@@ -27834,7 +27843,7 @@ function _tkLedgerBar(tot,live){
   }
   return `<div id="pt-card"
       style="position:absolute;${pos};z-index:3;
-      background:rgba(18,24,15,.93);backdrop-filter:blur(10px);padding:${side?"16px 18px 16px 26px":"6px 12px 14px"};pointer-events:auto;
+      background:rgba(18,24,15,.93);backdrop-filter:blur(10px);padding:${side?"16px 22px 16px 26px":"6px 12px 14px"};pointer-events:auto;
       display:flex;flex-direction:column;overflow:hidden;
       box-shadow:0 18px 44px -14px rgba(0,0,0,.5);font-family:${F}">
     ${grip}
@@ -27940,6 +27949,35 @@ function ptWhy(mode){
   d.style.cssText+=";top:20px;right:376px;width:min(360px,88vw);max-height:74vh;overflow:auto";
   _ptPopOutside(d.id);
   _ptWhyRender(d, md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length});
+}
+// The implied costs are worked out, not traced — so tapping one shows the working: what rule
+// fired, the quantity it used, the rate it came from, and what that adds up to.
+function ptWhyDerived(label){
+  ptPopClose();
+  const r=(ptDerived().rows||[]).find(x=>x.label===label); if(!r) return;
+  const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
+  (document.getElementById("pt-modal")||document.body).appendChild(d);
+  const off=(ptTkDock()==="right")?(ptTkShut()?132:432):24;
+  d.style.cssText+=`;top:20px;right:${off}px;width:min(380px,88vw);max-height:74vh;overflow:auto`;
+  _ptPopOutside(d.id);
+  const F="var(--tkf)", MN="ui-monospace,Menlo,monospace";
+  const rows=(r.det||[]).map(l=>`<div style="display:flex;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid rgba(255,255,255,.10)">
+      <span style="flex:1;min-width:0">
+        <b style="display:block;font:650 13px ${F};color:#EAF0E4;line-height:1.3">${l.what}</b>
+        <span style="display:block;font:600 10.5px ${F};color:#8FA383">${_tkFmt(l.qty)} ${l.unit} at ${l.rate>=100?fmtN(l.rate):"$"+(+l.rate).toFixed(2)} / ${l.unit}</span></span>
+      <b style="font:700 13px ${MN};color:#8FE07A;white-space:nowrap">${fmtN(l.cost)}</b>
+    </div>`).join("");
+  d.innerHTML=`<div class="tkh"><h3 style="display:flex;align-items:center;gap:9px">
+      <span style="width:12px;height:12px;border-radius:4px;background:#D9A441"></span>${r.label}</h3>
+      <button class="cls" onclick="ptPopClose()">✕</button></div>
+    <div style="font:600 12px ${F};color:#8FA383;margin-bottom:2px">${r.why}</div>
+    ${rows||`<div style="font:600 12px ${F};color:#8FA383;padding:10px 0">No breakdown recorded.</div>`}
+    <div style="display:flex;gap:10px;padding:10px 0 2px;border-top:2px solid rgba(255,255,255,.28);margin-top:4px">
+      <span style="font:700 13px ${F};color:#EAF0E4;flex:1">Total</span>
+      <b style="font:750 15px ${MN};color:#8FE07A">${fmtN(r.cost)}</b></div>
+    <div style="font:600 12px ${F};color:#8FA383;margin-top:12px;line-height:1.5">
+      Nobody traced this — it follows from what you did trace, at rates from the price book.
+      Change the rate there and this changes with it.</div>`;
 }
 function _ptWhyRender(d, md, mode, x){
   const {unit, qty, pr, src, cut, each, marks, shapes}=x;
@@ -28149,7 +28187,7 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
   (document.getElementById("pt-modal")||document.body).appendChild(d);
   // Sit between the rail and the cost card — never under either of them.
   const _L=(ptRailWide()?196:64)+40;
-  const _R=(ptTkDock()==="right") ? ((ptTkShut()?92:344)+40) : 24;
+  const _R=(ptTkDock()==="right") ? ((ptTkShut()?92:392)+40) : 24;
   d.style.cssText+=`;top:20px;left:${_L}px;width:min(1040px,max(430px,calc(100vw - ${_L+_R}px)));max-height:80vh;display:flex;flex-direction:column;overflow:hidden`;
   const md=_ptMode(PT.mode); const tot=ptTotals();
   const cell=(k)=>{ const m=_ptMode(k); if(!m||m.k!==k) return "";
