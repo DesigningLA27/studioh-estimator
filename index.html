@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v836</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v837</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26939,11 +26939,9 @@ function _ptHitTest(q,cxy){ // q=model coords, cxy=canvas coords; return {type:'
     if(sf<bestSF){ bestSF=sf; best=i; } }
   if(best>=0) return {type:"poly",idx:best};
   return null; }
-// Labels are on or off as a whole. Tapping one collapses just that one to a dot — for when a
-// pill is sitting over something you want to see — and tapping the dot brings it back.
-function ptLabelOpen(idx){ if(!PT._open) PT._open={};
-  if(PT._open[idx]===false) delete PT._open[idx]; else PT._open[idx]=false;
-  ptDrawOverlay(); }
+// Tapping a label opens the shape it belongs to — its name, the area it is in, its phase and
+// its material. That name is what carries through to the estimate, so this is where it is set.
+function ptLabelOpen(idx){ try{ ptEditPoly(idx); }catch(e){} }
 function ptPointPopover(){
   let d=document.getElementById("pt-point-pop"); if(d){ d.remove(); return; }
   d=document.createElement("div"); d.id="pt-point-pop"; d.className="tkpop";
@@ -27234,6 +27232,25 @@ function ptDemoCount(mode){
 }
 function ptDemoSome(mode){ const c=ptDemoCount(mode); return c.n>0 && c.n<c.total; }
 // Flip one traced shape, leaving the rest of its category alone.
+// Naming a trace from the list — commits on Enter or when you tap away, so nothing is rebuilt
+// underneath the caret while you are typing.
+function ptRenamePoly(idx, v){
+  const p=PT.polys[idx]; if(!p) return;
+  const nv=String(v==null?"":v).trim();
+  if((p.name||"")===nv) return;
+  ptSnap(); p.name=nv;
+  try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+}
+function ptSetPolyZone(idx, v){
+  const p=PT.polys[idx]; if(!p) return;
+  if(v==="__add"){ const n=prompt("New area name"); if(!n){ try{ ptWhy(p.mode); }catch(e){} return; }
+    try{ if(typeof addAreaOption==="function") addAreaOption(n); }catch(e){}
+    v=n; }
+  const nv=(v==="—")?"":String(v||"");
+  if((p.zone||"")===nv) return;
+  ptSnap(); p.zone=nv;
+  try{ ptDrawOverlay(); ptUpdateInfo(); if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
+}
 function ptDemoPolyToggle(idx){
   const p=PT.polys[idx]; if(!p) return;
   ptSnap();
@@ -28086,6 +28103,7 @@ function ptRowUp(e){
 }
 function ptRowTap(e,mode){
   const el=e.currentTarget;
+  if(e.target&&e.target.closest&&e.target.closest("input,select,button")) return;
   if(el._swallowClick) return;                 // that was the end of a swipe
   if(el.dataset.open){ _tkRowClose(el); return; }
   ptRowCloseAll(null); ptWhy(mode);
@@ -28131,6 +28149,7 @@ function ptWhy(mode){
     const nm=(p.name&&p.name.trim())||p.type||`${md.label} ${i+1}`;
     const dc=ptDemoCost(mode, net, 1);
     return {nm, net, taken, idx:p._i, demo:!!p._demo, excl:!!p._excl,
+            rawName:(p.name||""), zone:(p.zone||""),
             demoCost:dc.cost, sub:p.type&&p.name?p.type:"", cost:rate*net};
   });
   const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
@@ -28173,9 +28192,22 @@ function _ptWhyRender(d, md, mode, x){
   const line=(k,v,acc)=>`<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.10)">
       <span style="font:600 13px var(--tkf);color:#9FBF95;flex:1">${k}</span>
       <b style="font:700 13px ui-monospace,Menlo,monospace;color:${acc||"#EAF0E4"};white-space:nowrap">${v}</b></div>`;
+  const _zl=(()=>{ try{ return areaOptions().slice(); }catch(_){ return []; } })();
   const rows=each.map(e=>`<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid rgba(255,255,255,.10)">
       <span style="flex:1;min-width:0">
-        <b style="display:block;font:650 13px var(--tkf);color:#EAF0E4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.nm}</b>
+        ${e.idx!=null?`<input value="${(e.rawName||"").replace(/"/g,"&quot;")}" placeholder="${e.nm.replace(/"/g,"&quot;")}"
+            onchange="ptRenamePoly(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+            style="display:block;width:100%;box-sizing:border-box;font:650 13px var(--tkf);color:#EAF0E4;
+            background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;
+            padding:5px 7px;margin-bottom:3px">
+          <select onchange="ptSetPolyZone(${e.idx},this.value)"
+            style="display:block;width:100%;box-sizing:border-box;font:600 11px var(--tkf);color:#9FBF95;
+            background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);border-radius:7px;padding:3px 5px">
+            <option value="—" ${!e.zone?"selected":""}>Area — none</option>
+            ${_zl.map(z=>`<option ${e.zone===z?"selected":""}>${z}</option>`).join("")}
+            ${e.zone&&_zl.indexOf(e.zone)<0?`<option selected>${e.zone}</option>`:""}
+            <option value="__add">+ New area…</option></select>`
+        :`<b style="display:block;font:650 13px var(--tkf);color:#EAF0E4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.nm}</b>`}
         ${e.taken?`<span style="display:block;font:600 10.5px var(--tkf);color:#8FA383">less ${_tkFmt(e.taken)} taken out</span>`:""}
         ${e.demo&&e.demoCost>0?`<span style="display:block;font:700 10.5px ui-monospace,Menlo,monospace;color:#D9A441">+ ${fmtN(e.demoCost)} tear-out</span>`:""}</span>
       ${e.idx!=null?`<button onclick="ptDemoPolyToggle(${e.idx})" title="Demolish this one, and build the new one over it"
