@@ -3363,7 +3363,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v851</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v852</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27542,10 +27542,34 @@ function _tkPergolaFrom(sf, kind){
     const a=Math.max(36, +sf||0);
     const L=Math.max(8, Math.round(Math.sqrt(a*1.5)));   // a pergola is longer than it is deep
     const W=Math.max(8, Math.round(a/L));
-    p.dimMode="dim"; p.L=L; p.W=W; p.footprintSF=0;
+    // The area-priced parts of a roof — the louver insert, the canvas cover, the ceiling — are all
+    // per square foot of footprint, and the builder was being handed a footprint of zero. That is
+    // why every style came back at the price of its posts and beams and nothing else.
+    p.dimMode="dim"; p.L=L; p.W=W; p.footprintSF=L*W;
     p.overhead=kind||"open";
+    const c=(typeof pergolaComponents==="function")?pergolaComponents():null;
+    const pick=(list,re,dflt)=>{ if(!list) return dflt; const i=list.findIndex(x=>re.test(x.n||"")); return i<0?dflt:i; };
     if(kind==="open"){ p.rafterOn=true; p.lathOn=true; }
-    else if(kind==="louver"){ p.rafterOn=true; p.lathOn=false; }
+    else if(kind==="louver"){
+      // A louvered roof is a motorised system, not a manual one — that is the pergola people
+      // mean, and it is the dearest thing you can put over a patio.
+      p.rafterOn=true; p.lathOn=false; p.louverCustom=false;
+      p.louverIdx=pick(c&&c.louver, /Motorized/i, p.louverIdx);
+      // The builder's louver line does not move the total on its own — selecting Manual or
+      // Motorized costs the same, which is a fault in the builder, not in this assumption. Until
+      // that is sorted, the roof is priced through the builder's own override so the system you
+      // chose is the system you are charged for.
+      const lv=(c&&c.louver)?c.louver[p.louverIdx]:null;
+      if(lv&&lv.uc>0){ p.louverOverride=true; p.louverTotal=Math.round(L*W*lv.uc); }
+      else p.louverOverride=false;
+    }
+    else if(kind==="canvas"){
+      // Slide-on-wire with its drive: a shade cover on the same frame as an open pergola, so it
+      // lands just above open lattice rather than in roof territory.
+      p.rafterOn=true; p.lathOn=false;
+      p.canvasTypeIdx=pick(c&&c.canvas, /Slide-on-wire/i, 0);
+      p.canvasElectric=true;
+    }
     else { p.rafterOn=true; p.lathOn=false; }
   }
   if((S.pergolas||[]).length>before) S.pergolas.pop();
