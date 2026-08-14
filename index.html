@@ -3327,7 +3327,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v824</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v825</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26107,57 +26107,124 @@ function ptStampBar(){
 // nearly straight become straight, curves keep their curve. Every edge carries its length and the
 // area updates as you go. Place hands it to the same positioning controls a stamp uses, so it
 // lands on the plan at exactly the size you drew.
+// Everything on the sheet is held in FEET. Pixels exist only to draw with. That is the whole
+// point: zooming is a lens, not a ruler, so a ten-foot run stays ten feet however close you get.
+const SH_FIT={ pool:40, spa:14, shade:30, kitchen:15, seating:12, firepit:10, fireplace:10,
+  water:10, paving:40, driveway:40, planting:40, turf:40, building:40, exclude:40, demo:40 };
+const SH_TOLS=[["Fine",0.25],["Normal",0.6],["Loose",1.4]];   // feet of slack allowed off your stroke
 let SH=null;
+function ptSheetTol(){ try{ const v=+localStorage.getItem("studioh_sheet_tol"); if(v>0) return v; }catch(e){}
+  return 0.6; }
+function ptSheetSetTol(v){ if(!SH) return; SH.tol=+v;
+  try{ localStorage.setItem("studioh_sheet_tol", SH.tol); }catch(e){}
+  if(SH.raw) ptSheetTidy(SH.raw); ptSheetRender(); }
 function ptSheetOpen(mode){
   ptPopClose();
   const md=_ptMode(mode); if(!md) return;
-  SH={mode, ppf:14, pts:[], snap:true, raw:null, wet:null};
+  SH={mode, ppf:14, ox:0, oy:0, pts:[], raw:null, wet:null, live:null,
+      tol:ptSheetTol(), drag:null, sel:null};
   let d=document.getElementById("pt-sheet-wrap"); if(d) d.remove();
   d=document.createElement("div"); d.id="pt-sheet-wrap";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
   d.style.cssText="position:absolute;inset:20px;z-index:6";
   ptSheetRender();
+  ptSheetFit(true);                                   // the sheet is in the DOM, so it can be measured now
+  requestAnimationFrame(()=>{ if(SH&&SH.mode===mode&&SH.pts.length<3) ptSheetFit(true); });
 }
 function ptSheetClose(){ SH=null; const d=document.getElementById("pt-sheet-wrap"); if(d) d.remove(); }
-function ptSheetSnap(on){ if(!SH) return; SH.snap=!!on; if(SH.raw) ptSheetTidy(SH.raw); ptSheetRender(); }
-function ptSheetClear(){ if(!SH) return; SH.pts=[]; SH.raw=null; ptSheetRender(); }
-function ptSheetZoom(f){ if(!SH) return; SH.ppf=Math.max(5,Math.min(40,SH.ppf*f));
-  if(SH.raw) ptSheetTidy(SH.raw); ptSheetRender(); }
-function ptSheetTidy(raw){
-  if(!SH||!raw||raw.length<3){ if(SH) SH.pts=[]; return; }
-  let p=_ptSimplify(raw, 4);
-  if(p.length>2){ const f=p[0], l=p[p.length-1];
-    if(Math.hypot(f.x-l.x,f.y-l.y)<26) p=p.slice(0,-1); }
-  if(SH.snap && p.length>2){
+function ptSheetClear(){ if(!SH) return; SH.pts=[]; SH.raw=null; SH.sel=null; ptSheetFit(true); }
+function _shBox(){
+  const g=document.getElementById("pt-sheet-grid");
+  const r=g?g.getBoundingClientRect():null;
+  return (r&&r.width>10)?{w:r.width,h:r.height}:{w:900,h:520};
+}
+// Open on the element at a size you can actually draw: a pool gets forty squares across,
+// a fire pit ten. Once something is drawn, Fit frames what is there.
+function ptSheetFit(initial){
+  if(!SH) return;
+  // The sheet has to be laid out before it can be framed — wait for it rather than guess a size.
+  const _g=document.getElementById("pt-sheet-grid");
+  const _r=_g?_g.getBoundingClientRect():null;   // forces layout, so this is the real width
+  if(!_r||_r.width<40){ const n=(SH._fitTry=(SH._fitTry||0)+1);
+    if(n<40) requestAnimationFrame(()=>ptSheetFit(initial)); return; }
+  SH._fitTry=0;
+  const B={w:_r.width, h:_r.height};
+  if(initial||SH.pts.length<3){
+    const want=SH_FIT[SH.mode]||20;
+    // `want` squares across, but never so few that the sheet runs out of height for them
+    SH.ppf=Math.max(4, Math.min(200, Math.min(B.w/want, B.h/(want*0.55))));
+    SH.ox=B.w/2; SH.oy=B.h/2;
+  } else {
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    SH.pts.forEach(p=>{ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; });
+    const w=Math.max(2,x1-x0), h=Math.max(2,y1-y0);
+    SH.ppf=Math.max(4, Math.min(200, Math.min(B.w/(w*1.35), B.h/(h*1.35))));
+    SH.ox=B.w/2-((x0+x1)/2)*SH.ppf; SH.oy=B.h/2-((y0+y1)/2)*SH.ppf;
+  }
+  ptSheetRender();
+}
+// Zoom about the middle of the sheet. The feet never move — only the lens does.
+function ptSheetZoom(f){
+  if(!SH) return; const B=_shBox(); const cx=B.w/2, cy=B.h/2;
+  const fx=(cx-SH.ox)/SH.ppf, fy=(cy-SH.oy)/SH.ppf;
+  SH.ppf=Math.max(3, Math.min(220, SH.ppf*f));
+  SH.ox=cx-fx*SH.ppf; SH.oy=cy-fy*SH.ppf;
+  ptSheetRender();
+}
+function _shPx(p){ return {x:p.x*SH.ppf+SH.ox, y:p.y*SH.ppf+SH.oy}; }
+function _shFt(q){ return {x:(q.x-SH.ox)/SH.ppf, y:(q.y-SH.oy)/SH.ppf}; }
+function _shXY(e){ const el=document.getElementById("pt-sheet-grid"); const r=el.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+// Straighten what was meant to be straight, keep what was meant to curve, and never
+// simplify a shape out of existence.
+function _shTidy(rawFt, tol){
+  if(!rawFt||rawFt.length<3) return [];
+  let p=[], t=tol;
+  for(let k=0;k<6 && (p=_ptSimplify(rawFt,t)).length<3; k++) t*=0.45;
+  if(p.length<3) p=rawFt.slice();
+  if(p.length>3){ const f=p[0], l=p[p.length-1];
+    if(Math.hypot(f.x-l.x,f.y-l.y) < Math.max(1.5, tol*3)) p=p.slice(0,-1); }
+  if(p.length>2){                       // runs within 7° of a 15° bearing become exactly that bearing
     const out=[p[0]];
     for(let i=1;i<p.length;i++){
       const a2=out[out.length-1], b2=p[i];
       const dx=b2.x-a2.x, dy=b2.y-a2.y, len=Math.hypot(dx,dy);
-      if(len<4) continue;
+      if(len<Math.max(0.35,tol*0.6)) continue;
       let ang=Math.atan2(dy,dx)*180/Math.PI;
-      const snapped=Math.round(ang/15)*15;
-      if(Math.abs(snapped-ang)<7) ang=snapped;
+      const sn=Math.round(ang/15)*15;
+      if(Math.abs(sn-ang)<7) ang=sn;
       const r=ang*Math.PI/180;
       out.push({x:a2.x+Math.cos(r)*len, y:a2.y+Math.sin(r)*len});
     }
-    p=out;
+    if(out.length>=3) p=out;
   }
-  SH.pts=p;
+  return p;
 }
-function ptSheetArea(){ if(!SH||SH.pts.length<3) return 0; return _ptShoelace(SH.pts)/(SH.ppf*SH.ppf); }
-function _shFt(px){ return px/SH.ppf; }
+function ptSheetTidy(rawFt){ if(!SH) return; SH.pts=_shTidy(rawFt, SH.tol); }
+function _shEdges(pts){ const out=[];
+  if(!pts||pts.length<2) return out;
+  for(let i=0;i<pts.length;i++){ const a2=pts[i], b2=pts[(i+1)%pts.length];
+    const len=Math.hypot(b2.x-a2.x, b2.y-a2.y);
+    if(len>0.6) out.push({a:a2,b:b2,len}); }
+  return out; }
+function _shArea(pts){ return (pts&&pts.length>2)?_ptShoelace(pts):0; }
+function ptSheetArea(){ return _shArea(SH?SH.pts:null); }
 function ptSheetRender(){
   const d=document.getElementById("pt-sheet-wrap"); if(!d||!SH) return;
   const md=_ptMode(SH.mode);
   const F="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif";
   const MN="ui-monospace,SFMono-Regular,Menlo,monospace";
-  const g=SH.ppf; const edges=[];
-  for(let i=0;i<SH.pts.length;i++){
-    const a2=SH.pts[i], b2=SH.pts[(i+1)%SH.pts.length];
-    const len=_shFt(Math.hypot(b2.x-a2.x,b2.y-a2.y));
-    if(len>0.8) edges.push({a:a2,b:b2,len});
-  }
+  const g=SH.ppf, g5=SH.ppf*5;
+  const ox=((SH.ox%g)+g)%g, oy=((SH.oy%g)+g)%g;
+  const ox5=((SH.ox%g5)+g5)%g5, oy5=((SH.oy%g5)+g5)%g5;
+  const shown=SH.live||SH.pts;
+  const edges=_shEdges(shown);
   const btn=(on)=>`border:0;border-radius:10px;padding:9px 12px;cursor:pointer;font:600 12.5px ${F};background:${on?"#5BA34A":"rgba(255,255,255,.12)"};color:${on?"#0F2409":"#EAF0E4"}`;
+  const seg=SH_TOLS.map(([lab,v])=>`<button onclick="ptSheetSetTol(${v})"
+      style="border:0;padding:8px 11px;cursor:pointer;font:650 12px ${F};
+      background:${Math.abs(SH.tol-v)<0.01?"#5BA34A":"transparent"};
+      color:${Math.abs(SH.tol-v)<0.01?"#0F2409":"#9FBF95"}">${lab}</button>`).join("");
+  const area=_shArea(shown);
   d.innerHTML=`<div style="position:absolute;inset:0;background:rgba(18,24,15,.95);
       -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-radius:18px;padding:14px;
       display:flex;flex-direction:column;color:#EAF0E4;font-family:${F};
@@ -26165,30 +26232,36 @@ function ptSheetRender(){
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex:none">
       <span style="width:12px;height:12px;border-radius:4px;background:${md.color}"></span>
       <b style="font:700 15px ${F}">${md.label} — draw the footprint</b>
-      <span style="margin-left:auto;font:600 12px ${F};color:#8FA383">one square = 1 foot</span>
+      <span style="margin-left:auto;font:600 12px ${F};color:#8FA383">
+        one square = 1 foot · heavy line every 5</span>
       <button onclick="ptSheetClose()" style="width:34px;height:34px;border:0;border-radius:11px;
         background:rgba(255,255,255,.12);color:#EAF0E4;font-size:15px;cursor:pointer">✕</button>
     </div>
     <div id="pt-sheet-grid" style="flex:1;min-height:0;position:relative;border-radius:12px;overflow:hidden;
         touch-action:none;cursor:crosshair;
-        background:repeating-linear-gradient(0deg,rgba(255,255,255,.13) 0 1px,transparent 1px ${g}px),
-                   repeating-linear-gradient(90deg,rgba(255,255,255,.13) 0 1px,transparent 1px ${g}px),
-                   rgba(255,255,255,.04)"
+        background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.30) 0 1px,transparent 1px ${g5}px),
+                   repeating-linear-gradient(90deg,rgba(255,255,255,.30) 0 1px,transparent 1px ${g5}px),
+                   repeating-linear-gradient(0deg,rgba(255,255,255,.11) 0 1px,transparent 1px ${g}px),
+                   repeating-linear-gradient(90deg,rgba(255,255,255,.11) 0 1px,transparent 1px ${g}px);
+        background-position:${ox5}px ${oy5}px,${ox5}px ${oy5}px,${ox}px ${oy}px,${ox}px ${oy}px;
+        background-color:rgba(255,255,255,.04)"
         onpointerdown="ptSheetDown(event)" onpointermove="ptSheetMove(event)"
         onpointerup="ptSheetUp(event)" onpointercancel="ptSheetUp(event)">
       <svg id="pt-sheet-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg>
       ${SH.pts.length?'':`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
         font:600 14px ${F};color:#8FA383;text-align:center;padding:20px;pointer-events:none">Draw the outline with the Pencil.<br>
-        Nearly-straight runs are straightened; curves stay curved.</div>`}
+        Lengths and area come up as you go.</div>`}
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:11px;flex:none;flex-wrap:wrap">
-      <button onclick="ptSheetSnap(${!SH.snap})" style="${btn(SH.snap)}">${SH.snap?"Tidying on":"Tidying off"}</button>
-      <button onclick="ptSheetZoom(0.8)" style="${btn(false)}">Zoom out</button>
-      <button onclick="ptSheetZoom(1.25)" style="${btn(false)}">Zoom in</button>
+      <span style="font:700 9px ${F};letter-spacing:.11em;text-transform:uppercase;color:#8FA383">Pencil</span>
+      <span style="display:flex;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.12)">${seg}</span>
+      <button onclick="ptSheetZoom(0.8)" style="${btn(false)}">−</button>
+      <button onclick="ptSheetZoom(1.25)" style="${btn(false)}">＋</button>
+      <button onclick="ptSheetFit(${SH.pts.length<3})" style="${btn(false)}">Fit</button>
       <button onclick="ptSheetClear()" style="${btn(false)}">Clear</button>
       <span style="margin-left:auto;display:flex;align-items:baseline;gap:12px">
-        <span style="font:600 12px ${F};color:#8FA383">${edges.length?edges.length+" edges":"nothing drawn"}</span>
-        <b style="font:750 18px ${MN};color:#8FE07A">${Math.round(ptSheetArea()).toLocaleString()} SF</b>
+        <span style="font:600 12px ${F};color:#8FA383">${SH.pts.length>2?"drag a point to edit":(edges.length?"drawing…":"nothing drawn")}</span>
+        <b style="font:750 18px ${MN};color:#8FE07A">${Math.round(area).toLocaleString()} SF</b>
       </span>
       <button onclick="ptSheetPlace()" ${SH.pts.length<3?'disabled':''}
         style="border:0;border-radius:11px;padding:11px 18px;cursor:pointer;font:750 13.5px ${F};
@@ -26196,40 +26269,79 @@ function ptSheetRender(){
         Place on plan</button>
     </div>
   </div>`;
-  ptSheetDraw(edges);
+  ptSheetDraw();
 }
-function ptSheetDraw(edges){
+function ptSheetDraw(){
   const svg=document.getElementById("pt-sheet-svg"); if(!svg||!SH) return;
   const md=_ptMode(SH.mode); let s2="";
+  const shown=SH.live||SH.pts;
   if(SH.wet&&SH.wet.length>1)
-    s2+=`<polyline points="${SH.wet.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2.5" stroke-linecap="round"/>`;
-  if(SH.pts.length>2)
-    s2+=`<polygon points="${SH.pts.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}44" stroke="${md.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
-  SH.pts.forEach(q=>{ s2+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="4.5" fill="#fff" stroke="${md.color}" stroke-width="2"/>`; });
-  (edges||[]).forEach(e=>{
-    const mx=(e.a.x+e.b.x)/2, my=(e.a.y+e.b.y)/2;
+    s2+=`<polyline points="${SH.wet.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="2" stroke-linecap="round"/>`;
+  const px=shown.map(_shPx);
+  if(px.length>2)
+    s2+=`<polygon points="${px.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}44" stroke="${md.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  else if(px.length>1)
+    s2+=`<polyline points="${px.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="none" stroke="${md.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  // every edge carries its length, live
+  _shEdges(shown).forEach(e=>{
+    const a2=_shPx(e.a), b2=_shPx(e.b);
+    const mx=(a2.x+b2.x)/2, my=(a2.y+b2.y)/2;
     const t=_ftTxt(e.len), w=t.length*7.4+10;
     s2+=`<rect x="${(mx-w/2).toFixed(1)}" y="${(my-9).toFixed(1)}" width="${w.toFixed(0)}" height="18" rx="9" fill="rgba(18,24,15,.9)"/>`;
     s2+=`<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" fill="#8FE07A" font-family="ui-monospace,Menlo,monospace">${t}</text>`;
   });
+  if(!SH.wet && SH.pts.length>2){            // handles: corners to drag, midpoints to add
+    const pp=SH.pts.map(_shPx);
+    for(let i=0;i<pp.length;i++){ const a2=pp[i], b2=pp[(i+1)%pp.length];
+      s2+=`<circle cx="${((a2.x+b2.x)/2).toFixed(1)}" cy="${((a2.y+b2.y)/2).toFixed(1)}" r="4.5" fill="rgba(255,255,255,.75)" stroke="${md.color}" stroke-width="1.6"/>`; }
+    pp.forEach((q,i)=>{ const on=(SH.sel===i);
+      s2+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${on?8.5:6.5}" fill="#fff" stroke="${md.color}" stroke-width="${on?3:2.4}"/>`; });
+  }
   svg.innerHTML=s2;
 }
-function _shXY(e){ const el=document.getElementById("pt-sheet-grid"); const r=el.getBoundingClientRect();
-  return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+function _shHit(q){
+  if(!SH||SH.pts.length<3) return null;
+  for(let i=0;i<SH.pts.length;i++){ const p=_shPx(SH.pts[i]);
+    if(Math.hypot(q.x-p.x,q.y-p.y)<=17) return {i, mid:false}; }
+  for(let i=0;i<SH.pts.length;i++){ const a2=_shPx(SH.pts[i]), b2=_shPx(SH.pts[(i+1)%SH.pts.length]);
+    const m={x:(a2.x+b2.x)/2,y:(a2.y+b2.y)/2};
+    if(Math.hypot(q.x-m.x,q.y-m.y)<=15) return {i:i+1, mid:true}; }
+  return null;
+}
 function ptSheetDown(e){ if(!SH) return; e.preventDefault();
   try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
-  SH.wet=[_shXY(e)]; ptSheetDraw([]); }
-function ptSheetMove(e){ if(!SH||!SH.wet) return; e.preventDefault();
-  SH.wet.push(_shXY(e)); ptSheetDraw([]); }
-function ptSheetUp(e){ if(!SH||!SH.wet) return;
-  const raw=SH.wet; SH.wet=null;
-  if(raw.length<3){ ptSheetDraw([]); return; }
-  SH.raw=raw; ptSheetTidy(raw); ptSheetRender(); }
+  const q=_shXY(e);
+  const h=_shHit(q);
+  if(h){                                   // editing what is already there
+    if(h.mid) SH.pts.splice(h.i, 0, _shFt(q));
+    SH.drag=h.i; SH.sel=h.i; SH.raw=null;  // hand-edited from here on
+    ptSheetDraw(); return;
+  }
+  if(SH.pts.length>2){ SH.sel=null; ptSheetDraw(); return; }   // never redraw by accident — Clear first
+  SH.wet=[q]; SH.live=null; ptSheetDraw();
+}
+function ptSheetMove(e){ if(!SH) return;
+  if(SH.drag!=null){ e.preventDefault(); SH.pts[SH.drag]=_shFt(_shXY(e)); ptSheetDraw(); return; }
+  if(!SH.wet) return; e.preventDefault();
+  SH.wet.push(_shXY(e));
+  // live: tidy what is on the sheet so far, so the lengths and the area are the real ones
+  if(SH.wet.length>2 && SH.wet.length%3===0) SH.live=_shTidy(SH.wet.map(_shFt), SH.tol);
+  ptSheetDraw();
+  const b=document.querySelector("#pt-sheet-wrap b[style*='8FE07A']");
+  if(b&&SH.live) b.textContent=Math.round(_shArea(SH.live)).toLocaleString()+" SF";
+}
+function ptSheetUp(e){ if(!SH) return;
+  if(SH.drag!=null){ SH.drag=null; ptSheetRender(); return; }
+  if(!SH.wet) return;
+  const raw=SH.wet.map(_shFt); SH.wet=null; SH.live=null;
+  if(raw.length<3){ ptSheetDraw(); return; }
+  SH.raw=raw; ptSheetTidy(raw); ptSheetFit(false);
+}
 function ptSheetPlace(){
   if(!SH||SH.pts.length<3) return;
   let cx=0, cy=0; SH.pts.forEach(p=>{ cx+=p.x; cy+=p.y; });
   cx/=SH.pts.length; cy/=SH.pts.length;
-  const feet=SH.pts.map(p=>({x:(p.x-cx)/SH.ppf, y:(p.y-cy)/SH.ppf}));
+  const feet=SH.pts.map(p=>({x:p.x-cx, y:p.y-cy}));     // already feet — the sheet never held pixels
   let c=null; try{ const m=PT.map&&PT.map.getCenter(); if(m) c={x:m.lng(), y:m.lat()}; }catch(e){}
   if(!c){ _toast("The map is still loading.","#B23F3C"); return; }
   const mode=SH.mode;
