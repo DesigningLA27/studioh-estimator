@@ -3358,7 +3358,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v840</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v841</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -4611,7 +4611,11 @@ const CATS=[
     {n:"Built-in Seating / Bench",     u:"LF",q:0, lo:180, hi:550},
     {n:"Putting Green",                u:"SF",q:0, lo:12,  hi:28},
     {n:"Sport Court Surfacing",        u:"SF",q:0, lo:8,   hi:22},
-    {n:"Large Planter / Container",    u:"EA",q:0, lo:350, hi:2500, std:1100},
+    // A pot and the work of standing it up are two different costs. The pot moves with the price
+    // point — $150 entry, $500 for a good one, $850 premium. Setting it, waterproofing, drainage
+    // and planting it is the same work whatever the pot cost, so it stays flat.
+    {n:"Large Planter / Container",    u:"EA",q:0, lo:150, hi:850,  std:500},
+    {n:"Planter — Set, Waterproof & Plant", u:"EA",q:0, lo:250, hi:250, std:250},
     {n:"Gate — Standard",              u:"EA",q:0, lo:600, hi:3500, std:1500},
     {n:"Site Furniture — Allowance (per piece)", u:"EA",q:0, lo:200, hi:3000, std:800},
     {n:"Outdoor Shower",               u:"EA",q:0, lo:3500,hi:12000, std:6000},
@@ -4985,17 +4989,23 @@ const AMENITY_DUPES=[
 // $500–$2,000, not $3,500. Corrects only books still holding that exact seed, so a rate anyone
 // has since set by hand is left alone.
 (function fixDemoLumps(){
-  try{ if(localStorage.getItem("studioh_demolump_v3")) return; }catch(e){}
+  try{ if(localStorage.getItem("studioh_demolump_v4")) return; }catch(e){}
   const seed={"Demo — Fireplace / Masonry":{lo:1500,hi:8000,std:3500,to:{lo:500,hi:4000,std:1200}},
               "Demo — Outdoor Kitchen / BBQ":{lo:1200,hi:6500,std:3000,to:{lo:500,hi:4000,std:1400}},
               "Demo — Shade Structure":{lo:800,hi:5000,std:2200,to:{lo:500,hi:4000,std:1200}},
               "Demo — Water Feature":{lo:600,hi:4500,std:1800,to:{lo:300,hi:4000,std:900}},
-              "Demo — Fire Pit":{lo:400,hi:2500,std:1000,to:{lo:300,hi:2500,std:600}}};
-  const sw=PB.find(c=>c.id==="sitework"); let changed=false;
-  if(sw&&sw.items) sw.items.forEach(it=>{ const f=seed[it.n]; if(!f) return;
-    if(+it.lo===f.lo && +it.hi===f.hi && +it.std===f.std){ it.lo=f.to.lo; it.hi=f.to.hi; it.std=f.to.std; changed=true; } });
+              "Demo — Fire Pit":{lo:400,hi:2500,std:1000,to:{lo:300,hi:2500,std:600}},
+              "Large Planter / Container":{lo:350,hi:2500,std:1100,to:{lo:150,hi:850,std:500}}};
+  let changed=false;
+  ["sitework","amenities"].forEach(id=>{ const sec=PB.find(c=>c.id===id); if(!sec||!sec.items) return;
+    sec.items.forEach(it=>{ const f=seed[it.n]; if(!f) return;
+      if(+it.lo===f.lo && +it.hi===f.hi && +it.std===f.std){ it.lo=f.to.lo; it.hi=f.to.hi; it.std=f.to.std; changed=true; } }); });
+  // the planter with no std at all is the pre-v839 seed, and it takes the new figures too
+  (function(){ const am=PB.find(c=>c.id==="amenities"); if(!am||!am.items) return;
+    const it=am.items.find(x=>x&&/^Large Planter \/ Container$/.test(x.n||""));
+    if(it && +it.lo===350 && +it.hi===2500 && (it.std==null||it.std==="")){ it.lo=150; it.hi=850; it.std=500; changed=true; } })();
   if(changed) pbSave();
-  try{ localStorage.setItem("studioh_demolump_v3","1"); }catch(e){}
+  try{ localStorage.setItem("studioh_demolump_v4","1"); }catch(e){}
 })();
 // One-time: strip the placeholder floors that earlier seeds carried (no real floors were user-set).
 (function purgeSeedFloors(){
@@ -25765,37 +25775,37 @@ let PT={open:false,doc:null,page:1,numPages:1,scale:1.4,ppf:null,mode:"planting"
   polys:[],trees:[],cur:[],calibrating:false,calib:[],renderScale:1.4,canvasW:0,canvasH:0,
   undo:[],redo:[],hideLabels:true,hidden:{},panelOpen:true};
 const PT_MODES=[
-  {k:"planting",label:"Planting",color:"#5BA34A",kind:"area"},
-  {k:"turf",label:"Grass / Turf",color:"#7CB342",kind:"area",types:["Real sod","Artificial turf"]},
-  {k:"paving",label:"Paving",color:"#C28A3E",kind:"area",types:["Wood deck","Natural stone","Concrete pavers","Poured-in-place concrete","Brick","Saltillo tile","Decomposed granite","Rolled pebble","Porcelain pavers","Gravel","Other"]},
-  {k:"driveway",label:"Driveway",color:"#4A90D9",kind:"area"},
-  {k:"pool",label:"Pool",color:"#2E8B9E",kind:"area"},
-  {k:"spa",label:"Spa",color:"#7E63C9",kind:"area"},
-  {k:"shade",label:"Shade structure",color:"#B07D3A",kind:"area"},
-  {k:"water",label:"Water feature",color:"#3E8FC0",kind:"area"},
-  {k:"exclude",label:"Exclude (existing)",color:"#9a4a48",kind:"area"},
-  {k:"lot",label:"Lot",color:"#C9A227",kind:"area",noFill:true},
-  {k:"limit",label:"Limit of work",color:"#8E6FD0",kind:"area",noFill:true},
-  {k:"building",label:"Building",color:"#8a8a8a",kind:"area"},
-  {k:"demo",label:"Demo",color:"#FF6B35",kind:"area",
+  {k:"planting",label:"Planting",color:"#86C97F",kind:"area"},
+  {k:"turf",label:"Grass / Turf",color:"#BEE07A",kind:"area",types:["Real sod","Artificial turf"]},
+  {k:"paving",label:"Paving",color:"#E3B778",kind:"area",types:["Wood deck","Natural stone","Concrete pavers","Poured-in-place concrete","Brick","Saltillo tile","Decomposed granite","Rolled pebble","Porcelain pavers","Gravel","Other"]},
+  {k:"driveway",label:"Driveway",color:"#8FB8DE",kind:"area"},
+  {k:"pool",label:"Pool",color:"#63C7E8",kind:"area"},
+  {k:"spa",label:"Spa",color:"#A98CE0",kind:"area"},
+  {k:"shade",label:"Shade structure",color:"#95D8AF",kind:"area"},
+  {k:"water",label:"Water feature",color:"#7F81E8",kind:"area"},
+  {k:"exclude",label:"Exclude (existing)",color:"#E2908C",kind:"area"},
+  {k:"lot",label:"Lot",color:"#EAE17A",kind:"area",noFill:true},
+  {k:"limit",label:"Limit of work",color:"#CDAFF2",kind:"area",noFill:true},
+  {k:"building",label:"Building",color:"#B8BEC6",kind:"area"},
+  {k:"demo",label:"Demo",color:"#7FF25A",kind:"area",
     types:["Hardscape — concrete / paving","Softscape — lawn & planting"]},   // anything else is a lump, counted not traced
-  {k:"irrigation",label:"Irrigation zone",color:"#2FA8A8",kind:"area",autozone:true,types:["Drip","Pottery drip","Netafim","Spray — turf","Spray — shrubs","Spray — slope"]},
-  {k:"kitchen",label:"Outdoor kitchen",color:"#C0672E",kind:"area",types:["Main run","Island","Bar / raised bar","Return","Other"]},
-  {k:"seating",label:"Built-in seating",color:"#9C6B3F",kind:"area",types:["Bench run","Wall / seat bench","Concrete seat wall","Stone seat wall","Other"]},
-  {k:"wall",label:"Wall",color:"#6D4C41",kind:"linear"},
-  {k:"steps",label:"Steps",color:"#E8B10C",kind:"linear"},
-  {k:"drainline",label:"Drain line",color:"#3B7A9E",kind:"linear"},
-  {k:"tapelight",label:"LED tape light",color:"#D9A521",kind:"linear"},
-  {k:"tree",label:"Trees",color:"#2E7D32",kind:"count",badge:"T",types:["15 gal","24\" box","36\" box","48\" box","60\" box","72\" box"]},
-  {k:"pots",label:"Pots",color:"#C1663A",kind:"count",badge:"P"},
-  {k:"firepit",label:"Fire pit",color:"#E07B39",kind:"area"},
-  {k:"fireplace",label:"Fireplace",color:"#C0392B",kind:"area"},
-  {k:"gate",label:"Gates",color:"#4A7BA6",kind:"count",badge:"G"},
-  {k:"pilaster",label:"Pilasters",color:"#7A7267",kind:"count",badge:"PL"},
-  {k:"stepper",label:"Concrete steppers",color:"#9A9488",kind:"count",badge:"S",types:["12×12","12×18","18×24","12×24","Custom…"]},
-  {k:"inlet",label:"Drain inlets",color:"#2E6E8E",kind:"count",badge:"D"},
-  {k:"light",label:"Light fixtures",color:"#C9A21E",kind:"count",badge:"✦",types:["Path / Area","Uplight / Accent","Step / Hardscape","Downlight / Moonlight","Underwater / Feature","Bollard","String / Festoon"]},
-  {k:"furniture",label:"Furniture",color:"#8A6D5A",kind:"count",badge:"◇",types:["Dining table","Dining chair","Lounge chair","Sun bed","Umbrella","Coffee table","Side table","Sofa","Love seat","Hammock","Bar stool","Bench","Specialty"]}
+  {k:"irrigation",label:"Irrigation zone",color:"#E2BEA5",kind:"area",autozone:true,types:["Drip","Pottery drip","Netafim","Spray — turf","Spray — shrubs","Spray — slope"]},
+  {k:"kitchen",label:"Outdoor kitchen",color:"#DEF1C6",kind:"area",types:["Main run","Island","Bar / raised bar","Return","Other"]},
+  {k:"seating",label:"Built-in seating",color:"#C78ABB",kind:"area",types:["Bench run","Wall / seat bench","Concrete seat wall","Stone seat wall","Other"]},
+  {k:"wall",label:"Wall",color:"#9C7B62",kind:"linear"},
+  {k:"steps",label:"Steps",color:"#EBC94F",kind:"linear"},
+  {k:"drainline",label:"Drain line",color:"#5FA8C4",kind:"linear"},
+  {k:"tapelight",label:"LED tape light",color:"#9FF6E0",kind:"linear"},
+  {k:"tree",label:"Trees",color:"#4FA85F",kind:"count",badge:"T",types:["15 gal","24\" box","36\" box","48\" box","60\" box","72\" box"]},
+  {k:"pots",label:"Pots",color:"#F4BCE5",kind:"count",badge:"P"},
+  {k:"firepit",label:"Fire pit",color:"#6BF0DF",kind:"area"},
+  {k:"fireplace",label:"Fireplace",color:"#D2645E",kind:"area"},
+  {k:"gate",label:"Gates",color:"#C9EAEE",kind:"count",badge:"G"},
+  {k:"pilaster",label:"Pilasters",color:"#A0968C",kind:"count",badge:"PL"},
+  {k:"stepper",label:"Concrete steppers",color:"#83799D",kind:"count",badge:"S",types:["12×12","12×18","18×24","12×24","Custom…"]},
+  {k:"inlet",label:"Drain inlets",color:"#4E6BB8",kind:"count",badge:"D"},
+  {k:"light",label:"Light fixtures",color:"#D3F547",kind:"count",badge:"✦",types:["Path / Area","Uplight / Accent","Step / Hardscape","Downlight / Moonlight","Underwater / Feature","Bollard","String / Festoon"]},
+  {k:"furniture",label:"Furniture",color:"#B9A66E",kind:"count",badge:"◇",types:["Dining table","Dining chair","Lounge chair","Sun bed","Umbrella","Coffee table","Side table","Sofa","Love seat","Hammock","Bar stool","Bench","Specialty"]}
 ];
 const PT_TYPE_COLORS={
   "Wood deck":"#8B5A2B","Natural stone":"#5F7A8C","Concrete pavers":"#9AA0A6","Poured-in-place concrete":"#B7B7B2","Brick":"#B24A3C","Saltillo tile":"#C7743A","Decomposed granite":"#C9A66B","Rolled pebble":"#8FA36E","Porcelain pavers":"#6E8B9E","Gravel":"#AFA488","Other":"#C28A3E",
@@ -26147,11 +26157,19 @@ const SH_FIT={ pool:40, spa:14, shade:30, kitchen:15, seating:12, firepit:10, fi
 const SH_TOLS=[["Fine",0.25],["Normal",0.6],["Loose",1.4]];   // feet of slack allowed off your stroke
 // One box is a foot until the sheet is close enough to be worth halving, then quartering. Whatever
 // a box is, that is what corners land on — so a run is always a whole number of them.
-const SH_STEPS=[[110,0.25,'3 inches'],[30,0.5,'6 inches'],[0,1,'1 foot']];
-function _shStep(){ const p=(SH&&SH.ppf)||14;
-  for(let i=0;i<SH_STEPS.length;i++){ if(p>=SH_STEPS[i][0]) return SH_STEPS[i][1]; } return 1; }
-function _shStepLabel(){ const st=_shStep();
-  const r=SH_STEPS.find(x=>x[1]===st); return r?r[2]:"1 foot"; }
+// Deriving the grid from the zoom sounded tidy and was wrong: every stroke reframes the sheet,
+// which changed the zoom, which changed the grid under you. The grid is now yours to set — it
+// starts wherever the element wants it and stays there until you say otherwise.
+const SH_STEPS=[[0.25,'3"'],[0.5,'6"'],[1,"1 ft"]];
+const SH_STEP_NAME={0.25:"3 inches", 0.5:"6 inches", 1:"1 foot"};
+const SH_STEP_DEFAULT={ firepit:0.5, water:0.5, kitchen:0.5, seating:0.5, spa:0.5, fireplace:0.5,
+                        shade:1, pool:1 };
+function _shStep(){ const v=SH&&+SH.step; return (v===0.25||v===0.5||v===1)?v:1; }
+function _shStepLabel(){ return SH_STEP_NAME[_shStep()]||"1 foot"; }
+function ptSheetSetStep(v){ if(!SH) return; SH.step=+v;
+  try{ localStorage.setItem("studioh_sheet_step", String(SH.step)); }catch(e){}
+  if(SH.snap && SH.raw) ptSheetTidy(SH.raw); else if(SH.snap) SH.pts=SH.pts.map(_shSnap);
+  ptSheetRender(); }
 function _shSnap(p){ if(!SH||!SH.snap) return p; const s=_shStep();
   return {x:Math.round(p.x/s)*s, y:Math.round(p.y/s)*s}; }
 function ptSheetSnapToggle(){ if(!SH) return; SH.snap=!SH.snap;
@@ -26167,8 +26185,10 @@ function ptSheetOpen(mode){
   ptPopClose();
   const md=_ptMode(mode); if(!md) return;
   let snap=true; try{ const v=localStorage.getItem("studioh_sheet_snap"); if(v!=null) snap=(v==="1"); }catch(e){}
+  let step=SH_STEP_DEFAULT[mode]||1;
+  try{ const v=+localStorage.getItem("studioh_sheet_step"); if(v===0.25||v===0.5||v===1) step=v; }catch(e){}
   SH={mode, ppf:14, ox:0, oy:0, pts:[], raw:null, wet:null, live:null,
-      tol:ptSheetTol(), snap, drag:null, sel:null};
+      tol:ptSheetTol(), snap, step, drag:null, sel:null};
   let d=document.getElementById("pt-sheet-wrap"); if(d) d.remove();
   d=document.createElement("div"); d.id="pt-sheet-wrap";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
@@ -26201,6 +26221,7 @@ function ptSheetFit(initial){
     SH.ppf=Math.max(4, Math.min(200, Math.min(B.w/want, B.h/(want*0.55))));
     SH.ox=B.w/2; SH.oy=B.h/2;
   } else {
+    // reframing only moves the lens; the grid is whatever you set it to
     let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
     SH.pts.forEach(p=>{ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; });
     const w=Math.max(2,x1-x0), h=Math.max(2,y1-y0);
@@ -26302,6 +26323,12 @@ function ptSheetRender(){
     <div style="display:flex;align-items:center;gap:8px;margin-top:11px;flex:none;flex-wrap:wrap">
       <span style="font:700 9px ${F};letter-spacing:.11em;text-transform:uppercase;color:#8FA383">Pencil</span>
       <span style="display:flex;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.12)">${seg}</span>
+      <span style="font:700 9px ${F};letter-spacing:.11em;text-transform:uppercase;color:#8FA383">Grid</span>
+      <span style="display:flex;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.12)">
+        ${SH_STEPS.map(([v,lab])=>`<button onclick="ptSheetSetStep(${v})"
+          style="border:0;padding:8px 11px;cursor:pointer;font:650 12px ${F};
+          background:${_shStep()===v?"#5BA34A":"transparent"};
+          color:${_shStep()===v?"#0F2409":"#9FBF95"}">${lab}</button>`).join("")}</span>
       <button onclick="ptSheetSnapToggle()" style="${btn(SH.snap)}">Snap ${SH.snap?"on":"off"}</button>
       <button onclick="ptSheetZoom(0.8)" style="${btn(false)}" title="Zoom out — coarser grid">−</button>
       <button onclick="ptSheetZoom(1.25)" style="${btn(false)}" title="Zoom in — finer grid">＋</button>
@@ -27447,7 +27474,7 @@ function _tkAtPoint(fn){
 }
 // What one of each counted thing costs, and where the rate lives.
 const TK_MARK_EACH={
-  pots:      ["amenities", /Large Planter \/ Container/i],
+  pots:      ["amenities", [/Large Planter \/ Container/i, /Planter — Set, Waterproof/i]],
   gate:      ["amenities", /Gate — Standard/i],
   furniture: ["amenities", /Site Furniture/i],
   pilaster:  ["amenities", /Pilaster \/ Pier/i],
@@ -27535,7 +27562,9 @@ function ptPriceFor(mode, qty){
                 ||_tkRate("lighting",/Path \/ Area/i)); });
       if(money>0) return {total:money, per:money/Math.max(1,n), from:"rate"};
     }
-    const spec=TK_MARK_EACH[mode]; ea=_tkRate(spec[0], spec[1]);
+    const spec=TK_MARK_EACH[mode];
+    const res=Array.isArray(spec[1])?spec[1]:[spec[1]];
+    ea=res.reduce((a,re)=>a+_tkRate(spec[0],re),0);
     if(ea>0) return {total:ea*qty, per:ea, from:"rate"};
     return null;
   }
@@ -27628,9 +27657,15 @@ function _tkStdUC(it, cat){
     if(pp===0) ti=Math.max(0, ti-1);
     else if(pp===2) ti=Math.min(tiers.length-1, ti+1);
   }catch(e){}
-  // The book's own Standard figure, to the cent. tierUC rounds to whole dollars for display,
-  // and fifty cents on a square foot is fifteen thousand dollars across a thirty-thousand-foot lot.
-  if(tiers[ti]==="Standard" && it && it.std!=null && it.std!=="") return +it.std||0;
+  // An item that carries its own low, standard and high is already three prices — use them.
+  // Reading the point off the section's tier list instead meant a section whose tiers start at
+  // "Standard" could never go down, so a $150 pot and an $850 pot both came out at $500.
+  if(it && it.std!=null && it.std!==""){
+    const pp2=TK_POINT_FIXED[cat]?1:(function(){ try{ return ptPricePoint(); }catch(e){ return 1; } })();
+    if(pp2===0) return (+it.lo||+it.std||0);
+    if(pp2===2) return (+it.hi||+it.std||0);
+    return +it.std||0;
+  }
   try{ return +tierUC(it,tiers,ti)||0; }catch(e){ return +it.std||Math.round(((+it.lo||0)+(+it.hi||0))/2); }
 }
 // What a normal job of this kind costs per square foot, before anyone has priced anything.
