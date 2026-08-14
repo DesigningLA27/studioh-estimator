@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v838</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v839</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -4606,12 +4606,14 @@ const CATS=[
     {n:"Built-in Seating / Bench",     u:"LF",q:0, lo:180, hi:550},
     {n:"Putting Green",                u:"SF",q:0, lo:12,  hi:28},
     {n:"Sport Court Surfacing",        u:"SF",q:0, lo:8,   hi:22},
-    {n:"Large Planter / Container",    u:"EA",q:0, lo:350, hi:2500},
+    {n:"Large Planter / Container",    u:"EA",q:0, lo:350, hi:2500, std:1100},
     {n:"Gate — Standard",              u:"EA",q:0, lo:600, hi:3500, std:1500},
     {n:"Site Furniture — Allowance (per piece)", u:"EA",q:0, lo:200, hi:3000, std:800},
     {n:"Outdoor Shower",               u:"EA",q:0, lo:3500,hi:12000, std:6000},
     {n:"Living Green Wall",            u:"SF",q:0, lo:80,  hi:220,   std:130},
     {n:"Raised Veggie Planter",        u:"EA",q:0, lo:800, hi:3500,  std:1600},
+    {n:"Pilaster / Pier — Masonry",    u:"EA",q:0, lo:900, hi:4000,  std:1800},
+    {n:"Concrete Stepper / Pad",       u:"EA",q:0, lo:45,  hi:180,   std:90},
    ]},
   {id:"pool", name:"Pool / Spa", desc:"Builder — shell, finish, coping, equipment, spa & safety", lo:0,hi:0, maxA:2500, defA:0, builder:"pool",
    items:[
@@ -27123,6 +27125,10 @@ function ptTotals(scoped){ const a={}; if(typeof PT==="undefined") return a;
   (PT.trees||[]).forEach(t=>{ if(scoped&&t._excl) return; const m=_ptMarkMode(t); const fp=TK_FOOTPRINT[m]; if(!(fp>0)) return;
     const host=_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:m,kind:"area"},PT.polys);
     if(host&&a[host.mode]!=null) a[host.mode]=Math.max(0,a[host.mode]-fp); });
+  // Marks are quantities too — a pot, a gate, a light. Without this they never reach the take-off
+  // list at all, because the list only shows a category once it has a total.
+  (PT.trees||[]).forEach(t=>{ if(scoped&&t._excl) return; const m=_ptMarkMode(t);
+    if(_ptKind(m)!=="count") return; a[m]=(a[m]||0)+1; });
   Object.keys(a).forEach(k=>{ if(a[k]<0) a[k]=0; });
   return a; }
 // ── EXCLUDED FROM THE SCOPE ─────────────────────────────────────────────────
@@ -27278,7 +27284,8 @@ const TK_CAT2EST={planting:"planting", turf:"planting", paving:"paving", drivewa
   firepit:"firepit", fireplace:"firepit", building:"sitework",
   pool:"pool", spa:"pool", water:"water", shade:"pergola", kitchen:"kitchen", seating:"walls",
   wall:"walls", steps:"paving", irrigation:"irrigation", light:"lighting", tapelight:"lighting",
-  drainline:"drainage", inlet:"drainage", demo:"sitework", tree:"planting"};
+  drainline:"drainage", inlet:"drainage", demo:"sitework", tree:"planting",
+  pots:"amenities", gate:"amenities", pilaster:"amenities", stepper:"amenities", furniture:"amenities"};
 // These sections are built item by item — a pool, a wall run, a planting zone. Their subtotal
 // really is the cost of the thing you designed, so a rate can be read back off it.
 const TK_BUILT=["pool","water","kitchen","walls","pergola","planting"];
@@ -27415,6 +27422,16 @@ function _tkAtPoint(fn){
     });
   }
 }
+// What one of each counted thing costs, and where the rate lives.
+const TK_MARK_EACH={
+  pots:      ["amenities", /Large Planter \/ Container/i],
+  gate:      ["amenities", /Gate — Standard/i],
+  furniture: ["amenities", /Site Furniture/i],
+  pilaster:  ["amenities", /Pilaster \/ Pier/i],
+  stepper:   ["amenities", /Concrete Stepper/i],
+  inlet:     ["drainage",  /Area Drains/i],
+  light:     ["lighting",  /Path \/ Area/i]
+};
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 function ptPriceFor(mode, qty){
   if(ptExcl(mode)) return null;                 // out of the scope, so it has no price
@@ -27470,6 +27487,34 @@ function ptPriceFor(mode, qty){
   if((mode==="wall"||mode==="seating") && !((S.walls||[]).length)){
     try{ const c=segCost(_tkWallFrom((mode==="seating"?_tkRunLF("seating"):0)||qty, mode==="seating"?1.5:3));
       if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
+  }
+  // A tree is priced on the size in the ground. The planting section carries a line for every
+  // box size, so five 24" box trees cost five 24" box trees — not a share of a palette.
+  if(mode==="tree"){
+    let money=0, n=0;
+    (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!=="tree") return; n++;
+      const sz=String(t.size||'24" box');
+      const key=(sz.match(/(\d+)/)||[])[1];
+      let r=key?_tkRate("planting", new RegExp("Tree — "+key+(/gal/i.test(sz)?"-gal":"\\\" box"),"i")):0;
+      if(!r) r=_tkRate("planting",/Tree — 24/i);
+      money+=r; });
+    if(money>0) return {total:money, per:money/Math.max(1,n), from:"rate"};
+  }
+  // Counted marks: a rate per unit, times how many you placed. Light fixtures price on the
+  // fixture type you chose, since an uplight and a bollard are not the same money.
+  if(m && m.kind==="count" && TK_MARK_EACH[mode]){
+    let ea=0;
+    if(mode==="light"){
+      let money=0, n=0;
+      (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!=="light") return; n++;
+        const ty=t.size||"Path / Area";
+        money+=(_tkRate("lighting", new RegExp(ty.split(" ")[0].replace(/[^\w]/g,""),"i"))
+                ||_tkRate("lighting",/Path \/ Area/i)); });
+      if(money>0) return {total:money, per:money/Math.max(1,n), from:"rate"};
+    }
+    const spec=TK_MARK_EACH[mode]; ea=_tkRate(spec[0], spec[1]);
+    if(ea>0) return {total:ea*qty, per:ea, from:"rate"};
+    return null;
   }
   // fire pits and fireplaces are counted, and priced per unit
   if(mode==="firepit"||mode==="fireplace"){
@@ -27918,7 +27963,7 @@ function _tkLedgerBar(tot,live){
     const pct=cap?Math.min(100,Math.round(surf/cap*100)):0;
     if(side){
       // ── the money leads: it is the number that moves while you trace ──
-      const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
+      const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":(m.kind==="count"?"ea":"SF");
         const note=ptExcl(m.k)?"existing — staying as it is"
                  :ptDemo(m.k)?(PT.hidden[m.k]?"demo + new · hidden on the plan":"demo + new")
                  :ptDemoSome(m.k)?`demo + new on ${ptDemoCount(m.k).n} of ${ptDemoCount(m.k).total}`
@@ -28130,7 +28175,7 @@ function ptDeleteCategory(mode){
 function ptWhy(mode){
   ptPopClose();
   const md=_ptMode(mode); const tot=ptTotals(); const qty=tot[mode]||0;
-  const unit=md.kind==="linear"?"LF":(md.kind==="count"?"":"SF");
+  const unit=md.kind==="linear"?"LF":(md.kind==="count"?"ea":"SF");
   const pr=ptPriceFor(mode, qty);
   const src={built:"designed in its builder", rate:"a rate you have set in the price book",
              assumed:"an assumption, until you price it"}[pr&&pr.from]||"nothing yet";
