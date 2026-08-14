@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v831</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v832</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26397,6 +26397,34 @@ function _ptStylusTouch(ev){
   for(let i=0;i<ts.length;i++){ if(ts[i].touchType==="stylus") return ts[i]; }
   return null;
 }
+// Is the Pencil on the glass right now, anywhere in this gesture?
+function _ptStylusAnywhere(ev){
+  const ts=ev.touches; if(!ts) return false;
+  for(let i=0;i<ts.length;i++){ if(ts[i].touchType==="stylus") return true; }
+  return false;
+}
+// A hand is bigger than a fingertip. Safari reports the contact size, so a palm can be turned
+// away on the very first touch — before the nib has landed — not only once a stroke is running.
+function _ptIsPalm(ev){
+  const ts=ev.changedTouches||ev.touches; if(!ts) return false;
+  for(let i=0;i<ts.length;i++){ const t=ts[i];
+    if(t.touchType==="stylus") continue;
+    const rx=+t.radiusX||0, ry=+t.radiusY||0;
+    if(rx>=34||ry>=34) return true;
+  }
+  return false;
+}
+// The Pencil was last on the glass at… Resting a hand a moment before the nib lands is the normal
+// way to draw, so for a beat either side of pen activity every finger is treated as a palm.
+let _ptPenSeen=0;
+const PT_PALM_MS=1600;
+function _ptPenActive(){ return !!_ptStroke || (Date.now()-_ptPenSeen)<PT_PALM_MS; }
+// Everything that is not the nib, while the nib is in play, is a hand. Swallow it here so the
+// map never sees it — no map option is changed, so pinch and pan stay native the rest of the time.
+function _ptRejectPalm(ev){
+  ev.preventDefault(); ev.stopPropagation();
+  if(ev.stopImmediatePropagation) try{ ev.stopImmediatePropagation(); }catch(_){}
+}
 function _ptUiTarget(t){ try{ return !!(t&&t.closest&&t.closest("#pt-card,.tkpop,#pt-toolbar,#pt-float button")); }catch(_){ return false; } }
 let _ptStroke=null;
 function ptPenBind(){ const w=document.getElementById("pt-stagewrap"); if(!w||w._penBound) return;
@@ -26415,8 +26443,15 @@ function ptStylusDown(ev,pt){
   if(!ptMapLive()||!PT.open) return;
   // Palm rejection: once the nib is down, any other touch is a hand on the glass. Swallow it
   // here so the map never sees it — no map settings are changed, so nothing else breaks.
-  if(_ptStroke && !(pt||_ptStylusTouch(ev))){ ev.preventDefault(); ev.stopPropagation(); return; }
-  const t=pt||_ptStylusTouch(ev); if(!t) return;
+  const t0=pt||_ptStylusTouch(ev);
+  if(!t0){
+    // not the nib: reject it if the Pencil is in play, if the Pencil is also down in this
+    // gesture, or if the contact is plainly a hand rather than a fingertip
+    if(_ptPenActive()||_ptStylusAnywhere(ev)||_ptIsPalm(ev)) _ptRejectPalm(ev);
+    return;
+  }
+  _ptPenSeen=Date.now();
+  const t=t0;
   if(_ptUiTarget(ev.target)) return;                       // the card and the toolbar are not canvas
   ev.preventDefault(); ev.stopPropagation();               // the map must not see this
   let onHandle=false; try{ onHandle=!!_ptHandleAt({clientX:t.clientX,clientY:t.clientY}); }catch(_){}
@@ -26425,9 +26460,13 @@ function ptStylusDown(ev,pt){
   if(onHandle) try{ ptVertexDown({clientX:t.clientX,clientY:t.clientY}); }catch(_){}
 }
 function ptStylusMove(ev,pt){
-  if(!_ptStroke) return;
   const t=pt||_ptStylusTouch(ev);
-  if(!t){ ev.preventDefault(); ev.stopPropagation(); return; }   // a palm dragging mid-stroke
+  if(!t){
+    if(_ptPenActive()||_ptStylusAnywhere(ev)||_ptIsPalm(ev)) _ptRejectPalm(ev);   // a hand dragging
+    return;
+  }
+  _ptPenSeen=Date.now();
+  if(!_ptStroke) return;
   ev.preventDefault(); ev.stopPropagation();
   const p=_ptPt(ev,t); if(!p) return;
   const last=_ptStroke.pts[_ptStroke.pts.length-1];
@@ -26438,8 +26477,13 @@ function ptStylusMove(ev,pt){
   try{ ptDrawOverlay(); }catch(_){}
 }
 function ptStylusUp(ev,pt){
-  const st=_ptStroke; if(!st) return;
-  if(!(pt||_ptStylusTouch(ev))){ ev.preventDefault(); ev.stopPropagation(); return; }  // palm lifting
+  const st=_ptStroke;
+  if(!(pt||_ptStylusTouch(ev))){                     // a hand lifting, not the nib
+    if(_ptPenActive()||_ptIsPalm(ev)) _ptRejectPalm(ev);
+    return;
+  }
+  _ptPenSeen=Date.now();
+  if(!st) return;
   _ptStroke=null; PT._inkPts=null;
   try{ ev.preventDefault(); ev.stopPropagation(); }catch(_){}
   if(st.onHandle){ try{ ptVertexUp(); }catch(_){} return; }
