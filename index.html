@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v835</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v836</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27211,18 +27211,35 @@ const TK_DEMO_TYPE={"Hardscape — concrete / paving":"paving", "Softscape — l
   "Water feature":"water", "Shade structure":"shade", "Fire pit":"firepit"};
 // Everything flagged for demolition, grouped by category, with the quantity that prices it —
 // square feet for ground, linear feet for a wall, and a count for an element.
+// One entry per traced shape that is coming out, so the working names the actual area rather
+// than the category it happens to sit in. Three paving areas can each answer for themselves.
 function ptDemoItems(){
-  const by={};
-  const put=(m,sf,lf)=>{ const b=by[m]||(by[m]={mode:m, sf:0, lf:0, n:0});
-    b.sf+=sf||0; b.lf+=lf||0; b.n++; };
-  PT.polys.forEach(p=>{ if(!p._demo||p.mode==="demo") return;
-    if(p.kind==="linear") put(p.mode,0,+p.lf||0); else put(p.mode,+p.sf||0,0); });
-  (PT.trees||[]).forEach(t=>{ if(!t._demo) return; put(_ptMarkMode(t),0,0); });
-  return Object.keys(by).map(k=>{ const b=by[k];
-    const q=(k==="wall"||k==="steps")?b.lf:b.sf;
-    const c=ptDemoCost(k, q, b.n);
-    return Object.assign(b, c);
-  }).filter(b=>b.cost>0);
+  const out=[];
+  PT.polys.forEach((p,i)=>{ if(!p._demo||p.mode==="demo") return;
+    const q=(p.kind==="linear")?(+p.lf||0):(+p.sf||0);
+    const c=ptDemoCost(p.mode, q, 1); if(!(c.cost>0)) return;
+    out.push({idx:i, mode:p.mode, kind:p.kind,
+      name:((p.name&&p.name.trim())||p.type||_ptMode(p.mode).label),
+      n:c.n, unit:c.unit, each:c.each, cost:c.cost});
+  });
+  (PT.trees||[]).forEach((t,i)=>{ if(!t._demo) return; const m=_ptMarkMode(t);
+    const c=ptDemoCost(m, 0, 1); if(!(c.cost>0)) return;
+    out.push({mark:i, mode:m, name:_ptMode(m).label, n:1, unit:"ea", each:c.each, cost:c.cost}); });
+  return out;
+}
+// How many of a category's shapes are coming out — none, some, or all.
+function ptDemoCount(mode){
+  const all=PT.polys.filter(p=>p.mode===mode).concat((PT.trees||[]).filter(t=>_ptMarkMode(t)===mode));
+  return {n:all.filter(x=>x._demo).length, total:all.length};
+}
+function ptDemoSome(mode){ const c=ptDemoCount(mode); return c.n>0 && c.n<c.total; }
+// Flip one traced shape, leaving the rest of its category alone.
+function ptDemoPolyToggle(idx){
+  const p=PT.polys[idx]; if(!p) return;
+  ptSnap();
+  if(p._demo) delete p._demo; else { p._demo=true; delete p._excl; }
+  try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+  try{ if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
 }
 // Totals with the excluded ground taken out — what the estimate actually works from.
 function ptScoped(){ return ptTotals(true); }
@@ -27695,13 +27712,17 @@ function ptDerived(){
     let cost=dEach.sum; const parts=[];
     dEach.rows.forEach(r=>{ parts.push(r.unit==="LF" ? `${_tkFmt(r.n)} LF of wall`
       : `${r.n} ${r.label.toLowerCase()}${r.n===1?"":"s"}`); });
-    dItems.forEach(b=>{ cost+=b.cost; const lbl=_ptMode(b.mode).label.toLowerCase();
-      parts.push(b.unit==="ea" ? `${b.n} ${lbl}${b.n===1?"":"s"}`
-               : `${_tkFmt(b.n)} ${b.unit} of ${lbl}`); });
+    const g={};
+    dItems.forEach(b=>{ cost+=b.cost; const gg=g[b.mode]||(g[b.mode]={n:0,q:0,unit:b.unit});
+      gg.n++; gg.q+=b.n; });
+    Object.keys(g).forEach(k=>{ const gg=g[k], lbl=_ptMode(k).label.toLowerCase();
+      parts.push(gg.unit==="ea" ? `${gg.n} ${lbl}${gg.n===1?"":"s"}`
+        : `${_tkFmt(gg.q)} ${gg.unit} of ${lbl}${gg.n>1?` (${gg.n} areas)`:""}`); });
     const det=[];
     dEach.rows.forEach(r=>det.push(L(`${r.label} — counted`, r.n, r.unit, r.each)));
-    dItems.forEach(b=>det.push(Object.assign(L(`${_ptMode(b.mode).label} — marked for demo`, b.n, b.unit, b.each),
-      {src:"swipe the row right to turn it off"})));
+    dItems.forEach(b=>det.push(Object.assign(
+      L(`${b.name}${b.name===_ptMode(b.mode).label?"":" — "+_ptMode(b.mode).label}`, b.n, b.unit, b.each),
+      {src:`tap ${_ptMode(b.mode).label} above to turn this one off`})));
     add("Demolition", `tear-out of ${parts.join(", ")}`, cost, det);
   }
   // A permit is triggered by what is being built, not by having drawn something.
@@ -27877,6 +27898,7 @@ function _tkLedgerBar(tot,live){
       const rows=cells.map(m=>{ const pr=ptPriceFor(m.k,tot[m.k]); const u=m.kind==="linear"?"LF":"SF";
         const note=ptExcl(m.k)?"existing — staying as it is"
                  :ptDemo(m.k)?(PT.hidden[m.k]?"demo + new · hidden on the plan":"demo + new")
+                 :ptDemoSome(m.k)?`demo + new on ${ptDemoCount(m.k).n} of ${ptDemoCount(m.k).total}`
                  :PT.hidden[m.k]?"hidden on the plan"
                  :(m.k==="exclude")?"existing — not in the scope"
                  :(m.k==="building")?"footprint"
@@ -28094,7 +28116,7 @@ function ptWhy(mode){
   (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
     const h=_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys);
     if(h&&h.mode===mode) cut+=fp; });
-  const shapes=PT.polys.filter(p=>p.mode===mode);
+  const shapes=[]; PT.polys.forEach((p,i)=>{ if(p.mode===mode) shapes.push(Object.assign({_i:i},{},p,{_i:i})); });
   const marks=PT.trees.filter(t=>_ptMarkMode(t)===mode).length;
   const rate=pr?pr.per:0;
   // every shape traced in this category, with what each one is worth
@@ -28107,7 +28129,9 @@ function ptWhy(mode){
       if(_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys)===p) taken+=fp; });
     const net=Math.max(0, raw-taken);
     const nm=(p.name&&p.name.trim())||p.type||`${md.label} ${i+1}`;
-    return {nm, net, taken, sub:p.type&&p.name?p.type:"", cost:rate*net};
+    const dc=ptDemoCost(mode, net, 1);
+    return {nm, net, taken, idx:p._i, demo:!!p._demo, excl:!!p._excl,
+            demoCost:dc.cost, sub:p.type&&p.name?p.type:"", cost:rate*net};
   });
   const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
@@ -28149,10 +28173,15 @@ function _ptWhyRender(d, md, mode, x){
   const line=(k,v,acc)=>`<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.10)">
       <span style="font:600 13px var(--tkf);color:#9FBF95;flex:1">${k}</span>
       <b style="font:700 13px ui-monospace,Menlo,monospace;color:${acc||"#EAF0E4"};white-space:nowrap">${v}</b></div>`;
-  const rows=each.map(e=>`<div style="display:flex;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid rgba(255,255,255,.10)">
+  const rows=each.map(e=>`<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid rgba(255,255,255,.10)">
       <span style="flex:1;min-width:0">
         <b style="display:block;font:650 13px var(--tkf);color:#EAF0E4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.nm}</b>
-        ${e.taken?`<span style="display:block;font:600 10.5px var(--tkf);color:#8FA383">less ${_tkFmt(e.taken)} taken out</span>`:""}</span>
+        ${e.taken?`<span style="display:block;font:600 10.5px var(--tkf);color:#8FA383">less ${_tkFmt(e.taken)} taken out</span>`:""}
+        ${e.demo&&e.demoCost>0?`<span style="display:block;font:700 10.5px ui-monospace,Menlo,monospace;color:#D9A441">+ ${fmtN(e.demoCost)} tear-out</span>`:""}</span>
+      ${e.idx!=null?`<button onclick="ptDemoPolyToggle(${e.idx})" title="Demolish this one, and build the new one over it"
+        style="flex:none;border:1.5px solid ${e.demo?"#D9A441":"rgba(255,255,255,.18)"};border-radius:9px;padding:5px 9px;
+        cursor:pointer;font:700 11px var(--tkf);background:${e.demo?"#D9A441":"transparent"};
+        color:${e.demo?"#1A1206":"#9FBF95"}">Demo</button>`:""}
       <span style="text-align:right;white-space:nowrap">
         <b style="display:block;font:700 13px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${unit}</b>
         <span style="display:block;font:700 11.5px ui-monospace,Menlo,monospace;color:#8FE07A">${e.cost>0?fmtN(e.cost):"—"}</span></span>
@@ -28162,6 +28191,10 @@ function _ptWhyRender(d, md, mode, x){
       <button class="cls" onclick="ptPopClose()">✕</button></div>
     ${each.length?`<div style="font:600 12px var(--tkf);color:#8FA383;margin-bottom:2px">
         ${each.length} trace${each.length===1?"":"s"}${pr?` at ${fmtN(pr.per)} / ${unit}`:""}</div>${rows}
+      ${(()=>{ const d=each.reduce((a,e)=>a+(e.demo?e.demoCost:0),0); return d>0
+        ? `<div style="display:flex;gap:10px;padding:8px 0 0;border-top:1px solid rgba(255,255,255,.10)">
+             <span style="font:600 12.5px var(--tkf);color:#D9A441;flex:1">Tear-out on ${each.filter(e=>e.demo).length} of ${each.length}</span>
+             <b style="font:700 13px ui-monospace,Menlo,monospace;color:#D9A441">${fmtN(d)}</b></div>` : ""; })()}
       <div style="display:flex;gap:10px;padding:10px 0 2px;border-top:2px solid rgba(255,255,255,.28);margin-top:4px">
         <span style="font:700 13px var(--tkf);color:#EAF0E4;flex:1">Total</span>
         <b style="font:750 15px ui-monospace,Menlo,monospace;color:#8FE07A">${pr?fmtN(pr.total):"not priced yet"}</b></div>`
