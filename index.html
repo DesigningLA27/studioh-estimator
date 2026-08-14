@@ -3363,7 +3363,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v858</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v859</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -4635,6 +4635,10 @@ const CATS=[
     {n:"Living Green Wall",            u:"SF",q:0, lo:80,  hi:220,   std:130},
     {n:"Raised Veggie Planter",        u:"EA",q:0, lo:800, hi:3500,  std:1600},
     {n:"Pilaster / Pier — Masonry",    u:"EA",q:0, lo:900, hi:4000,  std:1800},
+    // pilaster, built up from its parts
+    {n:"Pilaster Core — CMU & Steel",  u:"SF",q:0, lo:15,  hi:34,   std:24,  role:"pcore"},
+    {n:"Pilaster Cap — Stone / Precast",u:"EA",q:0,lo:250, hi:900,  std:450, role:"pcap"},
+    {n:"Pilaster Footing",             u:"EA",q:0, lo:250, hi:800,  std:400, role:"pfoot"},
     {n:"Concrete Stepper / Pad",       u:"EA",q:0, lo:45,  hi:180,   std:90},
    ]},
   {id:"pool", name:"Pool / Spa", desc:"Builder — shell, finish, coping, equipment, spa & safety", lo:0,hi:0, maxA:2500, defA:0, builder:"pool",
@@ -4687,6 +4691,13 @@ const CATS=[
     {n:"Burner / Pan / Ring",                     u:"EA",q:0, lo:300, hi:1200, std:600, role:"burner"},
     {n:"Electronic Ignition",                     u:"EA",q:0, lo:400, hi:1500, std:800, role:"ignition"},
     {n:"Outdoor Fireplace — Masonry",             u:"EA",q:0, lo:8000,hi:30000, std:14000},
+    // fireplace, built up from its parts
+    {n:"Firebox — Prefab Metal (gas or wood)",    u:"EA",q:0, lo:1200,hi:4000,  std:2200, role:"fbox"},
+    {n:"Firebox — Site-built Firebrick",          u:"EA",q:0, lo:2500,hi:6500,  std:3800, role:"fbox"},
+    {n:"Fireplace Structure — CMU & Steel",       u:"SF",q:0, lo:16,  hi:38,    std:26,   role:"fstruct"},
+    {n:"Fireplace Footing — Reinforced",          u:"EA",q:0, lo:600, hi:1800,  std:1000, role:"ffoot"},
+    {n:"Chimney Cap / Spark Arrestor",            u:"EA",q:0, lo:300, hi:900,   std:500,  role:"fcap"},
+    {n:"Wood Box / Storage Niche",                u:"EA",q:0, lo:400, hi:1600,  std:800,  role:"fwood"},
     {n:"Fire Media (glass / lava / stone)",       u:"LS",q:0, lo:150, hi:600, std:300, role:"media"},
     {n:"Gas Line Run",                            u:"LS",q:0, lo:800, hi:3000, std:1600, role:"gas"},
     {n:"Wind Guard / Accessories",                u:"EA",q:0, lo:100, hi:500, role:"acc"},
@@ -27784,12 +27795,62 @@ function ptLightPlan(){
   }
   return {rows, n, watts, xfmr, ctrl, hrs:+hrs.toFixed(1), laborRate:lr, wire:W, total};
 }
+// ── FIREPLACE & PILASTER BUILDERS ───────────────────────────────────────────
+// Both were single allowance lines, which is fine for a range and useless for a conversation. A
+// fireplace is a firebox in a block shell with stone on it and a flue above; a pilaster is a
+// block core with stone on four faces and a cap. Price the parts and the size starts to matter.
+function _fpDefaults(){ return {w:5, d:2.5, h:8, chimney:4, firebox:"prefab", veneer:true,
+  faces:3.4, hearthLF:0, woodbox:false, gas:true}; }
+function fireplaceCalc(f){
+  f=Object.assign(_fpDefaults(), f||{});
+  const H=Math.max(1,(+f.h||0)+(+f.chimney||0));
+  const faceSF=2*((+f.w||0)+(+f.d||0))*H*((+f.faces||4)/4);
+  const parts=[];
+  const add=(what,qty,unit,rate)=>{ if(rate>0&&qty>0) parts.push({what,qty:+(+qty).toFixed(1),unit,rate,cost:qty*rate}); };
+  add(f.firebox==="brick"?"Firebox — site-built firebrick":"Firebox — prefab metal", 1, "ea",
+      _tkRate("firepit", f.firebox==="brick"?/Firebox — Site-built/i:/Firebox — Prefab/i));
+  add("Structure — CMU & steel", faceSF, "SF", _tkRate("firepit",/Fireplace Structure/i));
+  if(f.veneer) add("Veneer — stone / tile", faceSF, "SF", _tkRate("firepit",/Veneer — Stone/i));
+  add("Footing — reinforced", 1, "ea", _tkRate("firepit",/Fireplace Footing/i));
+  add("Chimney cap / spark arrestor", 1, "ea", _tkRate("firepit",/Chimney Cap/i));
+  const hearth=(+f.hearthLF||((+f.w||0)+2*(+f.d||0)));
+  add("Hearth / cap — stone", hearth, "LF", _tkRate("firepit",/Cap \/ Hearth/i));
+  if(f.woodbox) add("Wood box / niche", 1, "ea", _tkRate("firepit",/Wood Box/i));
+  if(f.gas) add("Gas line run", 1, "ea", _tkRate("firepit",/Gas Line Run/i));
+  const total=parts.reduce((a,p)=>a+p.cost,0);
+  return {parts, total, faceSF:Math.round(faceSF), overall:H};
+}
+function fireplaceCost(f){ return fireplaceCalc(f).total; }
+function _plDefaults(){ return {w:2, h:6, veneer:true, cap:true, light:false, n:1}; }
+function pilasterCalc(p){
+  p=Object.assign(_plDefaults(), p||{});
+  const n=Math.max(1, Math.round(+p.n||1));
+  const faceSF=4*(+p.w||0)*(+p.h||0);
+  const parts=[];
+  const add=(what,qty,unit,rate)=>{ if(rate>0&&qty>0) parts.push({what,qty:+(+qty).toFixed(1),unit,rate,cost:qty*rate}); };
+  add("Core — CMU & steel", faceSF*n, "SF", _tkRate("amenities",/Pilaster Core/i));
+  if(p.veneer) add("Veneer — stone / tile", faceSF*n, "SF", _tkRate("firepit",/Veneer — Stone/i));
+  if(p.cap) add("Cap — stone / precast", n, "ea", _tkRate("amenities",/Pilaster Cap/i));
+  add("Footing", n, "ea", _tkRate("amenities",/Pilaster Footing/i));
+  if(p.light) add("Cap light", n, "ea", _tkRate("lighting",/Path \/ Area Light/i));
+  const total=parts.reduce((a,p2)=>a+p2.cost,0);
+  return {parts, total, each:total/n, faceSF:Math.round(faceSF), n};
+}
+function pilasterCost(p){ return pilasterCalc(p).total; }
+// Assumptions the take-off feeds them: a fireplace sized from what you traced, pilasters from
+// how many you placed.
+function _tkFireplaceFrom(sf){
+  const f=_fpDefaults();
+  if(sf>0){ const w=Math.max(3, Math.sqrt(Math.max(1,sf)*2)); f.w=+w.toFixed(1); f.d=+(sf/w).toFixed(1); }
+  return f;
+}
+function _tkPilasterFrom(n){ const p=_plDefaults(); p.n=Math.max(1,Math.round(n||1)); return p; }
 // What one of each counted thing costs, and where the rate lives.
 const TK_MARK_EACH={
   pots:      ["amenities", [/Large Planter \/ Container/i, /Planter — Set, Waterproof/i]],
   gate:      ["amenities", /Gate — Standard/i],
   furniture: ["amenities", /Site Furniture/i],
-  pilaster:  ["amenities", /Pilaster \/ Pier/i],
+  // pilaster has a builder now, so it is not a flat rate any more
   stepper:   ["amenities", /Concrete Stepper/i],
   inlet:     ["drainage",  /Area Drains/i],
   light:     ["lighting",  /Path \/ Area/i]
@@ -27881,6 +27942,14 @@ function _ptPriceFor(mode, qty){
     ea=res.reduce((a,re)=>a+_tkRate(spec[0],re),0);
     if(ea>0) return {total:ea*qty, per:ea, from:"rate"};
     return null;
+  }
+  if(mode==="fireplace"){
+    try{ const c=fireplaceCost(_tkFireplaceFrom(qty));
+      if(c>0) return {total:c, per:c/Math.max(1,qty), from:"built"}; }catch(e){}
+  }
+  if(mode==="pilaster"){
+    try{ const c=pilasterCost(_tkPilasterFrom(qty));
+      if(c>0) return {total:c, per:c/Math.max(1,qty), from:"built"}; }catch(e){}
   }
   // fire pits and fireplaces are counted, and priced per unit
   if(mode==="firepit"||mode==="fireplace"){
@@ -28582,6 +28651,22 @@ function ptWhy(mode){
     if(h&&h.mode===mode) cut+=fp; });
   const shapes=[]; PT.polys.forEach((p,i)=>{ if(p.mode===mode) shapes.push(Object.assign({_i:i},{},p,{_i:i})); });
   // A counted category has no shapes — what it has is a tally, so break it down by what you chose.
+  // A built thing answers with its parts.
+  if(mode==="fireplace"||mode==="pilaster"){
+    const qty0=(ptTotals()||{})[mode]||0;
+    const b=(mode==="fireplace")?fireplaceCalc(_tkFireplaceFrom(qty0)):pilasterCalc(_tkPilasterFrom(qty0));
+    if(b.total>0){
+      const eachB=b.parts.map(r=>({nm:r.what, net:r.qty, taken:0, idx:null, demo:false, demoCost:0,
+        rate:r.rate, cost:r.cost, unitOverride:r.unit}));
+      _ptWhyPop(md, mode, {unit:(md.kind==="count"?"ea":"SF"), qty:qty0,
+        pr:{total:b.total, per:b.total/Math.max(1,qty0), from:"built"},
+        src:(mode==="fireplace"
+          ? `a fireplace ${b.overall}′ to the top of the flue with ${b.faceSF} SF of face`
+          : `${b.n} pilaster${b.n===1?"":"s"} at ${b.faceSF} SF of face each`),
+        cut:0, each:eachB, marks:qty0, shapes:[]});
+      return;
+    }
+  }
   if(md.kind==="count"){
     // Lighting answers for the whole scheme, not just the fixtures on the plan.
     if(mode==="light"){
