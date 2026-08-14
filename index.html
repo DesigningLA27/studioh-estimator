@@ -1882,16 +1882,21 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkdrow .amt{text-align:right;font:700 11.5px ui-monospace,Menlo,monospace;color:#D9A441;
   font-variant-numeric:tabular-nums}
 .tkdrow .amt.z{color:#59684F}
-/* the gas-pump digit: only the ones that changed carry the animation */
-.tkc{display:inline-block;white-space:pre}
-.tkroll{height:1em;line-height:1em;overflow:hidden;vertical-align:baseline;position:relative;top:.02em}
-.tkroll b{display:block;font-weight:inherit;line-height:1em}
-.tkroll b.u{animation:tkru .42s cubic-bezier(.32,.9,.3,1) forwards}
-.tkroll b.d{transform:translateY(-1em);animation:tkrd .42s cubic-bezier(.32,.9,.3,1) forwards}
-@keyframes tkru{from{transform:translateY(0)}to{transform:translateY(-1em)}}
-@keyframes tkrd{from{transform:translateY(-1em)}to{transform:translateY(0)}}
+/* The gas-pump digit. Every character is the same kind of box whether it is moving or not —
+   same height, same baseline rule, digits a fixed 1ch wide — so the number never reflows as it
+   rolls and never jumps when it lands. Only the digits that changed animate, units first. */
+.tknum{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tkc{display:inline-block;height:1.15em;line-height:1.15em;overflow:hidden;
+  white-space:pre;text-align:center;vertical-align:baseline}
+.tkc.d{width:1ch}
+.tkroll b{display:block;font-weight:inherit;line-height:1.15em;will-change:transform;
+  backface-visibility:hidden}
+.tkroll b.u{animation:tkru .5s cubic-bezier(.22,.85,.28,1) both}
+.tkroll b.d{transform:translateY(-1.15em);animation:tkrd .5s cubic-bezier(.22,.85,.28,1) both}
+@keyframes tkru{from{transform:translateY(0)}to{transform:translateY(-1.15em)}}
+@keyframes tkrd{from{transform:translateY(-1.15em)}to{transform:translateY(0)}}
 @media (prefers-reduced-motion:reduce){.tkroll b{animation:none!important}
-  .tkroll b.u{transform:translateY(-1em)}.tkroll b.d{transform:translateY(0)}}
+  .tkroll b.u{transform:translateY(-1.15em)}.tkroll b.d{transform:translateY(0)}}
 .tkrow-body{position:relative;display:flex;align-items:center;gap:11px;padding:11px 4px 11px 8px;cursor:pointer;
   background:rgba(18,24,15,.99);touch-action:pan-y;will-change:transform}
 .tkb-lb{font:800 9px var(--tkf);letter-spacing:.12em;text-transform:uppercase;color:#8FA383;padding:5px 6px 1px}
@@ -3358,7 +3363,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v848</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v849</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27962,6 +27967,11 @@ function ptDerived(){
 // $22,656 rolls the 4 to a 6 and leaves the rest standing. The last value is remembered per id,
 // because the panel is rebuilt from scratch on every redraw and the element itself has no memory.
 const _TKV={};
+function _tkCells(str){
+  let h=""; for(let i=0;i<str.length;i++){ const c=str[i];
+    h+=`<span class="tkc${/[0-9]/.test(c)?" d":""}">${c===" "?"&nbsp;":c}</span>`; }
+  return h;
+}
 function tkRoll(id, to, pre, post){
   const el=document.getElementById(id); if(!el) return;
   to=+to||0;
@@ -27969,29 +27979,34 @@ function tkRoll(id, to, pre, post){
   const from=had?_TKV[id]:to;
   _TKV[id]=to;
   const s2=(pre||"")+_tkFmt(to)+(post||"");
-  if(!had || from===to){ if(el.textContent!==s2) el.textContent=s2; return; }
+  if(!had || from===to){ if(el.textContent!==s2) el.innerHTML=_tkCells(s2); return; }
   const up=(to>from);
   // Only the number is compared, right-aligned so place values line up. A $ or an SF never rolls.
   const na=_tkFmt(from), nb=_tkFmt(to);
   const n=Math.max(na.length, nb.length);
   const a=na.padStart(n," "), b=nb.padStart(n," ");
-  let html=(pre?`<span class="tkc">${pre}</span>`:"");
+  let html=(pre?_tkCells(pre):""), last=0;
   for(let i=0;i<n;i++){
     const ca=a[i], cb=b[i];
     if(cb===" ") continue;
-    if(ca===cb) html+=`<span class="tkc">${cb}</span>`;
-    else html+=`<span class="tkc tkroll"><b class="${up?"u":"d"}">${up?(ca===" "?"&nbsp;":ca):cb}<br>${up?cb:(ca===" "?"&nbsp;":ca)}</b></span>`;
+    if(ca===cb){ html+=_tkCells(cb); continue; }
+    // the units digit goes first and the rest follow it up the number, like a real pump
+    const d=(n-1-i)*34; if(d>last) last=d;
+    html+=`<span class="tkc d tkroll"><b class="${up?"u":"d"}" style="animation-delay:${d}ms">`
+        + `${up?(ca===" "?"&nbsp;":ca):cb}<br>${up?cb:(ca===" "?"&nbsp;":ca)}</b></span>`;
   }
-  if(post) html+=`<span class="tkc">${post}</span>`;
+  if(post) html+=_tkCells(post);
   el.innerHTML=html;
-  setTimeout(()=>{ if(_TKV[id]===to && el.isConnected) el.textContent=s2; }, 520);
+  // settle back to plain cells — same boxes, same widths, so nothing moves when it lands
+  try{ clearTimeout(el._tkT); }catch(e){}
+  el._tkT=setTimeout(()=>{ if(_TKV[id]===to && el.isConnected) el.innerHTML=_tkCells(s2); }, 500+last+70);
 }
 function _tkRollSpan(id, v, pre, post, style){
   // The number is written now, in full. The roll is decoration that arrives a tick later — if it
   // never arrives, or the panel is rebuilt out from under it mid-pan, the figure is still there.
   // Rendering an empty span and waiting on a callback is how every number went blank on a pan.
   setTimeout(()=>tkRoll(id, v, pre, post), 0);
-  return `<span id="${id}" style="${style||''}">${(pre||"")+_tkFmt(v)+(post||"")}</span>`;
+  return `<span id="${id}" class="tknum" style="${style||''}">${_tkCells((pre||"")+_tkFmt(v)+(post||""))}</span>`;
 }
 // What the shape under the cursor measures right now — the number you are drawing toward.
 function ptLiveSF(){ const kind=_ptKind(PT.mode);
