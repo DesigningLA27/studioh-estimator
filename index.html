@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v833</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v834</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26944,6 +26944,32 @@ function _ptHitTest(q,cxy){ // q=model coords, cxy=canvas coords; return {type:'
 function ptLabelOpen(idx){ if(!PT._open) PT._open={};
   if(PT._open[idx]===false) delete PT._open[idx]; else PT._open[idx]=false;
   ptDrawOverlay(); }
+function ptPointPopover(){
+  let d=document.getElementById("pt-point-pop"); if(d){ d.remove(); return; }
+  d=document.createElement("div"); d.id="pt-point-pop"; d.className="tkpop";
+  (document.getElementById("pt-modal")||document.body).appendChild(d);
+  d.style.cssText+=";top:20px;left:124px;width:min(360px,90vw)";
+  _ptPopOutside(d.id);
+  const cur=ptPricePoint(), auto=ptPricePointAuto();
+  let lot=0; try{ lot=+((ptTotals()||{}).lot)||0; }catch(e){}
+  const F="var(--tkf)";
+  const b=(v,lab,note)=>`<button onclick="ptSetPricePoint(${v});ptPointPopover()"
+    style="display:block;width:100%;text-align:left;border:0;border-radius:11px;padding:11px 12px;margin-bottom:6px;
+    cursor:pointer;font:600 14px ${F};background:${(!auto&&cur===v)?"#5BA34A":"rgba(255,255,255,.10)"};
+    color:${(!auto&&cur===v)?"#0F2409":"#EAF0E4"}">${lab}
+    <span style="display:block;font:600 11px ${F};opacity:.75;margin-top:2px">${note}</span></button>`;
+  d.innerHTML=`<div class="tkh"><h3>Price point</h3><button class="cls" onclick="ptPopClose()">✕</button></div>
+    <div style="font:600 12.5px ${F};color:#8FA383;line-height:1.5;margin-bottom:12px">
+      Where on the price book's range an assumption starts. It moves nothing you have priced by hand.</div>
+    <button onclick="ptSetPricePoint(null);ptPointPopover()"
+      style="display:block;width:100%;text-align:left;border:0;border-radius:11px;padding:11px 12px;margin-bottom:10px;
+      cursor:pointer;font:600 14px ${F};background:${auto?"#5BA34A":"rgba(255,255,255,.10)"};color:${auto?"#0F2409":"#EAF0E4"}">
+      From the lot — ${TK_POINTS[ptPricePointFromLot()][0]}
+      <span style="display:block;font:600 11px ${F};opacity:.75;margin-top:2px">${lot?_tkFmt(lot)+" SF lot":"no lot traced yet"} · under 6,000 SF is Value, over 15,000 is Premium</span></button>
+    ${b(0,"Value","the lower end of every range")}
+    ${b(1,"Standard","the middle of every range")}
+    ${b(2,"Premium","the upper end of every range")}`;
+}
 function ptToggleLayer(m){ PT.hidden[m]=!PT.hidden[m]; ptDrawOverlay(); ptLayersPopover(true); }
 // Take a category off the drawing without taking it out of the estimate — a demo zone you have
 // already measured is only in the way from here on.
@@ -27290,17 +27316,63 @@ function _tkPergolaFrom(sf){
   if((S.pergolas||[]).length>before) S.pergolas.pop();   // preview only — put the world back
   return p;
 }
+// What a ten-foot outdoor kitchen actually is. The old assumption built the block-and-counter
+// shell and stopped, which is why a 10' run came back at $5k — one grill on its own is more than
+// that. Appliances are fitted along the run in the order a real kitchen gets them, until the
+// counter is full, and the services every kitchen needs are turned on.
+const TK_KIT_FIT=[
+  ["Grill / BBQ",36], ["Side Burner",12], ["Sink + Faucet",25], ["Access Doors",21],
+  ["Drawer Stack",18], ["Trash / Recycling Drawer",18], ["Refrigerator (outdoor)",24],
+  ["Warming Drawer",24], ["Ice Maker",15]
+];
 function _tkKitchenFrom(lf){
   const before=(S.kitchens||[]).length;
   try{ newKitchen(); }catch(e){ return null; }
   const k=(S.kitchens||[])[S.kitchens.length-1];
-  if(k){ k.dimMode="run"; k.runLF=Math.max(1,Math.round(lf)); if(k.segs&&k.segs[0]) k.segs[0].len=Math.max(1,Math.round(lf)); }
+  if(k){
+    const run=Math.max(1,Math.round(lf));
+    k.dimMode="run"; k.runLF=run; if(k.segs&&k.segs[0]) k.segs[0].len=run;
+    // fill the run, leaving a foot of working counter at the end
+    let usedIn=0; const roomIn=Math.max(0, run*12-6);   // half a foot of end counter, cutouts butt up
+    k.appliances={}; k.placed=[];
+    TK_KIT_FIT.forEach(([name,w])=>{ if(usedIn+w>roomIn) return;
+      k.appliances[name]=1; k.placed.push({t:name, x:usedIn}); usedIn+=w; });
+    const has=(n)=>!!k.appliances[n];
+    k.util={ gas:true, elec:true,
+             cold:has("Sink + Faucet")||has("Refrigerator (outdoor)")||has("Ice Maker"),
+             hot:false, drain:has("Sink + Faucet"), sewer:false };
+    k.bbqLight=true;
+  }
   if((S.kitchens||[]).length>before) S.kitchens.pop();
   return k;
 }
 function _tkWallFrom(lf, heightFt){
   return { label:"", height:heightFt||3, length:Math.max(1,Math.round(lf)),
            bodyIdx:0, finishIdx:-1, sides:1, capIdx:-1, drain:false };
+}
+// Run a builder with every section temporarily set to the project's price point, so an assumed
+// pool, kitchen or wall is costed at the same level as everything else, then put it all back.
+function _tkAtPoint(fn){
+  const pp=(function(){ try{ return ptPricePoint(); }catch(e){ return 1; } })();
+  const saved={};
+  try{
+    Object.keys(S.cats||{}).forEach(id=>{ const cs=S.cats[id]; if(!cs||!cs.items) return;
+      const tiers=(SEC_TIERS[id]||["Low","Standard","High"]);
+      let ti=tiers.indexOf("Standard"); if(ti<0) ti=Math.floor((tiers.length-1)/2);
+      if(pp===0) ti=Math.max(0,ti-1); else if(pp===2) ti=Math.min(tiers.length-1,ti+1);
+      // the builders read each line's unit cost, not the section's tier, so move the costs too
+      saved[id]={tier:cs.tier, uc:cs.items.map(it=>(it?it.uc:null))};
+      cs.tier=ti;
+      cs.items.forEach(it=>{ if(!it||it.checked) return;      // anything priced by hand is left alone
+        try{ it.uc=itemUC(it,tiers,ti); }catch(e){} });
+    });
+    return fn();
+  } finally {
+    Object.keys(saved).forEach(id=>{ const cs=S.cats[id]; if(!cs) return;
+      cs.tier=saved[id].tier;
+      if(cs.items) cs.items.forEach((it,i)=>{ if(it&&saved[id].uc[i]!=null) it.uc=saved[id].uc[i]; });
+    });
+  }
 }
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 function ptPriceFor(mode, qty){
@@ -27350,7 +27422,7 @@ function ptPriceFor(mode, qty){
   }
   // outdoor kitchen → the kitchen builder, priced on the run you traced
   if(mode==="kitchen" && !((S.kitchens||[]).length)){
-    try{ const k=_tkKitchenFrom(_tkRunLF("kitchen")||qty); const c=k?kitchenCost(k):0;
+    try{ const k=_tkKitchenFrom(_tkRunLF("kitchen")||qty); const c=k?_tkAtPoint(()=>kitchenCost(k)):0;
       if(c>0) return {total:c, per:c/qty, from:"built"}; }catch(e){}
   }
   // walls and built-in seating → the wall builder, at the height each normally runs
@@ -27412,9 +27484,38 @@ const TK_BENCH={
   lighting: [{m:/Path \/ Area|Path Light/i,per:250}],
   sitework: [{m:/Clearing & Grubbing/i},{m:/Fine Grading/i}]
 };
+// PRICE POINT. A rate in the book runs from a low to a high, and until someone has priced the job
+// by hand every assumption has to pick a spot on that range. A 35,000 SF lot is not buying the
+// same grill as a 4,000 SF lot, so the starting point follows the property — and can be overruled.
+const TK_POINTS=[["Value",0],["Standard",1],["Premium",2]];
+function ptPricePoint(){
+  let v=null; try{ v=localStorage.getItem("studioh_pt_point"); }catch(e){}
+  if(v==="0"||v==="1"||v==="2") return +v;
+  return ptPricePointFromLot();
+}
+function ptPricePointFromLot(){
+  let lot=0;
+  try{ lot=+((ptTotals()||{}).lot)||0; }catch(e){}
+  if(!lot){ try{ lot=+(typeof measured!=="undefined"?measured.lot:0)||+S.lotSize||0; }catch(e){} }
+  if(!(lot>0)) return 1;
+  if(lot<6000) return 0;
+  if(lot>15000) return 2;
+  return 1;
+}
+function ptPricePointAuto(){ let v=null; try{ v=localStorage.getItem("studioh_pt_point"); }catch(e){}
+  return !(v==="0"||v==="1"||v==="2"); }
+function ptSetPricePoint(v){
+  try{ if(v==null) localStorage.removeItem("studioh_pt_point"); else localStorage.setItem("studioh_pt_point", String(v)); }catch(e){}
+  try{ ptPopClose(); ptUpdateInfo(); }catch(e){}
+}
 function _tkStdUC(it, cat){
   const tiers=(typeof SEC_TIERS!=="undefined"&&SEC_TIERS[cat])||["Low","Standard","High"];
   let ti=tiers.indexOf("Standard"); if(ti<0) ti=Math.floor((tiers.length-1)/2);
+  // Shift off Standard by the project's price point, without ever leaving the book's own range.
+  try{ const pp=ptPricePoint();
+    if(pp===0) ti=Math.max(0, ti-1);
+    else if(pp===2) ti=Math.min(tiers.length-1, ti+1);
+  }catch(e){}
   // The book's own Standard figure, to the cent. tierUC rounds to whole dollars for display,
   // and fifty cents on a square foot is fifteen thousand dollars across a thirty-thousand-foot lot.
   if(tiers[ti]==="Standard" && it && it.std!=null && it.std!=="") return +it.std||0;
@@ -28334,6 +28435,7 @@ function ptOverflow(){ let d=document.getElementById("pt-ovf-pop"); if(d){ d.rem
   d.style.cssText+=`;top:20px;left:${(ptRailWide()?196:64)+40}px;width:min(300px,92vw)`;
   _ptPopOutside(d.id);
   d.innerHTML=`<div class="tkh"><h3>More</h3><button class="cls" onclick="ptPopClose()">✕</button></div>
+    <button onclick="ptPopClose();ptPointPopover()">Price point — ${TK_POINTS[ptPricePoint()][0]}${ptPricePointAuto()?" (from the lot)":""}</button>
     <button onclick="ptPopClose();ptLayersPopover()">Layers</button>
     <button onclick="ptPopClose();ptUiPopover()">Layout</button>
     <button onclick="ptPopClose();ptToggleFullscreen()">Full screen</button>
