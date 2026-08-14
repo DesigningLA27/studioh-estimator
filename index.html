@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v837</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v838</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26862,7 +26862,13 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
 function ptSetMode(m){ if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
-function ptSetSubtype(v){ let rerender=false; if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):",""); const L=parseFloat(l),W=parseFloat(w); if(L>0&&W>0){ v=`${L}×${W}`; rerender=true; } else { ptRenderModal(); return; } } PT.subtype[PT.mode]=v; if(rerender) ptRenderModal(); }
+function ptSetSubtype(v){
+  if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):","");
+    const L=parseFloat(l),W=parseFloat(w);
+    if(L>0&&W>0){ v=`${L}×${W}`; } else { ptRenderModal(); return; } }
+  PT.subtype[PT.mode]=v;
+  ptRenderModal();                       // the rail swatch carries the choice, so it must redraw
+}
 function ptStartCalib(){ PT.calibrating=true; PT.calib=[]; PT.cur=[]; const d=document.getElementById("pt-scale-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 const PT_SCALES=[["1/16\" = 1'-0\"",0.0625],["3/32\" = 1'-0\"",0.09375],["1/8\" = 1'-0\"",0.125],["3/16\" = 1'-0\"",0.1875],["1/4\" = 1'-0\"",0.25],["3/8\" = 1'-0\"",0.375],["1/2\" = 1'-0\"",0.5],["3/4\" = 1'-0\"",0.75],["1\" = 1'-0\"",1.0],["1-1/2\" = 1'-0\"",1.5],["1\" = 10'",0.1],["1\" = 20'",0.05],["1\" = 30'",0.033333],["1\" = 40'",0.025],["1\" = 50'",0.02],["1\" = 60'",0.016667],["1\" = 100'",0.01]];
 function _ptStdSheet(w,h){ const S=[[8.5,11],[11,17],[12,18],[18,24],[24,36],[30,42],[36,48],[42,60]]; const a=Math.min(w,h),b=Math.max(w,h); return S.some(s=>Math.abs(s[0]-a)<0.6&&Math.abs(s[1]-b)<0.6); }
@@ -28436,7 +28442,7 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
       ${TK_GROUPS.map(g=>`<div class="tksec"><h4>${g.t}</h4>${g.keys.map(cell).join('')}</div>`).join('')}
     </div>
     ${types?`<div class="tktypes" style="flex:none;max-height:32vh;overflow:auto"><span class="lb">${md.kind==="count"?"Size":"Type"} — ${md.label}</span>
-      ${types.map(t=>`<button class="${cur===t?'on':''}" onclick="ptTypePick('${String(t).replace(/'/g,"\\'")}')">${t}</button>`).join('')}</div>`:''}
+      ${types.map(t=>`<button class="${cur===t?'on':''}" onclick="ptTypePick('${_attrJs(t)}')">${t}</button>`).join('')}</div>`:''}
     <div id="pt-demo-panel" style="flex:none"></div>`;
   ptDemoPanelRender();
 }
@@ -28476,7 +28482,18 @@ function ptCatPick(k){
   ptPopClose();
   if(m&&m.types) ptCatMenu();   // a category with materials, sizes or counters stays open on them
 }
-function ptTypePick(v){ ptSetSubtype(v); ptPopClose(); }
+// Picking a material or a size keeps the sheet open with the choice lit up. Closing on the tap
+// looked like nothing had happened — the only thing that moved was the sheet going away.
+// A tree size is 24" box — the double quote in it closed the onclick attribute and the handler
+// never ran, which is why tapping a size did nothing while "15 gal" worked fine.
+function _attrJs(t){ return String(t).replace(/&/g,"&amp;").replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,"&quot;"); }
+function ptTypePick(v){
+  const md=_ptMode(PT.mode);
+  ptSetSubtype(v);
+  const now=_ptCurType(PT.mode);
+  ptCatMenu(); if(!document.getElementById("pt-cat-pop")) ptCatMenu();
+  _toast(`${md.label} — ${now}`, "#2F5B23");
+}
 function ptCatFilter(q){ q=(q||"").toLowerCase().trim();
   const g=document.getElementById("pt-cat-grid"); if(!g) return;
   g.querySelectorAll(".tksec").forEach(sec=>{ let any=false;
@@ -28763,7 +28780,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
     ${_hr}${_lb("Category")}
     <button class="tkb-sw" onclick="ptCatMenu()" title="Pick what you are tracing">
       <i style="background:${_md.color}"></i>
-      <span class="tx"><em>${_md.label}</em>${_u?`<b>${_n.toLocaleString()} ${_u}</b>`:''}</span>
+      <span class="tx"><em>${_md.label}</em>${_u?`<b>${_n.toLocaleString()} ${_u}</b>`:(_md.types?`<b>${_ptCurType(PT.mode)||""}</b>`:'')}</span>
       <u>▾</u></button>
     ${_hr}${_lb("View")}
     <div class="tkb-pair">
