@@ -3353,7 +3353,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v832</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v833</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26138,6 +26138,18 @@ function ptStampBar(){
 const SH_FIT={ pool:40, spa:14, shade:30, kitchen:15, seating:12, firepit:10, fireplace:10,
   water:10, paving:40, driveway:40, planting:40, turf:40, building:40, exclude:40, demo:40 };
 const SH_TOLS=[["Fine",0.25],["Normal",0.6],["Loose",1.4]];   // feet of slack allowed off your stroke
+// One box is a foot until the sheet is close enough to be worth halving, then quartering. Whatever
+// a box is, that is what corners land on — so a run is always a whole number of them.
+const SH_STEPS=[[110,0.25,'3 inches'],[30,0.5,'6 inches'],[0,1,'1 foot']];
+function _shStep(){ const p=(SH&&SH.ppf)||14;
+  for(let i=0;i<SH_STEPS.length;i++){ if(p>=SH_STEPS[i][0]) return SH_STEPS[i][1]; } return 1; }
+function _shStepLabel(){ const st=_shStep();
+  const r=SH_STEPS.find(x=>x[1]===st); return r?r[2]:"1 foot"; }
+function _shSnap(p){ if(!SH||!SH.snap) return p; const s=_shStep();
+  return {x:Math.round(p.x/s)*s, y:Math.round(p.y/s)*s}; }
+function ptSheetSnapToggle(){ if(!SH) return; SH.snap=!SH.snap;
+  try{ localStorage.setItem("studioh_sheet_snap", SH.snap?"1":"0"); }catch(e){}
+  if(SH.raw) ptSheetTidy(SH.raw); ptSheetRender(); }
 let SH=null;
 function ptSheetTol(){ try{ const v=+localStorage.getItem("studioh_sheet_tol"); if(v>0) return v; }catch(e){}
   return 0.6; }
@@ -26147,8 +26159,9 @@ function ptSheetSetTol(v){ if(!SH) return; SH.tol=+v;
 function ptSheetOpen(mode){
   ptPopClose();
   const md=_ptMode(mode); if(!md) return;
+  let snap=true; try{ const v=localStorage.getItem("studioh_sheet_snap"); if(v!=null) snap=(v==="1"); }catch(e){}
   SH={mode, ppf:14, ox:0, oy:0, pts:[], raw:null, wet:null, live:null,
-      tol:ptSheetTol(), drag:null, sel:null};
+      tol:ptSheetTol(), snap, drag:null, sel:null};
   let d=document.getElementById("pt-sheet-wrap"); if(d) d.remove();
   d=document.createElement("div"); d.id="pt-sheet-wrap";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
@@ -26226,7 +26239,7 @@ function _shTidy(rawFt, tol){
   }
   return p;
 }
-function ptSheetTidy(rawFt){ if(!SH) return; SH.pts=_shTidy(rawFt, SH.tol); }
+function ptSheetTidy(rawFt){ if(!SH) return; SH.pts=_shTidy(rawFt, SH.tol).map(_shSnap); }
 function _shEdges(pts){ const out=[];
   if(!pts||pts.length<2) return out;
   for(let i=0;i<pts.length;i++){ const a2=pts[i], b2=pts[(i+1)%pts.length];
@@ -26240,7 +26253,8 @@ function ptSheetRender(){
   const md=_ptMode(SH.mode);
   const F="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif";
   const MN="ui-monospace,SFMono-Regular,Menlo,monospace";
-  const g=SH.ppf, g5=SH.ppf*5;
+  const step=_shStep();
+  const g=SH.ppf*step, g5=SH.ppf*(step<1?1:5);     // minor = one box, heavy = a foot, or five
   const ox=((SH.ox%g)+g)%g, oy=((SH.oy%g)+g)%g;
   const ox5=((SH.ox%g5)+g5)%g5, oy5=((SH.oy%g5)+g5)%g5;
   const shown=SH.live||SH.pts;
@@ -26259,7 +26273,7 @@ function ptSheetRender(){
       <span style="width:12px;height:12px;border-radius:4px;background:${md.color}"></span>
       <b style="font:700 15px ${F}">${md.label} — draw the footprint</b>
       <span style="margin-left:auto;font:600 12px ${F};color:#8FA383">
-        one square = 1 foot · heavy line every 5</span>
+        one square = ${_shStepLabel()} · heavy line every ${step<1?"foot":"5 feet"}${SH.snap?" · corners snap to it":""}</span>
       <button onclick="ptSheetClose()" style="width:34px;height:34px;border:0;border-radius:11px;
         background:rgba(255,255,255,.12);color:#EAF0E4;font-size:15px;cursor:pointer">✕</button>
     </div>
@@ -26281,12 +26295,13 @@ function ptSheetRender(){
     <div style="display:flex;align-items:center;gap:8px;margin-top:11px;flex:none;flex-wrap:wrap">
       <span style="font:700 9px ${F};letter-spacing:.11em;text-transform:uppercase;color:#8FA383">Pencil</span>
       <span style="display:flex;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.12)">${seg}</span>
-      <button onclick="ptSheetZoom(0.8)" style="${btn(false)}">−</button>
-      <button onclick="ptSheetZoom(1.25)" style="${btn(false)}">＋</button>
+      <button onclick="ptSheetSnapToggle()" style="${btn(SH.snap)}">Snap ${SH.snap?"on":"off"}</button>
+      <button onclick="ptSheetZoom(0.8)" style="${btn(false)}" title="Zoom out — coarser grid">−</button>
+      <button onclick="ptSheetZoom(1.25)" style="${btn(false)}" title="Zoom in — finer grid">＋</button>
       <button onclick="ptSheetFit(${SH.pts.length<3})" style="${btn(false)}">Fit</button>
       <button onclick="ptSheetClear()" style="${btn(false)}">Clear</button>
       <span style="margin-left:auto;display:flex;align-items:baseline;gap:12px">
-        <span style="font:600 12px ${F};color:#8FA383">${SH.pts.length>2?"drag a point to edit":(edges.length?"drawing…":"nothing drawn")}</span>
+        <span style="font:600 12px ${F};color:#8FA383">${SH.pts.length>2?"drag a corner to adjust":(edges.length?"drawing…":"nothing drawn")}</span>
         <b style="font:750 18px ${MN};color:#8FE07A">${Math.round(area).toLocaleString()} SF</b>
       </span>
       <button onclick="ptSheetPlace()" ${SH.pts.length<3?'disabled':''}
@@ -26339,7 +26354,7 @@ function ptSheetDown(e){ if(!SH) return; e.preventDefault();
   const q=_shXY(e);
   const h=_shHit(q);
   if(h){                                   // editing what is already there
-    if(h.mid) SH.pts.splice(h.i, 0, _shFt(q));
+    if(h.mid) SH.pts.splice(h.i, 0, _shSnap(_shFt(q)));
     SH.drag=h.i; SH.sel=h.i; SH.raw=null;  // hand-edited from here on
     ptSheetDraw(); return;
   }
@@ -26347,11 +26362,11 @@ function ptSheetDown(e){ if(!SH) return; e.preventDefault();
   SH.wet=[q]; SH.live=null; ptSheetDraw();
 }
 function ptSheetMove(e){ if(!SH) return;
-  if(SH.drag!=null){ e.preventDefault(); SH.pts[SH.drag]=_shFt(_shXY(e)); ptSheetDraw(); return; }
+  if(SH.drag!=null){ e.preventDefault(); SH.pts[SH.drag]=_shSnap(_shFt(_shXY(e))); ptSheetDraw(); return; }
   if(!SH.wet) return; e.preventDefault();
   SH.wet.push(_shXY(e));
   // live: tidy what is on the sheet so far, so the lengths and the area are the real ones
-  if(SH.wet.length>2 && SH.wet.length%3===0) SH.live=_shTidy(SH.wet.map(_shFt), SH.tol);
+  if(SH.wet.length>2 && SH.wet.length%3===0) SH.live=_shTidy(SH.wet.map(_shFt), SH.tol).map(_shSnap);
   ptSheetDraw();
   const b=document.querySelector("#pt-sheet-wrap b[style*='8FE07A']");
   if(b&&SH.live) b.textContent=Math.round(_shArea(SH.live)).toLocaleString()+" SF";
