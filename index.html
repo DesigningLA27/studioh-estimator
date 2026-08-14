@@ -3363,7 +3363,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v853</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v854</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -4550,6 +4550,9 @@ const CATS=[
     {n:"Downlight / Moonlight",        u:"EA",q:0, lo:250, hi:850},
     {n:"Underwater / Feature Light",   u:"EA",q:0, lo:350, hi:1200},
     {n:"LED Tape / Strip Light (installed w/ channel & driver)", u:"LF",q:0, lo:18, hi:45, matf:0.45},
+    {n:"Bollard Light",                u:"EA",q:0, lo:300, hi:1100, std:550},
+    {n:"String / Festoon — per 25′ run",u:"EA",q:0, lo:250, hi:900,  std:450},
+    {n:"Colour-Changing / Tunable Upgrade (per fixture)", u:"EA",q:0, lo:60, hi:220, std:110},
     {n:"Smart Lighting Control",       u:"EA",q:0, lo:450, hi:2200},
    ]},
   {id:"woodMetal", name:"Wood, Metal & Glass",  desc:"Decking, fencing, gates, pergolas & railings",        lo:35,hi:120,maxA:3000, defA:400,
@@ -25904,6 +25907,10 @@ const PT_TYPE_COLORS={
   "Decomposed granite":"#BFA070","Rolled pebble":"#8B9673","Porcelain pavers":"#6F8391",
   "Gravel":"#A69C86","Other":"#6B6B68",
   "Real sod":"#5BA34A","Artificial turf":"#3FA36B",
+  // lighting: all yellow, because it is all light, but never the same yellow twice
+  "Path / Area":"#F5D547","Uplight / Accent":"#FFC02E","Step / Hardscape":"#FFEFA8",
+  "Downlight / Moonlight":"#FFF8DC","Underwater / Feature":"#D9A21E","Bollard":"#C98A12",
+  "String / Festoon":"#FFE070",
   "Wood bench":"#8B5A2B","Wall / seat bench":"#9C6B3F","Concrete seat wall":"#A8A29A","Stone seat wall":"#6E7B85"
 };
 function _ptFill(p){ return (p.type&&PT_TYPE_COLORS[p.type])||_ptColor(p.mode); }
@@ -26950,7 +26957,7 @@ function ptAddAt(p,c,e){
       if(!isNaN(ft)&&ft>0){ PT.ppf=distPdf/ft; } PT.calibrating=false; PT.calib=[]; ptRenderModal(); }
     ptDrawOverlay(); ptUpdateInfo(); return; }
   const kind=_ptKind(PT.mode);
-  if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
+  if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); if(PT.mode==="light") m.ctrl=ptLightCtrl(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(kind==="linear"){ if(PT.cur.length>=2){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
     ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(PT.cur.length>=3){ const f=_toCanvas(PT.cur[0]); if(Math.hypot(c.x-f.x,c.y-f.y)<14){ ptFinishPoly(); return; } }
@@ -27639,6 +27646,66 @@ function _tkAtPoint(fn){
     });
   }
 }
+// ── LIGHTING ────────────────────────────────────────────────────────────────
+// Fixtures are the visible half of a lighting job. The other half is the load they draw, the
+// transformers that carry it, the wire between them and whether any of it is controllable. All of
+// that follows from what you placed, so none of it needs asking for.
+const TK_LIGHT_W={"Path / Area":4,"Uplight / Accent":6,"Step / Hardscape":3,
+  "Downlight / Moonlight":7,"Underwater / Feature":12,"Bollard":8,"String / Festoon":25};
+const TK_LIGHT_ITEM={"Path / Area":/Path \/ Area Light/i,"Uplight / Accent":/Uplight \/ Accent/i,
+  "Step / Hardscape":/Step \/ Hardscape/i,"Downlight / Moonlight":/Downlight \/ Moonlight/i,
+  "Underwater / Feature":/Underwater \/ Feature/i,"Bollard":/Bollard Light/i,
+  "String / Festoon":/String \/ Festoon/i};
+const TK_LIGHT_CTRL=[["standard","Standard","on a timer or photocell"],
+  ["smart","Smart","app and scene control, one hub per transformer"],
+  ["colour","Colour-changing","tunable white and RGB, per fixture, smart hub included"]];
+const TK_XFMR_W=300;          // usable watts per transformer, after the headroom below
+const TK_XFMR_HEADROOM=1.25;  // never load a transformer past 80%
+const TK_WIRE_PER_FIXTURE=12; // feet of low-voltage cable each fixture pulls back to the hub
+function ptLightCtrl(){ let v=null; try{ v=localStorage.getItem("studioh_pt_lightctrl"); }catch(e){}
+  return TK_LIGHT_CTRL.some(c=>c[0]===v)?v:"standard"; }
+function ptSetLightCtrl(k){
+  try{ localStorage.setItem("studioh_pt_lightctrl", k); }catch(e){}
+  PT.trees.forEach(t=>{ if(_ptMarkMode(t)==="light") t.ctrl=k; });
+  ptRenderModal(); try{ ptCatMenu(); if(!document.getElementById("pt-cat-pop")) ptCatMenu(); }catch(e){}
+  try{ ptUpdateInfo(); }catch(e){}
+  const c=TK_LIGHT_CTRL.find(x=>x[0]===k);
+  _toast(`Lighting — ${c[1]}`, "#2F5B23");
+}
+// The whole scheme, worked out from the fixtures on the plan.
+function ptLightPlan(){
+  const by={}; let n=0, watts=0;
+  (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!=="light") return;
+    const ty=t.size||"Path / Area";
+    by[ty]=(by[ty]||0)+1; n++; watts+=(TK_LIGHT_W[ty]||5); });
+  const rows=[];
+  let total=0;
+  Object.keys(by).forEach(ty=>{
+    const re=TK_LIGHT_ITEM[ty]; const rate=re?_tkRate("lighting",re):0;
+    const cost=rate*by[ty]; total+=cost;
+    rows.push({what:ty, qty:by[ty], unit:"ea", rate, cost});
+  });
+  if(!n) return {rows:[], n:0, watts:0, xfmr:0, total:0};
+  const xfmr=Math.max(1, Math.ceil((watts*TK_XFMR_HEADROOM)/TK_XFMR_W));
+  const xr=_tkRate("lighting",/Transformer & Controller/i);
+  rows.push({what:`Transformer & controller — ${_tkFmt(Math.round(watts))} W of fixtures at ${Math.round(TK_XFMR_HEADROOM*100)}% headroom`,
+             qty:xfmr, unit:"ea", rate:xr, cost:xr*xfmr}); total+=xr*xfmr;
+  const wireLF=n*TK_WIRE_PER_FIXTURE, wr=_tkRate("lighting",/Low-Voltage Wiring/i);
+  rows.push({what:`Low-voltage wiring — ${TK_WIRE_PER_FIXTURE}′ a fixture`, qty:wireLF, unit:"LF", rate:wr, cost:wr*wireLF});
+  total+=wr*wireLF;
+  const ctrl=ptLightCtrl();
+  if(ctrl==="smart"||ctrl==="colour"){
+    const sr=_tkRate("lighting",/Smart Lighting Control/i);
+    rows.push({what:"Smart control — one per transformer", qty:xfmr, unit:"ea", rate:sr, cost:sr*xfmr});
+    total+=sr*xfmr;
+  }
+  if(ctrl==="colour"){
+    const cr=_tkRate("lighting",/Colour-Changing \/ Tunable/i);
+    rows.push({what:"Colour-changing / tunable upgrade", qty:n, unit:"ea", rate:cr, cost:cr*n});
+    total+=cr*n;
+  }
+  return {rows, n, watts, xfmr, ctrl, total};
+}
 // What one of each counted thing costs, and where the rate lives.
 const TK_MARK_EACH={
   pots:      ["amenities", [/Large Planter \/ Container/i, /Planter — Set, Waterproof/i]],
@@ -27727,12 +27794,9 @@ function ptPriceFor(mode, qty){
   if(m && m.kind==="count" && TK_MARK_EACH[mode]){
     let ea=0;
     if(mode==="light"){
-      let money=0, n=0;
-      (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!=="light") return; n++;
-        const ty=t.size||"Path / Area";
-        money+=(_tkRate("lighting", new RegExp(ty.split(" ")[0].replace(/[^\w]/g,""),"i"))
-                ||_tkRate("lighting",/Path \/ Area/i)); });
-      if(money>0) return {total:money, per:money/Math.max(1,n), from:"rate"};
+      const L=ptLightPlan();
+      if(L.total>0) return {total:L.total, per:L.total/Math.max(1,L.n), from:"built"};
+      return null;
     }
     const spec=TK_MARK_EACH[mode];
     const res=Array.isArray(spec[1])?spec[1]:[spec[1]];
@@ -28428,6 +28492,16 @@ function ptWhy(mode){
   const shapes=[]; PT.polys.forEach((p,i)=>{ if(p.mode===mode) shapes.push(Object.assign({_i:i},{},p,{_i:i})); });
   // A counted category has no shapes — what it has is a tally, so break it down by what you chose.
   if(md.kind==="count"){
+    // Lighting answers for the whole scheme, not just the fixtures on the plan.
+    if(mode==="light"){
+      const L=ptLightPlan();
+      const eachL=L.rows.map(r=>({nm:r.what, net:r.qty, taken:0, idx:null, demo:false, demoCost:0,
+        rate:r.rate, cost:r.cost, unitOverride:r.unit}));
+      _ptWhyPop(md, mode, {unit:"ea", qty:L.n, pr:(L.total>0?{total:L.total, per:L.total/Math.max(1,L.n), from:"built"}:null),
+        src:`${L.xfmr} transformer${L.xfmr===1?"":"s"} for ${_tkFmt(Math.round(L.watts))} W of fixtures, at 80% load`,
+        cut:0, each:eachL, marks:L.n, shapes:[]});
+      return;
+    }
     const g={};
     (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!==mode) return;
       const key=(t.size||"")+(mode==="tree"?"|"+(t.cls||"medium"):"");
@@ -28533,7 +28607,7 @@ function _ptWhyRender(d, md, mode, x){
         cursor:pointer;font:700 11px var(--tkf);background:${e.demo?"#D9A441":"transparent"};
         color:${e.demo?"#1A1206":"#9FBF95"}">Demo</button>`:""}
       <span style="text-align:right;white-space:nowrap">
-        <b style="display:block;font:700 13px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${unit}</b>
+        <b style="display:block;font:700 13px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${e.unitOverride||unit}</b>
         ${e.rate>0?`<span style="display:block;font:600 10.5px ui-monospace,Menlo,monospace;color:#8FA383">${fmtN(e.rate)} each</span>`:""}
         <span style="display:block;font:700 11.5px ui-monospace,Menlo,monospace;color:#8FE07A">${e.cost>0?fmtN(e.cost):"—"}</span></span>
     </div>`).join('');
@@ -28761,6 +28835,12 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
       ${PT_PLACE.map(p=>`<button class="${ptPlaceMode()===p[0]?'on':''}" onclick="ptSetPlaceMode('${p[0]}',1)"
         style="text-align:left;line-height:1.25">${p[1]}
         <span style="display:block;font:600 10.5px var(--tkf);opacity:.7">${p[2]}</span></button>`).join('')}
+    </div>`:''}
+    ${PT.mode==="light"?`<div class="tktypes" style="flex:none">
+      <span class="lb">Control — transformers and wiring follow the fixtures</span>
+      ${TK_LIGHT_CTRL.map(c=>`<button class="${ptLightCtrl()===c[0]?'on':''}" onclick="ptSetLightCtrl('${c[0]}')"
+        style="text-align:left;line-height:1.25">${c[1]}
+        <span style="display:block;font:600 10.5px var(--tkf);opacity:.7">${c[2]}</span></button>`).join('')}
     </div>`:''}
     ${PT.mode==="tree"?`<div class="tktypes" style="flex:none">
       <span class="lb">Canopy to space by — what you will see, not the eventual spread</span>
@@ -29006,7 +29086,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       s+=`</g>`; }
   });
   const mS=Math.max(0.5,Math.min(1.25,(PT.renderScale||1)/(PT._fitScale||PT.renderScale||1)));
-  PT.trees.forEach((t,idx)=>{ if(t.page!==PT.page||PT.hidden[_ptMarkMode(t)]) return; const mode=_ptMarkMode(t); const md=_ptMode(mode); const q=_toCanvas(t); const c=md.color;
+  PT.trees.forEach((t,idx)=>{ if(t.page!==PT.page||PT.hidden[_ptMarkMode(t)]) return; const mode=_ptMarkMode(t); const md=_ptMode(mode); const q=_toCanvas(t); const c=(t.size&&PT_TYPE_COLORS[t.size])||md.color;
     const act=_ptInteractive(mode); const pe=act?'pointer-events:auto;cursor:pointer':'pointer-events:none';
     const badge = mode==="tree" ? ((t.size||"").replace(/["\s]/g,"").replace("gal","g").replace("box","")) : (md.badge||"•");
     if(mode==="pots"||mode==="stepper"){ const hw=(9*mS); s+=`<g style="${pe}" onclick="ptEditTree(${idx})"><rect x="${(q.x-hw).toFixed(1)}" y="${(q.y-hw).toFixed(1)}" width="${(hw*2).toFixed(1)}" height="${(hw*2).toFixed(1)}" rx="2" fill="${c}" fill-opacity="0.92" stroke="#fff" stroke-width="${(1.5*mS).toFixed(2)}"/><text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="${(9*mS).toFixed(1)}" font-weight="700" fill="#fff">${badge}</text></g>`; }
