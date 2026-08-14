@@ -3363,7 +3363,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v852</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v853</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26451,18 +26451,32 @@ function ptSheetDraw(){
     s2+=`<polygon points="${px.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}44" stroke="${md.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
   else if(px.length>1)
     s2+=`<polyline points="${px.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="none" stroke="${md.color}" stroke-width="2.5" stroke-linejoin="round"/>`;
-  // every edge carries its length, live
-  _shEdges(shown).forEach(e=>{
-    const a2=_shPx(e.a), b2=_shPx(e.b);
-    const mx=(a2.x+b2.x)/2, my=(a2.y+b2.y)/2;
-    const t=_ftTxt(e.len), w=t.length*7.4+10;
-    s2+=`<rect x="${(mx-w/2).toFixed(1)}" y="${(my-9).toFixed(1)}" width="${w.toFixed(0)}" height="18" rx="9" fill="rgba(18,24,15,.9)"/>`;
-    s2+=`<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" fill="#8FE07A" font-family="ui-monospace,Menlo,monospace">${t}</text>`;
-  });
+  // Every edge carries its length, live — set outside the shape, the way a dimension is drawn,
+  // so the handle that lives at the midpoint is never sitting on top of the number.
+  {
+    let cx=0, cy=0; px.forEach(q=>{ cx+=q.x; cy+=q.y; });
+    if(px.length){ cx/=px.length; cy/=px.length; }
+    _shEdges(shown).forEach(e=>{
+      const a2=_shPx(e.a), b2=_shPx(e.b);
+      const mx=(a2.x+b2.x)/2, my=(a2.y+b2.y)/2;
+      let nx=-(b2.y-a2.y), ny=(b2.x-a2.x);
+      const len=Math.hypot(nx,ny)||1; nx/=len; ny/=len;
+      if((mx-cx)*nx+(my-cy)*ny < 0){ nx=-nx; ny=-ny; }     // push it away from the middle
+      const t=_ftTxt(e.len), w=t.length*7.4+10;
+      // Offsetting the centre is not enough — on a vertical edge the pill is fifty pixels wide and
+      // reaches straight back over the line. Clear its own extent along the normal, then the
+      // handles sitting on the line.
+      const off=Math.abs(nx)*(w/2) + Math.abs(ny)*9 + 12;
+      const lx=mx+nx*off, ly=my+ny*off;
+      s2+=`<line x1="${(mx+nx*8).toFixed(1)}" y1="${(my+ny*8).toFixed(1)}" x2="${(mx+nx*(off-Math.abs(nx)*(w/2)-Math.abs(ny)*9-1)).toFixed(1)}" y2="${(my+ny*(off-Math.abs(nx)*(w/2)-Math.abs(ny)*9-1)).toFixed(1)}" stroke="#8FE07A" stroke-width="1" stroke-opacity="0.5"/>`;
+      s2+=`<rect x="${(lx-w/2).toFixed(1)}" y="${(ly-9).toFixed(1)}" width="${w.toFixed(0)}" height="18" rx="9" fill="rgba(18,24,15,.92)"/>`;
+      s2+=`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" fill="#8FE07A" font-family="ui-monospace,Menlo,monospace">${t}</text>`;
+    });
+  }
   if(!SH.wet && SH.pts.length>2){            // handles: corners to drag, midpoints to add
     const pp=SH.pts.map(_shPx);
     for(let i=0;i<pp.length;i++){ const a2=pp[i], b2=pp[(i+1)%pp.length];
-      s2+=`<circle cx="${((a2.x+b2.x)/2).toFixed(1)}" cy="${((a2.y+b2.y)/2).toFixed(1)}" r="4.5" fill="rgba(255,255,255,.75)" stroke="${md.color}" stroke-width="1.6"/>`; }
+      s2+=`<circle cx="${((a2.x+b2.x)/2).toFixed(1)}" cy="${((a2.y+b2.y)/2).toFixed(1)}" r="3.6" fill="rgba(255,255,255,.6)" stroke="${md.color}" stroke-width="1.4"/>`; }
     pp.forEach((q,i)=>{ const on=(SH.sel===i);
       s2+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${on?8.5:6.5}" fill="#fff" stroke="${md.color}" stroke-width="${on?3:2.4}"/>`; });
   }
