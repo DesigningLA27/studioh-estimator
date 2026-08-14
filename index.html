@@ -3327,7 +3327,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v825</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v826</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26637,7 +26637,7 @@ async function ptOpenSatellite(keepTrace){
       poly.sf=_ptPolySF(pts); PT.polys.push(poly); }); } }catch(e){}
   } else { PT.polys.forEach(p=>{ if(p.kind==="linear") p.lf=_ptLineLF(p.pts); else if(p.pts&&p.pts.length>2) p.sf=_ptPolySF(p.pts); }); }
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode=PT.mode||"planting"; PT.open=true;
-  PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
+  PT.undo=[]; PT.redo=[]; PT.demoN={}; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.selPoly=null; PT._selStart=null; PT._open={}; PT.detectedScale=null; PT.sheetIn=null;
   ptRenderModal();
   ptMapBuild(PT.satBase.center, zoom);
@@ -26656,7 +26656,7 @@ async function _ptOpenDocBuf(buf, keepTrace){
   PT.pdfData=b64; PT.satBase=null; PT.live=false;   // a PDF and a map are alternative bases, never both
   PT.numPages=PT.doc.numPages; PT.page=1;
   if(!keepTrace){ PT.ppf=null; PT.polys=[]; PT.trees=[]; PT.subtype={}; }
-  PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
+  PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.demoN={}; PT.hideLabels=false; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.detectedScale=null; PT.sheetIn=null;
   try{ const pg1=await PT.doc.getPage(1); const vp=pg1.getViewport({scale:1}); PT.sheetIn={w:vp.width/72,h:vp.height/72};
     const tc=await pg1.getTextContent(); const txt=tc.items.map(i=>i.str).join(" "); PT.detectedScale=_ptParseScale(txt)||PT._preScale||null; }catch(e){ PT.detectedScale=PT._preScale||null; }
@@ -27064,6 +27064,34 @@ function ptDemoCost(mode, qty, n){
                                         : (_tkRate("sitework",/Demo — Concrete/i)||_tkRate("sitework",/Demo/i));
   return {cost:r*(qty||0), each:r, n:qty||0, unit:"SF"};
 }
+// Some demolition is not an area at all. One pool, one fire pit, two pergolas — you know what is
+// out there, you do not need to trace it, and it prices as the job it is. Counted here, kept with
+// the trace, and written into Site Prep & Demolition when you Apply.
+const TK_DEMO_EACH=[
+  ["pool",      "Pool / spa",       /Demo — Pool \/ Spa/i],
+  ["fireplace", "Fireplace",        /Demo — Fireplace/i],
+  ["kitchen",   "Outdoor kitchen",  /Demo — Outdoor Kitchen/i],
+  ["shade",     "Shade structure",  /Demo — Shade Structure/i],
+  ["water",     "Water feature",    /Demo — Water Feature/i],
+  ["firepit",   "Fire pit",         /Demo — Fire Pit/i],
+  ["wall",      "Wall — per LF",    /Demo — Wall/i]
+];
+function ptDemoN(k){ return Math.max(0, Math.round((PT.demoN&&PT.demoN[k])||0)); }
+function ptDemoNSet(k, n){
+  if(!PT.demoN) PT.demoN={};
+  n=Math.max(0, Math.min(9999, Math.round(n||0)));
+  if(n) PT.demoN[k]=n; else delete PT.demoN[k];
+  try{ ptDemoPanelRender(); ptUpdateInfo(); ptAutoSave(); }catch(e){}
+}
+function ptDemoNBump(k, d){ ptDemoNSet(k, ptDemoN(k)+d); }
+// What the counted elements come to, and the reason for each one.
+function ptDemoEach(){
+  const rows=[]; let sum=0;
+  TK_DEMO_EACH.forEach(([k,label,re])=>{ const n=ptDemoN(k); if(!n) return;
+    const each=_tkRate("sitework",re); if(!(each>0)) return;
+    const cost=each*n; sum+=cost; rows.push({k,label,n,each,cost,unit:(k==="wall"?"LF":"ea")}); });
+  return {rows, sum};
+}
 // A Demo zone says what is coming out of it, and that decides how it is priced.
 const TK_DEMO_TYPE={"Hardscape — concrete / paving":"paving", "Softscape — lawn & planting":"planting",
   "Pool or spa":"pool", "Fireplace / masonry":"fireplace", "Outdoor kitchen / BBQ":"kitchen",
@@ -27464,11 +27492,13 @@ function ptDerived(){
     add("Site prep", `clearing and fine grading, ${Math.round(worked).toLocaleString()} SF`, r*worked); }
 
   // Anything marked for demolition: the new surface is priced above, this is the old one leaving.
-  const dItems=ptDemoItems();
-  if(dItems.length){
-    let cost=0; const parts=[];
+  const dItems=ptDemoItems(), dEach=ptDemoEach();
+  if(dItems.length||dEach.rows.length){
+    let cost=dEach.sum; const parts=[];
+    dEach.rows.forEach(r=>{ parts.push(r.unit==="LF" ? `${_tkFmt(r.n)} LF of wall`
+      : `${r.n} ${r.label.toLowerCase()}${r.n===1?"":"s"}`); });
     dItems.forEach(b=>{ cost+=b.cost; const lbl=_ptMode(b.mode).label.toLowerCase();
-      parts.push(b.unit==="ea" ? `${b.n} ${lbl}${b.n===1?"":"s"} at ${_tkFmt(b.each)} each`
+      parts.push(b.unit==="ea" ? `${b.n} ${lbl}${b.n===1?"":"s"}`
                : `${_tkFmt(b.n)} ${b.unit} of ${lbl}`); });
     add("Demolition", `tear-out of ${parts.join(", ")}`, cost);
   }
@@ -27944,7 +27974,7 @@ function ptResetAll(){
   const list=Object.keys(cats).map(k=>`  • ${_ptMode(k).label} × ${cats[k]}`).join("\n");
   if(!confirm(`Clear the whole trace?\n\nThis removes every zone and element you have drawn — all ${n} of them:\n\n${list}\n\nThe estimate keeps whatever you have already applied. Undo brings the trace back, and the property line redraws itself.`)) return;
   ptSnap();
-  PT.polys=[]; PT.trees=[]; PT.cur=[]; PT.selPoly=null; PT._selStart=null; PT._open={};
+  PT.polys=[]; PT.trees=[]; PT.cur=[]; PT.demoN={}; PT.selPoly=null; PT._selStart=null; PT._open={};
   try{ ptParcelWhenReady(0); }catch(e){}
   ptRenderModal(); try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
   _toast("Trace cleared — Undo brings it back.","#8A6D1F");
@@ -28076,9 +28106,10 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
   d.style.cssText+=`;top:20px;left:${(ptRailWide()?196:64)+40}px;width:min(700px,calc(100vw - ${(ptRailWide()?196:64)+400}px));max-height:78vh;display:flex;flex-direction:column;overflow:hidden`;
   const md=_ptMode(PT.mode); const tot=ptTotals();
   const cell=(k)=>{ const m=_ptMode(k); if(!m||m.k!==k) return "";
-    const n=(m.kind==="count")
+    let n=(m.kind==="count")
       ? PT.trees.filter(t=>_ptMarkMode(t)===k).length
       : PT.polys.filter(p=>p.mode===k).length;
+    if(k==="demo") n+=TK_DEMO_EACH.reduce((s,d)=>s+(d[0]==="wall"?(ptDemoN("wall")?1:0):ptDemoN(d[0])),0);
     return `<button onclick="ptCatPick('${k}')" class="${PT.mode===k?'on':''}">
       <span class="d" style="background:${m.color}"></span>${m.label}${n?`<em>${n}</em>`:''}</button>`; };
   const types=md.types||null; const cur=_ptCurType(PT.mode);
@@ -28090,12 +28121,43 @@ function ptCatMenu(){ let d=document.getElementById("pt-cat-pop"); if(d){ d.remo
       ${TK_GROUPS.map(g=>`<div class="tksec"><h4>${g.t}</h4>${g.keys.map(cell).join('')}</div>`).join('')}
     </div>
     ${types?`<div class="tktypes" style="flex:none;max-height:32vh;overflow:auto"><span class="lb">${md.kind==="count"?"Size":"Type"} — ${md.label}</span>
-      ${types.map(t=>`<button class="${cur===t?'on':''}" onclick="ptTypePick('${String(t).replace(/'/g,"\\'")}')">${t}</button>`).join('')}</div>`:''}`;
+      ${types.map(t=>`<button class="${cur===t?'on':''}" onclick="ptTypePick('${String(t).replace(/'/g,"\\'")}')">${t}</button>`).join('')}</div>`:''}
+    <div id="pt-demo-panel" style="flex:none"></div>`;
+  ptDemoPanelRender();
+}
+// Tapping Demo opens what is coming out — steppers for the things you would never trace.
+function ptDemoPanelRender(){
+  const el=document.getElementById("pt-demo-panel"); if(!el) return;
+  if(PT.mode!=="demo"){ el.innerHTML=""; return; }
+  const F="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif";
+  const MN="ui-monospace,SFMono-Regular,Menlo,monospace";
+  let sum=0;
+  const rows=TK_DEMO_EACH.map(([k,label,re])=>{
+    const n=ptDemoN(k), each=_tkRate("sitework",re), cost=each*n; sum+=cost;
+    const step=(d,lab)=>`<button onclick="ptDemoNBump('${k}',${d})" style="width:30px;height:30px;border:0;
+      border-radius:9px;cursor:pointer;font:600 15px ${F};line-height:1;
+      background:${d>0&&n?"#D9A441":"rgba(255,255,255,.12)"};color:${d>0&&n?"#1A1206":"#EAF0E4"}">${lab}</button>`;
+    return `<div style="display:flex;align-items:center;gap:9px;padding:5px 2px">
+      <span style="font:600 13px ${F};color:#EAF0E4">${label}</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+        ${step(k==="wall"?-5:-1,"−")}
+        <b style="min-width:26px;text-align:center;font:750 14px ${MN};color:${n?"#EAF0E4":"#59684F"}">${n}</b>
+        ${step(k==="wall"?5:1,"＋")}</span>
+      <span style="min-width:62px;text-align:right;font:700 11.5px ${MN};color:${cost?"#D9A441":"#59684F"}">${cost?"$"+_tkFmt(cost):"—"}</span>
+    </div>`; }).join("");
+  el.innerHTML=`<div class="tktypes" style="display:block;max-height:34vh;overflow:auto">
+    <span class="lb" style="color:#D9A441">Coming out — by the each</span>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px">${rows}</div>
+    <div style="display:flex;align-items:center;gap:9px;margin-top:9px;padding-top:9px;
+        border-top:1px solid rgba(255,255,255,.14);font:650 12.5px ${F};color:#8FA383">
+      Not traced — priced as whole jobs from the price book
+      <b style="margin-left:auto;font:750 16px ${MN};color:#D9A441">$${_tkFmt(sum)}</b></div>
+  </div>`;
 }
 function ptCatPick(k){ const m=_ptMode(k); ptSetMode(k);
   if(TK_STAMP[k] && ptStampStart(k)){ ptPopClose(); return; }
   ptPopClose();
-  if(m&&m.types) ptCatMenu();   // a category with materials or sizes stays open on its type row
+  if(m&&m.types) ptCatMenu();   // a category with materials, sizes or counters stays open on them
 }
 function ptTypePick(v){ ptSetSubtype(v); ptPopClose(); }
 function ptCatFilter(q){ q=(q||"").toLowerCase().trim();
@@ -28442,13 +28504,14 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   try{ ptRailFit(); }catch(e){}
   try{ ptRenderFloat(); }catch(e){}
 }
-function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
+function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
     const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
     const cn=(document.getElementById("client-name")||{}).value||"plan"; const base=(""+cn).replace(/[^a-z0-9]+/gi,"-").toLowerCase().replace(/^-+|-+$/g,"")||"plan";
     const d=new Date(), p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
     a.download=`${base}-trace_${stamp}.json`; document.body.appendChild(a); a.click(); a.remove();
   }catch(e){ alert("Couldn't save the trace."); } }
-async function ptRestoreTrace(d){ if(!d||(!d.polys&&!d.trees)){ alert("That file doesn't look like a saved trace."); return; }
+async function ptRestoreTrace(d){ if(!d||(!d.polys&&!d.trees&&!d.demoN)){ alert("That file doesn't look like a saved trace."); return; }
+  PT.demoN=(d.demoN&&typeof d.demoN==="object")?Object.assign({},d.demoN):{};
   const polys=d.polys||[]; const trees=(d.trees||[]).map(t=>({...t,mode:_ptMarkMode(t)}));
   if(d.pdf){ try{ await _ptOpenDocBuf(_b642ab(d.pdf), true); }catch(e){ alert("Couldn't open the embedded plan."); } }
   PT.polys=polys; PT.trees=trees; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; if(d.pdf) PT.pdfData=d.pdf; if(d.sat) PT.satBase=d.sat;
@@ -28459,7 +28522,7 @@ function ptLoadSaved(input){ const f=input&&input.files&&input.files[0]; if(inpu
     if(d&&d.S){ // a full bid file
       try{ restoreBid(d); }catch(e){}
       const tr=d.trace;
-      if(tr&&tr.pdf){ await ptRestoreTrace({polys:tr.polys,trees:tr.trees,ppf:tr.ppf,subtype:tr.subtype,pdf:tr.pdf}); }
+      if(tr&&tr.pdf){ await ptRestoreTrace({polys:tr.polys,trees:tr.trees,demoN:tr.demoN,ppf:tr.ppf,subtype:tr.subtype,pdf:tr.pdf}); }
       else if(tr&&(tr.polys||tr.trees)){ alert("Bid loaded. Its trace has no embedded plan — open the PDF to see the overlay."); }
       return; }
     if(d&&(d.polys||d.trees)){ // a trace file
@@ -28471,7 +28534,7 @@ function ptLoadTraceFile(input){ const f=input&&input.files&&input.files[0]; if(
   const r=new FileReader(); r.onload=()=>{ let d; try{ d=JSON.parse(r.result); }catch(e){ alert("Could not read that trace file."); return; }
     if(!PT.doc && !d.pdf){ alert("This trace file doesn't have the plan embedded. Open the PDF plan first, then load the trace.\n\n(New saves include the plan automatically.)"); return; }
     ptRestoreTrace(d); }; r.readAsText(f); }
-function ptAutoSave(){ try{ if(window.localStorage) localStorage.setItem("studioh_pt_last", JSON.stringify({polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,sat:(PT.satBase||null)})); }catch(e){} }
+function ptAutoSave(){ try{ if(window.localStorage) localStorage.setItem("studioh_pt_last", JSON.stringify({polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,sat:(PT.satBase||null),demoN:(PT.demoN||null)})); }catch(e){} }
 function ptRestoreLast(){ if(!PT.doc){ alert("Open the PDF plan first, then restore the trace onto it."); return; }
   try{ const s=window.localStorage&&localStorage.getItem("studioh_pt_last"); if(!s){ alert("No auto-saved trace found in this browser."); return; } ptRestoreTrace(JSON.parse(s)); }catch(e){ alert("No auto-saved trace found."); } }
 function _bidPlants(){ const out={shrub:[],gc:[],tree:[],palm:[]};
@@ -28489,8 +28552,8 @@ function _bidPayload(){ return { v:1, app:"studioh-estimator", savedAt:new Date(
 // The trace lives in PT, which is empty until the plan is opened. A save while it's empty must
 // hand back the trace the project was loaded with — otherwise routine autosaves quietly erase it.
 function _bidTrace(){
-  if(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length))
-    return {polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),live:!!PT.live};
+  if(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length||(PT.demoN&&Object.keys(PT.demoN).length)))
+    return {polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),live:!!PT.live,demoN:(PT.demoN||null)};
   const keep=window._traceBackup;                 // copied: the save path nulls .pdf on what it's given
   return keep?Object.assign({},keep):null;
 }
@@ -29292,6 +29355,30 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
       if(n){ cs.on=true; _seeded.push(`${(PB.find(x=>x.id===cat)||{}).name||cat} — ${n} line${n===1?"":"s"} at ${qty.toLocaleString()}`); }
     });
   }catch(e){ console.error("seed:",e); }
+  // Everything demolished — counted by the each and flagged on the trace — becomes real quantities
+  // on the Site Prep & Demolition lines, so it carries into the Break-out and the client PDF.
+  try{
+    const cs=S.cats.sitework;
+    if(cs&&cs.items){
+      let wrote=0;
+      TK_DEMO_EACH.forEach(([k,label,re])=>{ const n=ptDemoN(k); if(!n) return;
+        const it=cs.items.find(x=>x&&re.test(x.n||"")); if(!it) return;
+        it.q=n; it.uc=_tkStdUC(it,"sitework"); it.checked=true; wrote++; });
+      const sfBy={};
+      ptDemoItems().forEach(b=>{ const key=(b.unit==="SF")
+          ? (TK_DEMO_SOFT.indexOf(b.mode)>=0?/Clearing & Grubbing/i:/Demo — Concrete/i) : null;
+        if(!key) return; sfBy[key.source]=(sfBy[key.source]||{re:key,q:0}); sfBy[key.source].q+=b.n; });
+      PT.polys.forEach(p=>{ if(p.mode!=="demo"||p.kind==="linear") return;
+        const m=TK_DEMO_TYPE[p.type]||"paving";
+        if(TK_DEMO_LUMP[m]) return;                       // a lump, counted below
+        const re=(TK_DEMO_SOFT.indexOf(m)>=0)?/Clearing & Grubbing/i:/Demo — Concrete/i;
+        sfBy[re.source]=(sfBy[re.source]||{re,q:0}); sfBy[re.source].q+=(+p.sf||0); });
+      Object.keys(sfBy).forEach(kk=>{ const g=sfBy[kk];
+        const it=cs.items.find(x=>x&&g.re.test(x.n||"")); if(!it||!(g.q>0)) return;
+        it.q=Math.round(g.q); it.uc=_tkStdUC(it,"sitework"); it.checked=true; wrote++; });
+      if(wrote){ cs.on=true; _seeded.push(`Site Prep & Demolition — ${wrote} demo line${wrote===1?"":"s"} from the take-off`); }
+    }
+  }catch(e){ console.error("demo apply:",e); }
   // A traced pool with nothing in the pool builder gets one, sized from the trace.
   try{ if(R(areaSum,"pool")>0){ const r=ptAutoPool(R(areaSum,"pool"), perimOf("pool"));
       if(r){ if(S.cats.pool){ S.cats.pool.on=true; S.cats.pool.lumpOn=false; }
