@@ -3363,7 +3363,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v861</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v862</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28433,10 +28433,10 @@ function _tkLedgerBar(tot,live){
   const pct=cap?Math.min(100,Math.round(surf/cap*100)):0;
   const over=cap&&surf>cap;
   const dock=ptTkDock(), side=(dock==="right"), shut=side&&ptTkShut();
-  const tab=PT._tkTab==="target"?"target":"traced";
-  const seg=`<div style="display:flex;background:rgba(255,255,255,.10);border-radius:999px;padding:4px;margin-bottom:13px;flex:none">
-    ${[["traced","Take-off"],["target","Target"]].map(([k,l])=>
-      `<button onclick="ptTkTab('${k}')" style="flex:1;border:0;cursor:pointer;padding:9px 0;border-radius:999px;font:700 14px ${F};background:${tab===k?'#EAF0E4':'transparent'};color:${tab===k?'#141A10':'#9FBF95'}">${l}</button>`).join('')}
+  const tab=TK_TABS.some(t=>t[0]===PT._tkTab)?PT._tkTab:"traced";
+  const seg=`<div style="display:flex;background:rgba(255,255,255,.10);border-radius:999px;padding:3px;margin-bottom:13px;flex:none">
+    ${TK_TABS.map(([k,l])=>
+      `<button onclick="ptTkTab('${k}')" style="flex:1;border:0;cursor:pointer;padding:8px 1px;border-radius:999px;font:700 11px ${F};white-space:nowrap;background:${tab===k?'#EAF0E4':'transparent'};color:${tab===k?'#141A10':'#9FBF95'}">${l}</button>`).join('')}
   </div>`;
   let body="";
   if(tab==="traced"){
@@ -28582,7 +28582,15 @@ function _tkLedgerBar(tot,live){
       ${cap?st("Of "+(tot.limit?"LOW":"lot"), pctLot+"%"):""}
     </div>`;
   }
+  // the other four screens share the shell — here, where pos and grip exist
+  if(tab!=="traced"){
+    const body2=(tab==="budget")?_tkBudgetScreen(F,MN)
+      :(tab==="assumed")?_tkAssumedScreen(F,MN)
+      :(tab==="phases")?_tkPhaseScreen(F,MN):_tkCompareScreen(F,MN);
+    return _tkCardShell(pos, side, grip, seg, body2, F);
+  }
   return `<div id="pt-card"
+      ontouchstart="ptTkPageStart(event)" ontouchend="ptTkPageEnd(event)"
       style="position:absolute;${pos};z-index:3;
       background:rgba(18,24,15,.93);backdrop-filter:blur(10px);padding:${side?"16px 22px 16px 26px":"6px 12px 14px"};pointer-events:auto;
       display:flex;flex-direction:column;overflow:hidden;
@@ -28598,7 +28606,240 @@ function _tkLedgerBar(tot,live){
 // The card closes on its own arrow only — swiping across it is for the rows inside it.
 function ptTkShut(){ return !!PT._tkShut; }
 function ptTkShutSet(v){ PT._tkShut=!!v; ptRenderFloat(); }
+const TK_TABS=[["traced","Take-off"],["budget","Budget"],["assumed","Assumed"],["phases","Phases"],["compare","Compare"]];
 function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
+function ptTkTabStep(d){
+  const i=Math.max(0, TK_TABS.findIndex(t=>t[0]===(PT._tkTab||"traced")));
+  const n=(i+d+TK_TABS.length)%TK_TABS.length;
+  ptTkTab(TK_TABS[n][0]);
+}
+// The card, minus whatever is inside it. Every screen but the take-off shares this.
+function _tkCardShell(pos, side, grip, seg, body, F){
+  return `<div id="pt-card"
+      ontouchstart="ptTkPageStart(event)" ontouchend="ptTkPageEnd(event)"
+      style="position:absolute;${pos};z-index:3;
+      background:rgba(18,24,15,.93);backdrop-filter:blur(10px);padding:${side?"16px 22px 16px 26px":"6px 12px 14px"};pointer-events:auto;
+      display:flex;flex-direction:column;overflow:hidden;
+      box-shadow:0 18px 44px -14px rgba(0,0,0,.5);font-family:${F}">
+    ${grip}
+    ${side?`<div style="display:flex;align-items:center;gap:9px;flex:none">
+        <span style="flex:1;min-width:0">${seg}</span>
+        <button onclick="ptTkShutSet(true)" title="Close the take-off"
+          style="flex:none;width:34px;height:34px;border:0;border-radius:12px;background:rgba(255,255,255,.12);
+          color:#EAF0E4;font-size:15px;cursor:pointer;margin-bottom:13px">›</button>
+      </div>`:seg}
+    <div style="overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;touch-action:pan-y;overscroll-behavior:contain">${body}</div></div>`;
+}
+// Swipe the card sideways to change screen. Rows keep their own left and right swipes, so a
+// gesture that starts on one is left alone.
+let _tkPg=null;
+function ptTkPageStart(e){ const t=e.touches&&e.touches[0]; if(!t) return;
+  if(e.target&&e.target.closest&&e.target.closest(".tkrow")) { _tkPg=null; return; }
+  _tkPg={x:t.clientX,y:t.clientY}; }
+function ptTkPageEnd(e){ const t=e.changedTouches&&e.changedTouches[0]; if(!t||!_tkPg) return;
+  const dx=t.clientX-_tkPg.x, dy=t.clientY-_tkPg.y; _tkPg=null;
+  if(Math.abs(dx)<55||Math.abs(dy)>Math.abs(dx)*0.8) return;
+  ptTkTabStep(dx<0?1:-1);
+}
+function _tkHd(F,t,acc){ return `<div style="padding:14px 8px 3px;font:800 9.5px ${F};letter-spacing:.11em;
+  text-transform:uppercase;color:${acc||"#8FA383"};border-top:1px solid rgba(255,255,255,.13);margin-top:4px">${t}</div>`; }
+function _tkLine(F,MN,dot,nm,sub,right,rightSub,acc){
+  return `<div style="display:flex;align-items:center;gap:11px;padding:11px 4px 11px 8px;border-top:1px solid rgba(255,255,255,.13)">
+    ${dot?`<span style="width:11px;height:11px;border-radius:4px;background:${dot};flex:none"></span>`:""}
+    <span style="min-width:0;flex:1;overflow:hidden">
+      <b style="display:block;font:650 14px ${F};color:#EAF0E4;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nm}</b>
+      ${sub?`<span style="display:block;font:600 11px ${F};color:#8FA383;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</span>`:""}</span>
+    <span style="margin-left:auto;text-align:right;flex:none;white-space:nowrap">
+      <b style="display:block;font:750 15px ${MN};color:${acc||"#EAF0E4"};letter-spacing:-.02em">${right}</b>
+      ${rightSub?`<span style="display:block;font:700 12px ${MN};color:#8FA383">${rightSub}</span>`:""}</span>
+  </div>`;
+}
+// ── BUDGET ─────────────────────────────────────────────────────────────────
+function _tkBudgetScreen(F,MN){
+  const M=ptMoney(), b=ptBudget();
+  const over=(b>0&&M.total>b);
+  const pct=b>0?Math.min(100,Math.round(M.total/b*100)):0;
+  const sav=ptSavings().slice(0,4);
+  const head=b>0
+    ? `<div style="font:600 11.5px ${F};color:#8FA383">Traced against a budget of ${fmtN(b)}
+        <button onclick="ptSetBudget()" style="border:0;background:none;color:#9FBF95;font:600 11.5px ${F};cursor:pointer;padding:0 0 0 4px;text-decoration:underline">change</button></div>
+       <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;margin:2px 0 3px;color:${over?"#E0908A":"#EAF0E4"}">${_tkRollSpan("tkb-tot", M.total, "$")}</div>
+       <div style="height:6px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden;margin:11px 0 6px">
+         <i style="display:block;height:100%;border-radius:6px;width:${pct}%;background:${over?"#E0908A":"#8FE07A"}"></i></div>
+       <div style="display:flex;font:600 11.5px ${MN};color:#8FA383">
+         <span>${pct}% committed</span>
+         <b style="margin-left:auto;color:${over?"#E0908A":"#8FE07A"}">${over?fmtN(M.total-b)+" over":fmtN(b-M.total)+" left"}</b></div>`
+    : `<div style="font:600 11.5px ${F};color:#8FA383">Priced from the estimate</div>
+       <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;margin:2px 0 3px">${_tkRollSpan("tkb-tot", M.total, "$")}</div>
+       <button onclick="ptSetBudget()" style="margin-top:10px;width:100%;border:0;border-radius:12px;padding:11px;
+         cursor:pointer;background:rgba(143,224,122,.16);color:#8FE07A;font:700 13px ${F}">Set a budget for this job</button>`;
+  const rows=M.cats.filter(c=>c.total>0).slice(0,9).map(c=>_tkLine(F,MN,c.color,c.label,
+    `${M.total>0?Math.round(c.total/M.total*100):0}% of the job${ptPointFor(c.k)!=null?` · ${TK_POINTS[ptPointFor(c.k)][0].toLowerCase()}`:""}`,
+    fmtN(c.total), `${_tkFmt(c.qty)} ${c.unit}`)).join("");
+  const savings=sav.length?_tkHd(F,"If you need to find money","#D9A441")+sav.map(x=>
+    `<div style="display:flex;align-items:center;gap:9px;background:rgba(217,164,65,.10);
+       border:1px solid rgba(217,164,65,.28);border-radius:12px;padding:10px 12px;margin:8px 2px 0">
+      <span style="min-width:0"><b style="display:block;font:650 12.5px ${F};color:#EAF0E4">${x.label} → ${x.to}</b>
+        <span style="display:block;font:600 11px ${F};color:#8FA383">${fmtN(x.was)} → ${fmtN(x.will)} / ${x.unit}</span></span>
+      <b style="margin-left:auto;font:750 14px ${MN};color:#D9A441;white-space:nowrap">−${fmtN(x.save)}</b></div>`).join(""):"";
+  return `<div style="padding:2px 4px 0">${head}</div>
+    ${M.cats.length?_tkHd(F,"Where it is going")+rows:`<div style="font:600 13px ${F};color:#9FBF95;padding:16px 8px">Nothing traced yet.</div>`}
+    ${savings}
+    <div style="height:14px"></div>`;
+}
+// ── ASSUMED ────────────────────────────────────────────────────────────────
+function _tkAssumedScreen(F,MN){
+  const M=ptMoney();
+  const items=[];
+  M.cats.forEach(c=>{ if(c.from!=="assumed"&&c.from!=="built") return;
+    items.push({nm:c.label, why:(c.from==="built"?"built from its parts, not designed yet":"an allowance until you price it"),
+      cost:c.total, color:c.color}); });
+  M.derived.forEach(r=>items.push({nm:r.label, why:r.why, cost:r.cost, color:"#D9A441"}));
+  items.sort((a,b)=>b.cost-a.cost);
+  const n=items.length, pct=Math.round(M.pct*100);
+  const rows=items.map(i=>_tkLine(F,MN,i.color,i.nm,i.why,fmtN(i.cost),"assumed","#EAF0E4")).join("");
+  return `<div style="padding:2px 4px 0">
+      <div style="font:600 11.5px ${F};color:#8FA383">Decided for you, not by you</div>
+      <div style="font:750 30px ${MN};letter-spacing:-.03em;line-height:1.1;margin:2px 0 3px">${n}
+        <span style="font:600 16px ${F};color:#8FA383">call${n===1?"":"s"}</span></div>
+      <div style="height:6px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden;margin:11px 0 6px">
+        <i style="display:block;height:100%;border-radius:6px;width:${Math.min(100,pct)}%;background:#D9A441"></i></div>
+      <div style="display:flex;font:600 11.5px ${MN};color:#8FA383">
+        <span style="color:#D9A441">${pct}% of the money is assumed</span>
+        <b style="margin-left:auto">${fmtN(M.assumed)}</b></div></div>
+    ${n?_tkHd(F,"Biggest first")+rows:`<div style="font:600 13px ${F};color:#9FBF95;padding:16px 8px">Nothing is being assumed — every number came from something you set.</div>`}
+    <div style="font:600 11.5px ${F};color:#8FA383;padding:14px 8px;line-height:1.55">
+      Tap a category on the Take-off screen to see the working behind any of these, or price it by hand
+      in the estimate and it stops being an assumption.</div>`;
+}
+// ── PHASES ─────────────────────────────────────────────────────────────────
+function _tkPhaseScreen(F,MN){
+  const P=ptPhases();
+  const max=P.rows.reduce((a,r)=>Math.max(a,r.total),0)||1;
+  const first=P.rows[0];
+  const bars=P.rows.map(r=>`<i style="flex:1;border-radius:3px 3px 0 0;display:block;
+    height:${Math.max(6,Math.round(r.total/max*100))}%;background:${r.phase==="Not phased"?"rgba(255,255,255,.18)":"#8FE07A"};opacity:${r.phase==="Not phased"?1:Math.max(.45,r.total/max)}"></i>`).join("");
+  const rows=P.rows.map(r=>_tkHd(F,`${r.phase} — ${P.total>0?Math.round(r.total/P.total*100):0}%`)
+    +_tkLine(F,MN,null,r.what||"—","",fmtN(r.total),"")).join("");
+  return `<div style="padding:2px 4px 0">
+      <div style="font:600 11.5px ${F};color:#8FA383">${first?first.phase+" · what goes in first":"Nothing phased yet"}</div>
+      <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;margin:2px 0 3px">${fmtN(first?first.total:0)}</div>
+      <div style="display:flex;gap:4px;align-items:flex-end;height:34px;margin:10px 0 2px">${bars}</div>
+      <div style="display:flex;font:600 11.5px ${MN};color:#8FA383">
+        <span>${P.rows.map(r=>r.phase.replace("Phase ","")).join(" · ")}</span>
+        <b style="margin-left:auto">${fmtN(P.total)} all in</b></div></div>
+    ${P.rows.length?rows:`<div style="font:600 13px ${F};color:#9FBF95;padding:16px 8px">Nothing traced yet.</div>`}
+    ${P.site>0?_tkHd(F,"Across all phases")+_tkLine(F,MN,"#D9A441","What the site implies","irrigation, lighting, drainage, permits",fmtN(P.site),""):""}
+    <div style="font:600 11.5px ${F};color:#8FA383;padding:14px 8px;line-height:1.55">
+      Set a phase on any zone by tapping its label on the plan.</div>`;
+}
+// ── COMPARE ────────────────────────────────────────────────────────────────
+function ptCompare(){
+  const tot=ptTotals();
+  const at=(pp)=>{ let sum=0;
+    PT_MODES.forEach(m=>{ const q=tot[m.k]||0; if(!(q>0)) return;
+      try{ const r=_tkAt(pp,()=>_ptPriceFor(m.k,q)); if(r) sum+=r.total; }catch(e){} });
+    try{ sum+=_tkAt(pp,()=>ptDerived().sum); }catch(e){}
+    return sum; };
+  const totals=[at(0),at(1),at(2)];
+  const cats=[];
+  PT_MODES.forEach(m=>{ const q=tot[m.k]||0; if(!(q>0)) return;
+    const v=[0,1,2].map(pp=>{ try{ const r=_tkAt(pp,()=>_ptPriceFor(m.k,q)); return r?r.total:0; }catch(e){ return 0; } });
+    if(!v[1]) return;
+    cats.push({k:m.k, label:m.label, color:m.color, v, mult:(v[0]>0?v[2]/v[0]:1)});
+  });
+  cats.sort((a,b)=>(b.v[2]-b.v[0])-(a.v[2]-a.v[0]));
+  return {totals, cats, spread:totals[2]-totals[0]};
+}
+function _tkCompareScreen(F,MN){
+  const C=ptCompare();
+  let gen=1; try{ const v=localStorage.getItem("studioh_pt_point"); if(v==="0"||v==="1"||v==="2") gen=+v; }catch(e){}
+  const k=(n)=>"$"+(n>=1000?Math.round(n/1000)+"k":Math.round(n));
+  const pills=[0,1,2].map(i=>`<button onclick="ptSetPricePoint(${i});ptRenderFloat()"
+    style="flex:1;border:0;border-radius:11px;padding:9px 4px;cursor:pointer;text-align:center;
+    background:${gen===i?"#5BA34A":"rgba(255,255,255,.10)"};color:${gen===i?"#0F2409":"#EAF0E4"}">
+    <span style="display:block;font:700 11px ${F}">${TK_POINTS[i][0]}</span>
+    <b style="display:block;font:750 13px ${MN}">${k(C.totals[i])}</b></button>`).join("");
+  const rows=C.cats.slice(0,9).map(c=>_tkLine(F,MN,c.color,c.label,
+    `${k(c.v[0])} · <b style="color:#EAF0E4">${k(c.v[1])}</b> · ${k(c.v[2])}`,
+    (c.mult>1.02?c.mult.toFixed(1)+"×":"1.0×"), "", c.mult>1.02?"#D9A441":"#8FA383")).join("");
+  return `<div style="padding:2px 4px 0">
+      <div style="font:600 11.5px ${F};color:#8FA383">The same design, three ways</div>
+      <div style="display:flex;gap:6px;margin:9px 0 8px">${pills}</div>
+      <div style="display:flex;font:600 11.5px ${MN};color:#8FA383">
+        <span>tap to set the job</span><b style="margin-left:auto">${fmtN(C.spread)} spread</b></div></div>
+    ${C.cats.length?_tkHd(F,"What moves most")+rows:`<div style="font:600 13px ${F};color:#9FBF95;padding:16px 8px">Nothing traced yet.</div>`}
+    <div style="font:600 11.5px ${F};color:#8FA383;padding:14px 8px;line-height:1.55">
+      Labour and demolition barely move — the spread is specification. A category you have set on its own
+      is not included here, because it is already answering for itself.</div>`;
+}
+// Everything the job is worth, once, so four screens cannot disagree with each other.
+function ptMoney(){
+  const tot=ptTotals(); const cats=[];
+  let total=0, assumed=0;
+  PT_MODES.forEach(m=>{ const q=tot[m.k]||0; if(!(q>0)) return;
+    const pr=ptPriceFor(m.k,q); if(!pr) return;
+    const per=pr.per||0;
+    cats.push({k:m.k, label:m.label, color:m.color, qty:q, per, total:pr.total, from:pr.from,
+      unit:(m.kind==="linear"?"LF":(m.kind==="count"?"ea":"SF"))});
+    total+=pr.total;
+    if(pr.from==="assumed"||pr.from==="built") assumed+=pr.total;
+  });
+  const d=ptDerived();
+  d.rows.forEach(r=>{ total+=r.cost; assumed+=r.cost; });
+  cats.sort((a,b)=>b.total-a.total);
+  return {cats, derived:d.rows, total, assumed, pct:(total>0?assumed/total:0)};
+}
+function ptBudget(){ try{ const v=+localStorage.getItem("studioh_pt_budget"); return v>0?v:0; }catch(e){ return 0; } }
+function ptSetBudget(){
+  const cur=ptBudget();
+  const a=prompt("Budget for this job, in dollars:", cur?String(cur):"");
+  if(a===null) return;
+  const v=Math.round(parseFloat(String(a).replace(/[^0-9.]/g,""))||0);
+  try{ if(v>0) localStorage.setItem("studioh_pt_budget",String(v)); else localStorage.removeItem("studioh_pt_budget"); }catch(e){}
+  ptRenderFloat();
+}
+// What dropping a category one notch would save — the same lever, with the arithmetic done.
+function ptSavings(){
+  const out=[]; const tot=ptTotals();
+  let gen=1; try{ const v=localStorage.getItem("studioh_pt_point"); if(v==="0"||v==="1"||v==="2") gen=+v; }catch(e){}
+  PT_MODES.forEach(m=>{ const q=tot[m.k]||0; if(!(q>0)) return;
+    const own=ptPointFor(m.k); const at=(own==null?gen:own);
+    if(at<=0) return;
+    try{
+      const now=_tkAt(at, ()=>_ptPriceFor(m.k,q));
+      const down=_tkAt(at-1, ()=>_ptPriceFor(m.k,q));
+      if(!now||!down) return;
+      const save=now.total-down.total; if(save<250) return;
+      out.push({k:m.k, label:m.label, color:m.color, from:TK_POINTS[at][0], to:TK_POINTS[at-1][0],
+        was:now.per, will:down.per, unit:(m.kind==="linear"?"LF":(m.kind==="count"?"ea":"SF")), save});
+    }catch(e){}
+  });
+  return out.sort((a,b)=>b.save-a.save);
+}
+// Cost by phase, off the phase every traced shape already carries.
+function ptPhases(){
+  const M=ptMoney(); const per={};
+  M.cats.forEach(c=>{ per[c.k]=c.per; });
+  const by={};
+  const put=(ph,amt,label)=>{ const b=by[ph]||(by[ph]={phase:ph, total:0, what:{}});
+    b.total+=amt; b.what[label]=(b.what[label]||0)+amt; };
+  PT.polys.forEach(p=>{ const r=per[p.mode]; if(!(r>0)) return;
+    const q=(p.kind==="linear")?(+p.lf||0):(+p.sf||0); if(!(q>0)) return;
+    put((p.phase||"").trim()||"Not phased", r*q, _ptMode(p.mode).label); });
+  (PT.trees||[]).forEach(t=>{ const m=_ptMarkMode(t); const r=per[m]; if(!(r>0)) return;
+    if(_ptKind(m)!=="count") return;
+    put((t.phase||"").trim()||"Not phased", r, _ptMode(m).label); });
+  const order=["Phase 1","Phase 2","Phase 3","Phase 4","Future","Not phased"];
+  const rows=Object.keys(by).sort((a,b)=>{
+    const ia=order.indexOf(a), ib=order.indexOf(b);
+    return (ia<0?99:ia)-(ib<0?99:ib);
+  }).map(k=>{ const b=by[k];
+    const what=Object.keys(b.what).sort((x,y)=>b.what[y]-b.what[x]).slice(0,3).join(" · ");
+    return {phase:k, total:b.total, what}; });
+  const site=M.derived.reduce((a,r)=>a+r.cost,0);
+  return {rows, site, total:M.total};
+}
 // Swipe a row left and it slides over to show a red Delete. Tap the row to see the workings.
 const TK_ROW_W=168;
 let _tkRow=null;
