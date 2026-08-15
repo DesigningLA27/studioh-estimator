@@ -3372,7 +3372,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v864</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v865</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25918,7 +25918,10 @@ const PT_Z={"lot":10,"limit":0,"exclude":1,"demo":1,
   "firepit":5,"fireplace":5,"kitchen":5,"seating":5,
   "shade":6,"building":9};
 function _ptFillOp(mode){ const md=_ptMode(mode); if(md&&md.noFill) return 0;
-  return (PT_FILL[mode]!=null)?PT_FILL[mode]:0.25; }
+  if(mode==="building") return PT_FILL.building;          // the house is always solid
+  let k=1; try{ k=ptSet("fill")/50; }catch(e){}           // 50 is the setting's own default
+  const base=(PT_FILL[mode]!=null)?PT_FILL[mode]:0.25;
+  return Math.max(0.04, Math.min(0.95, base*k)); }
 function _ptZ(mode){ return (PT_Z[mode]!=null)?PT_Z[mode]:4; }
 // Everything outside a boundary, dimmed in one pass — the boundary punched out of a full-bleed
 // rectangle with the even-odd rule, so it works for any shape and however many of them there are.
@@ -27179,6 +27182,63 @@ function ptSaveToServer(){
   if(typeof cloudSaveBid!=="function"){ _toast("No worker connected.","#B23F3C"); return; }
   cloudSaveBid();
 }
+// ── TAKE-OFF SETTINGS ───────────────────────────────────────────────────────
+// The drawing has opinions baked into it — how far back the world falls outside the property, how
+// solid a zone reads. Sensible by default, and yours to move.
+const TK_SET_DEF={lotFade:80, limFade:30, fill:50, canopy:1};
+function ptSet(k){
+  let v=null; try{ v=localStorage.getItem("studioh_pt_set_"+k); }catch(e){}
+  const n=(v==null||v==="")?TK_SET_DEF[k]:+v;
+  return isNaN(n)?TK_SET_DEF[k]:n;
+}
+function ptSetPut(k,v){
+  try{ localStorage.setItem("studioh_pt_set_"+k, String(v)); }catch(e){}
+  try{ ptDrawOverlay(); ptSettingsPopover(true); }catch(e){}
+}
+function ptSetReset(){
+  Object.keys(TK_SET_DEF).forEach(k=>{ try{ localStorage.removeItem("studioh_pt_set_"+k); }catch(e){} });
+  try{ ptDrawOverlay(); ptSettingsPopover(true); }catch(e){}
+  _toast("Back to the defaults.","#4A5545");
+}
+function ptSettingsPopover(keep){
+  let d=document.getElementById("pt-set-pop");
+  if(d&&!keep){ d.remove(); return; }
+  if(!d){ d=document.createElement("div"); d.id="pt-set-pop"; d.className="tkpop";
+    (document.getElementById("pt-modal")||document.body).appendChild(d);
+    d.style.cssText+=";top:20px;left:124px;width:min(380px,90vw);max-height:80vh;overflow:auto";
+    _ptPopOutside(d.id); }
+  const F="var(--tkf)", MN="ui-monospace,Menlo,monospace";
+  const slider=(k,lab,note,min,max,step,suffix)=>`
+    <div style="margin-bottom:15px">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <b style="font:650 13.5px ${F};color:#EAF0E4">${lab}</b>
+        <b style="margin-left:auto;font:750 13px ${MN};color:#8FE07A">${ptSet(k)}${suffix||""}</b></div>
+      <div style="font:600 11px ${F};color:#8FA383;margin:1px 0 7px">${note}</div>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${ptSet(k)}"
+        oninput="ptSetPut('${k}', this.value)"
+        style="width:100%;accent-color:#6FBF5C;height:22px">
+    </div>`;
+  const toggle=(k,lab,note)=>`
+    <button onclick="ptSetPut('${k}', ${ptSet(k)?0:1})"
+      style="display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:0;
+      border-radius:12px;padding:11px 12px;margin-bottom:11px;cursor:pointer;
+      background:rgba(255,255,255,.08);color:#EAF0E4">
+      <span style="flex:1;min-width:0"><b style="display:block;font:650 13.5px ${F}">${lab}</b>
+        <span style="display:block;font:600 11px ${F};color:#8FA383">${note}</span></span>
+      <span style="flex:none;width:42px;height:24px;border-radius:14px;position:relative;
+        background:${ptSet(k)?"#5BA34A":"rgba(255,255,255,.18)"}">
+        <i style="position:absolute;top:3px;left:${ptSet(k)?"21px":"3px"};width:18px;height:18px;
+          border-radius:50%;background:#fff;display:block"></i></span></button>`;
+  d.innerHTML=`<div class="tkh"><h3>Take-off settings</h3>
+      <button class="cls" onclick="ptPopClose()">✕</button></div>
+    ${slider("lotFade","Outside the property","how far the world falls back beyond the property line",0,95,5,"%")}
+    ${slider("limFade","Outside the limit of work","on top of the property fade, when a limit is drawn",0,90,5,"%")}
+    ${slider("fill","Zone fill","how solid a traced zone reads over the image",10,90,5,"%")}
+    ${toggle("canopy","Tree canopies","draw each tree at the spread you will have to design around")}
+    <button onclick="ptSetReset()" style="width:100%;border:0;border-radius:11px;padding:11px;
+      cursor:pointer;background:rgba(255,255,255,.10);color:#9FBF95;font:600 12.5px ${F}">
+      Back to the defaults</button>`;
+}
 function ptToggleLayer(m){ PT.hidden[m]=!PT.hidden[m]; ptDrawOverlay(); ptLayersPopover(true); }
 // Take a category off the drawing without taking it out of the estimate — a demo zone you have
 // already measured is only in the way from here on.
@@ -27538,18 +27598,56 @@ function _tkPerim(mode){ let lf=0;
   try{ (PT.polys||[]).forEach(p=>{ if(p.mode!==mode||p.kind!=="area"||!p.pts||p.pts.length<3) return;
     lf+=_ptLineLF(p.pts.concat([p.pts[0]])); }); }catch(e){}
   return Math.round(lf); }
+// A pool is not one pool at three prices — it is three different pools. Value is the vessel and
+// nothing else; Standard is what most people actually build; Premium is the one with an edge on it.
+// Rating the same spec three ways is why all three came back identical.
 function _tkPoolFrom(sf, perim){
   const p=newPool(); p.useSF=true; p.sfDirect=Math.max(1,Math.round(sf));
-  if(perim>0){ p.perimLF=perim; p.copingLF=perim; p.edgeLF=perim; }
+  if(perim>0){ p.perimLF=perim; p.copingLF=perim; p.edgeLF=0; }
+  let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+  if(pp===0){
+    // the basics, and nothing that is not needed to swim in it
+    p.finishType="plaster"; p.copingType="copingConcrete"; p.copingProfile="bullnose";
+    p.edgeType="standard"; p.heaterType="gas"; p.heaterQty=1;
+    p.filter=true; p.pumpVS=true; p.salt=false; p.automation=false; p.ledQty=1;
+    p.baja=false; p.raisedBeam=false; p.cover="none"; p.spaSpillover=false;
+  } else if(pp===1){
+    // pebble finish, glass waterline band, a stone coping, salt, automation, a Baja shelf
+    p.finishType="pebble"; p.copingType="copingStandard"; p.copingProfile="bullnose";
+    p.edgeType="standard"; p.heaterType="gas"; p.heaterQty=1;
+    p.filter=true; p.pumpVS=true; p.salt=true; p.automation=true; p.ledQty=3;
+    p.baja=true; p.bajaSF=Math.max(30, Math.round(p.sfDirect*0.09));
+    p.raisedBeam=false; p.cover="none"; p.spaSpillover=true;
+  } else {
+    // an infinity edge down one length with its catch basin, premium stone, a raised beam
+    p.finishType="tile"; p.copingType="copingPremiumStone"; p.copingProfile="bullnose";
+    p.edgeType="infinity";
+    const L=Math.max(8, Math.round(Math.sqrt(Math.max(1,p.sfDirect)*2)));   // the long side
+    p.edgeLF=L; p.catchBasinAuto=true; p.catchBasinWidthFt=2; p.reservoir=true;
+    p.heaterType="gas"; p.heaterQty=1;
+    p.filter=true; p.pumpVS=true; p.salt=true; p.automation=true; p.ledQty=5;
+    p.baja=true; p.bajaSF=Math.max(40, Math.round(p.sfDirect*0.11));
+    p.raisedBeam=true; p.beamLF=Math.max(8, Math.round(L*0.6)); p.beamHeightIn=18;
+    p.beamSides="one"; p.beamCap=true; p.beamVeneer="stone";
+    p.cover="automatic"; p.spaSpillover=true; p.structEng=true;
+  }
   return p; }
-function _tkPreviewPool(sf, perim){ try{ return poolCost(_tkPoolFrom(sf,perim)); }catch(e){ return 0; } }
+function _tkPreviewPool(sf, perim){ try{ return _tkAtPoint(()=>poolCost(_tkPoolFrom(sf,perim))); }catch(e){ return 0; } }
 // A spa attached to a pool costs what it adds to that pool. On its own it is its own small vessel.
 function _tkPreviewSpa(sf, perim, hasPool){
   try{
-    if(hasPool){ const base=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool"));
-      const withSpa=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool")); withSpa.spa=true; withSpa.spaType="attached";
-      return Math.max(0, poolCost(withSpa)-poolCost(base)); }
-    return poolCost(_tkPoolFrom(sf, perim));
+    let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+    return _tkAtPoint(()=>{
+      if(hasPool){ const base=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool"));
+        const withSpa=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool"));
+        withSpa.spa=true; withSpa.spaType="attached";
+        withSpa.spaJets=(pp===0?4:(pp===1?8:12));
+        withSpa.spaSpillover=(pp>0);
+        return Math.max(0, poolCost(withSpa)-poolCost(base)); }
+      const sp=_tkPoolFrom(sf, perim); sp.spa=true; sp.spaType="attached";
+      sp.spaJets=(pp===0?4:(pp===1?8:12)); sp.spaSpillover=(pp>0);
+      return poolCost(sp);
+    });
   }catch(e){ return 0; } }
 function _ptSum(mode){ let a=0; (PT.polys||[]).forEach(p=>{ if(p.mode===mode&&p.kind==="area") a+=(+p.sf||0); }); return a; }
 function _tkWaterFrom(sf, title){
@@ -29429,7 +29527,7 @@ function _ptPopOutside(id){
     document.addEventListener("pointerdown",off,true);
   },0);
 }
-function ptPopClose(){ ["pt-smooth-pop","pt-why-pop","pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-sheet"]
+function ptPopClose(){ ["pt-smooth-pop","pt-why-pop","pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-point-pop","pt-set-pop","pt-sheet"]
   .forEach(id=>{ const e=document.getElementById(id); if(e) e.remove(); }); }
 // Everything that isn't a decision you make while drawing.
 function ptOverflow(){ let d=document.getElementById("pt-ovf-pop"); if(d){ d.remove(); return; }
@@ -29581,7 +29679,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     if(mode==="pots"||mode==="stepper"){ const hw=(9*mS); s+=`<g style="${pe}" onclick="ptEditTree(${idx})"><rect x="${(q.x-hw).toFixed(1)}" y="${(q.y-hw).toFixed(1)}" width="${(hw*2).toFixed(1)}" height="${(hw*2).toFixed(1)}" rx="2" fill="${c}" fill-opacity="0.92" stroke="#fff" stroke-width="${(1.5*mS).toFixed(2)}"/><text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="${(9*mS).toFixed(1)}" font-weight="700" fill="#fff">${badge}</text></g>`; }
     if(mode==="tree"){
       const ppf=_ptPxPerFt(), rad=(_treeSpread(t)/2)*ppf;
-      if(rad>5){                     // below this it is a smudge, so only the marker shows
+      if(rad>5 && ptSet("canopy")){                     // below this it is a smudge, so only the marker shows
         const cl=_treeClass(t.cls);
         const dpath=_treeCanopyPath(q.x,q.y,rad,cl[0]==="large"?11:(cl[0]==="small"?7:9));
         s+=`<g style="pointer-events:none">
@@ -29599,13 +29697,13 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
   // Off the property is not the job. Fade it, so the eye stays on the site.
   if(!PT.hidden.lot){
     const lots=PT.polys.filter(p=>p.mode==="lot"&&p.page===PT.page&&p.pts&&p.pts.length>2);
-    if(lots.length) s+=_ptScrim(lots, 0.80);   // off the property, well back
+    if(lots.length) s+=_ptScrim(lots, ptSet("lotFade")/100);
   }
   // Limit of work: the job is inside this line, so everything outside it drops back.
   if(!PT.hidden.limit){
     const lim=PT.polys.filter(p=>p.mode==="limit"&&p.page===PT.page&&p.pts&&p.pts.length>2);
     if(lim.length){
-      s+=_ptScrim(lim, 0.30);   // sits on top of the lot scrim, so it stays light
+      s+=_ptScrim(lim, ptSet("limFade")/100);   // on top of the lot scrim, so it stays light
       lim.forEach(p=>{ const q=p.pts.map(_toCanvas);
         s+=`<polygon points="${q.map(v=>v.x.toFixed(1)+","+v.y.toFixed(1)).join(" ")}" fill="none"
           stroke="#C9A9FF" stroke-width="3" stroke-dasharray="12 7" style="pointer-events:none"/>`; });
@@ -29756,6 +29854,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       icon:_ic('<path d="M4 7h16M4 12h10M4 17h7"/>')})}
     ${_t({label:"Pencil", act:"ptSmoothPopover()", title:"How closely a stroke follows your hand",
       icon:_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')})}
+    ${_t({label:"Settings", act:"ptSettingsPopover()", title:"How the drawing reads — fades, fills, canopies",
+      icon:_ic('<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/>')})}
     ${_t({label:"More", act:"ptOverflow()", title:"Layers, layout, reset, trace files", icon:'<span class="tkb-dots">⋯</span>'})}
     ${_wide?`${_hr}${_lb("Also")}
       ${_t({label:ptLayersAllOff()?"Show all":"Hide all", act:"ptHideAllLayers()", on:ptLayersAllOff(),
