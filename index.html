@@ -1886,17 +1886,26 @@ body:not(.sp-on) #sp-open{display:grid}
    same height, same baseline rule, digits a fixed 1ch wide — so the number never reflows as it
    rolls and never jumps when it lands. Only the digits that changed animate, units first. */
 .tknum{font-variant-numeric:tabular-nums;white-space:nowrap}
-.tkc{display:inline-block;height:1.15em;line-height:1.15em;overflow:hidden;
-  white-space:pre;text-align:center;vertical-align:baseline}
+/* A static cell keeps a normal text baseline. Only a cell that is mid-roll clips, and it is given
+   the same baseline back by hand — an inline-block that hides its overflow otherwise sits on its
+   bottom edge, which is why the SF hung below the number beside it. */
+.tkc{display:inline-block;line-height:1.15em;white-space:pre;text-align:center;vertical-align:baseline}
+/* A rolling cell keeps a real glyph in the flow to set its baseline — hidden, but there — and the
+   moving stack is clipped in a layer above it. Clipping the cell itself would move its baseline to
+   its bottom edge, which is what left the SF hanging below the digits beside it. */
+.tkc.tkroll{position:relative;overflow:visible}
+.tkc.tkroll>i{visibility:hidden;font-style:normal}
+.tkc.tkroll>u{position:absolute;left:0;right:0;top:0;height:1.15em;overflow:hidden;
+  text-decoration:none;display:block}
 .tkc.d{width:1ch}
-.tkroll b{display:block;font-weight:inherit;line-height:1.15em;will-change:transform;
+.tkroll u>b{display:block;font-weight:inherit;line-height:1.15em;will-change:transform;
   backface-visibility:hidden}
-.tkroll b.u{animation:tkru .5s cubic-bezier(.22,.85,.28,1) both}
-.tkroll b.d{transform:translateY(-1.15em);animation:tkrd .5s cubic-bezier(.22,.85,.28,1) both}
+.tkroll u>b.up{animation:tkru .5s cubic-bezier(.22,.85,.28,1) both}
+.tkroll u>b.dn{transform:translateY(-1.15em);animation:tkrd .5s cubic-bezier(.22,.85,.28,1) both}
 @keyframes tkru{from{transform:translateY(0)}to{transform:translateY(-1.15em)}}
 @keyframes tkrd{from{transform:translateY(-1.15em)}to{transform:translateY(0)}}
-@media (prefers-reduced-motion:reduce){.tkroll b{animation:none!important}
-  .tkroll b.u{transform:translateY(-1.15em)}.tkroll b.d{transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.tkroll u>b{animation:none!important}
+  .tkroll u>b.up{transform:translateY(-1.15em)}.tkroll u>b.dn{transform:translateY(0)}}
 .tkrow-body{position:relative;display:flex;align-items:center;gap:11px;padding:11px 4px 11px 8px;cursor:pointer;
   background:rgba(18,24,15,.99);touch-action:pan-y;will-change:transform}
 .tkb-lb{font:800 9px var(--tkf);letter-spacing:.12em;text-transform:uppercase;color:#8FA383;padding:5px 6px 1px}
@@ -3363,7 +3372,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v863</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v864</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28307,8 +28316,8 @@ function tkRoll(id, to, pre, post){
     if(ca===cb){ html+=_tkCells(cb); continue; }
     // the units digit goes first and the rest follow it up the number, like a real pump
     const d=(n-1-i)*34; if(d>last) last=d;
-    html+=`<span class="tkc d tkroll"><b class="${up?"u":"d"}" style="animation-delay:${d}ms">`
-        + `${up?(ca===" "?"&nbsp;":ca):cb}<br>${up?cb:(ca===" "?"&nbsp;":ca)}</b></span>`;
+    html+=`<span class="tkc d tkroll"><i>${cb}</i><u><b class="${up?"up":"dn"}" style="animation-delay:${d}ms">`
+        + `${up?(ca===" "?"&nbsp;":ca):cb}<br>${up?cb:(ca===" "?"&nbsp;":ca)}</b></u></span>`;
   }
   if(post) html+=_tkCells(post);
   el.innerHTML=html;
@@ -28488,7 +28497,7 @@ function _tkLedgerBar(tot,live){
             <b style="display:block;font:650 14px ${F};color:#EAF0E4;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.label}</b>
             ${note?`<span style="display:block;font:600 11px ${F};color:#8FA383;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${note}</span>`:''}</span>
           <span style="margin-left:auto;text-align:right;flex:none;white-space:nowrap">
-            <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em;white-space:nowrap">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${u}</b>
+            <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em;white-space:nowrap">${_tkRollSpan("tkq-"+m.k, tot[m.k], "", " "+u)}</b>
             <span style="display:block;font:700 12px ${MN};color:${ex?"#7FA7DE":(pr&&pr.from==="assumed"?"#C9D8BE":"#8FE07A")}">${ex?"excluded":(pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—")}</span></span>
         </div></div>`; }).join('')
         + (()=>{ const d=ptDerived(); if(!d.rows.length) return '';
@@ -28505,7 +28514,7 @@ function _tkLedgerBar(tot,live){
           <div style="font:600 11.5px ${F};color:#8FA383">Priced from the estimate</div>
           <div style="font:750 34px ${MN};letter-spacing:-.04em;line-height:1.05;color:#EAF0E4">${_tkRollSpan("tk$-all", money, "$")}</div>
           <div style="display:flex;align-items:baseline;gap:7px;margin-top:3px">
-            <b style="font:750 17px ${MN};color:#8FE07A">${_tkRollSpan("tk-surf", surf)} SF</b>
+            <b style="font:750 17px ${MN};color:#8FE07A">${_tkRollSpan("tk-surf", surf, "", " SF")}</b>
             <em style="font-style:normal;font:600 11.5px ${F};color:#8FA383">traced${cap?` · ${pct}% of the ${tot.limit?"limit of work":"lot"}`:""}</em></div>
           ${cap?`<div style="height:6px;border-radius:6px;background:rgba(255,255,255,.13);margin-top:11px;overflow:hidden">
               <i style="display:block;height:100%;border-radius:6px;width:${pct}%;background:${surf>cap?'#E0908A':'#EAF0E4'}"></i></div>
@@ -28535,7 +28544,7 @@ function _tkLedgerBar(tot,live){
       <div style="display:flex;background:rgba(255,255,255,.06);border-radius:18px;padding:11px 4px;overflow-x:auto">
         ${cells.length?cells.map((m,i)=>`<span style="flex:1;text-align:center;${i?'border-left:1px solid rgba(255,255,255,.13)':''};position:relative">
             <em style="display:block;font-style:normal;font:600 11.5px ${F};color:#8FA383;margin-bottom:2px">${m.label}</em>
-            <b style="display:block;font:750 15px ${F};color:#EAF0E4">${_tkRollSpan("tkq-"+m.k, tot[m.k])} ${m.kind==="linear"?"LF":"SF"}</b>
+            <b style="display:block;font:750 15px ${F};color:#EAF0E4">${_tkRollSpan("tkq-"+m.k, tot[m.k], "", " "+(m.kind==="linear"?"LF":"SF"))}</b>
             ${(()=>{ const pr=ptPriceFor(m.k, tot[m.k]); return pr?`<span style="display:block;font:700 12px ${MN};color:#8FE07A;margin-top:2px">${_tkRollSpan("tk$-"+m.k, pr.total, "$")}</span>`:''; })()}
 </span>`).join('')
           :`<span style="flex:1;text-align:center;font:600 13px ${F};color:#9FBF95;padding:4px 0">Nothing traced yet — pick a category and draw around an area.</span>`}
