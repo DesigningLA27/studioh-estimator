@@ -1943,7 +1943,7 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkb-fin{width:52px;padding:8px 2px;border:0;border-radius:13px;background:#5BA34A;color:#fff;
   font:750 9.5px/1.15 var(--tkf);cursor:pointer}
 .tkbar.wide .tkb-fin{width:110px;grid-column:span 2;height:38px;font-size:13px;border-radius:11px}
-.tkb-scroll{flex:1 1 auto;min-height:0;width:100%;padding-bottom:6px;overflow-y:auto;overflow-x:hidden;
+.tkb-scroll{flex:1 1 auto;min-height:0;width:100%;padding-bottom:2px;overflow-y:auto;overflow-x:hidden;
   display:flex;flex-direction:column;align-items:center;gap:6px;scrollbar-width:none}
 .tkb-scroll::-webkit-scrollbar{display:none}
 /* Short screen: the rail tightens up so every tool stays reachable without scrolling. */
@@ -3372,7 +3372,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v865</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v866</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27193,7 +27193,15 @@ function ptSet(k){
 }
 function ptSetPut(k,v){
   try{ localStorage.setItem("studioh_pt_set_"+k, String(v)); }catch(e){}
-  try{ ptDrawOverlay(); ptSettingsPopover(true); }catch(e){}
+  try{ ptDrawOverlay(); }catch(e){}
+  // Only the number beside the slider changes while you drag. Rebuilding the sheet would replace
+  // the input under your finger, which is what made it stop dead every five percent.
+  const el=document.getElementById("pt-setv-"+k);
+  if(el) el.textContent=v+(k==="fill"||k==="lotFade"||k==="limFade"?"%":"");
+}
+function ptSetToggle(k){
+  ptSetPut(k, ptSet(k)?0:1);
+  try{ ptSettingsPopover(true); }catch(e){}
 }
 function ptSetReset(){
   Object.keys(TK_SET_DEF).forEach(k=>{ try{ localStorage.removeItem("studioh_pt_set_"+k); }catch(e){} });
@@ -27212,14 +27220,14 @@ function ptSettingsPopover(keep){
     <div style="margin-bottom:15px">
       <div style="display:flex;align-items:baseline;gap:8px">
         <b style="font:650 13.5px ${F};color:#EAF0E4">${lab}</b>
-        <b style="margin-left:auto;font:750 13px ${MN};color:#8FE07A">${ptSet(k)}${suffix||""}</b></div>
+        <b id="pt-setv-${k}" style="margin-left:auto;font:750 13px ${MN};color:#8FE07A">${ptSet(k)}${suffix||""}</b></div>
       <div style="font:600 11px ${F};color:#8FA383;margin:1px 0 7px">${note}</div>
       <input type="range" min="${min}" max="${max}" step="${step}" value="${ptSet(k)}"
-        oninput="ptSetPut('${k}', this.value)"
-        style="width:100%;accent-color:#6FBF5C;height:22px">
+        oninput="ptSetPut('${k}', this.value)" onchange="ptSetPut('${k}', this.value)"
+        style="width:100%;accent-color:#6FBF5C;height:26px;touch-action:pan-y">
     </div>`;
   const toggle=(k,lab,note)=>`
-    <button onclick="ptSetPut('${k}', ${ptSet(k)?0:1})"
+    <button onclick="ptSetToggle('${k}')"
       style="display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:0;
       border-radius:12px;padding:11px 12px;margin-bottom:11px;cursor:pointer;
       background:rgba(255,255,255,.08);color:#EAF0E4">
@@ -27231,9 +27239,9 @@ function ptSettingsPopover(keep){
           border-radius:50%;background:#fff;display:block"></i></span></button>`;
   d.innerHTML=`<div class="tkh"><h3>Take-off settings</h3>
       <button class="cls" onclick="ptPopClose()">✕</button></div>
-    ${slider("lotFade","Outside the property","how far the world falls back beyond the property line",0,95,5,"%")}
-    ${slider("limFade","Outside the limit of work","on top of the property fade, when a limit is drawn",0,90,5,"%")}
-    ${slider("fill","Zone fill","how solid a traced zone reads over the image",10,90,5,"%")}
+    ${slider("lotFade","Outside the property","how far the world falls back beyond the property line",0,95,1,"%")}
+    ${slider("limFade","Outside the limit of work","on top of the property fade, when a limit is drawn",0,90,1,"%")}
+    ${slider("fill","Zone fill","how solid a traced zone reads over the image",10,90,1,"%")}
     ${toggle("canopy","Tree canopies","draw each tree at the spread you will have to design around")}
     <button onclick="ptSetReset()" style="width:100%;border:0;border-radius:11px;padding:11px;
       cursor:pointer;background:rgba(255,255,255,.10);color:#9FBF95;font:600 12.5px ${F}">
@@ -28452,9 +28460,35 @@ function ptTargetAdd(){ const t=ptTargets(); const opts=PT_MODES.filter(m=>m.kin
 function ptRailFit(){
   const bar=document.getElementById("pt-toolbar"); if(!bar) return;
   const sc=bar.querySelector(".tkb-scroll"); if(!sc) return;
-  const test=()=>{ bar.classList.remove("compact");
-    if(sc.scrollHeight>sc.clientHeight+1) bar.classList.add("compact"); };
-  test(); requestAnimationFrame(test);
+  const base=6;
+  // scrollHeight lies here: on a flex child that already fills its parent it reports the box, not
+  // the content. Add the tools up instead, or the rail can never tell full from half empty.
+  const stack=()=>{ let h=0, n=0;
+    Array.prototype.forEach.call(sc.children, el=>{ const r=el.getBoundingClientRect();
+      const cs2=getComputedStyle(el);
+      if(cs2.display==="none") return;                     // a hidden label owns no gap
+      h+=r.height+(parseFloat(cs2.marginTop)||0)+(parseFloat(cs2.marginBottom)||0);
+      n++;                                                 // a 1px rule still costs two gaps
+    });
+    return {h, n};
+  };
+  const test=()=>{
+    if(!sc.isConnected) return;
+    bar.classList.remove("compact"); sc.style.gap=base+"px";
+    const cs=getComputedStyle(sc);
+    const pad=(parseFloat(cs.paddingTop)||0)+(parseFloat(cs.paddingBottom)||0);
+    let st=stack(), box=sc.clientHeight-pad-4;    // 4px so it fills without ever spilling
+    if(st.h+base*(st.n-1) > box+1){ bar.classList.add("compact"); st=stack(); }
+    const g0=bar.classList.contains("compact")?4:base;
+    const n=st.n-1;
+    // spend what is left on the gaps, so the tools reach down to Apply instead of bunching at the
+    // top with a hole underneath them
+    const spare=box-(st.h+g0*n);
+    sc.style.gap=((n>0&&spare>4)?Math.min(40, g0+spare/n):g0).toFixed(1)+"px";
+  };
+  test();
+  requestAnimationFrame(test);
+  setTimeout(test, 90);          // Safari settles the card a beat after the first paint
 }
 window.addEventListener("resize",()=>{ try{ ptRailFit(); }catch(e){} });
 function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) return;
