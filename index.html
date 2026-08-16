@@ -3372,7 +3372,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v871</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v872</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5033,7 +5033,7 @@ const AMENITY_DUPES=[
 // $500–$2,000, not $3,500. Corrects only books still holding that exact seed, so a rate anyone
 // has since set by hand is left alone.
 (function fixDemoLumps(){
-  try{ if(localStorage.getItem("studioh_demolump_v9")) return; }catch(e){}
+  try{ if(localStorage.getItem("studioh_demolump_v10")) return; }catch(e){}
   const seed={"Demo — Fireplace / Masonry":{lo:1500,hi:8000,std:3500,to:{lo:500,hi:4000,std:1200}},
               "Demo — Outdoor Kitchen / BBQ":{lo:1200,hi:6500,std:3000,to:{lo:500,hi:4000,std:1400}},
               "Demo — Shade Structure":{lo:800,hi:5000,std:2200,to:{lo:500,hi:4000,std:1200}},
@@ -5064,12 +5064,17 @@ const AMENITY_DUPES=[
       const stdMatch=(f.std===undefined)?(it.std==null||it.std==="") : (+it.std===f.std);
       if(+it.lo===f.lo && +it.hi===f.hi && stdMatch){ it.lo=f.to.lo; it.hi=f.to.hi; it.std=f.to.std;
         if(f.to.name) it.n=f.to.name; changed=true; } }); });
+  // a rename can collide with the line the defaults already added — keep one
+  PB.forEach(c=>{ if(!c.items) return; const seen={};
+    const keep=c.items.filter(it=>{ const k=(it&&it.n)||""; if(!k) return true;
+      if(seen[k]) return false; seen[k]=1; return true; });
+    if(keep.length!==c.items.length){ c.items=keep; changed=true; } });
   // the planter with no std at all is the pre-v839 seed, and it takes the new figures too
   (function(){ const am=PB.find(c=>c.id==="amenities"); if(!am||!am.items) return;
     const it=am.items.find(x=>x&&/^Large Planter \/ Container$/.test(x.n||""));
     if(it && +it.lo===350 && +it.hi===2500 && (it.std==null||it.std==="")){ it.lo=150; it.hi=850; it.std=500; changed=true; } })();
   if(changed) pbSave();
-  try{ localStorage.setItem("studioh_demolump_v9","1"); }catch(e){}
+  try{ localStorage.setItem("studioh_demolump_v10","1"); }catch(e){}
 })();
 // One-time: strip the placeholder floors that earlier seeds carried (no real floors were user-set).
 (function purgeSeedFloors(){
@@ -27677,8 +27682,10 @@ function _spaGeom(sf){
 function spaCalc(sf, hasPool){
   let pp=1; try{ pp=ptPricePoint(); }catch(e){}
   const g=_spaGeom(sf);
-  const parts=[];
-  const add=(what,qty,unit,rate)=>{ if(rate>0&&qty>0)
+  const parts=[], missing=[];
+  const add=(what,qty,unit,rate)=>{
+    if(!(qty>0)) return;
+    if(!(rate>0)){ missing.push(what); return; }   // a line the price book has not got
     parts.push({what, qty:+(+qty).toFixed(1), unit, rate, cost:qty*rate}); };
   const R=(re)=>_tkRate("pool",re);
   add("Spa shell — gunite, plumbed", 1, "ea", R(/Attached Spa — Shell/i));
@@ -27753,7 +27760,7 @@ function spaCalc(sf, hasPool){
     add("Mobilization & site protection", 1, "ls", _tkRate("sitework",/Mobilization & Site Protection/i));
   }
   const total=parts.reduce((a,p)=>a+p.cost,0);
-  return {parts, total, geom:g, pp};
+  return {parts, total, geom:g, pp, missing};
 }
 function spaCost(sf, hasPool){ try{ return spaCalc(sf,hasPool).total; }catch(e){ return 0; } }
 function _tkPreviewSpaOld(sf, perim, hasPool){
@@ -28139,9 +28146,13 @@ function _ptPriceFor(mode, qty){
     if(c>0) return {total:c, per:c/qty, from:"built"};
   }
   if(mode==="spa"){
+    // The spa is built from its parts or it is not priced at all. Falling through to the pool's
+    // per-square-foot rate turned a missing component into a plausible-looking small number —
+    // which is exactly the kind of quiet wrong answer this app must never give.
     const hasPool=_ptSum("pool")>0 || !_tkBuiltEmpty("pool");
-    const c=_tkAtPoint(()=>spaCost(qty, hasPool));
-    if(c>0) return {total:c, per:c/Math.max(1,qty), from:"built"};
+    const b=_tkAtPoint(()=>spaCalc(qty, hasPool));
+    if(b && b.total>0) return {total:b.total, per:b.total/Math.max(1,qty), from:"built"};
+    return null;
   }
   if(mode==="shade" && _tkBuiltEmpty("pergola")){
     try{ const p=_tkPergolaFrom(qty, _tkShadeKind());
@@ -29191,7 +29202,8 @@ function ptWhy(mode){
         rate:r.rate, cost:r.cost, unitOverride:r.unit}));
       _ptWhyPop(md, mode, {unit:"SF", qty:qty0,
         pr:{total:b.total, per:b.total/Math.max(1,qty0), from:"built"},
-        src:`a ${b.geom.L}′ × ${b.geom.W}′ spa, ${b.geom.per}′ around${hasPool?", sharing the pool's equipment":" with its own equipment"}`,
+        src:`a ${b.geom.L}′ × ${b.geom.W}′ spa, ${b.geom.per}′ around${hasPool?", sharing the pool's equipment":" with its own equipment"}`
+          +((b.missing&&b.missing.length)?` — ${b.missing.length} part${b.missing.length===1?"":"s"} are not in the price book and are costing nothing: ${b.missing.join(", ")}`:""),
         cut:0, each:eachS, marks:0, shapes:[]});
       return;
     }
