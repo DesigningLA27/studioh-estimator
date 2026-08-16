@@ -3372,7 +3372,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v872</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v873</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27663,121 +27663,150 @@ function _tkPoolFrom(sf, perim){
     p.cover="automatic"; p.spaSpillover=true; p.structEng=true;
   }
   return p; }
-function _tkPreviewPool(sf, perim){ try{ return _tkAtPoint(()=>poolCost(_tkPoolFrom(sf,perim))); }catch(e){ return 0; } }
+function _tkPreviewPool(sf, perim){
+  // A pool designed in the builder prices from the builder; one that has only been traced prices
+  // from the assembly model — a complete 15×30 pool, with everything above that scaling.
+  try{ return poolAssemblyCalc(sf, perim).total; }catch(e){ return 0; } }
 // A spa attached to a pool costs what it adds to that pool. On its own it is its own small vessel.
-// ── SPA ─────────────────────────────────────────────────────────────────────
-// A spa is not a small pool and it is not one allowance. What separates the three is spelled out:
-// value is a plaster box that gets hot; standard raises the beam, spills into the pool and puts
-// glass on the waterline; premium wraps an infinity edge the whole way round with a catch basin.
-const SPA_MIN_L=8, SPA_MIN_W=6;
-const SPA_WL_FT=0.5;    // a six-inch waterline band
-const SPA_SPILL_FT=1.5; // the weir face and its top, tiled
+// ── SPA & POOL ASSEMBLY MODEL ───────────────────────────────────────────────
+// From the Studio H estimating model (SoCal, Aug 2026). Both are minimum-assembly models: a spa is
+// a complete 8×8 spa and a pool a complete 15×30, and everything above that scales. The tiers are
+// upgrade deltas off that base, never a re-rating of the same spec. Every figure is editable in the
+// price book under Pool / Spa.
+const SPA_BASE_L=8, SPA_BASE_W=8, SPA_BASE_SF=64;
+const SPA_RATES={
+  BASE_MIN:      [17300, 17300, 17300],   // LS — complete 8×8 attached spa
+  EXTRA_SF:      [250, 325, 450],         // $/plan SF above 64
+  HEATER:        [0, 1400, 3200],
+  FINISH_UPG:    [0, 2200, 4200],
+  FINISH_EXTRA:  [6, 11, 16],             // $/SF of interior beyond the base
+  JET_UPG:       [0, 850, 2400],
+  LIGHT_UPG:     [0, 500, 1500],
+  REMOTE:        [0, 250, 750],
+  BENCH_UPG:     [0, 500, 1250],
+  BOND_BEAM:     [0, 125, 200],           // $/perimeter LF
+  EXT_TILE_MAT:  [0, 12, 45],             // $/SF of raised wall
+  EXT_TILE_INST: [0, 35, 65],
+  WL_TILE_DELTA: [0, 25, 70],             // $/SF of waterline band
+  COPING_DELTA:  [0, 30, 0],              // $/LF; no coping at an infinity edge
+  SPILL:         [0, 1750, 3000],
+  INFINITY:      [0, 0, 550],             // $/perimeter LF
+  PREMIUM_INSTALL:[0, 1000, 2500],
+  STANDALONE:    [14000, 18000, 25000],
+  CONTINGENCY:   [0.05, 0.075, 0.10]
+};
+const SPA_RAISE_IN=[0, 12, 24];
+const SPA_JETS=[6, 10, 14];
+function _spaRate(k){ let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+  const it=_tkItem("pool", new RegExp("^Spa · "+k+"\\b","i"));
+  if(it) return _tkStdUC(it,"pool");                   // the price book wins if it carries the line
+  const r=SPA_RATES[k]; return r?r[pp]:0; }
 function _spaGeom(sf){
-  const a=Math.max(SPA_MIN_L*SPA_MIN_W, Math.round(+sf||0));
-  const L=Math.max(SPA_MIN_L, Math.round(Math.sqrt(a*1.33)));
-  const W=Math.max(SPA_MIN_W, Math.round(a/L));
-  const per=2*(L+W), depth=3.5;
-  return {sf:L*W, L, W, per, interior:L*W+per*depth};
+  const a=Math.max(SPA_BASE_SF, Math.round(+sf||0));
+  const L=Math.max(SPA_BASE_L, Math.round(Math.sqrt(a)));
+  const W=Math.max(SPA_BASE_W, Math.round(a/L));
+  const area=L*W, per=2*(L+W);
+  return {sf:area, L, W, per, extraSF:Math.max(0, area-SPA_BASE_SF),
+          interior:area+per*3.0, baseInterior:SPA_BASE_SF+32*3.0,
+          wlSF:+(per*0.5).toFixed(1)};
 }
 function spaCalc(sf, hasPool){
   let pp=1; try{ pp=ptPricePoint(); }catch(e){}
-  const g=_spaGeom(sf);
-  const parts=[], missing=[];
-  const add=(what,qty,unit,rate)=>{
-    if(!(qty>0)) return;
-    if(!(rate>0)){ missing.push(what); return; }   // a line the price book has not got
+  const g=_spaGeom(sf), parts=[], missing=[];
+  const add=(what,qty,unit,rate)=>{ if(!(qty>0)) return;
+    if(!(rate>0)) return;                       // a zero-rate upgrade simply is not in this tier
     parts.push({what, qty:+(+qty).toFixed(1), unit, rate, cost:qty*rate}); };
-  const R=(re)=>_tkRate("pool",re);
-  add("Spa shell — gunite, plumbed", 1, "ea", R(/Attached Spa — Shell/i));
-  const setRate=R(/Waterline Tile — Setting/i);
-  const wlSF=+(g.per*SPA_WL_FT).toFixed(1);
-  if(pp===0){
-    add("Interior finish — white plaster", g.interior, "SF", R(/Interior Finish — Plaster/i));
-    add("Waterline tile — ceramic, material", wlSF, "SF", R(/Ceramic, material/i));
-    add("Waterline tile — setting & waterproofing", wlSF, "SF", setRate);
-    add("Coping — poured-in-place concrete", g.per, "LF", R(/Coping — Poured/i));
-    add("Jets — standard", 6, "ea", R(/Spa Jet/i));
-    if(!hasPool) add("Heater — standard output", 1, "ea", R(/^Gas Heater$/i));
-    add("Light — LED", 1, "ea", R(/Pool Light — LED/i));
-  } else if(pp===1){
-    const spill=hasPool?4:0, cope=Math.max(0,g.per-spill);
-    add("Interior finish — pebble", g.interior, "SF", R(/Interior Finish — Pebble/i));
-    add("Waterline tile — glass / porcelain, material", wlSF, "SF", R(/Glass \/ Porcelain, material/i));
-    add("Waterline tile — setting & waterproofing", wlSF, "SF", setRate);
-    add("Coping — precast concrete", cope, "LF", R(/Coping — Precast/i));
-    add("Jets — standard plus four", 10, "ea", R(/Spa Jet/i));
-    add("Raised bond beam — 12″ all round", g.per, "LF", R(/Raised Bond Beam/i));
-    if(spill){   // the water just runs over the edge — it is tile, and coping you are not buying
-      const sSF=+(spill*SPA_SPILL_FT).toFixed(1);
-      add("Spillway — glass tile, material", sSF, "SF", R(/Glass \/ Porcelain, material/i));
-      add("Spillway — setting & waterproofing", sSF, "SF", setRate);
-    }
-    // One heater and one controller run both bodies of water. Charging the spa for its own was
-    // counting the pool's equipment twice.
-    if(!hasPool){
-      add("Heater — high output", 1, "ea", R(/Gas Heater — High Output/i));
-      add("Remote control system", 1, "ea", R(/Automation \/ Controls/i));
-    }
-    add("Light — colour LED", 1, "ea", R(/Spa Light — Colour/i));
-  } else {
-    const spill=hasPool?4:0, edge=Math.max(1, g.per-spill);   // nothing to spill into on its own
-    const pmat=R(/Premium Glass, material/i);
-    add("Interior finish — pebble", g.interior, "SF", R(/Interior Finish — Pebble/i));
-    add("Waterline tile — premium glass, material", wlSF, "SF", pmat);
-    add("Premium glass over the beam and edge, material", +(g.per*1.5).toFixed(1), "SF", pmat);
-    add("Tile setting & waterproofing", +(wlSF+g.per*1.5).toFixed(1), "SF", setRate);
-    add("Jets — full complement", 14, "ea", R(/Spa Jet/i));
-    add("Raised bond beam — 12″ all round", g.per, "LF", R(/Raised Bond Beam/i));
-    add("Infinity edge & catch basin", edge, "LF", R(/Infinity Edge — Weir/i));
-    if(spill){
-      const sSF=+(spill*SPA_SPILL_FT).toFixed(1);
-      add("Spillway — premium glass, material", sSF, "SF", pmat);
-      add("Spillway — setting & waterproofing", sSF, "SF", setRate);
-    }
-    if(!hasPool){
-      add("Heater — high output", 1, "ea", R(/Gas Heater — High Output/i));
-      add("Remote control system", 1, "ea", R(/Automation \/ Controls/i));
-    }
-    add("Light — colour LED", 2, "ea", R(/Spa Light — Colour/i));
-  }
-  if(!hasPool){
-    // No pool means nothing to share. The dig, the steel, the plumbing, the pad, the bonding, the
-    // gas, the engineering and the permit are all this spa's alone — and a crew mobilising for a
-    // sixty-foot hole costs very nearly what it costs for a big one, so the site work carries a
-    // minimum rather than being priced off the spa's own footprint.
-    const siteSF=Math.max(g.sf, 150);
-    add("Excavation & haul-off", siteSF, "SF", R(/Excavation & Haul-off/i));
-    add("Steel / rebar cage", g.interior, "SF", R(/Steel \/ Rebar/i));
-    add("Rough plumbing & hydraulics", siteSF, "SF", R(/Rough Plumbing/i));
-    add("Bond beam / structural detail", g.per, "LF", R(/Bond Beam \/ Structural/i));
-    add("Pump — variable speed", 1, "ea", R(/Pump — Variable/i));
-    add("Filter", 1, "ea", R(/Filter \(cartridge/i));
-    add("Electrical bonding & sub-panel", 1, "ls", R(/Electrical Bonding/i));
-    add("Gas line to equipment", 1, "ls", R(/Gas Line to Equipment/i));
-    add("Structural engineering", 1, "ls", R(/Structural Engineering/i));
-    add("Permit & inspections", 1, "ls", R(/Permit & Inspections/i));
-    add("Startup & chemicals", 1, "ls", R(/Startup & Chemicals/i));
-    add("Mobilization & site protection", 1, "ls", _tkRate("sitework",/Mobilization & Site Protection/i));
-  }
-  const total=parts.reduce((a,p)=>a+p.cost,0);
-  return {parts, total, geom:g, pp, missing};
+  const R=_spaRate;
+  add(`Minimum ${SPA_BASE_L}×${SPA_BASE_W} attached spa assembly`, 1, "ls", R("BASE_MIN"));
+  add("Size above the minimum", g.extraSF, "SF", R("EXTRA_SF"));
+  add("Heater upgrade", 1, "ls", R("HEATER"));
+  add("Interior finish upgrade", 1, "ls", R("FINISH_UPG"));
+  add("Premium finish on the added interior", Math.max(0, g.interior-g.baseInterior), "SF", R("FINISH_EXTRA"));
+  add(`Jets — ${SPA_JETS[pp]} total`, 1, "ls", R("JET_UPG"));
+  add("Lighting upgrade", 1, "ls", R("LIGHT_UPG"));
+  add("Controls / remote upgrade", 1, "ls", R("REMOTE"));
+  add("Bench upgrade", 1, "ls", R("BENCH_UPG"));
+  const raiseFt=SPA_RAISE_IN[pp]/12;
+  add(`Raised bond beam — ${SPA_RAISE_IN[pp]}″`, g.per, "LF", R("BOND_BEAM"));
+  const extSF=+(g.per*raiseFt).toFixed(1);
+  add("Raised-wall tile — material", extSF, "SF", R("EXT_TILE_MAT"));
+  add("Raised-wall tile — setting & waterproofing", extSF, "SF", R("EXT_TILE_INST"));
+  add("Waterline tile upgrade", g.wlSF, "SF", R("WL_TILE_DELTA"));
+  const spillLF=(pp>0&&hasPool)?4:0;
+  add("Coping upgrade", Math.max(0,g.per-spillLF), "LF", R("COPING_DELTA"));
+  if(hasPool) add(pp>=2?"Spillway — one infinity side to the pool":"Spillway — 4′ tiled", 1, "ls", R("SPILL"));
+  add("Infinity edge — all sides", g.per, "LF", R("INFINITY"));
+  add("Premium installation & coordination", 1, "ls", R("PREMIUM_INSTALL"));
+  if(!hasPool) add("Standalone infrastructure — pad, pump, filter, controls, utilities", 1, "ls", R("STANDALONE"));
+  const direct=parts.reduce((a,p)=>a+p.cost,0);
+  const cpc=R("CONTINGENCY")||SPA_RATES.CONTINGENCY[pp];
+  const cont=direct*cpc;
+  if(cont>0) parts.push({what:`Conceptual contingency — ${Math.round(cpc*100)}%`, qty:1, unit:"ls", rate:Math.round(cont), cost:cont});
+  return {parts, total:direct+cont, direct, geom:g, pp, missing, raiseIn:SPA_RAISE_IN[pp], jets:SPA_JETS[pp]};
 }
 function spaCost(sf, hasPool){ try{ return spaCalc(sf,hasPool).total; }catch(e){ return 0; } }
-function _tkPreviewSpaOld(sf, perim, hasPool){
-  try{
-    let pp=1; try{ pp=ptPricePoint(); }catch(e){}
-    return _tkAtPoint(()=>{
-      if(hasPool){ const base=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool"));
-        const withSpa=_tkPoolFrom(_ptSum("pool"), _tkPerim("pool"));
-        withSpa.spa=true; withSpa.spaType="attached";
-        withSpa.spaJets=(pp===0?4:(pp===1?8:12));
-        withSpa.spaSpillover=(pp>0);
-        return Math.max(0, poolCost(withSpa)-poolCost(base)); }
-      const sp=_tkPoolFrom(sf, perim); sp.spa=true; sp.spaType="attached";
-      sp.spaJets=(pp===0?4:(pp===1?8:12)); sp.spaSpillover=(pp>0);
-      return poolCost(sp);
-    });
-  }catch(e){ return 0; } }
+// ── POOL ────────────────────────────────────────────────────────────────────
+const POOL_BASE_L=30, POOL_BASE_W=15, POOL_BASE_SF=450, POOL_BASE_PER=90;
+const POOL_LINES=[
+  ["Layout / field coordination",          "LS", [600,1000,1600],   "fixed"],
+  ["Mobilization / access protection",     "LS", [3500,5500,8500],  "fixed"],
+  ["Excavation and shaping",               "CY", [85,120,165],      "cy", 0.189],
+  ["Spoil loading and disposal",           "CY", [75,105,145],      "cy", 0.12222],
+  ["Subgrade / over-excavation allowance", "LS", [1000,2200,4500],  "fixed"],
+  ["Reinforcing steel",                    "LB", [1.10,1.45,1.90],  "cy", 15.56],
+  ["Shotcrete / gunite shell",             "CY", [575,725,900],     "cy", 0.06222],
+  ["Base circulation plumbing",            "LS", [5500,8500,12500], "fixed"],
+  ["Additional plumbing above the minimum","SF", [18,25,35],        "over"],
+  ["Autofill and overflow",                "LS", [600,900,1400],    "fixed"],
+  ["Variable-speed circulation pump",      "EA", [1800,2400,3300],  "fixed"],
+  ["Cartridge filter",                     "EA", [1400,2100,3000],  "fixed"],
+  ["Automation / app control",             "LS", [1800,3000,5000],  "fixed"],
+  ["Sanitation system",                    "LS", [900,1600,2800],   "fixed"],
+  ["Equipment capacity above the minimum", "SF", [4,6,10],          "over"],
+  ["Base electrical, bonding and connections","LS",[4000,6500,10000],"fixed"],
+  ["Electrical adjustment above the minimum","SF",[5,8,12],         "over"],
+  ["LED pool lights",                      "EA", [650,950,1400],    "lights"],
+  ["Interior finish",                      "SF", [5.50,8,12],       "interior"],
+  ["Waterline tile",                       "SF", [30,50,80],        "wl"],
+  ["Pool coping",                          "LF", [50,75,115],       "per"],
+  ["Startup, water balance and programming","LS",[800,1300,2200],   "fixed"],
+  ["Safety labels / owner orientation",    "LS", [250,450,750],     "fixed"],
+  ["Punch-list / minor materials allowance","LS",[700,1200,2000],   "fixed"]
+];
+const POOL_CONT=[0.05,0.075,0.10];
+function _poolRate(name, tri, pp){
+  const it=_tkItem("pool", new RegExp("^Pool · "+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"i"));
+  if(it) return _tkStdUC(it,"pool");
+  return tri[pp];
+}
+function _poolGeom(sf, perim){
+  const a=Math.max(POOL_BASE_SF, Math.round(+sf||0));
+  const L=Math.max(POOL_BASE_L, Math.round(Math.sqrt(a*2)));
+  const W=Math.max(POOL_BASE_W, Math.round(a/L));
+  const area=L*W, per=(perim>0?Math.max(POOL_BASE_PER,Math.round(perim)):2*(L+W));
+  return {sf:area, L, W, per, over:Math.max(0, area-POOL_BASE_SF),
+          interior:Math.max(1050, +(area*2.3334).toFixed(2)), wlSF:Math.max(45, +(per*0.5).toFixed(1))};
+}
+function poolAssemblyCalc(sf, perim){
+  let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+  const g=_poolGeom(sf, perim), parts=[];
+  POOL_LINES.forEach(([name,unit,tri,mode,f])=>{
+    let qty=0;
+    if(mode==="fixed") qty=1;
+    else if(mode==="cy") qty=+(g.sf*f).toFixed(2);
+    else if(mode==="over") qty=g.over;
+    else if(mode==="interior") qty=g.interior;
+    else if(mode==="wl") qty=g.wlSF;
+    else if(mode==="per") qty=g.per;
+    else if(mode==="lights") qty=2+(g.sf>=650?1:0)+(g.sf>=900?1:0);
+    const rate=_poolRate(name, tri, pp);
+    if(qty>0&&rate>0) parts.push({what:name, qty:+(+qty).toFixed(2), unit, rate, cost:qty*rate});
+  });
+  const direct=parts.reduce((a,p)=>a+p.cost,0);
+  const cont=direct*POOL_CONT[pp];
+  if(cont>0) parts.push({what:`Conceptual contingency — ${Math.round(POOL_CONT[pp]*100)}%`, qty:1, unit:"ls", rate:Math.round(cont), cost:cont});
+  return {parts, total:direct+cont, direct, geom:g, pp};
+}
 function _ptSum(mode){ let a=0; (PT.polys||[]).forEach(p=>{ if(p.mode===mode&&p.kind==="area") a+=(+p.sf||0); }); return a; }
 function _tkWaterFrom(sf, title){
   const w=newWaterFeature("custom"); if(title) w.title=title;
@@ -29202,7 +29231,7 @@ function ptWhy(mode){
         rate:r.rate, cost:r.cost, unitOverride:r.unit}));
       _ptWhyPop(md, mode, {unit:"SF", qty:qty0,
         pr:{total:b.total, per:b.total/Math.max(1,qty0), from:"built"},
-        src:`a ${b.geom.L}′ × ${b.geom.W}′ spa, ${b.geom.per}′ around${hasPool?", sharing the pool's equipment":" with its own equipment"}`
+        src:`a ${b.geom.L}′ × ${b.geom.W}′ spa, ${b.geom.per}′ around, raised ${b.raiseIn}″ with ${b.jets} jets${hasPool?", built with the pool" :", standing on its own"}`
           +((b.missing&&b.missing.length)?` — ${b.missing.length} part${b.missing.length===1?"":"s"} are not in the price book and are costing nothing: ${b.missing.join(", ")}`:""),
         cut:0, each:eachS, marks:0, shapes:[]});
       return;
