@@ -262,7 +262,7 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .pb3-add{padding:10px 14px 14px}
 /* the inspector */
 .pb3-ins{background:var(--surface2);padding:14px 15px 20px;position:sticky;top:0;
-  max-height:84vh;overflow-y:auto;scrollbar-width:none}
+  max-height:84vh;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
 .pb3-ins::-webkit-scrollbar{display:none}
 .pb3-ins .t{font-size:11px;color:var(--tl);margin-bottom:9px}
 .pb3-nm{width:100%;border:1px solid transparent;border-radius:8px;background:none;font:inherit;
@@ -3533,7 +3533,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v881</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v882</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -22717,13 +22717,26 @@ function renderPriceBook(){
     const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const att=v=>esc(v).replace(/"/g,"&quot;");
     const money=n=>"$"+Math.round(+n||0).toLocaleString();
-    const sel=items.length?Math.max(0,Math.min(pb3Sel(cat.id),items.length-1)):-1;
+    let sel=items.length?Math.max(0,Math.min(pb3Sel(cat.id),items.length-1)):-1;
 
     // the list — one number per line, at the section's own Standard tier
     const _val=x=>(MODE==="contractor")?contractorPrice(x)
                  :(x.bd?computeBuildupUC(x):tierUC(x,tiers,stdIdx));
-    const _fam=n=>{ const t=String(n||""); const k=t.indexOf(" — "); return k>0?t.slice(0,k).trim():""; };
-    const _famKey=x=>{ const f=_fam(x.n); return f?((x.asm||"")+"|"+f):""; };
+    // "Beam — Wood 4x6" folds under Beam; "Wood 2x4" folds under Wood. The two schemes are
+    // keyed apart so "Post Anchor / Base Plate" never lands inside the Post family.
+    // Both separators the book uses, whichever comes first: "Beam — Wood 4x6" folds under Beam,
+    // "Pool · Excavation and shaping" under Pool. A plain "Wood 2x4" folds on its first word,
+    // keyed apart so "Post Anchor / Base Plate" never lands inside the Post family.
+    const _sepAt=t=>{ const a=t.indexOf(" — "), b=t.indexOf(" · ");
+      if(a<0) return b; if(b<0) return a; return Math.min(a,b); };
+    const _famKey=x=>{ const t=String(x.n||""); const d=_sepAt(t);
+      if(d>0) return (x.asm||"")+"|d|"+t.slice(0,d).trim();
+      const w=t.split(/\s+/)[0];
+      return (w&&/^[A-Za-z]/.test(w)) ? (x.asm||"")+"|w|"+w : ""; };
+    const _famNm=k=>k.split("|").slice(2).join("|");
+    const _famStrip=(n,k)=>{ const t=String(n||"");
+      if(k.indexOf("|d|")>=0){ const d=_sepAt(t); return d>0?t.slice(d+3).trim():t; }
+      const i2=t.indexOf(" "); return i2>0?t.slice(i2+1).trim():t; };
     const _famN={}, _famLo={}, _famHi={};
     items.forEach(x=>{ const k=_famKey(x); if(!k) return;
       _famN[k]=(_famN[k]||0)+1; const v=_val(x);
@@ -22731,6 +22744,12 @@ function renderPriceBook(){
       _famHi[k]=(_famHi[k]==null)?v:Math.max(_famHi[k],v); });
     // one variant is not a family, and two is not worth a row of its own
     const _grouped=k=>!!k && _famN[k]>=3;
+    // Every family starts shut. On first arrival the inspector lands on a line that is not in
+    // one, so opening a family is always something you did rather than something you found.
+    if(sel>=0 && PB3SEL[cat.id]==null){
+      const flat=items.findIndex(x=>!_grouped(_famKey(x)));
+      if(flat>=0) sel=flat;
+    }
     const _selFam=(sel>=0)?_famKey(items[sel]):"";
     let list="", _run=null, _famDone={};
     items.forEach((x,i)=>{
@@ -22742,7 +22761,7 @@ function renderPriceBook(){
       if(fam){
         open = pb3FamOpen(cat.id,fk) || fk===_selFam;
         if(!_famDone[fk]){ _famDone[fk]=1;
-          const nm=fk.split("|")[1];
+          const nm=_famNm(fk);
           list+='<button class="pb3-fam'+(open?" open":"")+'" onclick="pb3Fam(\''+cat.id+'\',\''+_attrJs(fk)+'\')">'
             +'<span class="cv">'+(open?"\u25be":"\u25b8")+'</span><span class="nm">'+esc(nm)+'</span>'
             +'<span class="n">'+_famN[fk]+'</span>'
@@ -22753,7 +22772,7 @@ function renderPriceBook(){
       const dv = (MODE==="contractor") ? (x.cmode==="itemized" && (x.comp||[]).length>0) : !!x.bd;
       const v  = _val(x);
       const lowf = (x.floor!=null && !x.bd && +x.lo < +x.floor);
-      const nm = fam ? esc(x.n.slice(x.n.indexOf(" — ")+3).trim()) : esc(x.n);
+      const nm = fam ? esc(_famStrip(x.n,fk)) : esc(x.n);
       list+='<button class="pb3-li'+(i===sel?" on":"")+(dv?" dv":"")+(fam?" sub":"")+'" onclick="pb3Pick(\''+cat.id+'\','+i+')">'
         +'<span class="nm">'+(dv?'<span class="dot"></span>':'')+nm+(lowf?'<span class="warn">below floor</span>':'')+'</span>'
         +'<span class="u">'+esc(x.u)+'</span><span class="v">'+money(v)+'</span></button>';
@@ -23041,7 +23060,22 @@ function renderPriceBook(){
     _main.appendChild(crumb);
     _renderCat3(c, f.ci, _main);
   }
+  _pb3Fit();
 }
+// A fixed vh cap left the foot of the list below the fold with nothing able to scroll to it —
+// the column has to be measured against the space it actually got.
+function _pb3Fit(){
+  const run=()=>{
+    const wide=window.innerWidth>880;
+    document.querySelectorAll("#pb-editor .pb3-list, #pb-editor .pb3-ins, #pb-editor .pbz-tree").forEach(el=>{
+      if(!wide && !el.classList.contains("pbz-tree")){ el.style.maxHeight=""; return; }
+      const top=el.getBoundingClientRect().top;
+      el.style.maxHeight=Math.max(240, Math.round(window.innerHeight-top-14))+"px";
+    });
+  };
+  requestAnimationFrame(run);
+}
+window.addEventListener("resize", ()=>{ try{ if(S.view==="pricebook") _pb3Fit(); }catch(e){} });
 
 function pbEdit(ci,idx,key,val){
   PB[ci].items[idx][key]=val;
