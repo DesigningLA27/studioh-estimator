@@ -3517,7 +3517,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v879</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v880</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5275,15 +5275,12 @@ let PB_COLLAPSED = (function(){ try{ const s=localStorage.getItem("studioh_pb_co
 if(PB_COLLAPSED['_louverkit']===undefined) PB_COLLAPSED['_louverkit']=true;   // louver kit starts collapsed inside Pergola
 function pbCollapsedSave(){ try{ localStorage.setItem("studioh_pb_collapsed_v1", JSON.stringify(PB_COLLAPSED)); }catch(e){} }
 function pbToggleCollapse(catId){ PB_COLLAPSED[catId]=!PB_COLLAPSED[catId]; pbCollapsedSave(); renderPriceBook(); }
-// In its own pane the rate table is the point, so it starts open; everywhere else it starts shut.
-function pbRatesColl(){ return (pbSel()==="__rates") ? (PB_COLLAPSED['_ratetables']===true)
-                                                     : (PB_COLLAPSED['_ratetables']!==false); }
-function pbToggleRates(){ PB_COLLAPSED['_ratetables'] = !pbRatesColl(); pbCollapsedSave(); renderPriceBook(); }
 // Which line the inspector is showing, per section. Kept in memory — reopening the
 // book lands on the first line, which is where you would start reading anyway.
 let PB3SEL={};
 function pb3Sel(catId){ const v=PB3SEL[catId]; return (v==null)?0:v; }
 function pb3Pick(catId,idx){ PB3SEL[catId]=idx; renderPriceBook(); }
+function pbGoto(ci,idx){ const c=PB[ci]; if(!c) return; PB3SEL[c.id]=idx; pbSelSet(c.id); }
 let PB_ROWOPEN={};
 function _pbRowKey(ci,idx){ const it=(PB[ci]&&PB[ci].items[idx])||{}; return it.id||(ci+':'+idx); }
 function pbToggleItemRow(ci,idx){ const k=_pbRowKey(ci,idx); PB_ROWOPEN[k]=!PB_ROWOPEN[k]; renderPriceBook(); }
@@ -5421,7 +5418,12 @@ function louverKitCalc(p){
 function applyLaborFromMatrix(){ const v=laborRateFor(GSET.laborClass,GSET.laborTier); if(v>0){ GSET.laborRate=v; gsetSave(); } }
 function setLaborTier(t){ GSET.laborTier=t; applyLaborFromMatrix(); applyPriceBook(); renderPriceBook(); }
 function setLaborClass(c){ GSET.laborClass=c; applyLaborFromMatrix(); applyPriceBook(); renderPriceBook(); }
-function setLaborCell(idx,tier,val){ if(!LABOR_RATES[idx])return; LABOR_RATES[idx][tier]=+val||0; laborSave(); if(LABOR_RATES[idx].role===GSET.laborClass && tier===GSET.laborTier){ applyLaborFromMatrix(); applyPriceBook(); } renderPriceBook(); }
+function setLaborCell(idx,tier,val){ if(!LABOR_RATES[idx])return; LABOR_RATES[idx][tier]=+val||0; laborSave();
+  if(LABOR_RATES[idx].role===GSET.laborClass && tier===GSET.laborTier){ applyLaborFromMatrix(); }
+  // Any split line pointing at this trade re-prices, not only the lines on the default
+  // classification — otherwise the estimator keeps charging the old rate with no sign of it.
+  applyPriceBook();
+  renderPriceBook(); }
 function setMatMarkup(tier,val){ MATERIAL_MARKUP[tier]=+val||0; laborSave(); }
 // On a fresh install (no saved settings) seed the global labor rate from the matrix
 (function(){ let saved=false; try{ saved=!!localStorage.getItem("studioh_settings_v1"); }catch(e){} if(!saved) applyLaborFromMatrix(); })();
@@ -22620,40 +22622,6 @@ function renderPriceBook(){
   }
   _renderPbSync();
   const MODE = GSET.pbMode==="contractor" ? "contractor" : "concept";
-  // Settings card: lens toggle + global cost settings (merged)
-  const setCard=document.createElement("div");
-  setCard.className="pbx-card pbx-pad pbx-settings";
-  setCard.innerHTML=`
-    <div class="pbx-setgrp"><span class="pbx-lbl">Labor rate</span><div class="r"><span class="stepper"><button type="button" onclick="gsetEdit('laborRate',-5)">−</button><input type="number" class="no-spin" id="gset-lr" value="${GSET.laborRate}" step="5" style="width:60px;font-weight:600" onchange="gsetSet('laborRate',+this.value||0)"><button type="button" onclick="gsetEdit('laborRate',5)">+</button></span><span class="pbx-unit">$/hr</span></div></div>
-    <div class="pbx-setgrp"><span class="pbx-lbl">From</span><div class="r"><select class="inp" style="font-size:.76rem;padding:.2rem .35rem" onchange="setLaborClass(this.value)">${LABOR_RATES.map(r=>`<option ${r.role===GSET.laborClass?'selected':''}>${r.role}</option>`).join('')}</select><select class="inp" style="font-size:.76rem;padding:.2rem .35rem" onchange="setLaborTier(this.value)">${["low","med","high"].map(t=>`<option value="${t}" ${t===GSET.laborTier?'selected':''}>${LABOR_TIER_LABEL[t]}</option>`).join('')}</select></div></div>
-    <div class="pbx-setgrp"><span class="pbx-lbl">Default margin</span><div class="r"><span class="stepper"><button type="button" onclick="gsetEdit('margin',-1)">−</button><input type="number" class="no-spin" id="gset-mg" value="${GSET.margin}" step="1" style="width:54px;font-weight:600" onchange="gsetSet('margin',+this.value||0)"><button type="button" onclick="gsetEdit('margin',1)">+</button></span><span class="pbx-unit">%</span></div></div>
-    <div class="pbx-setgrp"><span class="pbx-lbl">Market adj</span><div class="r"><span class="stepper"><button type="button" onclick="setMarketAdj((+GSET.marketAdj||0)-1)">−</button><input type="number" class="no-spin" id="gset-madj" value="${+GSET.marketAdj||0}" step="1" style="width:54px;font-weight:600" onchange="setMarketAdj(+this.value||0)"><button type="button" onclick="setMarketAdj((+GSET.marketAdj||0)+1)">+</button></span><span class="pbx-unit">%</span></div></div>
-`;
-  // held back — these mount in the right pane under “Feeds every section”
-
-  // Rate tables (labor matrix + material markup) — collapsed by default
-  let lh=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">
-    <div style="font-weight:600;color:var(--gm);font-size:.95rem">Labor Rates <span style="font-weight:400;color:var(--tl);font-size:.8rem">— Southern California · $/hr</span></div>
-    <div style="font-size:.72rem;color:var(--tl)">Active tier: <strong style="color:var(--gm)">${LABOR_TIER_LABEL[GSET.laborTier]}</strong></div>
-  </div>
-  <table style="width:100%;border-collapse:collapse;font-size:.82rem">
-    <thead><tr style="color:var(--tm)">
-      <th style="text-align:left;padding:.3rem .4rem">Classification</th>
-      <th style="text-align:right;padding:.3rem .4rem">Budget</th>
-      <th style="text-align:right;padding:.3rem .4rem;background:#EFF5EC">Verified · Our Contractor</th>
-      <th style="text-align:right;padding:.3rem .4rem">Premium</th>
-    </tr></thead><tbody>`;
-  const cell=(idx,r,t)=>`<td style="text-align:right;padding:.2rem .4rem;${t==='med'?'background:#F4FAF1;':''}">$<input type="number" class="no-spin" value="${r[t]}" step="5" style="width:62px;text-align:right;font-weight:${t===GSET.laborTier?'700':'500'}" onchange="setLaborCell(${idx},'${t}',+this.value||0)"></td>`;
-  LABOR_RATES.forEach((r,idx)=>{ lh+=`<tr style="border-top:1px solid var(--br)"><td style="padding:.25rem .4rem;font-weight:500">${r.role}</td>${cell(idx,r,'low')}${cell(idx,r,'med')}${cell(idx,r,'high')}</tr>`; });
-  lh+=`<tr style="border-top:2px solid var(--br)"><td style="padding:.25rem .4rem;font-weight:500">Material Handling Markup</td>`;
-  ["low","med","high"].forEach(t=>{ lh+=`<td style="text-align:right;padding:.2rem .4rem;${t==='med'?'background:#F4FAF1;':''}"><input type="number" class="no-spin" value="${MATERIAL_MARKUP[t]}" step="1" style="width:48px;text-align:right" onchange="setMatMarkup('${t}',+this.value||0)">%</td>`; });
-  lh+=`</tr></tbody></table>
-  <div style="font-size:.72rem;color:var(--tl);margin-top:.5rem;line-height:1.5">The <strong>Verified</strong> column is your contractor's quoted pricing. The classification &amp; tier chosen above drives the build-up labor rate; any individual line item can still override it.</div>`;
-  const rtColl = pbRatesColl();
-  const rtWrap=document.createElement("div"); rtWrap.className="pbx-card pbx-pad";
-  rtWrap.innerHTML=`<div class="pbx-disc" onclick="pbToggleRates()"><span class="chev">${rtColl?'▸':'▾'}</span><h4>Rate tables</h4><span class="hint">Labor matrix &amp; material markup</span></div>${rtColl?'':`<div style="margin-top:14px">${lh}</div>`}`;
-  // held back — mounts with setCard under “Feeds every section”
-
   // ---- Louvered Kit pricing (nested inside the Pergola section) ----
   const roleOpts=(sel)=>LABOR_RATES.map(r=>`<option ${r.role===sel?'selected':''}>${r.role}</option>`).join('');
   const lkNum=(key,field,val,step)=>`<input type="number" class="no-spin" value="${val}" step="${step||1}" style="width:74px;font-size:.74rem;padding:.2rem .3rem" onchange="louverKitSet('${key}','${field}',this.value)">`;
@@ -22874,6 +22842,94 @@ function renderPriceBook(){
     _mount.appendChild(card);
   };
 
+  // ── LABOUR & MARKUP: the same list + inspector as a section ────────────────
+  // Every split line points here, so it has to read like the pane it was reached from — and it
+  // has to say how many lines a rate moves before that rate is changed.
+  const _renderRates3=(_mount)=>{
+    const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const att=v=>esc(v).replace(/"/g,"&quot;");
+    const money=n=>"$"+Math.round(+n||0).toLocaleString();
+    const TIERS=[["low","Budget"],["med","Verified · Our Contractor"],["high","Premium"]];
+    // which lines each trade actually moves
+    const uses={};
+    PB.forEach((c,cix)=>(c.items||[]).forEach((x,xi)=>{
+      if(!x.bd || !x.trade) return;
+      (uses[x.trade]=uses[x.trade]||[]).push({cix, xi, cat:c.name, n:x.n});
+    }));
+    const sel=pb3Sel("__rates");
+    const rows=LABOR_RATES.map((r,i)=>({k:"role:"+i, i, nm:r.role, n:(uses[r.role]||[]).length,
+                                        v:money(r[GSET.laborTier])+"/hr"}));
+    const key=(sel===0||typeof sel==="number")?sel:0;
+
+    let list='<div class="pb3-sec">Trades · rate at the <b>'+esc(LABOR_TIER_LABEL[GSET.laborTier])+'</b> tier</div>';
+    rows.forEach((r,i)=>{
+      list+='<button class="pb3-li'+(i===key?" on":"")+'" onclick="pb3Pick(\'__rates\','+i+')">'
+        +'<span class="nm">'+esc(r.nm)+'</span>'
+        +'<span class="u">'+(r.n?r.n+' ln':'')+'</span><span class="v">'+r.v+'</span></button>';
+    });
+    const MK=rows.length, DF=rows.length+1;
+    list+='<div class="pb3-sec">Applies to every section</div>'
+      +'<button class="pb3-li'+(key===MK?" on":"")+'" onclick="pb3Pick(\'__rates\','+MK+')">'
+      +'<span class="nm">Material handling markup</span><span class="u"></span>'
+      +'<span class="v">'+MATERIAL_MARKUP[GSET.laborTier]+'%</span></button>'
+      +'<button class="pb3-li'+(key===DF?" on":"")+'" onclick="pb3Pick(\'__rates\','+DF+')">'
+      +'<span class="nm">Defaults &amp; market adjustment</span><span class="u"></span>'
+      +'<span class="v">'+(+GSET.marketAdj||0)+'%</span></button>';
+
+    let ins="";
+    if(key===MK){
+      ins+='<div class="pb3-nm" style="cursor:default">Material handling markup</div>'
+        +'<div class="t">Added to materials inside a split line.</div><h4>By tier</h4>';
+      TIERS.forEach(([t,lbl])=>{
+        ins+='<div class="pb3-f'+(t===GSET.laborTier?' on':'')+'"><span class="k">'+lbl+'</span>'
+          +'<span style="display:flex;align-items:center;gap:3px">'
+          +'<input type="number" class="no-spin" value="'+MATERIAL_MARKUP[t]+'" step="1" onchange="setMatMarkup(\''+t+'\',+this.value||0);renderPriceBook()">'
+          +'<span style="color:var(--tl);font-size:12px">%</span></span></div>';
+      });
+    } else if(key===DF){
+      ins+='<div class="pb3-nm" style="cursor:default">Defaults &amp; market adjustment</div>'
+        +'<div class="t">Used by any line that does not set its own.</div>';
+      ins+='<h4>Labour</h4>';
+      ins+='<div class="pb3-bu"><span>Default rate $/hr</span><input type="number" class="no-spin" value="'+GSET.laborRate+'" step="5" onchange="gsetSet(\'laborRate\',+this.value||0)"></div>';
+      ins+='<div class="pb3-bu"><span>Follows</span><select onchange="setLaborClass(this.value)">'
+        +LABOR_RATES.map(r=>'<option '+(r.role===GSET.laborClass?'selected':'')+'>'+esc(r.role)+'</option>').join('')+'</select></div>';
+      ins+='<div class="pb3-bu"><span>Tier</span><select onchange="setLaborTier(this.value)">'
+        +TIERS.map(([t,lbl])=>'<option value="'+t+'" '+(t===GSET.laborTier?'selected':'')+'>'+lbl+'</option>').join('')+'</select></div>';
+      ins+='<h4>Markup</h4>';
+      ins+='<div class="pb3-bu"><span>Default margin %</span><input type="number" class="no-spin" value="'+GSET.margin+'" step="1" onchange="gsetSet(\'margin\',+this.value||0)"></div>';
+      ins+='<div class="pb3-bu"><span>Market adjustment %</span><input type="number" class="no-spin" value="'+(+GSET.marketAdj||0)+'" step="1" onchange="setMarketAdj(+this.value||0)"></div>';
+      ins+='<div style="margin-top:10px;font-size:11px;color:var(--tl);line-height:1.45">Market adjustment moves every section at once. A section or a single line can still set its own on top.</div>';
+    } else {
+      const i=Math.max(0,Math.min(key,LABOR_RATES.length-1));
+      const r=LABOR_RATES[i], u=uses[r.role]||[];
+      ins+='<div class="pb3-nm" style="cursor:default">'+esc(r.role)+'</div>'
+        +'<div class="t">Hourly rate · '+(u.length?u.length+' line'+(u.length===1?'':'s')+' read it':'no lines read it yet')+'</div>';
+      ins+='<h4>By tier</h4>';
+      TIERS.forEach(([t,lbl])=>{
+        ins+='<div class="pb3-f'+(t===GSET.laborTier?' on':'')+'"><span class="k">'+lbl+'</span>'
+          +'<span style="display:flex;align-items:center;gap:3px"><span style="color:var(--tl);font-size:12px">$</span>'
+          +'<input type="number" class="no-spin" value="'+r[t]+'" step="5" onchange="setLaborCell('+i+',\''+t+'\',+this.value||0)"></span></div>';
+      });
+      if(r.role===GSET.laborClass) ins+='<div style="margin-top:2px;font-size:11px;color:var(--tl)">This is the classification the default rate follows.</div>';
+      ins+='<h4>Used by</h4>';
+      if(!u.length){
+        ins+='<div style="font-size:11.5px;color:var(--tl);line-height:1.45">Nothing yet. A line reads this rate once it is split into material + labour hours and set to this trade.</div>';
+      } else {
+        ins+='<div class="pb3-d"><div class="l"><span class="k"><span class="pb3-chip">MOVES</span>'
+          +u.length+' line'+(u.length===1?'':'s')+'</span><span class="v">'+money(r[GSET.laborTier])+'/hr</span></div>'
+          +'<div class="m">Changing this rate re-prices every line below.</div></div>';
+        ins+='<div class="pb3-used">'+u.map(x=>'<span style="cursor:pointer" title="'+att(x.cat)+'" onclick="pbGoto('+x.cix+','+x.xi+')">'+esc(x.n)+'</span>').join('')+'</div>';
+      }
+    }
+
+    const card=document.createElement("div");
+    card.className="pbx-card pb3";
+    card.innerHTML='<div class="pb3-h"><span class="tiers">Active tier</span>'
+      +'<span class="pbx-seg">'+TIERS.map(([t,lbl])=>'<button class="'+(t===GSET.laborTier?'on':'')+'" onclick="setLaborTier(\''+t+'\')">'+lbl+'</button>').join('')+'</span></div>'
+      +'<div class="pb3-b"><div class="pb3-list">'+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+    _mount.appendChild(card);
+  };
+
   // ── TWO PANES ─────────────────────────────────────────────────────────────
   // Sections on the left in the estimator's own order, one section at a time on the right. The
   // book can double in size without the page getting any longer, and you never lose your place.
@@ -22927,7 +22983,7 @@ function renderPriceBook(){
       <span>Feeds every section</span><i>›</i><b>Labour &amp; markup</b>
       <em>every section reads these</em>`;
     _main.appendChild(crumb);
-    _main.appendChild(setCard); _main.appendChild(rtWrap);
+    _renderRates3(_main);
   } else {
     const f=_flat.find(x=>x.id===_sel);
     const c=PB[f.ci];
