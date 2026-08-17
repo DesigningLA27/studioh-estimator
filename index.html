@@ -3562,7 +3562,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v885</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v886</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15853,7 +15853,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -23075,6 +23075,79 @@ function renderPriceBook(){
     _mount.appendChild(card);
   };
 
+  // ── ASSUMPTIONS: the rules, in the same shape as a section ─────────────────
+  const _renderAssume3=(_mount)=>{
+    const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const att=v=>esc(v).replace(/"/g,"&quot;");
+    const num=n=>{ const x=+n||0; return (Math.round(x*100)/100).toString(); };
+    const sel=Math.max(0, Math.min(pb3Sel("__assume"), ASSUME_DEFS.length-1));
+    const PPN=["Value","Standard","Premium"];
+
+    let list="", run=null;
+    ASSUME_DEFS.forEach((d,i)=>{
+      if(d.g!==run){ run=d.g; list+='<div class="pb3-sec">'+esc(d.g)+'</div>'; }
+      const shown=assumeVal(d.id);
+      list+='<button class="pb3-li'+(i===sel?" on":"")+(assumeIsSet(d.id)?"":"")+'" onclick="pb3Pick(\'__assume\','+i+')">'
+        +'<span class="nm">'+esc(d.n)+'</span>'
+        +'<span class="u">'+(assumeIsSet(d.id)?'set':'')+'</span>'
+        +'<span class="v">'+num(shown)+'</span></button>';
+    });
+
+    const d=ASSUME_DEFS[sel];
+    let ins='<div class="pb3-nm" style="cursor:default">'+esc(d.n)+'</div>'
+      +'<div class="t">'+esc(d.g)+' · '+esc(d.u)+'</div>';
+    ins+='<h4>'+(d.pp?'By price point':'Value')+'</h4>';
+    if(d.pp){
+      const cur=Array.isArray(assumeRaw(d.id))?assumeRaw(d.id):_assumeFallback(d.id);
+      let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+      PPN.forEach((lbl,i)=>{
+        ins+='<div class="pb3-f'+(i===pp?' on':'')+'"><span class="k">'+lbl+'</span>'
+          +'<span style="display:flex;align-items:center;gap:4px">'
+          +'<input type="number" class="no-spin" value="'+num(cur[i])+'" step="0.01" onchange="assumeSet(\''+_attrJs(d.id)+'\',this.value,'+i+')">'
+          +'<span style="color:var(--tl);font-size:11px">'+esc(d.u.replace(/^hr \/ /,'hr/'))+'</span></span></div>';
+      });
+    } else {
+      ins+='<div class="pb3-f on"><span class="k">Every price point</span>'
+        +'<span style="display:flex;align-items:center;gap:4px">'
+        +'<input type="number" class="no-spin" value="'+num(assumeVal(d.id))+'" step="0.05" onchange="assumeSet(\''+_attrJs(d.id)+'\',this.value)">'
+        +'<span style="color:var(--tl);font-size:11px">'+esc(d.u)+'</span></span></div>';
+    }
+    // what it does with the number, and what it costs once a rate is applied
+    ins+='<h4>What it does</h4>';
+    ins+='<div class="pb3-d"><div class="l"><span class="k"><span class="pb3-chip">RULE</span>How it is used</span></div>'
+      +'<div class="m">'+esc(d.basis)+'</div></div>';
+    if(d.id==="veneer.hrs"){
+      const h=assumeVal("veneer.hrs"), r=_tkVeneerLabor();
+      ins+='<div class="pb3-trm" style="margin-top:8px">'
+        +'<div class="pb3-t"><span class="sg"></span><span class="nm">Hours per SF<span class="fr"><span class="tag ty">Here</span>at the price point in play</span></span><span class="vl">'+num(h)+'</span></div>'
+        +'<div class="pb3-t"><span class="sg">×</span><span class="nm">Skilled Labor<span class="fr"><span class="tag ra">Rate</span><button class="pb3-link" onclick="pbGotoRate(\'Skilled Labor\')">$'+r+'/hr</button></span></span><span class="vl">$'+r+'</span></div>'
+        +'<div class="pb3-t tot"><span class="sg">=</span><span class="nm">Setting cost<span class="fr">per SF of face</span></span><span class="vl">$'+(Math.round(h*r*100)/100)+'</span></div>'
+        +'</div>';
+    } else if(d.id.indexOf("light.hrs|")===0){
+      const h=assumeVal(d.id), r=_tkLightLabor();
+      ins+='<div class="pb3-trm" style="margin-top:8px">'
+        +'<div class="pb3-t"><span class="sg"></span><span class="nm">Hours each<span class="fr"><span class="tag ty">Here</span>same at every price point</span></span><span class="vl">'+num(h)+'</span></div>'
+        +'<div class="pb3-t"><span class="sg">×</span><span class="nm">'+esc(TK_LIGHT_ROLE)+'<span class="fr"><span class="tag ra">Rate</span><button class="pb3-link" onclick="pbGotoRate(\''+_attrJs(TK_LIGHT_ROLE)+'\')">$'+r+'/hr</button></span></span><span class="vl">$'+r+'</span></div>'
+        +'<div class="pb3-t tot"><span class="sg">=</span><span class="nm">Install cost<span class="fr">per fixture, on top of the fixture itself</span></span><span class="vl">$'+(Math.round(h*r*100)/100)+'</span></div>'
+        +'</div>';
+    } else if(d.id.indexOf("light.w|")===0 || d.id.indexOf("xfmr.")===0){
+      const hd=assumeVal("xfmr.head"), cap=assumeVal("xfmr.w")||300;
+      ins+='<div style="margin-top:8px;font-size:11.5px;color:var(--tl);line-height:1.5">'
+        +'Sizing today: connected watts × '+num(hd)+' ÷ '+num(cap)+' W, rounded up. '
+        +'This changes how many transformers a scheme needs, not what a fixture costs.</div>';
+    }
+    ins+='<h4>Used by</h4><div class="pb3-used">'+d.used.map(u=>'<span>'+esc(u)+'</span>').join('')+'</div>';
+    ins+='<div style="margin-top:9px;font-size:11px;color:var(--tl);line-height:1.5">'
+      +esc(d.why)+'</div>';
+    if(assumeIsSet(d.id)) ins+='<div class="pb3-acts"><button class="btn" onclick="assumeReset(\''+_attrJs(d.id)+'\')">↺ Back to the default</button></div>';
+
+    const card=document.createElement("div");
+    card.className="pbx-card pb3";
+    card.innerHTML='<div class="pb3-h"><span class="tiers">The rules a price is multiplied by — rates live in the sections and in Labor &amp; markup</span></div>'
+      +'<div class="pb3-b"><div class="pb3-list" data-sec="__assume">'+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+    _mount.appendChild(card);
+  };
+
   // ── TWO PANES ─────────────────────────────────────────────────────────────
   // Sections on the left in the estimator's own order, one section at a time on the right. The
   // book can double in size without the page getting any longer, and you never lose your place.
@@ -23096,7 +23169,7 @@ function renderPriceBook(){
   _groups.forEach(({g,idxs})=>{ idxs.forEach(ci=>_flat.push({g, ci, id:PB[ci].id})); });
   if(!_flat.length){ return; }
   let _sel=pbSel();
-  if(_sel!=="__rates" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
+  if(_sel!=="__rates" && _sel!=="__assume" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
   let _th="";
   _groups.forEach(({g,idxs})=>{
     if(!idxs.length) return;
@@ -23114,7 +23187,9 @@ function renderPriceBook(){
   });
   _th+=`<div class="pbz-grp"><span class="lb">Feeds every section</span><span class="rule"></span></div>
     <button class="pbz-t feed${_sel==="__rates"?" on":""}" onclick="pbSelSet('__rates')">
-      <span class="lb">Labor &amp; markup</span></button>`;
+      <span class="lb">Labor &amp; markup</span></button>
+    <button class="pbz-t feed${_sel==="__assume"?" on":""}" onclick="pbSelSet('__assume')">
+      <span class="lb">Assumptions</span><span class="n">${ASSUME_DEFS.length}</span></button>`;
   _tree.innerHTML=`<button class="pbz-fold" onclick="pbTreeToggle()" title="Show or hide the section list">
       <span class="cv">${pbTreeShut()?"›":"‹"}</span><span class="lb">Sections</span></button>${_th}`;
   // a long list scrolls, so keep the current section where it can be seen
@@ -23122,7 +23197,14 @@ function renderPriceBook(){
   if(_on) requestAnimationFrame(()=>{ const tr=_tree.getBoundingClientRect(), br=_on.getBoundingClientRect();
     if(br.top<tr.top+8 || br.bottom>tr.bottom-8) _tree.scrollTop += (br.top-tr.top) - tr.height/2 + br.height/2; });
   // the right pane: the settings cards, or one section
-  if(_sel==="__rates"){
+  if(_sel==="__assume"){
+    const crumb=document.createElement("div"); crumb.className="pbz-crumb feed";
+    crumb.innerHTML=`<button class="sx" onclick="pbTreeToggle()">☰ Sections</button>
+      <span>Feeds every section</span><i>›</i><b>Assumptions</b>
+      <em>the rules, not the rates</em>`;
+    _main.appendChild(crumb);
+    _renderAssume3(_main);
+  } else if(_sel==="__rates"){
     const crumb=document.createElement("div"); crumb.className="pbz-crumb feed";
     crumb.innerHTML=`<button class="sx" onclick="pbTreeToggle()">☰ Sections</button>
       <span>Feeds every section</span><i>›</i><b>Labor &amp; markup</b>
@@ -28489,7 +28571,8 @@ function _tkVeneerLabor(){
   try{ const t=(typeof GSET!=="undefined"&&GSET.laborTier)||"med";
     return +laborRateFor(TK_VENEER_ROLE, t)||85; }catch(e){ return 85; }
 }
-function _tkVeneerHrs(){ let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+function _tkVeneerHrs(){ try{ return assumeVal("veneer.hrs"); }catch(e){}
+  let pp=1; try{ pp=ptPricePoint(); }catch(e){}
   return TK_VENEER_HRS[pp]!=null?TK_VENEER_HRS[pp]:TK_VENEER_HRS[1]; }
 function _tkLightLabor(){
   try{ const t=(typeof GSET!=="undefined"&&GSET.laborTier)||"med";
@@ -28497,6 +28580,77 @@ function _tkLightLabor(){
 }
 const TK_XFMR_W=300;          // usable watts per transformer, after the headroom below
 const TK_XFMR_HEADROOM=1.25;  // never load a transformer past 80%
+// ── ASSUMPTIONS ─────────────────────────────────────────────────────────────
+// The rates are all in the Price Book. The rules that multiply them were not — hours to set a
+// square foot of stone, hours to hang a downlight, watts a fixture draws. A number you cannot see
+// is a number you cannot correct, and half of every built-up price came from these.
+// Values live here; the constants above stay as the fallback if a line is ever cleared.
+const ASSUME_DEFS=[
+  {id:"veneer.hrs", g:"Masonry", n:"Veneer setting", u:"hr / SF of face", pp:true,
+   basis:"× face SF of stone, then × the Skilled Labor rate",
+   why:"A sawn ashlar course goes up quickly; a dry-stack ledger with tight joints does not.",
+   used:["Fireplace","Pilaster","Spa raised wall"]},
+  {id:"xfmr.w", g:"Lighting", n:"Transformer capacity", u:"usable W each", pp:false,
+   basis:"total fixture watts × headroom ÷ this = transformers",
+   why:"Usable watts per transformer, after headroom.", used:["Lighting take-off"]},
+  {id:"xfmr.head", g:"Lighting", n:"Transformer headroom", u:"×", pp:false,
+   basis:"multiplies the connected load before sizing",
+   why:"1.25 keeps a transformer under 80% loaded.", used:["Lighting take-off"]}
+];
+const TK_LIGHT_TYPES=["Path / Area","Uplight / Accent","Step / Hardscape","Downlight / Moonlight",
+  "Underwater / Feature","Bollard","String / Festoon"];
+TK_LIGHT_TYPES.forEach(t=>{
+  ASSUME_DEFS.push({id:"light.hrs|"+t, g:"Lighting install hours", n:t, u:"hr each", pp:false,
+    basis:"× how many of these you placed, then × the Specialty Trade rate",
+    why:"A path light goes in a bed; a downlight is up a ladder in a tree.",
+    used:["Lighting take-off"]});
+});
+TK_LIGHT_TYPES.forEach(t=>{
+  ASSUME_DEFS.push({id:"light.w|"+t, g:"Lighting load", n:t, u:"W each", pp:false,
+    basis:"summed across the plan, then sized into transformers",
+    why:"What the fixture draws — it sizes the transformers, not the price.",
+    used:["Lighting take-off"]});
+});
+function _assumeFallback(id){
+  if(id==="veneer.hrs") return TK_VENEER_HRS.slice();
+  if(id==="xfmr.w") return TK_XFMR_W;
+  if(id==="xfmr.head") return TK_XFMR_HEADROOM;
+  const p=id.split("|");
+  if(p[0]==="light.hrs") return (TK_LIGHT_HRS[p[1]]!=null?TK_LIGHT_HRS[p[1]]:0.6);
+  if(p[0]==="light.w")   return (TK_LIGHT_W[p[1]]!=null?TK_LIGHT_W[p[1]]:5);
+  return 0;
+}
+let ASSUME=(function(){ try{ const s=localStorage.getItem("studioh_assume_v1"); if(s) return JSON.parse(s); }catch(e){} return {}; })();
+function assumeSave(){ try{ localStorage.setItem("studioh_assume_v1", JSON.stringify(ASSUME)); }catch(e){} }
+function assumeDef(id){ return ASSUME_DEFS.find(d=>d.id===id)||null; }
+// A price-pointed assumption reads at the point in play; a flat one is the same everywhere.
+function assumeVal(id){
+  const d=assumeDef(id), fb=_assumeFallback(id);
+  const cur=ASSUME[id];
+  if(d && d.pp){
+    let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+    const arr=Array.isArray(cur)?cur:fb;
+    const v=arr[pp]; return (v==null||v==="")?(Array.isArray(fb)?fb[pp]:0):+v;
+  }
+  return (cur==null||cur==="")?fb:+cur;
+}
+function assumeRaw(id){ const cur=ASSUME[id]; return (cur==null)?_assumeFallback(id):cur; }
+function assumeIsSet(id){ return ASSUME[id]!=null; }
+function assumeSet(id,v,i){
+  const d=assumeDef(id);
+  if(d && d.pp){
+    const cur=Array.isArray(ASSUME[id])?ASSUME[id].slice():_assumeFallback(id).slice();
+    cur[i]=(v===""||v==null)?_assumeFallback(id)[i]:+v; ASSUME[id]=cur;
+  } else {
+    if(v===""||v==null) delete ASSUME[id]; else ASSUME[id]=+v;
+  }
+  assumeSave(); try{ applyPriceBook(); }catch(e){}
+  renderPriceBook();
+  try{ if(typeof refreshCatTotals==="function"){ refreshCatTotals("firepit"); refreshCatTotals("lighting"); refreshCatTotals("amenities"); } }catch(e){}
+  try{ if(typeof renderProSummary==="function") renderProSummary(); }catch(e){}
+}
+function assumeReset(id){ delete ASSUME[id]; assumeSave(); renderPriceBook(); }
+
 const TK_WIRE_SLACK=1.15;     // routing round beds and hardscape, plus burial slack
 // Where the transformer goes. It lives on the house — at the gate if there is one, because that is
 // where the power and the access are, otherwise on the face of the building nearest the work.
@@ -28560,7 +28714,7 @@ function ptLightPlan(){
   const by={}; let n=0, watts=0;
   (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!=="light") return;
     const ty=t.size||"Path / Area";
-    by[ty]=(by[ty]||0)+1; n++; watts+=(TK_LIGHT_W[ty]||5); });
+    by[ty]=(by[ty]||0)+1; n++; watts+=assumeVal("light.w|"+ty); });
   const rows=[];
   let total=0, hrs=0;
   const lr=_tkLightLabor();
@@ -28568,14 +28722,15 @@ function ptLightPlan(){
     const re=TK_LIGHT_ITEM[ty]; const rate=re?_tkRate("lighting",re):0;
     const cost=rate*by[ty]; total+=cost;
     rows.push({what:ty+" — fixture", qty:by[ty], unit:"ea", rate, cost});
-    const h=(TK_LIGHT_HRS[ty]||0.6)*by[ty]; hrs+=h;
+    const h=assumeVal("light.hrs|"+ty)*by[ty]; hrs+=h;
     rows.push({what:ty+" — install", qty:+h.toFixed(1), unit:"hr", rate:lr, cost:h*lr});
     total+=h*lr;
   });
   if(!n) return {rows:[], n:0, watts:0, xfmr:0, total:0};
-  const xfmr=Math.max(1, Math.ceil((watts*TK_XFMR_HEADROOM)/TK_XFMR_W));
+  const _xh=assumeVal("xfmr.head"), _xw=assumeVal("xfmr.w")||300;
+  const xfmr=Math.max(1, Math.ceil((watts*_xh)/_xw));
   const xr=_tkRate("lighting",/Transformer & Controller/i);
-  rows.push({what:`Transformer & controller — ${_tkFmt(Math.round(watts))} W of fixtures at ${Math.round(TK_XFMR_HEADROOM*100)}% headroom`,
+  rows.push({what:`Transformer & controller — ${_tkFmt(Math.round(watts))} W of fixtures at ${Math.round(_xh*100)}% headroom`,
              qty:xfmr, unit:"ea", rate:xr, cost:xr*xfmr}); total+=xr*xfmr;
   const W=ptWireRun();
   const wireLF=W.lf||Math.round(n*12), wr=_tkRate("lighting",/Low-Voltage Wiring/i);

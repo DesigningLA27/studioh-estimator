@@ -95,21 +95,21 @@ so every reference has to be checked first.
 ---
 
 ### 7 · Assumptions still living in code
-**ongoing**
+**v886 · 2026-08-17 · price book**
 
-Rates are all in the book now. The rules that multiply them are not:
+Seventeen are now editable under **Price Book → Feeds every section → Assumptions**, with the code
+constant kept as the fallback: veneer setting hours (by price point), install hours and watts for
+all seven fixture types, and transformer capacity + headroom.
 
-| Constant | Decides | Read by |
+Still in code, deliberately:
+
+| Constant | Decides | Why it stayed |
 |---|---|---|
-| `TK_VENEER_HRS` | hours/SF to set stone, by price point | fireplace, pilaster, spa wall |
-| `TK_LIGHT_HRS` | hours to set one fixture (0.6 path → 2.5 festoon) | lighting |
-| `TK_LIGHT_W` | watts per fixture → transformer sizing | lighting |
-| `TK_FOOTPRINT` | assumed SF: firepit 20, fireplace 14, kitchen 2.5/LF | take-offs |
-| `SPA_RAISE_IN`, `SPA_JETS` | 0/12/24″ raise, 6/10/14 jets | spa |
-| `_spaGeom`, `_poolGeom` factors | interior SF = plan × 2.3334, excavation = SF × 0.189 | spa, pool |
+| `TK_FOOTPRINT` | assumed SF — firepit 20, fireplace 14, kitchen 2.5/LF | an assumed *quantity*, better surfaced on the Assumed screen in the take-off |
+| `_spaGeom`, `_poolGeom` factors | interior SF = plan × 2.3334, excavation = SF × 0.189 | physical, not judgement — editing these breaks the model rather than tuning it |
+| `SPA_RAISE_IN`, `SPA_JETS` | 0/12/24″ raise, 6/10/14 jets by price point | specification, not a rate — belongs with the spa builder's own controls |
 
-Next build. My view: veneer and lighting hours are judgement and belong in the book; the geometry
-factors are physical and should stay in code.
+**Decide:** do you want the geometry factors exposed anyway? My view is no.
 
 ---
 
