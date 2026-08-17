@@ -110,18 +110,18 @@ Still in code, deliberately:
 
 ---
 
-### 8 · AI search answers are not verified against the book
-**v887 · 2026-08-17 · price book**
+### 8 · AI search answers are now checked, but the check is arithmetic only
+**v908 · 2026-08-17 · price book**
 
-Typing searches locally — instant, exact, no network. Pressing **Ask** sends a compact index of all
-443 entries (420 lines, 6 trades, 17 assumptions) to the model with a hard instruction to answer
-only from those lines and return the line numbers it used, which are shown under the answer.
+Every dollar figure in an answer is matched back against the lines the model said it used. A figure
+that is not one of those rates, and is not a clean multiple of one, is called out under the answer:
+*"⚠ $73 is not on any line it cited — check before using"*.
 
-It still cannot be tested headlessly — the AI path needs the deployed site and the worker. And the
-model could still misread a line it was given.
+What it cannot catch: a figure that happens to match a **different** line than the one meant, or an
+answer that is wrong in words rather than numbers.
 
-**Decide:** is the "lines the answer used" list enough to trust it, or should an answer that quotes
-a figure be checked against that line before it is shown?
+**Decide:** good enough, or should an answer carrying an unverified figure be withheld entirely
+rather than shown with a warning?
 
 ---
 

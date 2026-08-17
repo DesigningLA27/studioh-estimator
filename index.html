@@ -427,7 +427,8 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
    #EAF1E5 for the selected row and #FDEAF6 for a derived one. */
 #view-pricebook{--pbg:#FFFFFF; --pbcard:#FBFAF6; --pbpill:#FFFFFF;
   --c-hard-bg:#F4EADD; --brand-soft:#EAF1E5;}
-:root[data-theme="dark"] #view-pricebook{--pbg:#12161D; --pbcard:#1B212B; --pbpill:#232B37;}
+:root[data-theme="dark"] #view-pricebook{--pbg:#12161D; --pbcard:#1B212B; --pbpill:#232B37;
+  --c-hard-bg:#2B2419; --brand-soft:#1C2C1B;}
 #view-pricebook.view.active{background:var(--pbg)}
 #view-pricebook .pbz-tree,#view-pricebook .pb3-list,#view-pricebook .pb3-ins,
 #view-pricebook .pb-sr-in{background:var(--pbcard)}
@@ -488,6 +489,9 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 #view-pricebook .pbz-tree,#view-pricebook .pb3-list,#view-pricebook .pb3-ins{padding-top:9px}
 #view-pricebook .pb3-lh .cr b{font-size:14px}
 /* One height for every row — a two-line name sets it, the rest match. */
+/* the destructive action needs its own ink at night — maroon on near-black reads as noise */
+:root[data-theme="dark"] #view-pricebook .pb3-acts .btn[onclick*="pbDeleteItem"]{
+  color:#F0A9A4;border-color:#5A2E2B;background:#2A1A19}
 #view-pricebook .pb3-li,#view-pricebook .pb3-fam{min-height:44px}
 #view-pricebook .pbz-t{min-height:38px}
 /* The count gets a chip of its own — neutral on every row, solid green on the one you are in,
@@ -915,6 +919,9 @@ table.pbk td{vertical-align:top}
 .pb-ai{padding:13px 15px;background:#FDEAF6;border-bottom:1px solid #F1CCE3;font-size:12.5px;color:#8E1462}
 .pb-ai b{font-weight:700}
 .pb-ai .a{margin-top:5px;color:var(--tx);font-size:13px;line-height:1.55}
+.pb-ai .warn{margin-top:8px;background:#FBF1DF;color:#6A4E15;border-radius:9px;padding:7px 10px;
+  font-size:11.5px;font-weight:600;line-height:1.45}
+:root[data-theme="dark"] .pb-ai .warn{background:#2E2718;color:#DFC078}
 .pb-ai .sp{display:inline-block;width:11px;height:11px;margin-right:7px;border-radius:50%;
   border:2px solid #F1CCE3;border-top-color:#B01E7A;animation:pbqspin .7s linear infinite;vertical-align:-1px}
 @keyframes pbqspin{to{transform:rotate(360deg)}}
@@ -3811,7 +3818,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v907</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v908</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -23015,7 +23022,11 @@ function pbqRender(){
     h+='<div class="pb-ai">'+(PBQ_AI.loading
       ? '<span class="sp"></span>Reading the book…'
       : (PBQ_AI.err ? '<b>Could not ask.</b> '+esc(PBQ_AI.err)
-                   : '<b>'+esc(PBQ_AIQ)+'</b><div class="a">'+esc(PBQ_AI.answer||"")+'</div>'))+'</div>';
+                   : '<b>'+esc(PBQ_AIQ)+'</b><div class="a">'+esc(PBQ_AI.answer||"")+'</div>'
+                     +((PBQ_AI.unverified&&PBQ_AI.unverified.length)
+                       ? '<div class="warn">⚠ '+PBQ_AI.unverified.map(n=>"$"+n.toLocaleString()).join(", ")
+                         +(PBQ_AI.unverified.length===1?' is':' are')+' not on any line it cited — check before using'+'</div>'
+                       : '')))+'</div>';
     if(PBQ_AI.rows && PBQ_AI.rows.length){
       h+='<div class="pb-sr-h">Lines the answer used</div>';
       PBQ_AI.rows.forEach(r=>{ h+=_pbqRow(r, esc, money); });
@@ -23039,6 +23050,22 @@ function _pbqRow(r, esc, money){
     +'<span class="u">'+esc(r.u||"")+'</span>'
     +'<span class="v">'+(r.v?money(r.v):"—")+'</span></button>';
 }
+// The model is told to answer only from the lines it was given, but nothing stops it misreading
+// one. Every figure it quotes is checked back against the lines it cited — anything that is not
+// there, and is not arithmetic on what is there, is called out rather than shown as fact.
+function _pbqUnverified(answer, rows){
+  try{
+    const said=(String(answer).match(/\$\s?[\d,]+(?:\.\d+)?/g)||[])
+      .map(t=>+t.replace(/[^0-9.]/g,"")).filter(n=>isFinite(n)&&n>0);
+    if(!said.length || !rows.length) return [];
+    const have=rows.map(r=>+r.v||0).filter(n=>n>0);
+    const near=n=>have.some(h=>Math.abs(h-n)<=Math.max(0.51, h*0.005));
+    // a total is legitimate arithmetic on a rate, so a figure that is a clean multiple passes too
+    const mult=n=>have.some(h=>{ if(h<=0) return false; const q=n/h;
+      return q>=1 && Math.abs(q-Math.round(q))<0.005 && Math.round(q)<=100000; });
+    return said.filter(n=>!near(n)&&!mult(n)).slice(0,6);
+  }catch(e){ return []; }
+}
 // The model gets a compact index and answers from it — it never invents a rate.
 async function pbqAsk(){
   const q=(document.getElementById("pb-q")||{}).value||PBQ_Q;
@@ -23060,7 +23087,8 @@ async function pbqAsk(){
     const m=t.match(/\{[\s\S]*\}/);
     if(!m) throw new Error(t.slice(0,140)||"empty reply");
     const j=JSON.parse(m[0]);
-    PBQ_AI={answer:j.answer||"", rows:(j.idx||[]).map(i=>idx[i]).filter(Boolean)};
+    const rows=(j.idx||[]).map(i=>idx[i]).filter(Boolean);
+    PBQ_AI={answer:j.answer||"", rows, unverified:_pbqUnverified(j.answer||"", rows)};
   }catch(e){ PBQ_AI={err:(e&&e.message)||"failed"}; }
   pbqRender();
 }
