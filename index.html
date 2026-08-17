@@ -3533,7 +3533,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v882</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v883</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5402,8 +5402,24 @@ const LOUVER_KIT_ORDER=["diy","mid","luxury"];
 (function(){ const defs={maxSpan:{diy:14,mid:20,luxury:24}, bladeSpan:{diy:10,mid:14,luxury:16}, rafterLF:{diy:55,mid:65,luxury:85}, insertSF:{diy:35,mid:55,luxury:80}}; let ch=false; for(const f in defs){ for(const key in defs[f]){ if(LOUVER_KITS[key] && LOUVER_KITS[key][f]==null){ LOUVER_KITS[key][f]=defs[f][key]; ch=true; } } } if(ch){ try{ localStorage.setItem("studioh_louverkits_v1", JSON.stringify(LOUVER_KITS)); }catch(e){} } })();
 function louverKitsSave(){ try{ localStorage.setItem("studioh_louverkits_v1", JSON.stringify(LOUVER_KITS)); }catch(e){} }
 function louverKitSet(key,field,val){ if(!LOUVER_KITS[key])return; if(field==='asmRole'||field==='footRole'||field==='attachRole'||field==='name') LOUVER_KITS[key][field]=val; else LOUVER_KITS[key][field]=+val||0; louverKitsSave(); renderPriceBook(); refreshCatTotals("pergola"); renderProSummary(); }
+// Manual and motorised are two different systems, and the book prices both — but until now the
+// builder never read the choice, so a hand-cranked roof was billed as a motorised one. The kit
+// tiers are motorised, so the manual line is applied as the ratio between the two book lines:
+// nothing invented, and moving either line moves the result.
+function louverDrive(p){ return (p&&p.louverDrive==="manual") ? "manual" : "motor"; }
+function louverDriveInfo(p){
+  const out={drive:louverDrive(p), ratio:1, manual:0, motor:0};
+  try{
+    const c=pergolaComponents(), lv=(c&&c.louver)||[];
+    const man=lv.find(x=>/manual/i.test(x.n||"")), mot=lv.find(x=>/motoriz|motoris/i.test(x.n||""));
+    out.manual=man?(+man.uc||0):0; out.motor=mot?(+mot.uc||0):0;
+    if(out.drive==="manual" && out.manual>0 && out.motor>0) out.ratio=out.manual/out.motor;
+  }catch(e){}
+  return out;
+}
 function louverKitCalc(p){
   const k=LOUVER_KITS[p.louverKit]||LOUVER_KITS.mid; if(!k) return null;
+  const _dr=louverDriveInfo(p);
   const {L,W,footprintSF}=pergolaDims(p);
   const sf=footprintSF||((L||0)*(W||0));
   const tier=GSET.laborTier||'med';
@@ -5421,9 +5437,9 @@ function louverKitCalc(p){
       spanAlert=`This ${Math.round(maxDim)}′ run is past the ${maxSpan}′ single-span limit — ${extraPosts} mid-frame support post${extraPosts!==1?'s':''} factored into the structure.`;
     }
   }
-  const material=sf*(+k.matSF||0)*materialMult;
+  const material=sf*(+k.matSF||0)*materialMult*_dr.ratio;
   const assembly=sf*(+k.hrsSF||0)*laborRateFor(k.asmRole,tier);
-  const core=Math.max(+k.baseMin||0, material+assembly);
+  const core=Math.max((+k.baseMin||0)*_dr.ratio, material+assembly);
   const att=Math.min(4,Math.max(0,+p.attachedSides||0));
   const basePosts=_pc.corners;
   const postCount=_pc.total;
@@ -5434,7 +5450,8 @@ function louverKitCalc(p){
   const _sup=louverSupports(p,L,W);
   const rafterLen=(_sup.dir==='length')?(W||0):(L||0);
   const rafters=Math.round((_sup.extra||0)*rafterLen*(+k.rafterLF||0));
-  return { total:Math.round(core+footings+permit+attach+rafters), material:Math.round(material), assembly:Math.round(assembly), core:Math.round(core), footings:Math.round(footings), permit:Math.round(permit), attach:Math.round(attach), rafters:rafters, rafterCount:_sup.total, rafterReq:_sup.required, rafterExtra:_sup.extra, sf, postCount, basePosts, extraPosts, maxSpan, maxDim:Math.round(maxDim), materialMult, spanAlert, spanRec };
+  return { total:Math.round(core+footings+permit+attach+rafters), material:Math.round(material), assembly:Math.round(assembly), core:Math.round(core), footings:Math.round(footings), permit:Math.round(permit), attach:Math.round(attach), rafters:rafters, rafterCount:_sup.total, rafterReq:_sup.required, rafterExtra:_sup.extra, sf, postCount, basePosts, extraPosts, maxSpan, maxDim:Math.round(maxDim), materialMult, spanAlert, spanRec, drive:_dr.drive, driveRatio:_dr.ratio,
+           driveManual:_dr.manual, driveMotor:_dr.motor };
 }
 function applyLaborFromMatrix(){ const v=laborRateFor(GSET.laborClass,GSET.laborTier); if(v>0){ GSET.laborRate=v; gsetSave(); } }
 function setLaborTier(t){ GSET.laborTier=t; applyLaborFromMatrix(); applyPriceBook(); renderPriceBook(); }
@@ -21392,7 +21409,7 @@ function newPergola(){
     overhead:"open", rafterOn:true, rafterIdx:mi("Wood 2x6"), rafterOC:30, rafterCount:8, rafterPos:"top", rafterDir:"depth", beamWrapIdx:-1,
     lathOn:false, lathIdx:mi("Wood 1x3"), lathOC:6, lathSpacer:0,
     crossOn:false, crossIdx:mi("Wood 1x2"), crossOC:6, crossSpacer:0, kneeBraces:0,
-    roofMatIdx:0, ceilingIdx:0, ceilingProfile:"cathedral", roofStyle:"gable", roofPitch:3, roofOverhang:12, gutters:false, flashing:false, fascia:true, ridgecap:true, louverIdx:0, louverOverride:false, louverTotal:0, louverRafterDir:"depth", louverSameAsRafter:false, louverDir:"length", louverRafters:0, louverCustom:false, louverSections:1, louverBladeW:6, louverKit:"mid",
+    roofMatIdx:0, ceilingIdx:0, ceilingProfile:"cathedral", roofStyle:"gable", roofPitch:3, roofOverhang:12, gutters:false, flashing:false, fascia:true, ridgecap:true, louverIdx:0, louverOverride:false, louverTotal:0, louverRafterDir:"depth", louverSameAsRafter:false, louverDir:"length", louverRafters:0, louverCustom:false, louverDrive:"motor", louverSections:1, louverBladeW:6, louverKit:"mid",
     canvasTypeIdx:0, canvasAttachSpacing:24, canvasSliders:0, canvasElectric:false, canvasRunnerIdx:mi("Wood 2x6"), canvasOpen:30,
     lights:0, ledPerim:false, heaterIdx:-1, heaters:0, fans:0, speakers:0,
     zipShort:0, zipLong:0, screenShort:0, screenLong:0, shadeShort:0, shadeLong:0, glassFixedShort:0, glassFixedLong:0, slidingShort:0, slidingLong:0, accordionShort:0, accordionLong:0, latticeShort:0, latticeLong:0, glassDoorLF:0, outlets:0,
@@ -21402,7 +21419,7 @@ function newPergola(){
 }
 function delPergola(i){ S.pergolas.splice(i,1); pergRefresh(); }
 function pergRefresh(){ renderPergolaBuilder(); refreshCatTotals("pergola"); renderProSummary(); }
-function setPerg(i,key,val){ const p=S.pergolas[i]; if(!p)return; if(key==="label"||key==="dimMode"||key==="overhead"||key==="rafterPos"||key==="rafterDir"||key==="louverRafterDir"||key==="louverDir"||key==="louverKit"||key==="roofStyle"||key==="ceilingProfile")p[key]=val; else p[key]=+val; if(key==="attachedSides"){p[key]=Math.min(4,Math.max(0,+val||0)); if(typeof encSync==="function")encSync(p);} if((key==="attachedSides"||key==="overhead"||key==="roofStyle")&&p.overhead==="solid"){const _a=(+p.attachedSides||0); if(_a>=1&&p.roofStyle==="hip")p.roofStyle="leanto"; if(_a>=2&&p.roofStyle==="gable")p.roofStyle="leanto";} if(key==="postWidthIn"){p[key]=Math.max(4,Math.min(16,+val||6));} if((key==="roofPitch"||key==="roofMatIdx"||key==="overhead"||key==="roofStyle")&&p.overhead==="solid"){ const _rms=(typeof pergolaComponents==="function"?(pergolaComponents().roofmat||[]):[]); const _sel=_rms[p.roofMatIdx]||{}; if(/shingle/i.test(_sel.n||"")&&(+p.roofPitch||0)<4){ const _ci=_rms.findIndex(x=>/concrete tile/i.test(x.n||"")); if(_ci>=0)p.roofMatIdx=_ci; } } pergRefresh(); }
+function setPerg(i,key,val){ const p=S.pergolas[i]; if(!p)return; if(key==="label"||key==="dimMode"||key==="overhead"||key==="rafterPos"||key==="rafterDir"||key==="louverRafterDir"||key==="louverDir"||key==="louverKit"||key==="louverDrive"||key==="roofStyle"||key==="ceilingProfile")p[key]=val; else p[key]=+val; if(key==="attachedSides"){p[key]=Math.min(4,Math.max(0,+val||0)); if(typeof encSync==="function")encSync(p);} if((key==="attachedSides"||key==="overhead"||key==="roofStyle")&&p.overhead==="solid"){const _a=(+p.attachedSides||0); if(_a>=1&&p.roofStyle==="hip")p.roofStyle="leanto"; if(_a>=2&&p.roofStyle==="gable")p.roofStyle="leanto";} if(key==="postWidthIn"){p[key]=Math.max(4,Math.min(16,+val||6));} if((key==="roofPitch"||key==="roofMatIdx"||key==="overhead"||key==="roofStyle")&&p.overhead==="solid"){ const _rms=(typeof pergolaComponents==="function"?(pergolaComponents().roofmat||[]):[]); const _sel=_rms[p.roofMatIdx]||{}; if(/shingle/i.test(_sel.n||"")&&(+p.roofPitch||0)<4){ const _ci=_rms.findIndex(x=>/concrete tile/i.test(x.n||"")); if(_ci>=0)p.roofMatIdx=_ci; } } pergRefresh(); }
 function infoIcon(text,red){ return `<span class="info-i${red?' info-r':''}" tabindex="0" onclick="showInfoPop(event,this)" data-info="${String(text).replace(/"/g,'&quot;')}">i</span>`; }
 function warnIcon(text){ return `<span class="warn-i" tabindex="0" title="Click for details" onclick="showInfoPop(event,this)" data-info="${String(text).replace(/"/g,'&quot;')}"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3 L22 20.5 H2 Z" fill="#F5B301" stroke="#B9860B" stroke-width="0.9" stroke-linejoin="round"/><path d="M12 9.5 V14.6" stroke="#4a3700" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.5" r="1.15" fill="#4a3700"/></svg></span>`; }
 function closeInfoPop(){ const pop=document.getElementById('infoPop'); if(pop){ pop.style.display='none'; pop._anchor=null; } }
@@ -21677,7 +21694,8 @@ function pergolaCalc(p){
   } else if(p.overhead==="louver"){
     if(p.louverCustom){
       const _lk=LOUVER_KITS[p.louverKit]||LOUVER_KITS.mid;
-      overheadCost += (footprintSF||0)*(+_lk.insertSF||0);                       // motorized louver insert (blades+motor+install), per SF
+      const _dr=louverDriveInfo(p);
+      overheadCost += (footprintSF||0)*(+_lk.insertSF||0)*_dr.ratio;             // louver insert (blades, drive & install), per SF
       const _su=louverSupports(p,L,W); const _rl=(_su.dir==='length')?(W||0):(L||0);
       overheadCost += (_su.total||0)*_rl*(+_lk.rafterLF||0);                     // structural rafters/purlins the insert sits on
     } else if(p.louverOverride){ overheadCost+=(+p.louverTotal||0); }
@@ -22410,16 +22428,22 @@ function renderPergolaBuilder(){
         <div style="background:#FBFAF7;border:1px solid var(--br);border-radius:8px;padding:.7rem .8rem">
           <div style="margin-bottom:.5rem">${chk(i,'louverOverride',p.louverOverride,'Override with my own total price (e.g. outsourced)')}</div>
           ${p.louverOverride?`<div style="max-width:220px"><div class="li-ctrl-label">Louver total ($)</div>${stp(i,'louverTotal',p.louverTotal,100,90)}</div>`:`
+          <div class="li-ctrl-label">Operation${infoIcon('The kit tiers are motorised systems. Manual is priced from this job&#39;s two louver lines — <strong>Louver System — Manual</strong> against <strong>— Motorized</strong> — so the gap between them is yours to set, not mine.')}</div>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin:.2rem 0 .55rem">
+            ${[['motor','Motorized'],['manual','Manual']].map(o=>{const ac=louverDrive(p)===o[0];return `<button class="btn" style="padding:.42rem .85rem;font-size:.78rem;${ac?`background:${PERG_COL.louver};color:#fff;border:1px solid ${PERG_COL.louver}`:`background:#fff;color:${PERG_COL.louver};border:1px solid ${PERG_COL.louver}`}" onclick="setPerg(${i},'louverDrive','${o[0]}')">${o[1]}</button>`}).join('')}
+          </div>
           <div class="li-ctrl-label">${p.louverCustom?'Louver insert quality':'System tier'}${infoIcon(p.louverCustom?'Sets the louver insert quality — blades, motor &amp; install. Your posts &amp; beams are priced in the structure sections above.':'A complete factory kit price that replaces the itemized posts, beams, rafters &amp; attachment. Pick the tier matching the system quality.')}</div>
           <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin:.2rem 0 .55rem">
             ${LOUVER_KIT_ORDER.map(key=>{const kk=LOUVER_KITS[key];const ac=(p.louverKit||'mid')===key;return `<button class="btn" style="padding:.42rem .85rem;font-size:.78rem;${ac?`background:${PERG_COL.louver};color:#fff;border:1px solid ${PERG_COL.louver}`:`background:#fff;color:${PERG_COL.louver};border:1px solid ${PERG_COL.louver}`}" onclick="setPerg(${i},'louverKit','${key}')">${kk.name}</button>`}).join('')}
           </div>
           ${p.louverCustom?`<div style="background:#fff;border:1px solid var(--br);border-radius:7px;padding:.5rem .65rem;font-size:.74rem;color:var(--tm);line-height:1.55">
-            <div style="display:flex;justify-content:space-between"><span>Louver insert (${Math.round(d.footprintSF||0)} SF × $${(LOUVER_KITS[p.louverKit||'mid']||{}).insertSF}/SF)${infoIcon('Insert = blades, motor &amp; install only. Your frame (e.g. a steel beam with fewer posts) is priced in the structure sections above — the breakdown totals both.')}</span><span style="font-weight:600">${fmtN(Math.round((d.footprintSF||0)*((LOUVER_KITS[p.louverKit||'mid']||{}).insertSF||0)))}</span></div>
+            ${louverDrive(p)==='manual'?`<div style="display:flex;justify-content:space-between;color:${PERG_COL.louver}"><span>Manual, not motorised — ×${louverDriveInfo(p).ratio.toFixed(2)}</span><span>applied to the insert</span></div>`:''}
+            <div style="display:flex;justify-content:space-between"><span>Louver insert (${Math.round(d.footprintSF||0)} SF × $${(LOUVER_KITS[p.louverKit||'mid']||{}).insertSF}/SF${louverDrive(p)==='manual'?` × ${louverDriveInfo(p).ratio.toFixed(2)}`:''})${infoIcon('Insert = blades, motor &amp; install only. Your frame (e.g. a steel beam with fewer posts) is priced in the structure sections above — the breakdown totals both.')}</span><span style="font-weight:600">${fmtN(Math.round((d.footprintSF||0)*((LOUVER_KITS[p.louverKit||'mid']||{}).insertSF||0)*louverDriveInfo(p).ratio))}</span></div>
             <div style="display:flex;justify-content:space-between;color:var(--tl)"><span>Posts · beams · footings</span><span>see structure sections ↑</span></div>
           </div>`:''}
           ${calc.kitDetail?`<div style="background:#fff;border:1px solid var(--br);border-radius:7px;padding:.5rem .65rem;font-size:.74rem;color:var(--tm);line-height:1.55">
             <div style="display:flex;justify-content:space-between"><span>Kit + assembly</span><span style="font-weight:600">${fmtN(calc.kitDetail.core)}</span></div>
+            ${calc.kitDetail.drive==='manual'?`<div style="display:flex;justify-content:space-between;color:${PERG_COL.louver}"><span>Manual, not motorised — $${calc.kitDetail.driveManual} vs $${calc.kitDetail.driveMotor}/SF, ×${calc.kitDetail.driveRatio.toFixed(2)}${infoIcon(`<strong>Louver System — Manual $${calc.kitDetail.driveManual}/SF</strong> against <strong>— Motorized $${calc.kitDetail.driveMotor}/SF</strong> on this job. That ratio is applied to the kit and its minimum; the labour to hang it is unchanged.`)}</span><span>applied to the kit</span></div>`:''}
             <div style="display:flex;justify-content:space-between"><span>Footings (${calc.kitDetail.postCount}${calc.kitDetail.extraPosts>0?` · +${calc.kitDetail.extraPosts} for span`:''})${calc.kitDetail.spanAlert?warnIcon(_spanWarn):''}</span><span>${fmtN(calc.kitDetail.footings)}</span></div>
             <div style="display:flex;justify-content:space-between"><span>Permit / engineering</span><span>${fmtN(calc.kitDetail.permit)}</span></div>
             ${calc.kitDetail.attach>0?`<div style="display:flex;justify-content:space-between"><span>Building attachment</span><span>${fmtN(calc.kitDetail.attach)}</span></div>`:''}
