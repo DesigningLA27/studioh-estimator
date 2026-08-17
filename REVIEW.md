@@ -113,6 +113,21 @@ Still in code, deliberately:
 
 ---
 
+### 8 · AI search answers are not verified against the book
+**v887 · 2026-08-17 · price book**
+
+Typing searches locally — instant, exact, no network. Pressing **Ask** sends a compact index of all
+443 entries (420 lines, 6 trades, 17 assumptions) to the model with a hard instruction to answer
+only from those lines and return the line numbers it used, which are shown under the answer.
+
+It still cannot be tested headlessly — the AI path needs the deployed site and the worker. And the
+model could still misread a line it was given.
+
+**Decide:** is the "lines the answer used" list enough to trust it, or should an answer that quotes
+a figure be checked against that line before it is shown?
+
+---
+
 ## Settled
 
 _(nothing yet)_

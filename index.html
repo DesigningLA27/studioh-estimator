@@ -671,6 +671,38 @@ table.pbk td{vertical-align:top}
    than rewriting ~185 `background:#fff` rules across the file, the ones that
    actually read as bright are re-pointed at theme tokens here. */
 .pbx-legend{background:var(--surface2);border:1px solid var(--br);border-radius:16px;padding:.5rem .7rem;margin-bottom:14px;font-size:.72rem;color:var(--tm);display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
+.pbq-wrap{margin-left:auto;display:flex;align-items:center;gap:6px}
+.pbq{border:1px solid var(--br);background:var(--card);border-radius:9px;font:inherit;font-size:12.5px;
+  color:var(--tx);padding:6px 10px;width:236px;outline:none}
+.pbq:focus{border-color:var(--gm)}
+.pbq::-webkit-search-cancel-button{display:none}
+.pbq-ask{border:1px solid var(--gm);background:var(--gm);color:#fff;border-radius:9px;font:inherit;
+  font-size:12px;font-weight:700;padding:6px 12px;cursor:pointer}
+.pbq-x{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:9px;font:inherit;
+  font-size:12px;padding:6px 9px;cursor:pointer}
+#pb-sr{margin-bottom:14px}
+.pb-sr-in{background:var(--card);border:1px solid var(--brl);border-radius:16px;overflow:hidden;
+  box-shadow:0 1px 2px rgba(28,43,22,.04),0 18px 40px -30px rgba(28,43,22,.32);max-height:62vh;overflow-y:auto}
+.pb-sr-h{padding:10px 15px 7px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--tl);background:var(--surface2);border-bottom:1px solid var(--brl)}
+.pb-sr-h b{color:var(--tx)}
+.pb-sr-r{display:grid;grid-template-columns:170px minmax(0,1fr) 40px 84px;gap:10px;align-items:baseline;
+  width:100%;border:0;background:none;font:inherit;text-align:left;cursor:pointer;
+  padding:8px 15px;border-bottom:1px solid var(--brl)}
+.pb-sr-r:last-child{border-bottom:0}
+.pb-sr-r:hover{background:var(--surface2)}
+.pb-sr-r .s{font-size:11px;color:var(--tl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb-sr-r .n{font-size:13.5px;font-weight:600;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb-sr-r .u{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tl)}
+.pb-sr-r .v{text-align:right;font-size:13.5px;font-weight:600;color:var(--tm);font-variant-numeric:tabular-nums}
+.pb-ai{padding:13px 15px;background:#FDEAF5;border-bottom:1px solid #F1CCE3;font-size:12.5px;color:#8E1462}
+.pb-ai b{font-weight:700}
+.pb-ai .a{margin-top:5px;color:var(--tx);font-size:13px;line-height:1.55}
+.pb-ai .sp{display:inline-block;width:11px;height:11px;margin-right:7px;border-radius:50%;
+  border:2px solid #F1CCE3;border-top-color:#B01E7A;animation:pbqspin .7s linear infinite;vertical-align:-1px}
+@keyframes pbqspin{to{transform:rotate(360deg)}}
+:root[data-theme="dark"] .pb-ai{background:#2B1322;border-bottom-color:#4A2038;color:#FBA9D6}
+@media (max-width:900px){ .pbq{width:150px} }
 .pbx-legend .pbx-seg button{padding:6px 12px;font-size:12px;line-height:1.15;display:flex;flex-direction:column;align-items:flex-start;gap:1px}
 .pbx-legend .pbx-seg button i{font-style:normal;font-weight:500;font-size:9.5px;letter-spacing:.04em;opacity:.72}
 .pbx-lnote{color:var(--tl)}
@@ -3562,7 +3594,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v886</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v887</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -22688,6 +22720,115 @@ function stepWall(i,key,delta){
 // ── PRICE BOOK EDITOR ────────────────────────────────────────
 const PB_UNITS=["SF","LF","EA","CY","LS"];
 
+// ── PRICE BOOK SEARCH ───────────────────────────────────────────────────────
+// 422 lines across 16 sections plus the rates and the assumptions. Typing finds them instantly;
+// asking a question hands the same index to the model, which answers and points at the lines.
+let PBQ_Q="", PBQ_AI=null, PBQ_AIQ="";
+function _pbqIndex(){
+  const out=[];
+  PB.forEach((c,ci)=>(c.items||[]).forEach((it,ix)=>{
+    let v=0; try{ const tiers=SEC_TIERS[c.id]||["Low","Standard","High"];
+      const si=tiers.indexOf("Standard"); v=it.bd?computeBuildupUC(it):tierUC(it,tiers,si<0?1:si); }catch(e){}
+    out.push({k:"line", ci, ix, sec:c.name, secId:c.id, n:it.n, u:it.u, v,
+              tag:(it.asm||""), bd:!!it.bd});
+  }));
+  LABOR_RATES.forEach((r,i)=>out.push({k:"rate", i, sec:"Labor & markup", n:r.role, u:"hr",
+    v:+r[GSET.laborTier]||0}));
+  try{ ASSUME_DEFS.forEach((d,i)=>out.push({k:"assume", i, sec:"Assumptions", n:d.n+" — "+d.g,
+    u:d.u, v:assumeVal(d.id)})); }catch(e){}
+  return out;
+}
+function _pbqScore(row, terms){
+  const n=(row.n||"").toLowerCase(), s=(row.sec||"").toLowerCase();
+  let sc=0;
+  for(const t of terms){
+    if(!t) continue;
+    if(n===t) sc+=100;
+    else if(n.startsWith(t)) sc+=40;
+    else if(n.includes(t)) sc+=25;
+    else if(s.includes(t)) sc+=8;
+    else if((row.u||"").toLowerCase()===t) sc+=6;
+    else return -1;                       // every word has to land somewhere
+  }
+  return sc;
+}
+function pbqHits(q){
+  const terms=String(q||"").toLowerCase().split(/\s+/).filter(Boolean);
+  if(!terms.length) return [];
+  return _pbqIndex().map(r=>({r, sc:_pbqScore(r,terms)})).filter(x=>x.sc>=0)
+    .sort((a,b)=>b.sc-a.sc || a.r.n.localeCompare(b.r.n)).slice(0,40).map(x=>x.r);
+}
+function pbqType(v){ PBQ_Q=v; if(!v){ PBQ_AI=null; } pbqRender(); }
+function pbqClear(){ PBQ_Q=""; PBQ_AI=null; const el=document.getElementById("pb-q"); if(el) el.value="";
+  pbqRender(); }
+function pbqGo(k, a, b){
+  pbqClear();
+  if(k==="line") pbGoto(a,b);
+  else if(k==="rate"){ PB3SEL["__rates"]=a; pbSelSet("__rates"); }
+  else { PB3SEL["__assume"]=a; pbSelSet("__assume"); }
+}
+function pbqRender(){
+  const host=document.getElementById("pb-sr"); if(!host) return;
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const money=n=>"$"+Math.round(+n||0).toLocaleString();
+  if(!PBQ_Q && !PBQ_AI){ host.style.display="none"; host.innerHTML=""; return; }
+  host.style.display="";
+  const hits=pbqHits(PBQ_Q);
+  let h="";
+  if(PBQ_AI){
+    h+='<div class="pb-ai">'+(PBQ_AI.loading
+      ? '<span class="sp"></span>Reading the book…'
+      : (PBQ_AI.err ? '<b>Could not ask.</b> '+esc(PBQ_AI.err)
+                   : '<b>'+esc(PBQ_AIQ)+'</b><div class="a">'+esc(PBQ_AI.answer||"")+'</div>'))+'</div>';
+    if(PBQ_AI.rows && PBQ_AI.rows.length){
+      h+='<div class="pb-sr-h">Lines the answer used</div>';
+      PBQ_AI.rows.forEach(r=>{ h+=_pbqRow(r, esc, money); });
+    }
+  }
+  if(hits.length){
+    h+='<div class="pb-sr-h">'+hits.length+(hits.length===40?"+":"")+' match'+(hits.length===1?'':'es')+'</div>';
+    hits.forEach(r=>{ h+=_pbqRow(r, esc, money); });
+  } else if(PBQ_Q && !PBQ_AI){
+    h+='<div class="pb-sr-h">Nothing matches “'+esc(PBQ_Q)+'”. Press <b>Ask</b> to put it to the AI.</div>';
+  }
+  host.innerHTML='<div class="pb-sr-in">'+h+'</div>';
+}
+function _pbqRow(r, esc, money){
+  const go = (r.k==="line") ? 'pbqGo(\'line\','+r.ci+','+r.ix+')'
+           : (r.k==="rate") ? 'pbqGo(\'rate\','+r.i+')'
+                            : 'pbqGo(\'assume\','+r.i+')';
+  return '<button class="pb-sr-r" onclick="'+go+'">'
+    +'<span class="s">'+esc(r.sec)+(r.tag?' · '+esc(r.tag):'')+'</span>'
+    +'<span class="n">'+esc(r.n)+'</span>'
+    +'<span class="u">'+esc(r.u||"")+'</span>'
+    +'<span class="v">'+(r.v?money(r.v):"—")+'</span></button>';
+}
+// The model gets a compact index and answers from it — it never invents a rate.
+async function pbqAsk(){
+  const q=(document.getElementById("pb-q")||{}).value||PBQ_Q;
+  if(!q||!q.trim()) return;
+  PBQ_AIQ=q.trim(); PBQ_AI={loading:true}; pbqRender();
+  const idx=_pbqIndex();
+  const lines=idx.map((r,i)=>i+"|"+r.sec+"|"+r.n+"|"+(r.u||"")+"|"+(r.v||0)).join("\n");
+  const endpoint=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:"https://api.anthropic.com/v1/messages";
+  const sys="You answer questions about a landscape contractor's price book. You are given every line as "
+    +"`index|section|name|unit|standard price`. Answer ONLY from those lines — never invent a rate or a line. "
+    +"Reply as JSON and nothing else: {\"answer\":\"one or two sentences\",\"idx\":[numbers of the lines you used]}. "
+    +"If the book cannot answer it, say so in `answer` and return an empty `idx`.";
+  try{
+    const resp=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6", max_tokens:600, system:sys,
+        messages:[{role:"user",content:"PRICE BOOK\n"+lines+"\n\nQUESTION: "+PBQ_AIQ}]})});
+    const data=await resp.json();
+    const t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"").trim();
+    const m=t.match(/\{[\s\S]*\}/);
+    if(!m) throw new Error(t.slice(0,140)||"empty reply");
+    const j=JSON.parse(m[0]);
+    PBQ_AI={answer:j.answer||"", rows:(j.idx||[]).map(i=>idx[i]).filter(Boolean)};
+  }catch(e){ PBQ_AI={err:(e&&e.message)||"failed"}; }
+  pbqRender();
+}
+
 let _pb3Scroll={sec:null, top:0};
 function _pb3Keep(){ const l=document.querySelector("#pb-editor .pb3-list");
   _pb3Scroll = l ? {sec:l.getAttribute("data-sec"), top:l.scrollTop} : {sec:null, top:0}; }
@@ -22755,7 +22896,16 @@ function renderPriceBook(){
        <span class="ctchip ct-mat">MATERIALS ONLY</span>
        <span class="ctchip ct-labor">LABOR ONLY</span>
        ${ihint("Each line item is tagged with what its price represents — click the tag on a row to change it. To break an installed price into separate materials and labor hours, press Split M+L on that row.")}`);
+  legCard.innerHTML += `<div class="pbq-wrap">
+      <input id="pb-q" class="pbq" type="search" placeholder="Search the book, or ask a question"
+             value="${(PBQ_Q||"").replace(/"/g,"&quot;")}" oninput="pbqType(this.value)"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();pbqAsk();}">
+      <button class="pbq-ask" onclick="pbqAsk()" title="Put the question to the AI, answered only from these lines">Ask</button>
+      ${(PBQ_Q||PBQ_AI)?`<button class="pbq-x" onclick="pbqClear()" title="Clear">✕</button>`:``}
+    </div>`;
   host.appendChild(legCard);
+  const _sr=document.createElement("div"); _sr.id="pb-sr"; _sr.style.display="none";
+  host.appendChild(_sr);
 
   // Below-floor warning summary
   const flagged=[];
@@ -23223,6 +23373,7 @@ function renderPriceBook(){
   }
   _pb3Restore();
   _pb3Fit();
+  try{ pbqRender(); }catch(e){}
 }
 // A fixed vh cap left the foot of the list below the fold with nothing able to scroll to it —
 // the column has to be measured against the space it actually got.
