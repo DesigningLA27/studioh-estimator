@@ -221,7 +221,8 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .pb3-h .tiers{font-size:11.5px;color:var(--tl)}
 .pb3-h .adj{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--tl)}
 .pb3-b{display:grid;grid-template-columns:minmax(0,1fr) 302px;align-items:start}
-.pb3-list{min-width:0;border-right:1px solid var(--brl)}
+.pb3-list{min-width:0;border-right:1px solid var(--brl);max-height:78vh;overflow-y:auto;
+  overscroll-behavior:contain}
 .pb3-li{display:grid;grid-template-columns:minmax(0,1fr) 34px 82px;align-items:center;gap:8px;
   width:100%;border:0;background:none;font:inherit;text-align:left;cursor:pointer;
   padding:9px 14px;border-bottom:1px solid var(--brl);color:var(--tx)}
@@ -243,6 +244,21 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .pb3-sec{padding:14px 14px 5px;font-size:10px;font-weight:700;letter-spacing:.1em;
   text-transform:uppercase;color:var(--tl);border-bottom:1px solid var(--brl);background:var(--surface2)}
 .pb3-sec b{color:var(--gm);font-weight:700}
+.pb3-fam{display:grid;grid-template-columns:14px minmax(0,1fr) 34px 82px;align-items:center;gap:8px;
+  width:100%;border:0;background:none;font:inherit;text-align:left;cursor:pointer;
+  padding:9px 14px;border-bottom:1px solid var(--brl);color:var(--tx)}
+.pb3-fam .cv{color:var(--tl);font-size:10px}
+.pb3-fam .nm{font-size:13.5px;font-weight:700}
+.pb3-fam .n{font-size:10.5px;font-weight:700;color:var(--tl);text-align:center;
+  font-variant-numeric:tabular-nums}
+.pb3-fam .v{text-align:right;font-size:12.5px;font-weight:600;color:var(--tl);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.pb3-fam:hover{background:var(--surface2)}
+.pb3-fam.open{background:var(--surface2)}
+.pb3-fam.open .cv{color:var(--gm)}
+.pb3-li.sub{padding-left:36px;box-shadow:inset 1px 0 0 var(--br)}
+.pb3-li.sub.on{box-shadow:inset 3px 0 0 var(--gm)}
+.pb3-li.sub.on.dv{box-shadow:inset 3px 0 0 #B01E7A}
 .pb3-add{padding:10px 14px 14px}
 /* the inspector */
 .pb3-ins{background:var(--surface2);padding:14px 15px 20px;position:sticky;top:0;
@@ -292,7 +308,7 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
    first, because below 46 rows it would never be seen. */
 @media (max-width:880px){
   .pb3-b{grid-template-columns:minmax(0,1fr)}
-  .pb3-list{border-right:0}
+  .pb3-list{border-right:0;max-height:58vh}
   .pb3-ins{position:static;max-height:none;order:-1;border-bottom:1px solid var(--br)}
 }
 .pb-list{background:var(--card);border:1px solid var(--br);border-radius:14px;overflow:hidden}
@@ -3517,7 +3533,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v880</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v881</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5280,6 +5296,11 @@ function pbToggleCollapse(catId){ PB_COLLAPSED[catId]=!PB_COLLAPSED[catId]; pbCo
 let PB3SEL={};
 function pb3Sel(catId){ const v=PB3SEL[catId]; return (v==null)?0:v; }
 function pb3Pick(catId,idx){ PB3SEL[catId]=idx; renderPriceBook(); }
+// A section like Pergola is 86 lines, most of them variants of the same eight things. Lines that
+// share what comes before the em dash fold into one row you open when you need it.
+let PB3FAM={};
+function pb3FamOpen(catId,k){ return !!PB3FAM[catId+"\u203a"+k]; }
+function pb3Fam(catId,k){ const kk=catId+"\u203a"+k; PB3FAM[kk]=!PB3FAM[kk]; renderPriceBook(); }
 function pbGoto(ci,idx){ const c=PB[ci]; if(!c) return; PB3SEL[c.id]=idx; pbSelSet(c.id); }
 let PB_ROWOPEN={};
 function _pbRowKey(ci,idx){ const it=(PB[ci]&&PB[ci].items[idx])||{}; return it.id||(ci+':'+idx); }
@@ -22699,16 +22720,42 @@ function renderPriceBook(){
     const sel=items.length?Math.max(0,Math.min(pb3Sel(cat.id),items.length-1)):-1;
 
     // the list — one number per line, at the section's own Standard tier
-    let list="", _run=null;
+    const _val=x=>(MODE==="contractor")?contractorPrice(x)
+                 :(x.bd?computeBuildupUC(x):tierUC(x,tiers,stdIdx));
+    const _fam=n=>{ const t=String(n||""); const k=t.indexOf(" — "); return k>0?t.slice(0,k).trim():""; };
+    const _famKey=x=>{ const f=_fam(x.n); return f?((x.asm||"")+"|"+f):""; };
+    const _famN={}, _famLo={}, _famHi={};
+    items.forEach(x=>{ const k=_famKey(x); if(!k) return;
+      _famN[k]=(_famN[k]||0)+1; const v=_val(x);
+      _famLo[k]=(_famLo[k]==null)?v:Math.min(_famLo[k],v);
+      _famHi[k]=(_famHi[k]==null)?v:Math.max(_famHi[k],v); });
+    // one variant is not a family, and two is not worth a row of its own
+    const _grouped=k=>!!k && _famN[k]>=3;
+    const _selFam=(sel>=0)?_famKey(items[sel]):"";
+    let list="", _run=null, _famDone={};
     items.forEach((x,i)=>{
       const grp=x.asm||"";
-      if(grp!==_run){ _run=grp;
+      if(grp!==_run){ _run=grp; _famDone={};
         list+='<div class="pb3-sec">'+(grp?'Feeds the <b>'+esc(grp)+'</b>':'Section lines')+'</div>'; }
+      const fk=_famKey(x), fam=_grouped(fk);
+      let open=true;
+      if(fam){
+        open = pb3FamOpen(cat.id,fk) || fk===_selFam;
+        if(!_famDone[fk]){ _famDone[fk]=1;
+          const nm=fk.split("|")[1];
+          list+='<button class="pb3-fam'+(open?" open":"")+'" onclick="pb3Fam(\''+cat.id+'\',\''+_attrJs(fk)+'\')">'
+            +'<span class="cv">'+(open?"\u25be":"\u25b8")+'</span><span class="nm">'+esc(nm)+'</span>'
+            +'<span class="n">'+_famN[fk]+'</span>'
+            +'<span class="v">'+money(_famLo[fk])+(_famHi[fk]!==_famLo[fk]?"\u2013"+money(_famHi[fk]):"")+'</span></button>';
+        }
+        if(!open) return;
+      }
       const dv = (MODE==="contractor") ? (x.cmode==="itemized" && (x.comp||[]).length>0) : !!x.bd;
-      const v  = (MODE==="contractor") ? contractorPrice(x) : (x.bd?computeBuildupUC(x):tierUC(x,tiers,stdIdx));
+      const v  = _val(x);
       const lowf = (x.floor!=null && !x.bd && +x.lo < +x.floor);
-      list+='<button class="pb3-li'+(i===sel?" on":"")+(dv?" dv":"")+'" onclick="pb3Pick(\''+cat.id+'\','+i+')">'
-        +'<span class="nm">'+(dv?'<span class="dot"></span>':'')+esc(x.n)+(lowf?'<span class="warn">below floor</span>':'')+'</span>'
+      const nm = fam ? esc(x.n.slice(x.n.indexOf(" — ")+3).trim()) : esc(x.n);
+      list+='<button class="pb3-li'+(i===sel?" on":"")+(dv?" dv":"")+(fam?" sub":"")+'" onclick="pb3Pick(\''+cat.id+'\','+i+')">'
+        +'<span class="nm">'+(dv?'<span class="dot"></span>':'')+nm+(lowf?'<span class="warn">below floor</span>':'')+'</span>'
         +'<span class="u">'+esc(x.u)+'</span><span class="v">'+money(v)+'</span></button>';
     });
 
