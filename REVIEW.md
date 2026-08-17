@@ -33,7 +33,21 @@ the labour? Default is Motorized, so nothing already quoted moved.
 
 ---
 
-### 2 · Price Book edits do not re-price a job that is already open
+### 2 · Material on a split line is typed, not linked to anything
+**v885 · 2026-08-17 · price book**
+
+On a Split M+L line the material figure is **typed on that line**, in the line's own unit. Pressing
+Split M+L seeds it from the midpoint of that line's Low/High, and after that it is yours. It is not
+pulled from the Price Book, the Materials library or a supplier — so there is nothing to link to,
+which is why the term is tagged `TYPED · on this line · per SF`.
+
+**Decide:** should material instead be able to point at a **Materials library** item, so a supplier
+price change flows through to every line that uses it? That is real work and overlaps
+[[material-library-roadmap]] — worth it only if you intend to keep supplier pricing current.
+
+---
+
+### 3 · Price Book edits do not re-price a job that is already open
 **pre-existing · found v883 · whole app**
 
 `applyPriceBook()` seeds a project's unit cost once and then keeps it:
@@ -51,7 +65,7 @@ per-section or all-or-nothing?
 
 ---
 
-### 3 · Infinity edge — $850/LF or $550/LF
+### 4 · Infinity edge — $850/LF or $550/LF
 **v873 · spa**
 
 The old model used $850/LF. The spreadsheet you sent says $550/LF, and that is what is in the book
@@ -59,7 +73,7 @@ now. Never confirmed which is right.
 
 ---
 
-### 4 · A standalone spa omits the spillway
+### 5 · A standalone spa omits the spillway
 **v873 · spa**
 
 By design — there is no pool to spill into. It puts the standalone spa **$1,752 (Standard)** and
@@ -68,7 +82,7 @@ spreadsheet's standalone number needs adjusting.
 
 ---
 
-### 5 · Rafter and lattice lines do not fold into a family
+### 6 · Rafter and lattice lines do not fold into a family
 **v882 · pergola**
 
 `Wood 1x2`, `Wood 2x4`, `Aluminum 2x2`, `Steel 2x4` and the rest now group under **Wood** by first
@@ -80,7 +94,7 @@ so every reference has to be checked first.
 
 ---
 
-### 6 · Assumptions still living in code
+### 7 · Assumptions still living in code
 **ongoing**
 
 Rates are all in the book now. The rules that multiply them are not:
