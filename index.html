@@ -3533,7 +3533,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v883</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v884</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5307,6 +5307,7 @@ function _pbRowKey(ci,idx){ const it=(PB[ci]&&PB[ci].items[idx])||{}; return it.
 function pbToggleItemRow(ci,idx){ const k=_pbRowKey(ci,idx); PB_ROWOPEN[k]=!PB_ROWOPEN[k]; renderPriceBook(); }
 function pbSel(){ try{ return localStorage.getItem("studioh_pb_sel")||""; }catch(e){ return ""; } }
 function pbSelSet(id){ try{ localStorage.setItem("studioh_pb_sel", id); }catch(e){}
+  _pb3Scroll={sec:null, top:0};      // changing section is a move, so that one does start at the top
   renderPriceBook(); const h=document.getElementById("pb-editor"); if(h) h.scrollIntoView({block:"start"}); }
 // Narrow screens start folded, but the choice is still yours once you make one.
 function pbTreeShut(){ let v=null; try{ v=localStorage.getItem("studioh_pb_tree"); }catch(e){}
@@ -22656,9 +22657,18 @@ function stepWall(i,key,delta){
 // ── PRICE BOOK EDITOR ────────────────────────────────────────
 const PB_UNITS=["SF","LF","EA","CY","LS"];
 
+let _pb3Scroll={sec:null, top:0};
+function _pb3Keep(){ const l=document.querySelector("#pb-editor .pb3-list");
+  _pb3Scroll = l ? {sec:l.getAttribute("data-sec"), top:l.scrollTop} : {sec:null, top:0}; }
+function _pb3Restore(){ if(!_pb3Scroll.sec) return;
+  const l=document.querySelector("#pb-editor .pb3-list");
+  if(l && l.getAttribute("data-sec")===_pb3Scroll.sec) l.scrollTop=_pb3Scroll.top; }
 function renderPriceBook(){
   const host=document.getElementById("pb-editor");
   if(!host) return;
+  // Editing or picking a line rebuilds the pane. Without this the list jumps back to the top and
+  // you lose the place you were working in — on a 90-line section that is the whole screen.
+  _pb3Keep();
   host.innerHTML="";
   const meta=document.getElementById("pb-meta");
   if(meta){
@@ -22925,7 +22935,7 @@ function renderPriceBook(){
       +'<button type="button" onclick="setSectionAdj('+ci+',(+PB['+ci+'].madj||0)-1)">−</button>'
       +'<input type="number" class="no-spin" value="'+(+cat.madj||0)+'" step="1" style="width:46px;'+((+cat.madj||0)!==0?'font-weight:700':'')+'" onchange="setSectionAdj('+ci+',+this.value||0)">'
       +'<button type="button" onclick="setSectionAdj('+ci+',(+PB['+ci+'].madj||0)+1)">+</button></span>%</span></div>'
-      +'<div class="pb3-b"><div class="pb3-list">'+list
+      +'<div class="pb3-b"><div class="pb3-list" data-sec="'+att(cat.id)+'">'+list
       +'<div class="pb3-add"><button class="btn btn-o" style="font-size:.76rem" onclick="pbAddItem('+ci+')">+ Add line item</button></div>'
       +'</div><aside class="pb3-ins">'+ins+'</aside></div>'
       +(cat.id==='pergola'?'<div style="padding:0 16px 16px">'+lkBlock+'</div>':'');
@@ -23016,7 +23026,7 @@ function renderPriceBook(){
     card.className="pbx-card pb3";
     card.innerHTML='<div class="pb3-h"><span class="tiers">Active tier</span>'
       +'<span class="pbx-seg">'+TIERS.map(([t,lbl])=>'<button class="'+(t===GSET.laborTier?'on':'')+'" onclick="setLaborTier(\''+t+'\')">'+lbl+'</button>').join('')+'</span></div>'
-      +'<div class="pb3-b"><div class="pb3-list">'+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+      +'<div class="pb3-b"><div class="pb3-list" data-sec="__rates">'+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
     _mount.appendChild(card);
   };
 
@@ -23084,6 +23094,7 @@ function renderPriceBook(){
     _main.appendChild(crumb);
     _renderCat3(c, f.ci, _main);
   }
+  _pb3Restore();
   _pb3Fit();
 }
 // A fixed vh cap left the foot of the list below the fold with nothing able to scroll to it —
@@ -23096,6 +23107,7 @@ function _pb3Fit(){
       const top=el.getBoundingClientRect().top;
       el.style.maxHeight=Math.max(240, Math.round(window.innerHeight-top-14))+"px";
     });
+    _pb3Restore();          // a changed max-height can clamp the position we just restored
   };
   requestAnimationFrame(run);
 }
