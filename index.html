@@ -240,6 +240,9 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .pb3-li.on.dv{box-shadow:inset 3px 0 0 #B01E7A}
 .pb3-li.on.dv .nm{color:#8E1462}
 .pb3-li .warn{color:#C0392B;font-weight:700;font-size:11px;margin-left:6px}
+.pb3-sec{padding:14px 14px 5px;font-size:10px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--tl);border-bottom:1px solid var(--brl);background:var(--surface2)}
+.pb3-sec b{color:var(--gm);font-weight:700}
 .pb3-add{padding:10px 14px 14px}
 /* the inspector */
 .pb3-ins{background:var(--surface2);padding:14px 15px 20px;position:sticky;top:0;
@@ -3514,7 +3517,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v877</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v878</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -22728,8 +22731,11 @@ function renderPriceBook(){
     const sel=items.length?Math.max(0,Math.min(pb3Sel(cat.id),items.length-1)):-1;
 
     // the list — one number per line, at the section's own Standard tier
-    let list="";
+    let list="", _run=null;
     items.forEach((x,i)=>{
+      const grp=x.asm||"";
+      if(grp!==_run){ _run=grp;
+        list+='<div class="pb3-sec">'+(grp?'Feeds the <b>'+esc(grp)+'</b>':'Section lines')+'</div>'; }
       const dv = (MODE==="contractor") ? (x.cmode==="itemized" && (x.comp||[]).length>0) : !!x.bd;
       const v  = (MODE==="contractor") ? contractorPrice(x) : (x.bd?computeBuildupUC(x):tierUC(x,tiers,stdIdx));
       const lowf = (x.floor!=null && !x.bd && +x.lo < +x.floor);
@@ -22754,7 +22760,7 @@ function renderPriceBook(){
 
       ins+='<input class="pb3-nm" value="'+att(it.n)+'" onchange="pbEdit('+ci+','+sel+',\'n\',this.value)">';
       ins+='<div class="pb3-row"><select class="inp" style="width:70px;font-size:12px" onchange="pbEdit('+ci+','+sel+',\'u\',this.value)">'
-        +PB_UNITS.map(u=>'<option '+(u===it.u?'selected':'')+'>'+u+'</option>').join('')+'</select>'
+        +(PB_UNITS.indexOf(it.u)>=0?PB_UNITS:PB_UNITS.concat([it.u])).map(u=>'<option '+(u===it.u?'selected':'')+'>'+esc(u)+'</option>').join('')+'</select>'
         +(bdOn?'<span class="pbx-chip ct-split">SPLIT · MAT + LABOR HRS</span>'
               :'<span class="pbx-chip '+_ctMeta.cls+'" onclick="pbCycleCt('+ci+','+sel+')" title="Click to change what this price represents">'+_ctMeta.label+'</span>')
         +'</div>';
@@ -22823,6 +22829,13 @@ function renderPriceBook(){
         }
       }
 
+      if(it.asm){
+        ins+='<h4>Feeds</h4><div class="pb3-used"><span>'+esc(it.asm)+'</span></div>';
+        if(it.basis) ins+='<div class="pb3-d" style="margin-top:7px"><div class="l"><span class="k">'
+          +'<span class="pb3-chip">QUANTITY</span>How many</span></div><div class="m">'+esc(it.basis)+'</div></div>';
+        ins+='<div style="margin-top:6px;font-size:11px;color:var(--tl);line-height:1.45">'
+          +'Change this and the builder charges the new figure. Delete it and the built-in default takes over.</div>';
+      }
       ins+='<h4>Guard rails</h4>';
       ins+='<div class="pb3-bu"><span>Realistic floor $</span><input type="number" class="no-spin" value="'+(it.floor!=null?it.floor:'')+'" placeholder="—" onchange="pbSetFloor('+ci+','+sel+',this.value)"></div>';
       ins+='<div class="pb3-bu"><span>Item market adj %</span><input type="number" class="no-spin" value="'+_ma+'" onchange="pbSetItemAdj('+ci+','+sel+',+this.value||0)"></div>';
@@ -27890,7 +27903,10 @@ const SPA_RAISE_IN=[0, 12, 24];
 const SPA_JETS=[6, 10, 14];
 function _spaRate(k){ let pp=1; try{ pp=ptPricePoint(); }catch(e){}
   const it=_tkItem("pool", new RegExp("^Spa · "+k+"\\b","i"));
-  if(it) return _tkStdUC(it,"pool");                   // the price book wins if it carries the line
+  if(it){                                              // the price book wins if it carries the line
+    let v = it.asm ? _asmRate(it) : _tkStdUC(it,"pool");
+    if(k==="CONTINGENCY" && v>1) v=v/100;              // stored as a percent, used as a fraction
+    return v; }
   const r=SPA_RATES[k]; return r?r[pp]:0; }
 function _spaGeom(sf){
   const a=Math.max(SPA_BASE_SF, Math.round(+sf||0));
@@ -27967,8 +27983,13 @@ const POOL_LINES=[
 const POOL_CONT=[0.05,0.075,0.10];
 function _poolRate(name, tri, pp){
   const it=_tkItem("pool", new RegExp("^Pool · "+name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"i"));
-  if(it) return _tkStdUC(it,"pool");
+  if(it) return it.asm ? _asmRate(it) : _tkStdUC(it,"pool");
   return tri[pp];
+}
+function _poolCont(pp){
+  const it=_tkItem("pool", /^Pool · Conceptual contingency\b/i);
+  if(it){ let v=it.asm?_asmRate(it):_tkStdUC(it,"pool"); if(v>1) v=v/100; return v; }
+  return POOL_CONT[pp];
 }
 function _poolGeom(sf, perim){
   const a=Math.max(POOL_BASE_SF, Math.round(+sf||0));
@@ -27994,10 +28015,101 @@ function poolAssemblyCalc(sf, perim){
     if(qty>0&&rate>0) parts.push({what:name, qty:+(+qty).toFixed(2), unit, rate, cost:qty*rate});
   });
   const direct=parts.reduce((a,p)=>a+p.cost,0);
-  const cont=direct*POOL_CONT[pp];
-  if(cont>0) parts.push({what:`Conceptual contingency — ${Math.round(POOL_CONT[pp]*100)}%`, qty:1, unit:"ls", rate:Math.round(cont), cost:cont});
+  const cpc=_poolCont(pp);
+  const cont=direct*cpc;
+  if(cont>0) parts.push({what:`Conceptual contingency — ${Math.round(cpc*100)}%`, qty:1, unit:"ls", rate:Math.round(cont), cost:cont});
   return {parts, total:direct+cont, direct, geom:g, pp};
 }
+// ── ASSEMBLY LINES IN THE BOOK ──────────────────────────────────────────────
+// The spa and pool builders price off a fixed assembly. Those figures lived only in code, so a
+// wrong one could not be seen, let alone corrected — which is exactly how the $1,640 spa got out.
+// They are seeded into the Price Book under Pool / Spa as ordinary lines the builders already
+// look for by name, so editing one here is what the builder charges. The constants stay as the
+// fallback, so a deleted line still prices.
+//
+// Read exactly as stored: a 0 at the Value point means "not in this tier". The generic tier
+// reader treats a falsy low as "unset" and falls back to Standard, which would silently turn
+// every zero-cost upgrade into a paid one.
+function _asmRate(it){ let pp=1; try{ pp=ptPricePoint(); }catch(e){}
+  const v = (pp===0)?it.lo : (pp===2)?it.hi : it.std;
+  return (v==null||v==="")?0:+v; }
+const SPA_ASM_META={
+  BASE_MIN:       ["LS","Always 1 — the complete 8×8 attached spa"],
+  EXTRA_SF:       ["SF","× plan SF above the 64 SF base"],
+  HEATER:         ["LS","Always 1"],
+  FINISH_UPG:     ["LS","Always 1"],
+  FINISH_EXTRA:   ["SF","× interior SF above the base interior"],
+  JET_UPG:        ["LS","Always 1 — 6 / 10 / 14 jets by price point"],
+  LIGHT_UPG:      ["LS","Always 1"],
+  REMOTE:         ["LS","Always 1"],
+  BENCH_UPG:      ["LS","Always 1"],
+  BOND_BEAM:      ["LF","× spa perimeter · raised 0″ / 12″ / 24″ by price point"],
+  EXT_TILE_MAT:   ["SF","× perimeter × raise height"],
+  EXT_TILE_INST:  ["SF","× perimeter × raise height"],
+  WL_TILE_DELTA:  ["SF","× waterline band (perimeter × 0.5)"],
+  COPING_DELTA:   ["LF","× perimeter, less the spillway run"],
+  SPILL:          ["LS","Always 1 when the spa is attached to a pool"],
+  INFINITY:       ["LF","× spa perimeter"],
+  PREMIUM_INSTALL:["LS","Always 1"],
+  STANDALONE:     ["LS","Always 1 when there is no pool"]
+};
+const SPA_ASM_LABEL={
+  BASE_MIN:"Minimum 8×8 spa assembly", EXTRA_SF:"Size above the minimum", HEATER:"Heater upgrade",
+  FINISH_UPG:"Interior finish upgrade", FINISH_EXTRA:"Premium finish on the added interior",
+  JET_UPG:"Jets", LIGHT_UPG:"Lighting upgrade", REMOTE:"Controls / remote upgrade",
+  BENCH_UPG:"Bench upgrade", BOND_BEAM:"Raised bond beam", EXT_TILE_MAT:"Raised-wall tile — material",
+  EXT_TILE_INST:"Raised-wall tile — setting", WL_TILE_DELTA:"Waterline tile upgrade",
+  COPING_DELTA:"Coping upgrade", SPILL:"Spillway", INFINITY:"Infinity edge",
+  PREMIUM_INSTALL:"Premium installation & coordination", STANDALONE:"Standalone infrastructure"
+};
+function _poolAsmBasis(mode, f){
+  if(mode==="fixed")    return "Always 1";
+  if(mode==="cy")       return "× pool SF × "+f;
+  if(mode==="over")     return "× SF above the 450 SF base";
+  if(mode==="interior") return "× interior SF (plan SF × 2.3334, min 1,050)";
+  if(mode==="wl")       return "× waterline band (perimeter × 0.5, min 45)";
+  if(mode==="per")      return "× pool perimeter";
+  if(mode==="lights")   return "2, +1 at 650 SF, +1 at 900 SF";
+  return "";
+}
+function _asmSeedLines(){
+  const out=[];
+  Object.keys(SPA_ASM_META).forEach(k=>{
+    const tri=SPA_RATES[k]; if(!tri) return;
+    const m=SPA_ASM_META[k];
+    out.push({n:"Spa · "+k+" — "+SPA_ASM_LABEL[k], u:m[0], q:0,
+              lo:tri[0], std:tri[1], hi:tri[2], asm:"Spa builder", basis:m[1]});
+  });
+  out.push({n:"Spa · CONTINGENCY — Conceptual contingency", u:"%", q:0,
+            lo:SPA_RATES.CONTINGENCY[0]*100, std:SPA_RATES.CONTINGENCY[1]*100,
+            hi:SPA_RATES.CONTINGENCY[2]*100, asm:"Spa builder", basis:"× the direct total"});
+  POOL_LINES.forEach(([name,unit,tri,mode,f])=>{
+    out.push({n:"Pool · "+name, u:unit, q:0, lo:tri[0], std:tri[1], hi:tri[2],
+              asm:"Pool builder", basis:_poolAsmBasis(mode,f)});
+  });
+  out.push({n:"Pool · Conceptual contingency", u:"%", q:0,
+            lo:POOL_CONT[0]*100, std:POOL_CONT[1]*100, hi:POOL_CONT[2]*100,
+            asm:"Pool builder", basis:"× the direct total"});
+  return out;
+}
+// Missing lines are restored on every load, the same way the default catalog is — an assembly
+// line that is not in the book is a price the builder charges with nothing on screen to show it.
+(function seedAssemblies(){
+  try{
+    const pc=PB.find(c=>c.id==="pool"); if(!pc) return;
+    let added=0;
+    _asmSeedLines().forEach(l=>{
+      const ex=pc.items.find(it=>it.n===l.n);
+      if(!ex){ pc.items.push(JSON.parse(JSON.stringify(l))); added++; }
+      else if(!ex.asm){ ex.asm=l.asm; ex.basis=l.basis; added++; }   // backfill the tags only
+    });
+    if(added){ try{ ensureCanonicalIds(PB); }catch(e){} pbSave(); }
+    // the builders read the state copy, not PB, so it has to be rebuilt or the new lines
+    // sit in the book doing nothing while the constants keep pricing
+    try{ if(typeof applyPriceBook==="function" && typeof S!=="undefined" && S.cats) applyPriceBook(); }catch(e){}
+  }catch(e){}
+})();
+
 function _ptSum(mode){ let a=0; (PT.polys||[]).forEach(p=>{ if(p.mode===mode&&p.kind==="area") a+=(+p.sf||0); }); return a; }
 function _tkWaterFrom(sf, title){
   const w=newWaterFeature("custom"); if(title) w.title=title;
