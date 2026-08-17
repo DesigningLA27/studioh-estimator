@@ -48,20 +48,17 @@ price change flows through to every line that uses it? That is real work and ove
 ---
 
 ### 3 · Price Book edits do not re-price a job that is already open
-**pre-existing · found v883 · whole app**
+**v906 · 2026-08-17 · RESOLVED, but read the rule**
 
-`applyPriceBook()` seeds a project's unit cost once and then keeps it:
+A job still keeps the unit cost it opened with — that has not changed, and a price you typed on
+the job is now genuinely protected (`ucSet`, which used to be wiped on the next book edit).
 
-```js
-base.uc = def.bd ? computeBuildupUC(def) : (old ? old.uc : tierUC(def, tiers, ti));
-```
+What is new: the Price Book shows a bar when the two have drifted — *"3 lines in this job price at
+the old rate"* — with **Bring them up to date**. It skips anything you typed here, anything
+specified from a supplier, and build-ups, which recompute anyway.
 
-So changing a rate in the book moves **new** jobs and split (M+L) lines, but not the ordinary lines
-of a job that already loaded. That is deliberate — a per-project edit survives — but it means
-"I fixed the rate in the book" does not fix the estimate in front of you.
-
-**Decide:** should there be a "pull the latest book rates into this job" action, and should it be
-per-section or all-or-nothing?
+**Decide:** should this ever happen automatically, or is a deliberate button right? My view is the
+button — a rate change silently moving a bid you have already sent is worse than a stale one.
 
 ---
 

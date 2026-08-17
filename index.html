@@ -220,7 +220,7 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
 .pb3-h .ct{font-size:12px;color:var(--tl)}
 .pb3-h .tiers{font-size:11.5px;color:var(--tl)}
 .pb3-h .adj{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--tl)}
-.pb3-b{display:grid;grid-template-columns:minmax(0,1fr) 302px;align-items:start}
+.pb3-b{display:grid;grid-template-columns:minmax(0,1fr) 262px;align-items:start}
 .pb3-list{min-width:0;border-right:1px solid var(--brl);max-height:78vh;overflow-y:auto;
   overscroll-behavior:contain}
 .pb3-li{display:grid;grid-template-columns:minmax(0,1fr) 34px 82px;align-items:center;gap:8px;
@@ -541,7 +541,7 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
   .pbt-q{flex:1 1 100%}
   .pbx-toolbar .pbt-acts{flex-wrap:wrap}
 }
-@media (max-width:1240px){ .pb3-b{grid-template-columns:minmax(0,1fr) 264px} }
+@media (max-width:1240px){ .pb3-b{grid-template-columns:minmax(0,1fr) 238px} }
 /* Only stack when the two genuinely cannot sit side by side — stacked, the inspector goes
    first, because below 46 rows it would never be seen. */
 @media (max-width:880px){
@@ -889,6 +889,14 @@ table.pbk td{vertical-align:top}
   font-size:12px;font-weight:700;padding:6px 12px;cursor:pointer}
 .pbq-x{border:1px solid var(--br);background:var(--card);color:var(--tm);border-radius:9px;font:inherit;
   font-size:12px;padding:6px 9px;cursor:pointer}
+.pb-drift{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#FBF1DF;
+  border-radius:16px;padding:11px 15px;margin-bottom:12px;font-size:12.5px;color:#6A4E15}
+.pb-drift b{font-weight:700}
+.pb-drift button{margin-left:auto;border:0;background:#8A6A1E;color:#fff;border-radius:12px;
+  font:inherit;font-size:12px;font-weight:700;padding:9px 15px;cursor:pointer;white-space:nowrap}
+.pb-drift button:hover{background:#6A4E15}
+:root[data-theme="dark"] .pb-drift{background:#2E2718;color:#DFC078}
+:root[data-theme="dark"] .pb-drift button{background:#DFC078;color:#2E2718}
 #pb-sr{margin-bottom:14px}
 .pb-sr-in{background:var(--card);border:1px solid var(--brl);border-radius:16px;overflow:hidden;
   box-shadow:0 1px 2px rgba(28,43,22,.04),0 18px 40px -30px rgba(28,43,22,.32);max-height:62vh;overflow-y:auto}
@@ -3803,7 +3811,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v905</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v906</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6537,7 +6545,7 @@ function liveItemCount(catId,idx,val){
 }
 function liveItemUC(catId,idx,val){
   const it=S.cats[catId].items[idx];
-  it.uc=+val;
+  it.uc=+val; it.ucSet=1;      // typed on this job — the book must not overwrite it
   const tag=catId+"-"+idx;
   const bx=document.getElementById("ucbox-"+tag); if(bx) bx.value=Math.round(it.uc*100)/100;
   const tt=document.getElementById("litot-"+tag); if(tt && it.checked) rollText(tt, fmtN(it.q*it.uc));
@@ -6582,7 +6590,7 @@ function setItemQty(catId,idx,q){
   renderProCatRows(catId);renderProSummary();
 }
 function setItemUC(catId,idx,uc){
-  S.cats[catId].items[idx].uc=uc;
+  S.cats[catId].items[idx].uc=uc; S.cats[catId].items[idx].ucSet=1;
   renderProCatRows(catId);renderProSummary();
 }
 function setItemRange(catId,idx,which,val){
@@ -23120,6 +23128,14 @@ function renderPriceBook(){
   host.appendChild(legCard);
   const _sr=document.createElement("div"); _sr.id="pb-sr"; _sr.style.display="none";
   host.appendChild(_sr);
+  const _drift=pbDrift();
+  if(_drift.length){
+    const d=document.createElement("div"); d.className="pb-drift";
+    d.innerHTML='<span><b>'+_drift.length+' line'+(_drift.length===1?'':'s')+'</b> in this job still '
+      +(_drift.length===1?'prices':'price')+' at the old rate — the book has moved since it was opened.</span>'
+      +'<button onclick="pbPullIntoJob()">Bring them up to date</button>';
+    host.appendChild(d);
+  }
 
   // Below-floor warning summary
   const flagged=[];
@@ -23317,6 +23333,13 @@ function renderPriceBook(){
         }
       }
 
+      if(!it.asm && it.role && cat.builder){
+        ins+='<h4>Used by</h4><div class="pb3-used"><span>'+esc(cat.name)+' builder</span>'
+          +'<span>picks it for <b>'+esc(it.role)+'</b></span></div>'
+          +'<div style="margin-top:7px;font-size:11px;color:var(--tl);line-height:1.45">'
+          +'The builder chooses between the lines tagged <b>'+esc(it.role)+'</b> — change this price and '
+          +'it changes wherever that choice lands.</div>';
+      }
       if(it.asm){
         ins+='<h4>Feeds</h4><div class="pb3-used"><span>'+esc(it.asm)+'</span></div>';
         if(it.basis) ins+='<div class="pb3-d" style="margin-top:7px"><div class="l"><span class="k">'
@@ -23702,6 +23725,42 @@ function pbResetConfirm(){
 }
 
 // Regenerate working estimator state from PB, preserving selections by item name
+// A project takes its unit costs from the book once and then keeps them, so that a rate you
+// typed on this job survives. The cost of that is silent: fix a rate in the book and the estimate
+// in front of you carries on charging the old one. This finds the lines that have drifted —
+// skipping anything you typed here, anything specified from a supplier, and build-ups, which
+// recompute anyway — so it can be shown and pulled through deliberately.
+function pbDrift(){
+  const out=[];
+  try{
+    PB.forEach(cat=>{
+      const cs=S.cats&&S.cats[cat.id]; if(!cs||!cs.items) return;
+      const tiers=SEC_TIERS[cat.id]||["Low","Standard","High"];
+      const ti=(cs.tier!=null)?cs.tier:(SEC_TIER_DEFAULT[cat.id]||0);
+      (cat.items||[]).forEach(def=>{
+        if(def.bd) return;
+        const it=cs.items.find(p=>p.n===def.n);
+        if(!it || it.ucSet || it._spec) return;
+        const want=tierUC(def,tiers,ti);
+        if(+it.uc!==+want) out.push({cat:cat.id, catName:cat.name, n:def.n, from:+it.uc, to:+want});
+      });
+    });
+  }catch(e){}
+  return out;
+}
+function pbPullIntoJob(){
+  const d=pbDrift(); if(!d.length) return;
+  if(!confirm("Bring "+d.length+" line"+(d.length===1?"":"s")+" in this job up to the Price Book?\n\n"
+    +"Lines you typed a price on here are left alone.")) return;
+  d.forEach(x=>{
+    const cs=S.cats[x.cat]; if(!cs||!cs.items) return;
+    const it=cs.items.find(p=>p.n===x.n); if(it) it.uc=x.to;
+  });
+  try{ PB.forEach(c=>refreshCatTotals&&refreshCatTotals(c.id)); }catch(e){}
+  try{ renderTotal&&renderTotal(); updateProBar&&updateProBar(); renderProSummary&&renderProSummary(); }catch(e){}
+  renderPriceBook();
+  try{ _toast(d.length+" line"+(d.length===1?"":"s")+" updated","#2F5B23"); }catch(e){}
+}
 function applyPriceBook(){
   PB.forEach(cat=>{
     const cs=S.cats[cat.id];
@@ -23714,6 +23773,10 @@ function applyPriceBook(){
     S.cats[cat.id].items=cat.items.map(def=>{
       const old=prev.find(p=>p.n===def.n);
       const base=Object.assign({}, def, { bd:!!def.bd, q: old?old.q:0, checked: old?old.checked:false });
+      // These say the price on this job is the user's, not the book's. Rebuilding the row from the
+      // default dropped them, so a typed price lost its protection on the very next book edit.
+      if(old && old.ucSet) base.ucSet=old.ucSet;
+      if(old && old._spec) base._spec=old._spec;
       // Build-up items always recompute from current parts/globals; others keep edited uc
       base.uc = def.bd ? computeBuildupUC(def) : (old?old.uc:tierUC(def,tiers,ti));
       return base;
