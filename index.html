@@ -515,8 +515,8 @@ body.shell-framed #view-projectinfo.view.active{background:var(--card)}
   color:var(--tl);text-align:center;transition:transform .15s}
 #view-pricebook .pb3-fam.open .cv{transform:rotate(90deg)}
 /* the unit sits in a well of its own, same tone as the price */
-#view-pricebook .pb3-li .u,#view-pricebook .pb3-fam .n{background:var(--pbcard);border-radius:7px;
-  padding:3px 0;text-align:center;color:var(--tm);font-weight:700}
+#view-pricebook .pb3-li .u,#view-pricebook .pb3-fam .n{background:var(--pbcard);border-radius:9px;
+  padding:5px 0;text-align:center;color:var(--tm);font-weight:700}
 #view-pricebook .pb3-li.on .u{background:var(--pbpill)}
 #view-pricebook .pb3-li.dv .u{background:var(--pbpill)}
 #view-pricebook .pb3-li .v,#view-pricebook .pb3-fam .v{min-width:0;width:100%}
@@ -3803,7 +3803,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v903</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v904</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -5564,13 +5564,33 @@ function pbToggleCollapse(catId){ PB_COLLAPSED[catId]=!PB_COLLAPSED[catId]; pbCo
 // book lands on the first line, which is where you would start reading anyway.
 let PB3SEL={};
 function pb3Sel(catId){ const v=PB3SEL[catId]; return (v==null)?0:v; }
-function pb3Pick(catId,idx){ PB3SEL[catId]=idx; renderPriceBook(); }
+function pb3Pick(catId,idx){ PB3SEL[catId]=idx; _pb3OpenFamOf(catId,idx); renderPriceBook(); }
+// Opening the family a line sits in is a one-off, not a rule applied on every render — as a rule
+// it made the family the selection was in impossible to collapse.
+function _pb3OpenFamOf(catId,idx){
+  try{
+    const c=PB.find(x=>x.id===catId); if(!c) return;
+    const it=(c.items||[])[idx]; if(!it) return;
+    const t=String(it.n||""); const a=t.indexOf(" — "), b2=t.indexOf(" · ");
+    const d=(a<0)?b2:((b2<0)?a:Math.min(a,b2));
+    let k;
+    if(d>0) k=(it.asm||"")+"|d|"+t.slice(0,d).trim();
+    else { const w=t.split(/\s+/)[0]; if(!w||!/^[A-Za-z]/.test(w)) return; k=(it.asm||"")+"|w|"+w; }
+    let n=0; (c.items||[]).forEach(x=>{ const s2=String(x.n||"");
+      const a2=s2.indexOf(" — "), b3=s2.indexOf(" · ");
+      const d2=(a2<0)?b3:((b3<0)?a2:Math.min(a2,b3));
+      let k2; if(d2>0) k2=(x.asm||"")+"|d|"+s2.slice(0,d2).trim();
+      else { const w2=s2.split(/\s+/)[0]; k2=(w2&&/^[A-Za-z]/.test(w2))?((x.asm||"")+"|w|"+w2):""; }
+      if(k2===k) n++; });
+    if(n>=3) PB3FAM[catId+"\u203a"+k]=true;
+  }catch(e){}
+}
 // A section like Pergola is 86 lines, most of them variants of the same eight things. Lines that
 // share what comes before the em dash fold into one row you open when you need it.
 let PB3FAM={};
 function pb3FamOpen(catId,k){ return !!PB3FAM[catId+"\u203a"+k]; }
 function pb3Fam(catId,k){ const kk=catId+"\u203a"+k; PB3FAM[kk]=!PB3FAM[kk]; renderPriceBook(); }
-function pbGoto(ci,idx){ const c=PB[ci]; if(!c) return; PB3SEL[c.id]=idx; pbSelSet(c.id); }
+function pbGoto(ci,idx){ const c=PB[ci]; if(!c) return; PB3SEL[c.id]=idx; _pb3OpenFamOf(c.id,idx); pbSelSet(c.id); }
 function pbGotoRate(role){ const i=LABOR_RATES.findIndex(r=>r.role===role);
   PB3SEL["__rates"] = (i>=0) ? i : (LABOR_RATES.length+1); pbSelSet("__rates"); }
 let PB_ROWOPEN={};
@@ -23161,32 +23181,41 @@ function renderPriceBook(){
     }
     const _selFam=(sel>=0)?_famKey(items[sel]):"";
     let _tint="var(--surface2)"; try{ _tint=_secVis(cat).bg; }catch(e){}
-    let list="", _run=null, _famDone={};
+    // Families first, in the order they appear, then the lines that belong to no family. A
+    // section opens as a short list of families you can go into, not a mix of both.
+    const _runs=[];
     items.forEach((x,i)=>{
-      const grp=x.asm||"";
-      if(grp!==_run){ _run=grp; _famDone={};
-        list+='<div class="pb3-sec">'+(grp?'Feeds the <b>'+esc(grp)+'</b>':'Section lines')+'</div>'; }
-      const fk=_famKey(x), fam=_grouped(fk);
-      let open=true;
-      if(fam){
-        open = pb3FamOpen(cat.id,fk) || fk===_selFam;
-        if(!_famDone[fk]){ _famDone[fk]=1;
-          const nm=_famNm(fk);
-          list+='<button class="pb3-fam'+(open?" open":"")+'" onclick="pb3Fam(\''+cat.id+'\',\''+_attrJs(fk)+'\')">'
-            +'<span class="cv">\u203a</span><span class="nm">'+esc(nm)+'</span>'
-            +'<span class="n">'+_famN[fk]+'</span>'
-            +'<span class="v">'+money(_famLo[fk])+(_famHi[fk]!==_famLo[fk]?"\u2013"+money(_famHi[fk]):"")+'</span></button>';
-        }
-        if(!open) return;
-      }
+      const g=x.asm||"";
+      let run=_runs.find(r=>r.g===g);
+      if(!run){ run={g, fams:[], loose:[]}; _runs.push(run); }
+      const fk=_famKey(x);
+      if(_grouped(fk)){
+        let f=run.fams.find(f2=>f2.k===fk);
+        if(!f){ f={k:fk, rows:[]}; run.fams.push(f); }
+        f.rows.push({x,i});
+      } else run.loose.push({x,i});
+    });
+    const _row=(x,i,fam,fk)=>{
       const dv = (MODE==="contractor") ? (x.cmode==="itemized" && (x.comp||[]).length>0) : !!x.bd;
-      const v  = _val(x);
       const lowf = (x.floor!=null && !x.bd && +x.lo < +x.floor);
       const nm = fam ? esc(_famStrip(x.n,fk)) : esc(x.n);
-      list+='<button class="pb3-li'+(i===sel?" on":"")+(dv?" dv":"")+(fam?" sub":"")+'" onclick="pb3Pick(\''+cat.id+'\','+i+')">'
+      return '<button class="pb3-li'+(i===sel?" on":"")+(dv?" dv":"")+(fam?" sub":"")+'" onclick="pb3Pick(\''+cat.id+'\','+i+')">'
         +'<span class="cv"></span>'
         +'<span class="nm">'+(dv?'<span class="dot"></span>':'')+nm+(lowf?'<span class="warn">below floor</span>':'')+'</span>'
-        +'<span class="u">'+esc(x.u)+'</span><span class="v">'+money(v)+'</span></button>';
+        +'<span class="u">'+esc(x.u)+'</span><span class="v">'+money(_val(x))+'</span></button>';
+    };
+    let list="";
+    _runs.forEach(run=>{
+      list+='<div class="pb3-sec">'+(run.g?'Feeds the <b>'+esc(run.g)+'</b>':'Section lines')+'</div>';
+      run.fams.forEach(f=>{
+        const open=pb3FamOpen(cat.id,f.k);
+        list+='<button class="pb3-fam'+(open?" open":"")+'" onclick="pb3Fam(\''+cat.id+'\',\''+_attrJs(f.k)+'\')">'
+          +'<span class="cv">\u203a</span><span class="nm">'+esc(_famNm(f.k))+'</span>'
+          +'<span class="n">'+_famN[f.k]+'</span>'
+          +'<span class="v">'+money(_famLo[f.k])+(_famHi[f.k]!==_famLo[f.k]?"\u2013"+money(_famHi[f.k]):"")+'</span></button>';
+        if(open) f.rows.forEach(r=>{ list+=_row(r.x, r.i, true, f.k); });
+      });
+      run.loose.forEach(r=>{ list+=_row(r.x, r.i, false, ""); });
     });
 
     // the inspector
