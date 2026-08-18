@@ -381,3 +381,30 @@ it back. The flag lives in the book item, so it syncs across devices.
 
 So: un-touched lighting lines follow the cost database automatically (and can't be
 reverted by a stale server copy); any line you type yourself is yours and sticks.
+
+## 20 · Auto building footprint — site intelligence (v948, phase 1)
+Hybrid approach (Warwick's call): real data first, AI refine on top.
+
+**Phase 1 (built):** "Building" auto-fill button → `buildingDetect()` fetches the
+building-footprint polygon from public GIS layers (`BUILDING_LAYERS`: FEMA USA
+Structures, Microsoft), picks the largest footprint under the address pin, insets
+it 2 ft (`build.inset`) roof→wall, drops it as an editable `building` polygon.
+Confidence High/Med/Low from pin-containment + house-scale size. Graceful fallback
+to hand-tracing.
+
+Geometry verified headless (inset exact, selection correct). **Live GIS fetch is
+untested from here** — needs a real address on the satellite view. If a region
+returns empty, add/adjust a layer in `BUILDING_LAYERS`. Candidates if FEMA/MS are
+thin: county building layers (LA County has one), Overpass `building=*`.
+
+**Still to build:**
+- Phase 2 — AI verify: send the satellite tile + the GIS polygon to Claude vision,
+  flag only the wrong regions (missing wing/garage, bad corner), return confidence;
+  prompt manual review when Low. Don't redraw the whole building.
+- Phase 3 — Refine AI Trace: paint brushes Expand / Trim / Replace / Ignore-trees,
+  re-detect only the painted region, merge, preserve the rest.
+- Clip footprint to parcel (skipped in v1 — buildings rarely exceed the parcel).
+- Then the same import→verify→refine flow for driveway, pool, spa, existing trees,
+  paving, accessory buildings, retaining/property walls, planting areas.
+- AI Learning Mode: corrections become per-project training context for later
+  detections.
