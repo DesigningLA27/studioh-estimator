@@ -4264,7 +4264,8 @@ const ALGO_DEFAULTS={
   "lgt.pot.shareLow":50, "lgt.pot.shareStd":100, "lgt.pot.sharePrem":100,
   "lgt.pot.eaLow":1, "lgt.pot.eaStd":1, "lgt.pot.eaPrem":2,
   "lgt.install.low":55, "lgt.install.std":75, "lgt.install.prem":120,
-  "lgt.downNearPaving":12, "lgt.edgeOffset":1.5, "lgt.wallClear":3
+  "lgt.downNearPaving":12, "lgt.edgeOffset":1.5, "lgt.wallClear":3,
+  "build.inset":2
 };
 let ALGO=(function(){ try{ const s=localStorage.getItem("studioh_algo_v1"); if(s) return JSON.parse(s); }catch(e){} return {}; })();
 function algoSave(){ try{ localStorage.setItem("studioh_algo_v1", JSON.stringify(ALGO)); }catch(e){} }
@@ -4303,7 +4304,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v947</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v948</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -32037,6 +32038,9 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
 // from its algorithm, to look at and adjust. Lighting is live; the rest are the
 // next builds. Same dark pill as the tool rail so it reads as part of the tool.
 const PT_AUTOFILL=[
+  {k:"building", label:"Building", act:"buildingDetect()", live:true,
+   title:"Auto-detect the building footprint from GIS and inset it 2 ft to the walls",
+   icon:'<path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-6h6v6"/><path d="M4 21h16"/>'},
   {k:"light", label:"Lighting", act:"lightingPlace()", live:true,
    title:"Place a lighting layout from the algorithm — adjust it, then Apply",
    icon:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 3.7 10.7c-.5.5-.9 1-1 2.3H9.3c-.1-1.3-.5-1.8-1-2.3A6 6 0 0 1 12 3Z"/>'},
@@ -34846,6 +34850,117 @@ function _lgtScatterInside(pts, k, sc){
   return out.slice(0,k);
 }
 
+</script>
+
+
+<script>
+/* ══ BUILDING FOOTPRINT · GIS import ═════════════════════════════════════════
+   Phase 1 of auto site intelligence: never ask the user to trace something the
+   public record already knows. Pull the real building footprint polygon from a
+   GIS building-footprint layer for the project's coordinates, inset it 2 ft to
+   turn the roof edge into a conceptual wall line, and drop it as an editable
+   building polygon on the trace. The user reviews and nudges — no CAD vertex
+   work. AI verification and paint-refine (Phase 2/3) layer on top of this. */
+
+// point-in-ring on raw [[lng,lat]] rings
+function _ptInRing(lng,lat,ring){ let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+    if(((yi>lat)!==(yj>lat)) && (lng<(xj-xi)*(lat-yi)/((yj-yi)||1e-12)+xi)) inside=!inside; }
+  return inside; }
+// signed area of a [{lat,lng}] ring, in square feet (local frame)
+function _ringAreaFt(ring){ if(!ring||ring.length<3) return 0;
+  const ref=ring[0], fLat=FT_PER_DEG_LAT, fLng=_ftPerDegLng(ref.lat); let A=0;
+  for(let i=0;i<ring.length;i++){ const j=(i+1)%ring.length;
+    const x1=(ring[i].lng-ref.lng)*fLng, y1=(ring[i].lat-ref.lat)*fLat;
+    const x2=(ring[j].lng-ref.lng)*fLng, y2=(ring[j].lat-ref.lat)*fLat; A+=x1*y2-x2*y1; }
+  return A/2; }
+function _segInt(x1,y1,x2,y2,x3,y3,x4,y4){
+  const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4); if(Math.abs(d)<1e-9) return null;
+  const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;
+  return {x:x1+t*(x2-x1), y:y1+t*(y2-y1)}; }
+// Inset a [{lat,lng}] ring inward by ft feet (roof edge → wall line). Works in a
+// local feet frame so lat/lng distortion doesn't skew the offset.
+function _polyInsetFt(ring, ft){
+  const n=ring.length; if(n<3||!(ft>0)) return ring.slice();
+  const ref=ring[0], fLat=FT_PER_DEG_LAT, fLng=_ftPerDegLng(ref.lat);
+  const P=ring.map(p=>({x:(p.lng-ref.lng)*fLng, y:(p.lat-ref.lat)*fLat}));
+  let A=0; for(let i=0;i<n;i++){ const j=(i+1)%n; A+=P[i].x*P[j].y-P[j].x*P[i].y; }
+  const ccw=A>0;
+  const off=[];
+  for(let i=0;i<n;i++){ const a=P[i], b=P[(i+1)%n];
+    let dx=b.x-a.x, dy=b.y-a.y; const L=Math.hypot(dx,dy)||1; dx/=L; dy/=L;
+    let nx=-dy, ny=dx; if(!ccw){ nx=dy; ny=-dx; }   // inward normal
+    off.push({ax:a.x+nx*ft, ay:a.y+ny*ft, bx:b.x+nx*ft, by:b.y+ny*ft}); }
+  const out=[];
+  for(let i=0;i<n;i++){ const e1=off[(i-1+n)%n], e2=off[i];
+    const p=_segInt(e1.ax,e1.ay,e1.bx,e1.by, e2.ax,e2.ay,e2.bx,e2.by) || {x:e2.ax,y:e2.ay};
+    out.push({lng:ref.lng+p.x/fLng, lat:ref.lat+p.y/fLat}); }
+  return out;
+}
+
+// Public GIS building-footprint layers, tried in order. Same browser-side ArcGIS
+// pattern the parcel lookup already uses. If one is empty or unreachable, the next
+// is tried; the whole thing degrades to "trace it by hand".
+const BUILDING_LAYERS=[
+  "https://services2.arcgis.com/FiaPA4ga0iQKduv3/ArcGIS/rest/services/USA_Structures_View/FeatureServer/0/query",
+  "https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/MSBFP2/FeatureServer/0/query"
+];
+async function _fetchBuildingFootprint(lat,lng){
+  const d=0.0009;                                   // ~100 m search box
+  const env=[lng-d,lat-d,lng+d,lat+d].join(",");
+  for(const base of BUILDING_LAYERS){
+    try{
+      const url=base+"?f=json&geometry="+encodeURIComponent(env)
+        +"&geometryType=esriGeometryEnvelope&inSR=4326&outSR=4326"
+        +"&spatialRel=esriSpatialRelIntersects&returnGeometry=true&outFields=*&where=1%3D1";
+      const r=await fetch(url); if(!r.ok) continue;
+      const j=await r.json(); const feats=(j&&j.features)||[]; if(!feats.length) continue;
+      let best=null, bestScore=-1;
+      feats.forEach(f=>{ const rings=f.geometry&&f.geometry.rings; if(!rings||!rings.length) return;
+        const raw=rings[0]; const ring=raw.map(p=>({lng:p[0],lat:p[1]}));
+        const areaSF=Math.abs(_ringAreaFt(ring));
+        if(areaSF<120) return;                       // ignore sheds/noise
+        const contains=_ptInRing(lng,lat,raw);
+        const score=areaSF*(contains?1000:1);        // prefer the one under the pin, else the biggest
+        if(score>bestScore){ bestScore=score; best={ring, areaSF, contains}; } });
+      if(best) return best;
+    }catch(e){}
+  }
+  return null;
+}
+
+let BUILD_BUSY=false;
+async function buildingDetect(){
+  if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
+  if(!ptMapLive()){ alert("Building auto-detect reads the satellite view — trace on the map (not a PDF) to use it."); return; }
+  const lat=+((S.pi&&S.pi.lat)||0), lng=+((S.pi&&S.pi.lng)||0);
+  if(!(lat&&lng)){ alert("Set the project address in Project Info first, so we know where to look."); return; }
+  if(BUILD_BUSY) return; BUILD_BUSY=true;
+  try{ _toast("Looking up the building footprint…","#2F5B23"); }catch(e){}
+  let found=null; try{ found=await _fetchBuildingFootprint(lat,lng); }catch(e){}
+  BUILD_BUSY=false;
+  if(!found || !found.ring || found.ring.length<3){
+    alert("No building footprint on file for this spot in the public data.\n\n"
+      +"Nudge the address pin onto the house and try again, or trace the building by hand — "
+      +"then the AI verify step (coming next) will still check it against the satellite.");
+    return;
+  }
+  const inset=_polyInsetFt(found.ring, AK("build.inset"));
+  const pts=inset.map(p=>({x:p.lng, y:p.lat}));
+  ptSnap();
+  PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="building"));
+  const poly={pts, mode:"building", _auto:true, page:PT.page};
+  try{ poly.sf=Math.round(_ptPolySF(pts)); }catch(e){}
+  PT.polys.push(poly);
+  // Confidence: high if the pin sits inside it and the size is house-scale.
+  const conf = (found.contains && found.areaSF>=600 && found.areaSF<=20000) ? "High"
+             : (found.areaSF>=250) ? "Medium" : "Low";
+  try{ ptDrawOverlay(); ptUpdateInfo(); if(typeof ptRenderModal==="function") ptRenderModal(); }catch(e){}
+  const sf=poly.sf||Math.round(found.areaSF);
+  try{ _toast("Building footprint placed · "+sf.toLocaleString()+" SF · "+AK("build.inset")
+    +" ft wall inset · confidence "+conf+(conf==="Low"?" — review it":". Drag a corner to adjust."),"#2F5B23"); }catch(e){}
+}
 </script>
 
 </body>
