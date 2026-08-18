@@ -4246,7 +4246,9 @@ const ALGO_DEFAULTS={
   "lgt.yard.front":1.2, "lgt.yard.rear":1.0, "lgt.yard.side":0.3,
   "lgt.tape.bench":1.0, "lgt.tape.step":1.0, "lgt.wireRun":12,
   "lgt.pot.shareLow":50, "lgt.pot.shareStd":100, "lgt.pot.sharePrem":100,
-  "lgt.pot.eaLow":1, "lgt.pot.eaStd":1, "lgt.pot.eaPrem":2
+  "lgt.pot.eaLow":1, "lgt.pot.eaStd":1, "lgt.pot.eaPrem":2,
+  "lgt.install.low":55, "lgt.install.std":75, "lgt.install.prem":120,
+  "lgt.downNearPaving":12, "lgt.edgeOffset":1.5, "lgt.wallClear":3
 };
 let ALGO=(function(){ try{ const s=localStorage.getItem("studioh_algo_v1"); if(s) return JSON.parse(s); }catch(e){} return {}; })();
 function algoSave(){ try{ localStorage.setItem("studioh_algo_v1", JSON.stringify(ALGO)); }catch(e){} }
@@ -4285,7 +4287,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v940</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v941</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6061,7 +6063,7 @@ const AMENITY_DUPES=[
 // transformer. Force-set by name so an existing saved book gets the corrected
 // numbers; the old figures were 2x on the fixtures and ~10x on the wire.
 (function lightRepriceV1(){
-  try{ if(localStorage.getItem("studioh_lightprice_v1")) return; }catch(e){}
+  try{ if(localStorage.getItem("studioh_lightprice_v2")) return; }catch(e){}
   const price={
     "Path / Area Light":{lo:40,std:120,hi:300},
     "Uplight / Accent":{lo:45,std:125,hi:325},
@@ -6076,7 +6078,7 @@ const AMENITY_DUPES=[
   let changed=false;
   if(lc&&lc.items) lc.items.forEach(it=>{ const r=price[it.n]; if(r){ it.lo=r.lo; it.hi=r.hi; it.std=r.std; changed=true; } });
   if(changed) pbSave();   // normal boot applies it; calling applyPriceBook here is too early (TDZ)
-  try{ localStorage.setItem("studioh_lightprice_v1","1"); }catch(e){}
+  try{ localStorage.setItem("studioh_lightprice_v2","1"); }catch(e){}
 })();
 // One-time: bring tree prices to a wholesale-cost + install basis (only if still at old seed values; preserves edits).
 (function repriceTreesV1(){
@@ -16668,7 +16670,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v1","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -24440,8 +24442,12 @@ function applyPriceBook(){
       // default dropped them, so a typed price lost its protection on the very next book edit.
       if(old && old.ucSet) base.ucSet=old.ucSet;
       if(old && old._spec) base._spec=old._spec;
-      // Build-up items always recompute from current parts/globals; others keep edited uc
-      base.uc = def.bd ? computeBuildupUC(def) : (old?old.uc:tierUC(def,tiers,ti));
+      // Build-up items recompute from parts. A user-typed price (ucSet) is kept.
+      // Everything else tracks the book's tier price — otherwise a price correction
+      // in the book never reaches a project that already existed.
+      base.uc = def.bd ? computeBuildupUC(def)
+              : (old && old.ucSet) ? old.uc
+              : tierUC(def,tiers,ti);
       return base;
     });
   });
@@ -29905,9 +29911,9 @@ function ptLightPlan(){
     const re=TK_LIGHT_ITEM[ty]; const rate=re?_tkRate("lighting",re):0;
     const cost=rate*by[ty]; total+=cost;
     rows.push({what:ty+" — fixture", qty:by[ty], unit:"ea", rate, cost});
-    const h=assumeVal("light.hrs|"+ty)*by[ty]; hrs+=h;
-    rows.push({what:ty+" — install", qty:+h.toFixed(1), unit:"hr", rate:lr, cost:h*lr});
-    total+=h*lr;
+    const inst=lgtInstallPer();
+    rows.push({what:ty+" — install", qty:by[ty], unit:"ea", rate:inst, cost:inst*by[ty]});
+    total+=inst*by[ty];
   });
   if(!n) return {rows:[], n:0, watts:0, xfmr:0, total:0};
   const _xh=assumeVal("xfmr.head"), _xw=assumeVal("xfmr.w")||300;
@@ -34405,10 +34411,18 @@ function _algoParams(d){ return (typeof d.params==="function")?(_av(d.params)||[
 
 // price point of the Lighting section → "low" | "std" | "prem"
 function lgtPoint(){
-  const cs=S.cats&&S.cats.lighting;
-  let ti=(cs&&cs.tier!=null)?cs.tier:(SEC_TIER_DEFAULT.lighting||1);
-  return ["low","std","prem"][Math.min(2,Math.max(0,ti))];
+  // The take-off's active point IS what the Value/Standard/Premium tabs set, so
+  // density has to read from there. Reading the section tier instead is why the
+  // count came out identical at every point.
+  let ti=null; try{ ti=ptPricePoint(); }catch(e){}
+  if(ti==null){ const cs=S.cats&&S.cats.lighting; ti=(cs&&cs.tier!=null)?cs.tier:(SEC_TIER_DEFAULT.lighting||1); }
+  return ["low","std","prem"][Math.min(2,Math.max(0,+ti||0))];
 }
+// Install is priced PER FIXTURE — the way contractors actually bill it — not by
+// the hour. One flat figure covers trenching, wire pull, connection, mounting,
+// aiming and testing. Wire, transformers, sleeves and any 120V feed are separate.
+function lgtInstallPer(){ const p=lgtPoint();
+  return p==="low"?AK("lgt.install.low") : p==="prem"?AK("lgt.install.prem") : AK("lgt.install.std"); }
 function _lgtItem(rx){ const cs=S.cats&&S.cats.lighting; if(!cs||!cs.items) return null;
   return cs.items.find(it=>rx.test(it.n))||null; }
 // Has anyone already drawn the lighting? Any fixture with a quantity counts.
@@ -34576,57 +34590,86 @@ function lightingPlace(){
     return;
   }
   const p=lgtPoint(), pick=(a,b,c)=>p==="low"?a:p==="std"?b:c;
+
+  // ── where a fixture may NOT go ──────────────────────────────────────────────
+  // Hardscape you walk on, water, the house, and anything marked existing/exclude.
+  // A path light stands in soil at the edge of a walk, never out in the paving; a
+  // fixture in the pool or the driveway or an excluded bed is just wrong.
+  const BLOCK=["paving","driveway","pool","spa","water","building","exclude"];
+  const blockPolys=polys.filter(q=>BLOCK.indexOf(q.mode)>=0 && q.pts.length>=3);
+  const pavePolys=polys.filter(q=>q.mode==="paving" && q.pts.length>=3);
+  const wallLines=polys.filter(q=>q.mode==="wall" && q.pts.length>=2);
+  const blocked=pt=>blockPolys.some(q=>_ptPointInPoly(pt,q.pts));
+  const avgY=trees.length?trees.reduce((s,t)=>s+(+t.y||0),0)/trees.length:34;
+  const sc=_lgtFtScale(avgY);
+  const nearWall=(pt,ft)=>wallLines.some(w=>_lgtDistToLineFt(pt,w.pts)<=ft);
+  const distToPavingFt=pt=>{ let m=1e9; pavePolys.forEach(q=>{ const d=_lgtDistToLineFt(pt,q.pts,true); if(d<m) m=d; }); return m; };
+  const okFree=pt=>isFinite(pt.x)&&isFinite(pt.y)&&!blocked(pt)&&!nearWall(pt,AK("lgt.wallClear"));
+
   ptSnap();
-  // clear only what a previous run placed; keep every hand-placed fixture
   PT.trees=(PT.trees||[]).filter(t=>!(t._auto && _ptMarkMode(t)==="light"));
   PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="tapelight"));
   let ctrl="zone"; try{ ctrl=ptLightCtrl()||"zone"; }catch(e){}
-  const add=(x,y,type)=>{ if(isFinite(x)&&isFinite(y)) PT.trees.push({x,y,mode:"light",size:type,ctrl,page:PT.page,_auto:true}); };
+  const add=(x,y,type)=>{ PT.trees.push({x,y,mode:"light",size:type,ctrl,page:PT.page,_auto:true}); };
+  const addFree=(pt,type,tally)=>{ if(okFree(pt)){ add(pt.x,pt.y,type); tally(); } };
   let nPath=0,nUp=0,nDown=0,tape=0;
 
-  // paving path lights — perimeter, inset (driveway is out of landscape scope)
+  // ── path / area lights — hugging the OUTSIDE of the paving edge, in the soil ──
   const perFix=pick(AK("lgt.paving.low"),AK("lgt.paving.std"),AK("lgt.paving.prem"));
-  polys.filter(q=>q.mode==="paving"&&q.pts.length>=3).forEach(q=>{
+  const edge=AK("lgt.edgeOffset");
+  pavePolys.forEach(q=>{
     const sf=Math.abs(_ptPolySF(q.pts))||0; if(sf<80) return;
     const k=Math.max(1,Math.round(sf/perFix));
-    _lgtAlong(q.pts,k,0.08).forEach(pt=>{ add(pt.x,pt.y,"Path / Area"); nPath++; });
+    _lgtAlong(q.pts,k,0).forEach(pt=>{               // on the edge, then pushed OUT
+      const o=_lgtOutward(pt,q.pts,edge,sc);
+      addFree(o,"Path / Area",()=>nPath++);
+    });
   });
-  // turf path lights — border spacing
+  // turf path — along its border, pushed just outside, never on a wall
   const turfSp=pick(AK("lgt.turf.low"),AK("lgt.turf.std"),AK("lgt.turf.prem"));
   polys.filter(q=>q.mode==="turf"&&q.pts.length>=3).forEach(q=>{
     const per=_lgtPerimFt(q.pts); const k=Math.max(1,Math.round(per/turfSp));
-    _lgtAlong(q.pts,k,0.05).forEach(pt=>{ add(pt.x,pt.y,"Path / Area"); nPath++; });
+    _lgtAlong(q.pts,k,0).forEach(pt=>{
+      const o=_lgtOutward(pt,q.pts,edge,sc);
+      addFree(o,"Path / Area",()=>nPath++);
+    });
   });
-  // shrub-bed uplights — along the bed edge, deeper inset
+
+  // ── shrub-bed uplights — scattered INSIDE the bed, not ringing the edge, so
+  //    they never line a property-line wall ──
   const shDen=pick(AK("lgt.shrub.low"),AK("lgt.shrub.std"),AK("lgt.shrub.prem"));
   polys.filter(q=>q.mode==="planting"&&q.pts.length>=3).forEach(q=>{
     const sf=Math.abs(_ptPolySF(q.pts))||0; const k=Math.round(sf/1000*shDen); if(k<1) return;
-    _lgtAlong(q.pts,k,0.14).forEach(pt=>{ add(pt.x,pt.y,"Uplight / Accent"); nUp++; });
+    _lgtScatterInside(q.pts,k,sc).forEach(pt=>{ addFree(pt,"Uplight / Accent",()=>nUp++); });
   });
-  // trees — uplights on a share of each size class, downlights in the big canopies
-  const avgY=trees.length?trees.reduce((s,t)=>s+(+t.y||0),0)/trees.length:34;
-  const sc=_lgtFtScale(avgY);
+
+  // ── trees — uplights on a share of each size class; downlights ONLY where the
+  //    trunk is within reach of paving (moonlighting lights a patio, not open lawn) ──
+  const litOK=trees.filter(t=>okFree({x:+t.x,y:+t.y}));   // skip trees in excluded ground
   const small=[], big=[];
-  trees.forEach(t=>{ (_lgtTreeBox(t)>=36?big:small).push(t); });
-  const up=AK("lgt.tree.up"), dn=AK("lgt.tree.down"), minBox=AK("lgt.down.minBox");
+  litOK.forEach(t=>{ (_lgtTreeBox(t)>=36?big:small).push(t); });
+  const up=AK("lgt.tree.up"), dn=AK("lgt.tree.down");
   const smDen=pick(AK("lgt.treeDen.smLow"),AK("lgt.treeDen.smStd"),AK("lgt.treeDen.smPrem"));
   const bgDen=pick(AK("lgt.treeDen.bgLow"),AK("lgt.treeDen.bgStd"),AK("lgt.treeDen.bgPrem"));
   const litTrees=(arr,den)=>arr.slice(0, Math.round(arr.length*den/100));
   const uplightTree=t=>{ const r=3.5; for(let i=0;i<up;i++){
-    const ang=up>1?(Math.PI*i/(up-1)-Math.PI/2):0;         // fan the uplights out below the tree
+    const ang=up>1?(Math.PI*i/(up-1)-Math.PI/2):0;
     add((+t.x)+Math.cos(ang)*r*sc.sx, (+t.y)+Math.sin(ang)*r*sc.sy, "Uplight / Accent"); nUp++; } };
   litTrees(small,smDen).forEach(uplightTree);
   litTrees(big,bgDen).forEach(uplightTree);
-  trees.forEach(t=>{ if(_lgtTreeBox(t)>=minBox){ const r=2;
-    for(let i=0;i<dn;i++){ add((+t.x)+(i?r:-r)*sc.sx, (+t.y), "Downlight / Moonlight"); nDown++; } } });
+  const near=AK("lgt.downNearPaving");
+  litOK.forEach(t=>{
+    if(_lgtTreeBox(t)>=36 && distToPavingFt({x:+t.x,y:+t.y})<=near){ const r=2;
+      for(let i=0;i<dn;i++){ add((+t.x)+(i?r:-r)*sc.sx, (+t.y), "Downlight / Moonlight"); nDown++; } }
+  });
 
-  // pots — a share lit, one or two lights apiece at the pot
+  // ── pots — a share lit, at the pot ──
   const potShare=pick(AK("lgt.pot.shareLow"),AK("lgt.pot.shareStd"),AK("lgt.pot.sharePrem"));
   const potEa=pick(AK("lgt.pot.eaLow"),AK("lgt.pot.eaStd"),AK("lgt.pot.eaPrem"));
-  pots.slice(0, Math.round(pots.length*potShare/100)).forEach(pt=>{ const r=1.5;
+  pots.filter(t=>okFree({x:+t.x,y:+t.y})).slice(0, Math.round(pots.length*potShare/100)).forEach(pt=>{ const r=1.5;
     for(let i=0;i<potEa;i++){ add((+pt.x)+(potEa>1?(i?r:-r)*sc.sx:0), (+pt.y), "Uplight / Accent"); nUp++; } });
 
-  // LED tape — steps and bench runs, Standard & Showcase only
+  // ── LED tape — steps and bench runs, Standard & Showcase only ──
   if(p!=="low"){
     polys.filter(q=>(q.mode==="steps"||q.mode==="seating")&&q.pts.length>=2).forEach(q=>{
       PT.polys.push({pts:q.pts.map(pt=>({x:+pt.x,y:+pt.y})),mode:"tapelight",kind:"linear",page:PT.page,_auto:true}); tape++; });
@@ -34637,6 +34680,46 @@ function lightingPlace(){
   try{ _toast(`Placed ${total} fixtures — ${nPath} path · ${nUp} up · ${nDown} down`
     +(tape?` · ${tape} tape run${tape>1?"s":""}`:"")+`. Adjust, then Apply.`,"#2F5B23"); }catch(e){}
 }
+
+// distance (ft) from a point to a polyline/polygon boundary. closed=true walks the
+// closing edge too. Uses the map-aware LF so it is right in either coordinate space.
+function _lgtDistToLineFt(pt, pts, closed){
+  let best=1e9; const n=pts.length;
+  const lim=closed?n:n-1;
+  for(let i=0;i<lim;i++){ const a=pts[i], b=pts[(i+1)%n];
+    const C=_lgtClosestOnSeg(pt,a,b);
+    const d=_lgtFtBetween(pt,C); if(d<best) best=d; }
+  return best;
+}
+function _lgtClosestOnSeg(p,a,b){
+  const dx=b.x-a.x, dy=b.y-a.y, L2=dx*dx+dy*dy;
+  if(L2<1e-18) return {x:a.x,y:a.y};
+  let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/L2; t=Math.max(0,Math.min(1,t));
+  return {x:a.x+dx*t, y:a.y+dy*t};
+}
+function _lgtFtBetween(a,b){ try{ return _ptLineLF([a,b]); }catch(e){
+  return Math.hypot(b.x-a.x,b.y-a.y); } }
+// push a boundary point outward, away from the shape's centre, by ~ft feet
+function _lgtOutward(pt, pts, ft, sc){
+  const c=_ptCentroid(pts); let dx=pt.x-c.x, dy=pt.y-c.y;
+  const L=Math.hypot(dx,dy)||1; dx/=L; dy/=L;
+  return {x:pt.x+dx*ft*sc.sx, y:pt.y+dy*ft*sc.sy};
+}
+// k points spread through the INTERIOR of a polygon (jittered grid, deterministic)
+function _lgtScatterInside(pts, k, sc){
+  let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
+  pts.forEach(p=>{ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; });
+  const w=x1-x0, h=y1-y0; if(w<=0||h<=0) return [];
+  const cols=Math.max(1,Math.round(Math.sqrt(k*w/h))), rows=Math.max(1,Math.ceil(k/cols));
+  const out=[];
+  for(let r=0;r<rows;r++) for(let cq=0;cq<cols;cq++){
+    const jx=((r*7+cq*3)%5)/5-0.4, jy=((r*3+cq*7)%5)/5-0.4;   // fixed jitter, no RNG
+    const x=x0+w*((cq+0.5+jx*0.7)/cols), y=y0+h*((r+0.5+jy*0.7)/rows);
+    if(_ptPointInPoly({x,y},pts)) out.push({x,y});
+  }
+  return out.slice(0,k);
+}
+
 </script>
 
 </body>
