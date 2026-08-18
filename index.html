@@ -4304,7 +4304,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v954</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v955</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28744,6 +28744,7 @@ function _toCanvas(pt){ return ptMapLive()?_llToPx(pt):{x:pt.x*PT.renderScale, y
 function ptCanvasClick(e){ if(!PT.doc&&!ptMapLive()) return; const c=ptCanvasXY(e); const p=_toPdf(c); ptAddAt(p,c,e); }
 // p = a point in whatever the base measures in; c = the same point in screen pixels.
 function ptAddAt(p,c,e){
+  if(PT._roofPick){ try{ _roofPickAt(p); }catch(err){ BUILD_BUSY=false; try{ _toast("Pick failed: "+(err&&err.message||err),"#B23F3C"); }catch(_){}} return; }
   if(PT.stamp) return;                 // you are positioning something
   if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c);
     // Canvas-first layouts keep the selection live so the corner handles stay up,
@@ -32038,8 +32039,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
 // from its algorithm, to look at and adjust. Lighting is live; the rest are the
 // next builds. Same dark pill as the tool rail so it reads as part of the tool.
 const PT_AUTOFILL=[
-  {k:"building", label:"Building", live:false,
-   title:"Paused — auto building detection needs a dedicated vision model; trace it by hand for now",
+  {k:"building", label:"Building", act:"buildingRoofPick()", live:true,
+   title:"Tap this, then tap a roof — it traces the roof under your finger by pixel contrast",
    icon:'<path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-6h6v6"/><path d="M4 21h16"/>'},
   {k:"light", label:"Lighting", act:"lightingPlace()", live:true,
    title:"Place a lighting layout from the algorithm — adjust it, then Apply",
@@ -35025,68 +35026,166 @@ async function _satBase64ViaWorker(ep, url){
   if(!j || j.ok===false || !j.data) throw new Error((j&&j.err)||"imgproxy: no data");
   return {media_type:j.media_type, data:j.data};
 }
-async function buildingDetectAI(){
+function buildingDetectAI(){
   if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
-  if(!ptMapLive()){ alert("Building auto-detect reads the satellite view — trace on the map, not a PDF."); return; }
+  if(!ptMapLive()){ alert("Building detect reads the satellite view — trace on the map, not a PDF."); return; }
   const bb=_parcelBBox();
   if(!bb){ alert("No property boundary loaded yet. Set the address in Project Info so the parcel loads, then try again."); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
-  if(!ep){ alert("No AI endpoint configured."); return; }
+  if(!ep){ alert("No worker endpoint configured."); return; }
   if(BUILD_BUSY) return; BUILD_BUSY=true;
-  try{ _toast("Reading the roof from the satellite…","#2F5B23"); }catch(e){}
+  try{ _toast("Reading the roof edges from the satellite…","#2F5B23"); }catch(e){}
   const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw", sizeCss=640;
   const center={lat:(bb.n+bb.s)/2, lng:(bb.e+bb.w)/2};
   const zoom=_fitZoom(bb, sizeCss, 0.82);
   const url="https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center="
     +center.lat.toFixed(6)+","+center.lng.toFixed(6)+"&zoom="+zoom+"&size="+sizeCss+"x"+sizeCss
     +"&scale=2&key="+KEY;
-  // Anthropic can't fetch a referrer-locked Google tile, and the browser can't
-  // read it cross-origin, so the worker fetches it and we send it as base64.
-  // Falls back to a URL source if the worker has no imgproxy yet.
-  let imgSource={type:"url", url};
-  try{ const b=await _satBase64ViaWorker(ep, url);
-       if(b&&b.data) imgSource={type:"base64", media_type:b.media_type||"image/png", data:b.data}; }catch(e){}
-  let poly=null, conf="Low";
-  try{
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6", max_tokens:1200, temperature:0,
-        system:"You read satellite imagery for a landscape architect and return building-roof outlines as JSON. Output only minified JSON, no prose.",
-        messages:[{role:"user",content:[
-          {type:"image", source:imgSource},
-          {type:"text", text:_BUILD_PROMPT}
-        ]}]})});
-    if(!r.ok){ let body=""; try{ body=(await r.text()||"").slice(0,220); }catch(e){}
-      throw new Error("worker HTTP "+r.status+(body?" · "+body:"")); }
-    const data=await r.json();
-    if(data && data.error){ throw new Error((data.error.message||data.error.type||"API error")); }
-    const t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"").trim();
-    if(!t){ throw new Error("empty reply — the model returned nothing (the satellite image may not have loaded for it)"); }
-    const m=t.match(/\{[\s\S]*\}/);
-    if(!m) throw new Error("no polygon in the reply. The model said: “"+t.slice(0,160)+"”");
-    const j=JSON.parse(m[0]); conf=j.conf||"Low";
-    poly=(j.poly||[]).filter(p=>Array.isArray(p)&&p.length>=2
-       && +p[0]>=0&&+p[0]<=1&&+p[1]>=0&&+p[1]<=1);
-  }catch(e){ BUILD_BUSY=false;
-    alert("Building read failed.\n\n"+((e&&e.message)||"error")
-      +"\n\nScreenshot this and send it — it tells me whether the image reached the AI. "
-      +"You can trace the building by hand meanwhile.");
-    return; }
-  BUILD_BUSY=false;
-  if(!poly || poly.length<3){
-    alert("Couldn't pick out a clear house roof here. Nudge the address pin onto the house and retry, or trace it by hand.");
-    return; }
-  const ring=poly.map(p=>_staticPxToLL(+p[0],+p[1],center,zoom,sizeCss));   // [{lat,lng}]
-  const inset=_polyInsetFt(ring, AK("build.inset"));
-  const pts=inset.map(p=>({x:p.lng, y:p.lat}));
-  ptSnap();
-  PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="building"));
-  const bpoly={pts, mode:"building", _auto:true, page:PT.page};
-  try{ bpoly.sf=Math.round(_ptPolySF(pts)); }catch(e){}
-  PT.polys.push(bpoly);
-  try{ ptDrawOverlay(); ptUpdateInfo(); if(typeof ptRenderModal==="function") ptRenderModal(); }catch(e){}
-  try{ _toast("Building roof placed · "+(bpoly.sf||0).toLocaleString()+" SF · "+AK("build.inset")
-    +" ft wall inset · confidence "+conf+(/low/i.test(conf)?" — review it.":". Nudge a corner if needed."),"#2F5B23"); }catch(e){}
+  _satBase64ViaWorker(ep, url).then(b=>{
+    if(!b||!b.data) throw new Error("no image bytes from the worker (deploy the imgproxy handler)");
+    return _loadImgEl("data:"+(b.media_type||"image/png")+";base64,"+b.data);
+  }).then(img=>{
+    let ring=null; try{ ring=_cvRoofOutline(img, center, zoom, sizeCss); }catch(e){ throw new Error("pixel read: "+(e&&e.message||e)); }
+    BUILD_BUSY=false;
+    if(!ring || ring.length<3){
+      alert("Couldn't pick a clear roof out of the pixels here (roof colour may be close to the paving).\n\n"
+        +"Trace it by hand, or try nudging the address pin onto the house."); return; }
+    const inset=_polyInsetFt(ring, AK("build.inset"));
+    const pts=inset.map(p=>({x:p.lng, y:p.lat}));
+    ptSnap();
+    PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="building"));
+    const bpoly={pts, mode:"building", _auto:true, page:PT.page};
+    try{ bpoly.sf=Math.round(_ptPolySF(pts)); }catch(e){}
+    PT.polys.push(bpoly);
+    // pre-select so the move grip, rotate handle and corner handles are up immediately
+    PT.selectMode=true; PT.selPoly=PT.polys.length-1; PT._selStart=bpoly.sf||0;
+    try{ ptDrawOverlay(); ptUpdateInfo(); if(typeof ptRenderModal==="function") ptRenderModal(); }catch(e){}
+    try{ _toast("Rough footprint placed · "+(bpoly.sf||0).toLocaleString()+" SF · drag the grip to slide it, twist to rotate, pull a corner to fit.","#2F5B23"); }catch(e){}
+  }).catch(e=>{ BUILD_BUSY=false;
+    alert("Building read failed.\n\n"+((e&&e.message)||String(e))); });
 }
+
+// ── magic-wand roof pick — Warwick taps the roof, we grow the selection ─────
+// Arm the picker; the next tap on the map runs _roofPickAt on that spot.
+function buildingRoofPick(){
+  if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
+  if(!ptMapLive()){ alert("This reads the satellite view — trace on the map, not a PDF."); return; }
+  if(!(( (S.pi&&S.pi.lat)||0))){ alert("Set the address in Project Info first so the map is placed."); return; }
+  PT._roofPick=true; PT.selectMode=false; PT.selPoly=null; PT._selStart=null;
+  try{ ptMapCursor&&ptMapCursor(); }catch(e){}
+  try{ ptRenderModal&&ptRenderModal(); }catch(e){}
+  try{ _toast("Now tap the middle of the roof — it traces the shape under your finger.","#2F5B23"); }catch(e){}
+}
+// average colour of a small patch (robust seed even if the tap lands on a ridge)
+function _cvPatchColour(dat,W,H,cx,cy,rad){
+  let r=0,g=0,b=0,n=0;
+  for(let y=Math.max(0,cy-rad);y<=Math.min(H-1,cy+rad);y++)
+    for(let x=Math.max(0,cx-rad);x<=Math.min(W-1,cx+rad);x++){ const k=(y*W+x)*4; r+=dat[k];g+=dat[k+1];b+=dat[k+2];n++; }
+  return n?{r:r/n,g:g/n,b:b/n}:{r:dat[0],g:dat[1],b:dat[2]};
+}
+// grow a region from the seed by colour similarity (the magic wand)
+function _floodRegion(dat,W,H,sx,sy,seed,tol){
+  const seen=new Uint8Array(W*H), out=[]; const st=[sy*W+sx]; seen[sy*W+sx]=1; const t2=tol*tol;
+  while(st.length){ const p=st.pop(); out.push(p); const x=p%W,y=(p/W)|0;
+    const push=n=>{ if(n<0||n>=W*H||seen[n]) return; const k=n*4;
+      const dr=dat[k]-seed.r,dg=dat[k+1]-seed.g,db=dat[k+2]-seed.b;
+      if(dr*dr+dg*dg+db*db<=t2){ seen[n]=1; st.push(n); } };
+    if(x>0)push(p-1); if(x<W-1)push(p+1); if(y>0)push(p-W); if(y<H-1)push(p+W);
+  }
+  return out;
+}
+async function _roofPickAt(ll){
+  PT._roofPick=false; try{ ptMapCursor&&ptMapCursor(); }catch(e){}
+  if(BUILD_BUSY) return; BUILD_BUSY=true;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ BUILD_BUSY=false; alert("No worker endpoint configured."); return; }
+  const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw", sizeCss=640, zoom=20;
+  const center={lat:+ll.y, lng:+ll.x};
+  const url="https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center="
+    +center.lat.toFixed(6)+","+center.lng.toFixed(6)+"&zoom="+zoom+"&size="+sizeCss+"x"+sizeCss+"&scale=2&key="+KEY;
+  try{ _toast("Reading the roof under your tap…","#2F5B23"); }catch(e){}
+  let b; try{ b=await _satBase64ViaWorker(ep,url); }catch(e){ BUILD_BUSY=false;
+    alert("Couldn't fetch the tile ("+(e&&e.message||e)+").\nIf it mentions imgproxy, the worker handler isn't deployed."); return; }
+  let img; try{ img=await _loadImgEl("data:"+(b.media_type||"image/png")+";base64,"+b.data); }catch(e){ BUILD_BUSY=false; alert("Couldn't load the tile."); return; }
+  try{
+    const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+    const W=Math.min(480,iw), H=Math.max(1,Math.round(W*ih/iw));
+    const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const ctx=cv.getContext("2d"); ctx.drawImage(img,0,0,W,H);
+    const dat=ctx.getImageData(0,0,W,H).data;
+    const sx=(W/2)|0, sy=(H/2)|0;
+    const seed=_cvPatchColour(dat,W,H,sx,sy,2);
+    let region=null, tol=46;
+    for(let k=0;k<6;k++){ region=_floodRegion(dat,W,H,sx,sy,seed,tol);
+      if(region.length <= W*H*0.55) break; tol=Math.round(tol/1.5); }   // bled into the yard → tighten
+    BUILD_BUSY=false;
+    if(!region || region.length < W*H*0.002){ alert("That tap didn't grab a clear roof area — try tapping the middle of a roof plane."); return; }
+    const px=region.map(p=>({x:p%W, y:(p/W)|0}));
+    const hull=_convexHull(px); if(!hull||hull.length<3){ alert("Couldn't outline that region."); return; }
+    const ring=hull.map(p=>_staticPxToLL(p.x/W, p.y/H, center, zoom, sizeCss));
+    const inset=_polyInsetFt(ring, AK("build.inset"));
+    const pts=inset.map(p=>({x:p.lng, y:p.lat}));
+    ptSnap();
+    PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="building"));
+    const bpoly={pts, mode:"building", _auto:true, page:PT.page};
+    try{ bpoly.sf=Math.round(_ptPolySF(pts)); }catch(e){}
+    PT.polys.push(bpoly);
+    PT.selectMode=true; PT.selPoly=PT.polys.length-1; PT._selStart=bpoly.sf||0;
+    try{ ptDrawOverlay(); ptUpdateInfo(); if(typeof ptRenderModal==="function") ptRenderModal(); }catch(e){}
+    try{ _toast("Traced · "+(bpoly.sf||0).toLocaleString()+" SF · drag to move, twist to rotate, pull corners to fit. Tap Building to re-pick a wing.","#2F5B23"); }catch(e){}
+  }catch(e){ BUILD_BUSY=false; alert("Pixel read failed: "+(e&&e.message||e)); }
+}
+
+// ── read the roof out of the pixels ─────────────────────────────────────────
+// A roof reads as a large, low-saturation (grey), mid-tone region — unlike the
+// green of trees, the blue of a pool, or the bright warm tan of paving. Find that
+// region and take its outline. Rough by design; the user drags it to fit.
+function _cvRoofOutline(img, center, zoom, sizeCss){
+  const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height; if(!iw||!ih) return null;
+  const W=Math.min(420, iw), H=Math.max(1,Math.round(W*ih/iw));
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const ctx=cv.getContext("2d"); ctx.drawImage(img,0,0,W,H);
+  const dat=ctx.getImageData(0,0,W,H).data;
+  const mask=new Uint8Array(W*H);
+  for(let i=0;i<W*H;i++){ const r=dat[i*4],g=dat[i*4+1],b=dat[i*4+2];
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+    const sat=mx?(mx-mn)/mx:0, bright=(r+g+b)/3;
+    // grey (low saturation) and mid-tone (darker than paving, lighter than deep shadow)
+    if(sat<0.20 && bright>=45 && bright<=155) mask[i]=1;
+  }
+  const comp=_cvLargestComponent(mask, W, H);
+  if(!comp || comp.length < W*H*0.008) return null;      // too small to be a house
+  const hull=_convexHull(comp);
+  if(!hull || hull.length<3) return null;
+  return hull.map(p=>_staticPxToLL(p.x/W, p.y/H, center, zoom, sizeCss));
+}
+// largest 4-connected component of the mask, returned as an array of {x,y}
+function _cvLargestComponent(mask, W, H){
+  const seen=new Uint8Array(W*H); let best=null, bestN=0;
+  const stack=new Int32Array(W*H); 
+  for(let s=0;s<W*H;s++){ if(!mask[s]||seen[s]) continue;
+    let sp=0; stack[sp++]=s; seen[s]=1; const cur=[];
+    while(sp){ const p=stack[--sp]; cur.push(p); const x=p%W, y=(p/W)|0;
+      if(x>0){const n=p-1; if(mask[n]&&!seen[n]){seen[n]=1;stack[sp++]=n;}}
+      if(x<W-1){const n=p+1; if(mask[n]&&!seen[n]){seen[n]=1;stack[sp++]=n;}}
+      if(y>0){const n=p-W; if(mask[n]&&!seen[n]){seen[n]=1;stack[sp++]=n;}}
+      if(y<H-1){const n=p+W; if(mask[n]&&!seen[n]){seen[n]=1;stack[sp++]=n;}}
+    }
+    if(cur.length>bestN){ bestN=cur.length; best=cur; }
+  }
+  if(!best) return null;
+  return best.map(p=>({x:p%W, y:(p/W)|0}));
+}
+// Andrew's monotone-chain convex hull
+function _convexHull(pts){
+  if(pts.length<3) return pts.slice();
+  const p=pts.slice().sort((a,b)=> a.x-b.x || a.y-b.y);
+  const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+  const lo=[]; for(const q of p){ while(lo.length>=2 && cross(lo[lo.length-2],lo[lo.length-1],q)<=0) lo.pop(); lo.push(q); }
+  const up=[]; for(let i=p.length-1;i>=0;i--){ const q=p[i]; while(up.length>=2 && cross(up[up.length-2],up[up.length-1],q)<=0) up.pop(); up.push(q); }
+  lo.pop(); up.pop(); return lo.concat(up);
+}
+
 </script>
 
 </body>
