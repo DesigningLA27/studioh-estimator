@@ -4287,7 +4287,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v944</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v945</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6081,10 +6081,14 @@ function _lgtApplyPriceDB(book){
   let ch=false;
   (book||[]).forEach(c=>{ if(!c||c.id!=="lighting"||!c.items) return;
     c.items.forEach(it=>{ const d=LGT_PRICE_DB[it&&it.n]; if(!d) return;
+      if(it._lgtEdited) return;   // you changed this one by hand — the database stands aside
       if(+it.lo!==d[0] || +it.hi!==d[2] || (it.std!=null&&it.std!==""&&+it.std!==d[1]) || it.std==null || it.std===""){
         it.lo=d[0]; it.std=d[1]; it.hi=d[2]; ch=true; } }); });
   return ch;
 }
+// A price you type on a lighting line sets it._lgtEdited (in the setters below);
+// the database then stands aside for that line, and it survives reload and sync.
+// Reset clears the flag and the database takes over again.
 // Correct a raw (stringified) book in localStorage — used right after a server pull,
 // before the reload, so the reloaded boot already reads corrected prices.
 function _lgtFixStoredPrices(){
@@ -24310,6 +24314,7 @@ window.addEventListener("resize", ()=>{ try{ if(S.view==="pricebook") _pb3Fit();
 
 function pbEdit(ci,idx,key,val){
   PB[ci].items[idx][key]=val;
+  if(PB[ci].id==="lighting") PB[ci].items[idx]._lgtEdited=1;
   pbSave();
   applyPriceBook();
   // re-render only on unit/name change (which alters tiers preview); for lo/hi update preview cell live
@@ -24336,8 +24341,8 @@ function pbEditBuildup(ci,idx,key,val){
 function pbSetTrade(ci,idx,val){ PB[ci].items[idx].trade = val||""; pbSave(); applyPriceBook(); renderPriceBook(); }
 function pbSetFloor(ci,idx,val){ const it=PB[ci].items[idx]; if(val===""||val==null){ delete it.floor; } else { it.floor=+val||0; } pbSave(); renderPriceBook(); }
 function pbSetCsiRef(ci,idx,val){ const it=PB[ci].items[idx]; it.csiRef=(val&&val.trim())?val.trim():null; pbSave(); renderPriceBook(); }
-function pbSetStd(ci,idx,val){ const it=PB[ci].items[idx]; if(val===""||val==null){ delete it.std; } else { it.std=+val||0; } pbSave(); applyPriceBook(); renderPriceBook(); }
-function pbStepStd(ci,idx,d){ const it=PB[ci].items[idx]; const tiers=SEC_TIERS[PB[ci].id]||["Low","Standard","High"]; const si=tiers.indexOf("Standard"); const cur=(it.std!=null&&it.std!=="")?+it.std:(si>=0?tierUC(it,tiers,si):Math.round((it.lo+it.hi)/2)); it.std=Math.max(0,cur+d); pbSave(); applyPriceBook(); renderPriceBook(); }
+function pbSetStd(ci,idx,val){ const it=PB[ci].items[idx]; if(val===""||val==null){ delete it.std; } else { it.std=+val||0; } if(PB[ci].id==="lighting") it._lgtEdited=1; pbSave(); applyPriceBook(); renderPriceBook(); }
+function pbStepStd(ci,idx,d){ const it=PB[ci].items[idx]; const tiers=SEC_TIERS[PB[ci].id]||["Low","Standard","High"]; const si=tiers.indexOf("Standard"); const cur=(it.std!=null&&it.std!=="")?+it.std:(si>=0?tierUC(it,tiers,si):Math.round((it.lo+it.hi)/2)); it.std=Math.max(0,cur+d); if(PB[ci].id==="lighting") it._lgtEdited=1; pbSave(); applyPriceBook(); renderPriceBook(); }
 // ── Contractor-lens setters ──
 function pbSetMode(mode){ GSET.pbMode=(mode==="contractor")?"contractor":"concept"; gsetSave(); renderPriceBook(); }
 function pbSetCprice(ci,idx,val){ const it=PB[ci].items[idx]; it.cprice=(val===""||val==null)?null:(+val||0); pbSave(); }
@@ -24354,6 +24359,7 @@ function pbResetItem(ci,idx){
   const seed=seedCat.items.find(s=>s.n===cur.n) || seedCat.items[idx];
   if(!seed) return;
   PB[ci].items[idx]=JSON.parse(JSON.stringify(seed));
+  if(PB[ci].id==="lighting"){ delete PB[ci].items[idx]._lgtEdited; try{ _lgtApplyPriceDB(PB); }catch(e){} }
   pbSave(); applyPriceBook(); renderPriceBook();
 }
 function pbStepBuildup(ci,idx,key,delta){
