@@ -264,3 +264,25 @@ spacings are Warwick's spec verbatim; the two softest — turf-border proxy and
 
 **Next lighting step:** wire the trace-only refinements once a lighting trace
 layer exists, and add the driveway sub-algorithm (needs wall segments + bays).
+
+## 15 · "Place lighting" on the trace (v938)
+A **Lights** button in the Take-offs toolbar drops the lighting algorithm's
+layout onto the traced plan as real fixture markers, to look at and adjust —
+the fastest way to dial the numbers in. Uses the same `lgt.*` constants.
+
+Placement (space-agnostic — interpolates along traced points, works map-live or PDF):
+- **Path lights** — evenly around each paving polygon perimeter (inset), driveway excluded
+- **Turf path** — around turf perimeters by border spacing
+- **Shrub uplights** — along planting-bed edges, by area density
+- **Tree uplights** — a share of each size class lit, 2 fanned below each lit tree
+- **Downlights** — trees ≥ min box, 2 each
+- **LED tape** — step and bench runs copied as tapelight linears (Standard+)
+
+Re-run replaces only what it placed; hand-placed fixtures are preserved. Traced
+fixtures already flow into the Lighting section via ptApply.
+
+**Still trace-geometry TODO** (the refinements from REVIEW #14 that a trace now
+makes possible but this first pass does not yet use): yard weighting from which
+polygon a bed/tree sits in, property-line proximity for tree uplights, walkway
+centrelines vs gross paving, driveway wall-vs-open-edge, downlight→path
+cross-reduction. The button is the hook to build these against next.
