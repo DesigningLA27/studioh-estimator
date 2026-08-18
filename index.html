@@ -4244,7 +4244,9 @@ const ALGO_DEFAULTS={
   "lgt.treeDen.bgLow":50, "lgt.treeDen.bgStd":75, "lgt.treeDen.bgPrem":100,
   "lgt.shrub.low":3, "lgt.shrub.std":5, "lgt.shrub.prem":10,
   "lgt.yard.front":1.2, "lgt.yard.rear":1.0, "lgt.yard.side":0.3,
-  "lgt.tape.bench":1.0, "lgt.tape.step":1.0, "lgt.wireRun":25
+  "lgt.tape.bench":1.0, "lgt.tape.step":1.0, "lgt.wireRun":25,
+  "lgt.pot.shareLow":50, "lgt.pot.shareStd":100, "lgt.pot.sharePrem":100,
+  "lgt.pot.eaLow":1, "lgt.pot.eaStd":1, "lgt.pot.eaPrem":2
 };
 let ALGO=(function(){ try{ const s=localStorage.getItem("studioh_algo_v1"); if(s) return JSON.parse(s); }catch(e){} return {}; })();
 function algoSave(){ try{ localStorage.setItem("studioh_algo_v1", JSON.stringify(ALGO)); }catch(e){} }
@@ -4283,7 +4285,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v938</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v939</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -34197,6 +34199,28 @@ const ALGO_DEFS=[
  why:"Bed area is known; where each bed sits is not, until the site is traced.",
  warn:"The yard factors are stored but not applied without a trace — a blended 1.0 is used."},
 
+{id:"light.pot", g:"light", n:"Pottery lighting", u:"fixtures",
+ what:"A well light or uplight tucked into each pot on the plan. Pots only exist once they are on "
+     +"the trace, so this reads the pot count from there — a share of them lit at the lower points, "
+     +"every one at Standard, and two apiece at Showcase.",
+ terms:()=>{ const r=lightingAuto(), d=r.data, pt=r.point;
+   const sh={low:AK("lgt.pot.shareLow"),std:AK("lgt.pot.shareStd"),prem:AK("lgt.pot.sharePrem")}[pt];
+   const ea={low:AK("lgt.pot.eaLow"),std:AK("lgt.pot.eaStd"),prem:AK("lgt.pot.eaPrem")}[pt];
+   return [
+     {op:"", k:"Pots on the trace", v:_n(d.pots||0,0)},
+     {op:"×", k:"Share lit", sub:"at this point", v:_n(sh,0)+"%"},
+     {op:"×", k:"Lights each", v:_n(ea,0)},
+     {op:"=", k:"Pot lights", v:_n(r.upPot,0), tot:1}];
+ },
+ params:[{k:"lgt.pot.shareLow",n:"Accent · % of pots lit",step:5},{k:"lgt.pot.shareStd",n:"Standard · % lit",step:5},
+         {k:"lgt.pot.sharePrem",n:"Showcase · % lit",step:5},
+         {k:"lgt.pot.eaLow",n:"Accent · lights per pot",step:1},{k:"lgt.pot.eaStd",n:"Standard · lights per pot",step:1},
+         {k:"lgt.pot.eaPrem",n:"Showcase · lights per pot",step:1}],
+ used:["Lighting auto-estimate · uplights","Place lighting on the trace"], src:"lightingAuto() · lgtData()",
+ why:"Reads the pot count straight off the trace — there is nowhere else a pot is recorded. Placed "
+    +"at each pot when you run Place lighting.",
+ warn:"With no trace there are no pots, so this stays at zero until pots are drawn."},
+
 {id:"light.tape", g:"light", n:"Step & bench tape light", u:"LF",
  what:"LED tape under bench seats and along step nosings, one foot of tape per foot of run. It is a "
      +"finish move, so it is left out entirely at the Accent point and added at Standard and above.",
@@ -34392,8 +34416,10 @@ function lgtData(){
     if(box>=AK("lgt.down.minBox")) down+=n;
     if(box>=36) big+=n; else small+=n;          // 15g / 24"box = small, 36"box+ = big
   })); }catch(e){}
+  let pots=0;
+  try{ (typeof PT!=="undefined"&&PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)==="pots") pots++; }); }catch(e){}
   return {pavingSF:round(pavingSF), turfSF:round(turfSF), shrubSF:round(shrubSF),
-          benchLF:round(benchLF), stepLF:round(stepLF), trees:{small,big,down}};
+          benchLF:round(benchLF), stepLF:round(stepLF), trees:{small,big,down}, pots:pots};
 }
 // √area × 4 is the perimeter of the equivalent square — a stand-in for a turf
 // border we have no trace of. Flagged as an estimate wherever it is shown.
@@ -34419,13 +34445,18 @@ function lightingAuto(){
   const shDen=pick(AK("lgt.shrub.low"),AK("lgt.shrub.std"),AK("lgt.shrub.prem"));
   const upShrub = d.shrubSF>0 ? up(d.shrubSF/1000*shDen) : 0;
 
+  // pot lights — a well light / uplight per pot, share and count by point
+  const potShare=pick(AK("lgt.pot.shareLow"),AK("lgt.pot.shareStd"),AK("lgt.pot.sharePrem"));
+  const potEa=pick(AK("lgt.pot.eaLow"),AK("lgt.pot.eaStd"),AK("lgt.pot.eaPrem"));
+  const upPot = Math.round((d.pots||0)*potShare/100)*potEa;
+
   // downlights — 2 per tree big enough to carry them
   const downlt = d.trees.down*AK("lgt.tree.down");
 
   // LED tape — benches and steps, standard & premium only
   const tapeLF = p==="low" ? 0 : Math.round(d.benchLF*AK("lgt.tape.bench") + d.stepLF*AK("lgt.tape.step"));
 
-  const path=pathPaving+pathTurf, uplight=upTree+upShrub;
+  const path=pathPaving+pathTurf, uplight=upTree+upShrub+upPot;
   const fixtures=path+uplight+downlt;
 
   // wiring — a rough run per fixture; transformers — connected watts ÷ usable, with headroom
@@ -34436,7 +34467,7 @@ function lightingAuto(){
   const xfmr = fixtures>0 ? Math.max(1, Math.ceil(watts*head/cap)) : 0;
 
   return {point:p, data:d, turfBorder,
-    path, pathPaving, pathTurf, uplight, upTree, upShrub, downlt, tapeLF, wireLF, watts:Math.round(watts), xfmr,
+    path, pathPaving, pathTurf, uplight, upTree, upShrub, upPot, downlt, tapeLF, wireLF, watts:Math.round(watts), xfmr,
     fixtures};
 }
 
@@ -34517,8 +34548,9 @@ function lightingPlace(){
   if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
   const polys=(PT.polys||[]).filter(q=>q&&q.pts);
   const trees=(PT.trees||[]).filter(t=>_ptMarkMode(t)==="tree" && !t._auto);
+  const pots=(PT.trees||[]).filter(t=>_ptMarkMode(t)==="pots" && !t._auto);
   const hasArea=m=>polys.some(q=>q.mode===m && q.pts.length>=3);
-  if(!hasArea("paving")&&!hasArea("turf")&&!hasArea("planting")&&!trees.length){
+  if(!hasArea("paving")&&!hasArea("turf")&&!hasArea("planting")&&!trees.length&&!pots.length){
     alert("Nothing to light yet. Trace some paving, planting, turf or trees first, then place lighting.");
     return;
   }
@@ -34566,6 +34598,12 @@ function lightingPlace(){
   litTrees(big,bgDen).forEach(uplightTree);
   trees.forEach(t=>{ if(_lgtTreeBox(t)>=minBox){ const r=2;
     for(let i=0;i<dn;i++){ add((+t.x)+(i?r:-r)*sc.sx, (+t.y), "Downlight / Moonlight"); nDown++; } } });
+
+  // pots — a share lit, one or two lights apiece at the pot
+  const potShare=pick(AK("lgt.pot.shareLow"),AK("lgt.pot.shareStd"),AK("lgt.pot.sharePrem"));
+  const potEa=pick(AK("lgt.pot.eaLow"),AK("lgt.pot.eaStd"),AK("lgt.pot.eaPrem"));
+  pots.slice(0, Math.round(pots.length*potShare/100)).forEach(pt=>{ const r=1.5;
+    for(let i=0;i<potEa;i++){ add((+pt.x)+(potEa>1?(i?r:-r)*sc.sx:0), (+pt.y), "Uplight / Accent"); nUp++; } });
 
   // LED tape — steps and bench runs, Standard & Showcase only
   if(p!=="low"){
