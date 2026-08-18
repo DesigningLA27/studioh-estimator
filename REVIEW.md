@@ -33,17 +33,29 @@ the labour? Default is Motorized, so nothing already quoted moved.
 
 ---
 
-### 2 · Material on a split line is typed, not linked to anything
-**v885 · 2026-08-17 · price book**
+### 2 · Connect the Materials library to the Price Book and the estimator
+**decided 2026-08-17 · TO BUILD**
 
-On a Split M+L line the material figure is **typed on that line**, in the line's own unit. Pressing
-Split M+L seeds it from the midpoint of that line's Low/High, and after that it is yours. It is not
-pulled from the Price Book, the Materials library or a supplier — so there is nothing to link to,
-which is why the term is tagged `TYPED · on this line · per SF`.
+Warwick's call: **build it.** A material should be a thing you pick, not a number you type.
 
-**Decide:** should material instead be able to point at a **Materials library** item, so a supplier
-price change flows through to every line that uses it? That is real work and overlaps
-[[material-library-roadmap]] — worth it only if you intend to keep supplier pricing current.
+**The shape**
+- A Price Book line can **point at a Materials library item** instead of carrying a typed material
+  cost. Today the material figure on a split M+L line is typed there and linked to nothing.
+- A supplier price change in the library then **flows through** to every line that points at it,
+  and from there into the estimate.
+- In the **estimator** you can see the material options behind a line and **pick a different
+  product** — the same swap the *Other ways to do this* card offers, but by product rather than by
+  price-book line.
+
+**Open questions to settle before building**
+- Does picking a product change **this job only**, or the Price Book line's default? (The
+  alternatives card already answers this for line swaps: the job. Materials should match.)
+- What happens to a line pointing at a product that is later deleted or discontinued?
+- Does the library carry installed cost, or material only with labour still coming from the
+  book's hours × rate? The second is more honest and matches how split lines already work.
+
+Related: [[material-library-roadmap]], [[mood-board-roadmap]], and REVIEW #9 (the AI layer on
+alternatives).
 
 ---
 
