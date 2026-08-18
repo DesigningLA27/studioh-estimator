@@ -4283,7 +4283,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v937</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v938</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31896,6 +31896,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
     ${_t({label:"Settings", act:"ptSettingsPopover()", title:"How the drawing reads — fades, fills, canopies",
       icon:_ic('<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/>')})}
     ${_t({label:"More", act:"ptOverflow()", title:"Layers, layout, reset, trace files", icon:'<span class="tkb-dots">⋯</span>'})}
+    ${_t({label:"Lights", act:"lightingPlace()", title:"Place a lighting layout from the algorithm — adjust it, then Apply",
+      icon:_ic('<path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 3.7 10.7c-.5.5-.9 1-1 2.3H9.3c-.1-1.3-.5-1.8-1-2.3A6 6 0 0 1 12 3Z"/>')})}
     ${_wide?`${_hr}${_lb("Also")}
       ${_t({label:ptLayersAllOff()?"Show all":"Hide all", act:"ptHideAllLayers()", on:ptLayersAllOff(),
         title:"Take every layer off the plan — nothing leaves the estimate",
@@ -34466,6 +34468,115 @@ function lightingApply(){
   try{ saveLocal&&saveLocal(); }catch(e){}
   try{ _toast&&_toast("Lighting estimated — "+r.fixtures+" fixtures"); }catch(e){}
   try{ renderAlgos(); }catch(e){}
+}
+</script>
+
+
+<script>
+/* ══ LIGHTING · place on the trace ═══════════════════════════════════════════
+   "Place lighting" runs the same conceptual algorithm as the Algorithms tab, but
+   instead of a count it drops the fixtures onto the traced plan where they would
+   go — path lights around the paving and turf edges, uplights at the trees and
+   along the beds, downlights in the big canopies, tape on the steps and benches.
+   It is a starting layout to look at and adjust, which is how the numbers behind
+   it get dialled in. Anything placed by hand is never touched; a second run only
+   replaces what this placed before. The traced fixtures already flow into the
+   Lighting section through Apply, so nothing new is needed downstream. */
+
+function _lgtPerim(pts){ let d=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length;
+  d+=Math.hypot(pts[j].x-pts[i].x, pts[j].y-pts[i].y); } return d; }
+function _lgtPerimFt(pts){ try{ return _ptLineLF(pts.concat([pts[0]])); }catch(e){ return 0; } }
+// k points spaced evenly along the perimeter, each nudged toward the centroid so
+// they sit just inside the edge rather than on the line.
+function _lgtAlong(pts, k, insetFrac){
+  if(k<=0||!pts||pts.length<2) return [];
+  const c=_ptCentroid(pts), P=_lgtPerim(pts); if(!(P>0)) return [];
+  const step=P/k, out=[]; let target=step/2, acc=0;
+  for(let i=0;i<pts.length && out.length<k;i++){
+    const a=pts[i], b=pts[(i+1)%pts.length], seg=Math.hypot(b.x-a.x,b.y-a.y);
+    while(acc+seg>=target-1e-9 && out.length<k){
+      const t=Math.max(0,Math.min(1,(target-acc)/(seg||1)));
+      let x=a.x+(b.x-a.x)*t, y=a.y+(b.y-a.y)*t;
+      x+=(c.x-x)*insetFrac; y+=(c.y-y)*insetFrac;
+      out.push({x,y}); target+=step;
+    }
+    acc+=seg;
+  }
+  return out;
+}
+// coord units per foot in each axis, for offsetting fixtures around a tree
+function _lgtFtScale(atY){
+  try{ if(ptMapLive()) return {sx:1/_ftPerDegLng(atY||34), sy:1/FT_PER_DEG_LAT}; }catch(e){}
+  const ppf=PT.ppf||0; return {sx:ppf, sy:ppf};
+}
+function _lgtTreeBox(t){ const s=String(t&&t.size||"");
+  if(/gal/i.test(s)) return 15;                     // a can, not a box → treat as small
+  const m=s.match(/(\d+)/); return m?+m[1]:24; }
+
+function lightingPlace(){
+  if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
+  const polys=(PT.polys||[]).filter(q=>q&&q.pts);
+  const trees=(PT.trees||[]).filter(t=>_ptMarkMode(t)==="tree" && !t._auto);
+  const hasArea=m=>polys.some(q=>q.mode===m && q.pts.length>=3);
+  if(!hasArea("paving")&&!hasArea("turf")&&!hasArea("planting")&&!trees.length){
+    alert("Nothing to light yet. Trace some paving, planting, turf or trees first, then place lighting.");
+    return;
+  }
+  const p=lgtPoint(), pick=(a,b,c)=>p==="low"?a:p==="std"?b:c;
+  ptSnap();
+  // clear only what a previous run placed; keep every hand-placed fixture
+  PT.trees=(PT.trees||[]).filter(t=>!(t._auto && _ptMarkMode(t)==="light"));
+  PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="tapelight"));
+  let ctrl="zone"; try{ ctrl=ptLightCtrl()||"zone"; }catch(e){}
+  const add=(x,y,type)=>{ if(isFinite(x)&&isFinite(y)) PT.trees.push({x,y,mode:"light",size:type,ctrl,page:PT.page,_auto:true}); };
+  let nPath=0,nUp=0,nDown=0,tape=0;
+
+  // paving path lights — perimeter, inset (driveway is out of landscape scope)
+  const perFix=pick(AK("lgt.paving.low"),AK("lgt.paving.std"),AK("lgt.paving.prem"));
+  polys.filter(q=>q.mode==="paving"&&q.pts.length>=3).forEach(q=>{
+    const sf=Math.abs(_ptPolySF(q.pts))||0; if(sf<80) return;
+    const k=Math.max(1,Math.round(sf/perFix));
+    _lgtAlong(q.pts,k,0.08).forEach(pt=>{ add(pt.x,pt.y,"Path / Area"); nPath++; });
+  });
+  // turf path lights — border spacing
+  const turfSp=pick(AK("lgt.turf.low"),AK("lgt.turf.std"),AK("lgt.turf.prem"));
+  polys.filter(q=>q.mode==="turf"&&q.pts.length>=3).forEach(q=>{
+    const per=_lgtPerimFt(q.pts); const k=Math.max(1,Math.round(per/turfSp));
+    _lgtAlong(q.pts,k,0.05).forEach(pt=>{ add(pt.x,pt.y,"Path / Area"); nPath++; });
+  });
+  // shrub-bed uplights — along the bed edge, deeper inset
+  const shDen=pick(AK("lgt.shrub.low"),AK("lgt.shrub.std"),AK("lgt.shrub.prem"));
+  polys.filter(q=>q.mode==="planting"&&q.pts.length>=3).forEach(q=>{
+    const sf=Math.abs(_ptPolySF(q.pts))||0; const k=Math.round(sf/1000*shDen); if(k<1) return;
+    _lgtAlong(q.pts,k,0.14).forEach(pt=>{ add(pt.x,pt.y,"Uplight / Accent"); nUp++; });
+  });
+  // trees — uplights on a share of each size class, downlights in the big canopies
+  const avgY=trees.length?trees.reduce((s,t)=>s+(+t.y||0),0)/trees.length:34;
+  const sc=_lgtFtScale(avgY);
+  const small=[], big=[];
+  trees.forEach(t=>{ (_lgtTreeBox(t)>=36?big:small).push(t); });
+  const up=AK("lgt.tree.up"), dn=AK("lgt.tree.down"), minBox=AK("lgt.down.minBox");
+  const smDen=pick(AK("lgt.treeDen.smLow"),AK("lgt.treeDen.smStd"),AK("lgt.treeDen.smPrem"));
+  const bgDen=pick(AK("lgt.treeDen.bgLow"),AK("lgt.treeDen.bgStd"),AK("lgt.treeDen.bgPrem"));
+  const litTrees=(arr,den)=>arr.slice(0, Math.round(arr.length*den/100));
+  const uplightTree=t=>{ const r=3.5; for(let i=0;i<up;i++){
+    const ang=up>1?(Math.PI*i/(up-1)-Math.PI/2):0;         // fan the uplights out below the tree
+    add((+t.x)+Math.cos(ang)*r*sc.sx, (+t.y)+Math.sin(ang)*r*sc.sy, "Uplight / Accent"); nUp++; } };
+  litTrees(small,smDen).forEach(uplightTree);
+  litTrees(big,bgDen).forEach(uplightTree);
+  trees.forEach(t=>{ if(_lgtTreeBox(t)>=minBox){ const r=2;
+    for(let i=0;i<dn;i++){ add((+t.x)+(i?r:-r)*sc.sx, (+t.y), "Downlight / Moonlight"); nDown++; } } });
+
+  // LED tape — steps and bench runs, Standard & Showcase only
+  if(p!=="low"){
+    polys.filter(q=>(q.mode==="steps"||q.mode==="seating")&&q.pts.length>=2).forEach(q=>{
+      PT.polys.push({pts:q.pts.map(pt=>({x:+pt.x,y:+pt.y})),mode:"tapelight",kind:"linear",page:PT.page,_auto:true}); tape++; });
+  }
+
+  try{ ptDrawOverlay(); ptUpdateInfo(); if(typeof ptRenderModal==="function") ptRenderModal(); }catch(e){}
+  const total=nPath+nUp+nDown;
+  try{ _toast(`Placed ${total} fixtures — ${nPath} path · ${nUp} up · ${nDown} down`
+    +(tape?` · ${tape} tape run${tape>1?"s":""}`:"")+`. Adjust, then Apply.`,"#2F5B23"); }catch(e){}
 }
 </script>
 
