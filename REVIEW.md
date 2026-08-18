@@ -371,3 +371,13 @@ numbers over the local reseed. If prices still look stale after v943, Warwick
 should re-open the Price Book, confirm the lighting lines read 40/120/300 etc.,
 and **Publish** to push the corrected book to the cloud. Open question: should the
 reseed run after cloud pull, or is re-publish the intended path.
+
+## 19 · Lighting prices: edits win over the database (v945)
+v944's enforcement meant lighting prices could not be edited. Fixed: typing a
+lighting price (pbSetStd / pbEdit / pbStepStd) sets `it._lgtEdited`, and
+`_lgtApplyPriceDB` skips any flagged line — so a hand-typed price survives reload
+and cloud sync. The `↺ Reset` on the line clears the flag and the database takes
+it back. The flag lives in the book item, so it syncs across devices.
+
+So: un-touched lighting lines follow the cost database automatically (and can't be
+reverted by a stale server copy); any line you type yourself is yours and sticks.
