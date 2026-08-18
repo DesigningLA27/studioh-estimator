@@ -80,14 +80,16 @@ spreadsheet's standalone number needs adjusting.
 ---
 
 ### 6 · Rafter and lattice lines do not fold into a family
-**v882 · pergola**
+**v927 · 2026-08-17 · RESOLVED without renaming**
 
-`Wood 1x2`, `Wood 2x4`, `Aluminum 2x2`, `Steel 2x4` and the rest now group under **Wood** by first
-word, but `Aluminum` (2) and `Steel` (2) are below the three-line threshold. Renaming them
-`Rafter — Aluminum 2x2` would fold them properly — but the builders match these lines **by name**,
-so every reference has to be checked first.
+`Aluminum 2x2 / 2x4` and `Steel 2x2 / 2x4` now fold. The first-word rule folds at **two** lines
+rather than three; the dash rule still needs three, because `Steel Beam Wrap — Wood` reads fine on
+its own while `Aluminum 2x2` is a bare repeat.
 
-**Decide:** worth the rename?
+Renaming them to carry a dash was the other option and it was the wrong one: `mergeDefaults`
+matches saved books **by name**, so every existing book would have kept the old line and gained a
+duplicate. Seven two-line families appear book-wide — Electrical, Stone, Groundcover, Gas, Stone,
+Aluminum, Steel — all of them sensible.
 
 ---
 
