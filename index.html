@@ -4287,7 +4287,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v943</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v944</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6062,24 +6062,38 @@ const AMENITY_DUPES=[
 // One-time: adopt the lighting cost database — fixture material, wire, tape and
 // transformer. Force-set by name so an existing saved book gets the corrected
 // numbers; the old figures were 2x on the fixtures and ~10x on the wire.
-(function lightRepriceV1(){
-  try{ if(localStorage.getItem("studioh_lightprice_v2")) return; }catch(e){}
-  const price={
-    "Path / Area Light":{lo:40,std:120,hi:300},
-    "Uplight / Accent":{lo:45,std:125,hi:325},
-    "Step / Hardscape Light":{lo:60,std:160,hi:375},
-    "Downlight / Moonlight":{lo:50,std:140,hi:350},
-    "Bollard Light":{lo:65,std:180,hi:425},
-    "Low-Voltage Wiring":{lo:0.7,std:0.85,hi:1.1},
-    "LED Tape / Strip Light (installed w/ channel & driver)":{lo:15,std:28,hi:55},
-    "Transformer & Controller":{lo:475,std:850,hi:1650}
-  };
-  const lc=PB.find(c=>c.id==="lighting");
-  let changed=false;
-  if(lc&&lc.items) lc.items.forEach(it=>{ const r=price[it.n]; if(r){ it.lo=r.lo; it.hi=r.hi; it.std=r.std; changed=true; } });
-  if(changed) pbSave();   // normal boot applies it; calling applyPriceBook here is too early (TDZ)
-  try{ localStorage.setItem("studioh_lightprice_v2","1"); }catch(e){}
-})();
+// The lighting cost database is the source of truth for these lines. Because the
+// price book syncs to the server, an old server copy used to overwrite the
+// corrected prices on every boot. So this is not a one-time reseed — it is applied
+// every load AND again right after a server pull (see configLoad), so the numbers
+// can never silently revert. Publish once and the server copy is corrected too.
+const LGT_PRICE_DB={
+  "Path / Area Light":[40,120,300],
+  "Uplight / Accent":[45,125,325],
+  "Step / Hardscape Light":[60,160,375],
+  "Downlight / Moonlight":[50,140,350],
+  "Bollard Light":[65,180,425],
+  "Low-Voltage Wiring":[0.7,0.85,1.1],
+  "LED Tape / Strip Light (installed w/ channel & driver)":[15,28,55],
+  "Transformer & Controller":[475,850,1650]
+};
+function _lgtApplyPriceDB(book){
+  let ch=false;
+  (book||[]).forEach(c=>{ if(!c||c.id!=="lighting"||!c.items) return;
+    c.items.forEach(it=>{ const d=LGT_PRICE_DB[it&&it.n]; if(!d) return;
+      if(+it.lo!==d[0] || +it.hi!==d[2] || (it.std!=null&&it.std!==""&&+it.std!==d[1]) || it.std==null || it.std===""){
+        it.lo=d[0]; it.std=d[1]; it.hi=d[2]; ch=true; } }); });
+  return ch;
+}
+// Correct a raw (stringified) book in localStorage — used right after a server pull,
+// before the reload, so the reloaded boot already reads corrected prices.
+function _lgtFixStoredPrices(){
+  try{ const raw=localStorage.getItem("studioh_pricebook_v5"); if(!raw) return false;
+    const bk=JSON.parse(raw); if(_lgtApplyPriceDB(bk)){ localStorage.setItem("studioh_pricebook_v5", JSON.stringify(bk)); return true; } }catch(e){}
+  return false;
+}
+(function lightPriceEnforce(){ try{ if(_lgtApplyPriceDB(PB)) pbSave(); }catch(e){} })();
+
 // One-time: bring tree prices to a wholesale-cost + install basis (only if still at old seed values; preserves edits).
 (function repriceTreesV1(){
   try{ if(localStorage.getItem("studioh_tree_reprice_v1")) return; }catch(e){}
@@ -16795,6 +16809,10 @@ async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&
           localStorage.setItem(k, JSON.stringify(uni));
         } else { localStorage.setItem(k,d.config.data[k]); }
       }catch(e){} });
+      // An old server copy carries the pre-correction lighting prices. Fix them in
+      // place before the reload, so the corrected numbers are what actually load —
+      // and this device becomes dirty, so it pushes the correction back up.
+      try{ _lgtFixStoredPrices(); }catch(e){}
       try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
       _cfgMarkSynced();
       if(silent){ // avoid reload loop: only reload once per session
