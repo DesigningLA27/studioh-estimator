@@ -318,3 +318,35 @@ the flat model is wanted.
 
 **Counts (design) are the other half of the "too high":** 100 uplights on the
 sample is density, tuned in the Algorithms tab (`lgt.*`), not pricing.
+
+## 17 · Lighting corrections + a root pricing bug (v941)
+Warwick ran the placement and caught real errors. All fixed:
+
+**Root pricing bug (affected every section):** `applyPriceBook` kept the old `uc`
+even on un-edited lines, so a Price Book price change never reached a project that
+already existed — which is why v940's corrected prices did nothing. Now a clean
+line tracks the book's tier price; only a user-typed price (`ucSet`) is preserved.
+
+**Density identical at every tier:** `lgtPoint()` read `S.cats.lighting.tier`, but
+the Value/Standard/Premium tabs set `ptPricePoint()`. Now reads the active point →
+counts scale (11 / 19 / 30 on the test trace).
+
+**Placement geometry:** path lights now sit just OUTSIDE the paving edge in soil;
+a block test rejects any fixture inside paving/driveway/pool/spa/water/building/
+exclude or within 3 ft of a wall; shrub uplights scatter INSIDE beds (no more
+property-line ringing); trees in excluded ground get nothing.
+
+**Downlights:** only where a 36″+ trunk is within 12 ft of a paving edge
+(`lgt.downNearPaving`), per Warwick's rule — not box-size alone.
+
+**Install per fixture, flat** (55/75/120), not hours. I argued for hours against
+Warwick's explicit instruction — that was wrong. Wire, transformers, sleeves and
+120 V feed remain separate.
+
+New constants: `lgt.install.low/std/prem`, `lgt.downNearPaving`, `lgt.edgeOffset`,
+`lgt.wallClear`.
+
+**Loose ends:** the `light.hrs|*` assumptions still appear in the Price Book
+Assumptions pane but no longer drive install (they're dead for pricing now) —
+remove or repurpose. Trace-geometry refinements from REVIEW #15 (yard weighting,
+walkway centrelines, driveway wall logic, downlight→path thinning) still pending.
