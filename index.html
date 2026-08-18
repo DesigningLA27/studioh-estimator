@@ -4226,7 +4226,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
    default — it only gives each one a name, a home and a way back, so the
    Algorithms tab can show what a rule is doing and let it be adjusted. */
 const ALGO_DEFAULTS={
-  "ve.impact.min":1, "ve.impact.med":3,
+  "ve.impact.min":1, "ve.impact.med":3, "ve.highGate":40,
   "ve.frac.a":0.4, "ve.frac.b":0.2, "ve.minSave":250,
   "ve.roughin.kitchen":12, "ve.roughin.pergola":13, "ve.roughin.firepit":8,
   "plant.ocFactor":0.75, "plant.basal":0.8, "plant.mulchAllow":0.10,
@@ -4269,7 +4269,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v935</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v936</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -33224,6 +33224,16 @@ function veBuild(){
   // so they keep telling the truth as the job changes underneath them.
   (VE_MADE||[]).forEach(c=>{ const amt=veMeasure(()=>veApplyOne(c.d));
     if(amt>0){ c.amt=amt; all.push(c); } });
+  // High-impact suggestions are the ones that change the design for good — a
+  // material downgrade you cannot walk back. They only make sense when the job is
+  // deeply over budget, so they are held back until the overage passes the gate.
+  // A card the user asked for by name is never hidden from them.
+  const bud=projBudget();
+  const overPct = bud>0 ? (veGrand()-bud)/bud*100 : 0;
+  VE_HIGH_GATED=0;
+  if(overPct <= AK("ve.highGate")){
+    all = all.filter(c=>{ if(c.g==="high" && !c.made){ VE_HIGH_GATED++; return false; } return true; });
+  }
   const rank={free:0, min:1, med:2, high:3, defer:4};
   all.sort((a,b)=> (rank[a.g]-rank[b.g]) || (b.amt-a.amt));
   VE_CARDS=all;
@@ -33633,6 +33643,7 @@ function _veCard(c){
 }
 
 let VE_AIKEY="";
+let VE_HIGH_GATED=0;
 function veRender(){
   const main=document.getElementById("ve-main"), rail=document.getElementById("ve-rail");
   if(!main||!rail) return;
@@ -33747,6 +33758,12 @@ function veRender(){
       +'<div class="ve-cards">'+set.map(_veCard).join("")+'</div>';
   });
 
+  if(VE_HIGH_GATED>0){
+    h+='<div class="ve-note" style="margin-top:14px;color:var(--gold)">'
+      +'<b>'+VE_HIGH_GATED+' high-impact option'+(VE_HIGH_GATED===1?" is":"s are")+' held back.</b> '
+      +'These permanently change the design, so they only appear once the job is more than '
+      +_n(AK("ve.highGate"),0)+'% over budget — set in the Algorithms tab.</div>';
+  }
   h+='<div class="ve-note">Every figure here is <b>measured, not estimated</b> — the change is '
    +'applied to a copy of the job and the grand total recomputed, so market adjustment, markup and '
    +'the section multipliers are already in it. Two things are <b>not</b> here yet: running-cost '
@@ -33878,13 +33895,20 @@ const ALGO_DEFS=[
    {op:"=", k:"Score", v:"→ tier", tot:1},
    {op:"", k:"Minimal", sub:"score at or under", v:_n(AK("ve.impact.min"))},
    {op:"", k:"Medium", sub:"over minimal, up to", v:_n(AK("ve.impact.med"))},
-   {op:"", k:"High", sub:"above medium", v:"→ "+_n(AK("ve.impact.med"))+"+"}],
+   {op:"", k:"High", sub:"above medium", v:"→ "+_n(AK("ve.impact.med"))+"+"},
+   {op:"", k:"High shown when over budget by more than", sub:(function(){
+       const b=projBudget(), over=b>0?(veGrand()-b)/b*100:0;
+       return b>0?("now "+(over>0?"+":"")+_n(over,0)+"% over"):"no budget set on this job";
+     })(), v:_n(AK("ve.highGate"),0)+"%"}],
  params:[{k:"ve.impact.min", n:"Minimal ceiling", sub:"score at or below this reads as minimal", step:.1},
-         {k:"ve.impact.med", n:"Medium ceiling", sub:"above this reads as high impact", step:.1}],
- used:["Savings · card grouping","Savings · bite colour","The plan ordering"],
+         {k:"ve.impact.med", n:"Medium ceiling", sub:"above this reads as high impact", step:.1},
+         {k:"ve.highGate", n:"High-impact gate", sub:"high options appear only past this % over budget", step:5}],
+ used:["Savings · card grouping","Savings · bite colour","The plan ordering","Savings · high-impact gate"],
  src:"veImpact(steps, frac, force) · VE_SUBS",
  why:"Ranking by dollars alone puts a free planting change next to gutting a terrace. The tier is "
-    +"the axis that actually matters when you are sitting with a client."},
+    +"the axis that actually matters when you are sitting with a client. High-impact swaps are a "
+    +"permanent downgrade, so they stay hidden until the job is far enough over budget to warrant "
+    +"them — a client is never shown a drastic cut the project does not need."},
 
 {id:"ve.frac", g:"ve", n:"Partial substitution", u:"share",
  what:"For every material swap the app also offers moving only part of the area, which reads as a "
