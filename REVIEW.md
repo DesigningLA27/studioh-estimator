@@ -125,6 +125,26 @@ rather than shown with a warning?
 
 ---
 
+### 9 · AI judgement on the alternatives card
+**v924 · 2026-08-17 · price book · ON THE ROADMAP**
+
+The **Cheaper ways to do this** card is built and needs no AI — the alternatives are the lines the
+builder already picks between, and the saving is `(this rate − that rate) × quantity on this job`.
+
+What it cannot do is say **which swap a client would accept**. Option B from the mockup adds a short
+AI paragraph above the list: *"porcelain reads closest to stone at a distance and takes $1,200 off
+with almost no loss on a patio — the joints are the tell. Decomposed granite is not a substitute
+here, it cannot take furniture."* Plus a **Swap** button per row.
+
+**Two things to settle before that is built:**
+- A swap must change **this job only**, never the Price Book — the book is the library.
+- The AI must not invent alternatives; it may only rank and annotate the lines it is handed.
+
+Part of [[value-engineering-roadmap]] — the same arithmetic run across every line is how the app
+would suggest where to cut to hit a budget.
+
+---
+
 ## Settled
 
 _(nothing yet)_
