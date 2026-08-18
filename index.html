@@ -4287,7 +4287,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v942</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v943</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30089,8 +30089,14 @@ function _ptPriceFor(mode, qty){
   if(m && m.kind==="count" && TK_MARK_EACH[mode]){
     let ea=0;
     if(mode==="light"){
-      const L=ptLightPlan();
-      if(L.total>0) return {total:L.total, per:L.total/Math.max(1,L.n), from:"built"};
+      // Each tier is its own design, priced at its own point — not the current
+      // placement priced three ways. _tkAt sets the point when the three buttons
+      // are computed; otherwise use the light category's effective point.
+      let pt=(typeof _tkPointOverride!=="undefined"&&_tkPointOverride!=null)?_tkPointOverride:null;
+      if(pt==null){ try{ pt=ptPointFor("light"); }catch(e){} }
+      if(pt==null){ try{ pt=ptPricePoint(); }catch(e){} }
+      const R=_lgtPriceAt(+pt||0);
+      if(R.total>0) return {total:R.total, per:R.total/Math.max(1,R.n), from:"built"};
       return null;
     }
     const spec=TK_MARK_EACH[mode];
@@ -30186,8 +30192,8 @@ function ptPointFor(mode){
 function ptSetPointFor(mode, v){
   if(!PT.pointBy) PT.pointBy={};
   if(v==null) delete PT.pointBy[mode]; else PT.pointBy[mode]=+v;
+  if(mode==="light") try{ _lgtReplaceIfAuto(); }catch(e){}   // re-place first, then show it
   try{ ptUpdateInfo(); ptAutoSave(); if(document.getElementById("pt-why-pop")) ptWhy(mode); }catch(e){}
-  if(mode==="light") try{ _lgtReplaceIfAuto(); }catch(e){}
 }
 function _tkAt(pp, fn){ const prev=_tkPointOverride; _tkPointOverride=pp;
   try{ return fn(); } finally { _tkPointOverride=prev; } }
@@ -30198,9 +30204,8 @@ function ptPriceFor(mode, qty){
 }
 function ptSetPricePoint(v){
   try{ if(v==null) localStorage.removeItem("studioh_pt_point"); else localStorage.setItem("studioh_pt_point", String(v)); }catch(e){}
+  try{ if(ptPointFor("light")==null) _lgtReplaceIfAuto(); }catch(e){}   // re-place first
   try{ ptPopClose(); ptUpdateInfo(); }catch(e){}
-  // Only when lighting has no override of its own — otherwise its own point rules.
-  try{ if(ptPointFor("light")==null) _lgtReplaceIfAuto(); }catch(e){}
 }
 function _tkStdUC(it, cat){
   const tiers=(typeof SEC_TIERS!=="undefined"&&SEC_TIERS[cat])||["Low","Standard","High"];
@@ -31124,11 +31129,11 @@ function ptWhy(mode){
   if(md.kind==="count"){
     // Lighting answers for the whole scheme, not just the fixtures on the plan.
     if(mode==="light"){
-      const L=ptLightPlan();
+      const L=ptLightPlan();     // itemised rows for the CURRENT layout on the plan
       const eachL=L.rows.map(r=>({nm:r.what, net:r.qty, taken:0, idx:null, demo:false, demoCost:0,
         rate:r.rate, cost:r.cost, unitOverride:r.unit}));
       _ptWhyPop(md, mode, {unit:"ea", qty:L.n, pr:(L.total>0?{total:L.total, per:L.total/Math.max(1,L.n), from:"built"}:null),
-        src:`${L.xfmr} transformer${L.xfmr===1?"":"s"} for ${_tkFmt(Math.round(L.watts))} W of fixtures at 80% load, ${L.hrs} hours of ${TK_LIGHT_ROLE.toLowerCase()} at ${fmtN(L.laborRate)} an hour, and the cable run measured off the plan`,
+        src:`${L.xfmr} transformer${L.xfmr===1?"":"s"} for ${_tkFmt(Math.round(L.watts))} W of fixtures at 80% load, install at a flat rate a fixture, plus the cable run measured off the plan`,
         cut:0, each:eachL, marks:L.n, shapes:[]});
       return;
     }
@@ -34589,78 +34594,52 @@ function _lgtTreeBox(t){ const s=String(t&&t.size||"");
   if(/gal/i.test(s)) return 15;                     // a can, not a box → treat as small
   const m=s.match(/(\d+)/); return m?+m[1]:24; }
 
-function lightingPlace(){
-  if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
+// The geometry walk, done once. Returns the fixtures a layout would have at a
+// given point WITHOUT touching the plan — so the same math drives both the actual
+// placement and every tier total, and the three tier buttons can each show their
+// own design instead of the current one priced three ways.
+function _lgtCompute(ps){
+  const out={fixtures:[], tapeRuns:[]};
+  if(typeof PT==="undefined") return out;
   const polys=(PT.polys||[]).filter(q=>q&&q.pts);
   const trees=(PT.trees||[]).filter(t=>_ptMarkMode(t)==="tree" && !t._auto);
   const pots=(PT.trees||[]).filter(t=>_ptMarkMode(t)==="pots" && !t._auto);
-  const hasArea=m=>polys.some(q=>q.mode===m && q.pts.length>=3);
-  if(!hasArea("paving")&&!hasArea("turf")&&!hasArea("planting")&&!trees.length&&!pots.length){
-    alert("Nothing to light yet. Trace some paving, planting, turf or trees first, then place lighting.");
-    return;
-  }
-  const p=lgtPoint(), pick=(a,b,c)=>p==="low"?a:p==="std"?b:c;
+  const pick=(a,b,c)=> ps==="low"?a : ps==="prem"?c : b;
 
-  // ── where a fixture may NOT go ──────────────────────────────────────────────
-  // Hardscape you walk on, water, the house, and anything marked existing/exclude.
-  // A path light stands in soil at the edge of a walk, never out in the paving; a
-  // fixture in the pool or the driveway or an excluded bed is just wrong.
   const BLOCK=["paving","driveway","pool","spa","water","building","exclude"];
   const blockPolys=polys.filter(q=>BLOCK.indexOf(q.mode)>=0 && q.pts.length>=3);
   const pavePolys=polys.filter(q=>q.mode==="paving" && q.pts.length>=3);
   const wallLines=polys.filter(q=>q.mode==="wall" && q.pts.length>=2);
-  const blocked=pt=>blockPolys.some(q=>_ptPointInPoly(pt,q.pts));
-  // A pot or a tree is a real object with a fixed spot — a pot light belongs at the
-  // pot even when it sits on a patio. Only skip objects in existing/excluded ground
-  // or under the house. Free-standing path & bed lights keep the full hardscape block.
   const objBlockPolys=polys.filter(q=>(q.mode==="exclude"||q.mode==="building") && q.pts.length>=3);
+  const blocked=pt=>blockPolys.some(q=>_ptPointInPoly(pt,q.pts));
   const blockedObj=pt=>objBlockPolys.some(q=>_ptPointInPoly(pt,q.pts));
   const avgY=trees.length?trees.reduce((s,t)=>s+(+t.y||0),0)/trees.length:34;
   const sc=_lgtFtScale(avgY);
   const nearWall=(pt,ft)=>wallLines.some(w=>_lgtDistToLineFt(pt,w.pts)<=ft);
   const distToPavingFt=pt=>{ let m=1e9; pavePolys.forEach(q=>{ const d=_lgtDistToLineFt(pt,q.pts,true); if(d<m) m=d; }); return m; };
   const okFree=pt=>isFinite(pt.x)&&isFinite(pt.y)&&!blocked(pt)&&!nearWall(pt,AK("lgt.wallClear"));
+  const add=(x,y,type)=>out.fixtures.push({x,y,type});
+  const addFree=(pt,type)=>{ if(okFree(pt)) add(pt.x,pt.y,type); };
 
-  ptSnap();
-  PT.trees=(PT.trees||[]).filter(t=>!(t._auto && _ptMarkMode(t)==="light"));
-  PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="tapelight"));
-  let ctrl="zone"; try{ ctrl=ptLightCtrl()||"zone"; }catch(e){}
-  const add=(x,y,type)=>{ PT.trees.push({x,y,mode:"light",size:type,ctrl,page:PT.page,_auto:true}); };
-  const addFree=(pt,type,tally)=>{ if(okFree(pt)){ add(pt.x,pt.y,type); tally(); } };
-  let nPath=0,nUp=0,nDown=0,tape=0;
-
-  // ── path / area lights — hugging the OUTSIDE of the paving edge, in the soil ──
+  // path / area lights — just outside the paving edge, in the soil
   const perFix=pick(AK("lgt.paving.low"),AK("lgt.paving.std"),AK("lgt.paving.prem"));
   const edge=AK("lgt.edgeOffset");
-  pavePolys.forEach(q=>{
-    const sf=Math.abs(_ptPolySF(q.pts))||0; if(sf<80) return;
+  pavePolys.forEach(q=>{ const sf=Math.abs(_ptPolySF(q.pts))||0; if(sf<80) return;
     const k=Math.max(1,Math.round(sf/perFix));
-    _lgtAlong(q.pts,k,0).forEach(pt=>{               // on the edge, then pushed OUT
-      const o=_lgtOutward(pt,q.pts,edge,sc);
-      addFree(o,"Path / Area",()=>nPath++);
-    });
-  });
-  // turf path — along its border, pushed just outside, never on a wall
+    _lgtAlong(q.pts,k,0).forEach(pt=>addFree(_lgtOutward(pt,q.pts,edge,sc),"Path / Area")); });
   const turfSp=pick(AK("lgt.turf.low"),AK("lgt.turf.std"),AK("lgt.turf.prem"));
   polys.filter(q=>q.mode==="turf"&&q.pts.length>=3).forEach(q=>{
     const per=_lgtPerimFt(q.pts); const k=Math.max(1,Math.round(per/turfSp));
-    _lgtAlong(q.pts,k,0).forEach(pt=>{
-      const o=_lgtOutward(pt,q.pts,edge,sc);
-      addFree(o,"Path / Area",()=>nPath++);
-    });
-  });
+    _lgtAlong(q.pts,k,0).forEach(pt=>addFree(_lgtOutward(pt,q.pts,edge,sc),"Path / Area")); });
 
-  // ── shrub-bed uplights — scattered INSIDE the bed, not ringing the edge, so
-  //    they never line a property-line wall ──
+  // shrub-bed uplights — scattered inside the bed
   const shDen=pick(AK("lgt.shrub.low"),AK("lgt.shrub.std"),AK("lgt.shrub.prem"));
   polys.filter(q=>q.mode==="planting"&&q.pts.length>=3).forEach(q=>{
     const sf=Math.abs(_ptPolySF(q.pts))||0; const k=Math.round(sf/1000*shDen); if(k<1) return;
-    _lgtScatterInside(q.pts,k,sc).forEach(pt=>{ addFree(pt,"Uplight / Accent",()=>nUp++); });
-  });
+    _lgtScatterInside(q.pts,k,sc).forEach(pt=>addFree(pt,"Uplight / Accent")); });
 
-  // ── trees — uplights on a share of each size class; downlights ONLY where the
-  //    trunk is within reach of paving (moonlighting lights a patio, not open lawn) ──
-  const litOK=trees.filter(t=>!blockedObj({x:+t.x,y:+t.y}));   // a tree well on paving is fine; skip only excluded/house ground
+  // trees
+  const litOK=trees.filter(t=>!blockedObj({x:+t.x,y:+t.y}));
   const small=[], big=[];
   litOK.forEach(t=>{ (_lgtTreeBox(t)>=36?big:small).push(t); });
   const up=AK("lgt.tree.up"), dn=AK("lgt.tree.down");
@@ -34669,31 +34648,83 @@ function lightingPlace(){
   const litTrees=(arr,den)=>arr.slice(0, Math.round(arr.length*den/100));
   const uplightTree=t=>{ const r=3.5; for(let i=0;i<up;i++){
     const ang=up>1?(Math.PI*i/(up-1)-Math.PI/2):0;
-    add((+t.x)+Math.cos(ang)*r*sc.sx, (+t.y)+Math.sin(ang)*r*sc.sy, "Uplight / Accent"); nUp++; } };
+    add((+t.x)+Math.cos(ang)*r*sc.sx, (+t.y)+Math.sin(ang)*r*sc.sy, "Uplight / Accent"); } };
   litTrees(small,smDen).forEach(uplightTree);
   litTrees(big,bgDen).forEach(uplightTree);
   const near=AK("lgt.downNearPaving");
-  litOK.forEach(t=>{
-    if(_lgtTreeBox(t)>=36 && distToPavingFt({x:+t.x,y:+t.y})<=near){ const r=2;
-      for(let i=0;i<dn;i++){ add((+t.x)+(i?r:-r)*sc.sx, (+t.y), "Downlight / Moonlight"); nDown++; } }
-  });
+  litOK.forEach(t=>{ if(_lgtTreeBox(t)>=36 && distToPavingFt({x:+t.x,y:+t.y})<=near){ const r=2;
+    for(let i=0;i<dn;i++) add((+t.x)+(i?r:-r)*sc.sx, (+t.y), "Downlight / Moonlight"); } });
 
-  // ── pots — a share lit, at the pot ──
+  // pots — light where they stand (skip only excluded/house ground)
   const potShare=pick(AK("lgt.pot.shareLow"),AK("lgt.pot.shareStd"),AK("lgt.pot.sharePrem"));
   const potEa=pick(AK("lgt.pot.eaLow"),AK("lgt.pot.eaStd"),AK("lgt.pot.eaPrem"));
   pots.filter(t=>!blockedObj({x:+t.x,y:+t.y})).slice(0, Math.round(pots.length*potShare/100)).forEach(pt=>{ const r=1.5;
-    for(let i=0;i<potEa;i++){ add((+pt.x)+(potEa>1?(i?r:-r)*sc.sx:0), (+pt.y), "Uplight / Accent"); nUp++; } });
+    for(let i=0;i<potEa;i++) add((+pt.x)+(potEa>1?(i?r:-r)*sc.sx:0), (+pt.y), "Uplight / Accent"); });
 
-  // ── LED tape — steps and bench runs, Standard & Showcase only ──
-  if(p!=="low"){
-    polys.filter(q=>(q.mode==="steps"||q.mode==="seating")&&q.pts.length>=2).forEach(q=>{
-      PT.polys.push({pts:q.pts.map(pt=>({x:+pt.x,y:+pt.y})),mode:"tapelight",kind:"linear",page:PT.page,_auto:true}); tape++; });
+  // LED tape — steps and bench runs, Standard & Showcase only
+  if(ps!=="low"){
+    polys.filter(q=>(q.mode==="steps"||q.mode==="seating")&&q.pts.length>=2)
+      .forEach(q=>out.tapeRuns.push(q.pts.map(pt=>({x:+pt.x,y:+pt.y})))); }
+  return out;
+}
+
+// Fixture counts a layout would have at a point — used to price each tier on its own.
+function lightingCountAt(pt){
+  const ps=["low","std","prem"][Math.min(2,Math.max(0,+pt||0))];
+  const f=_lgtCompute(ps);
+  const by={path:0,uplight:0,downlight:0};
+  f.fixtures.forEach(x=>{ if(x.type==="Path / Area") by.path++;
+    else if(x.type==="Uplight / Accent") by.uplight++;
+    else if(x.type==="Downlight / Moonlight") by.downlight++; });
+  let tapeLF=0; f.tapeRuns.forEach(pts=>{ try{ tapeLF+=_ptLineLF(pts); }catch(e){} });
+  const n=by.path+by.uplight+by.downlight;
+  const watts=by.path*(TK_LIGHT_W["Path / Area"]||4)+by.uplight*(TK_LIGHT_W["Uplight / Accent"]||6)
+            +by.downlight*(TK_LIGHT_W["Downlight / Moonlight"]||7)+tapeLF*3;
+  let head=1.25,cap=300; try{ head=assumeVal("xfmr.head")||1.25; cap=assumeVal("xfmr.w")||300; }catch(e){}
+  const xfmr=n>0?Math.max(1,Math.ceil(watts*head/cap)):0;
+  return {path:by.path,uplight:by.uplight,downlight:by.downlight,tapeLF:Math.round(tapeLF),
+          xfmr, wireLF:Math.round(n*AK("lgt.wireRun")), n, watts:Math.round(watts)};
+}
+// Price a tier's own design at that tier — fully explicit, so the three tier
+// buttons are stable and read low < standard < premium.
+function _lgtPriceAt(pt){
+  const c=lightingCountAt(pt);
+  const rate=re=>_tkAt(pt, ()=>_tkRate("lighting", re));
+  const inst = pt===0?AK("lgt.install.low") : pt===2?AK("lgt.install.prem") : AK("lgt.install.std");
+  let total=0;
+  total += c.path      * (rate(/Path \/ Area Light/i) + inst);
+  total += c.uplight   * (rate(/Uplight \/ Accent/i) + inst);
+  total += c.downlight * (rate(/Downlight \/ Moonlight/i) + inst);
+  total += c.tapeLF    * rate(/LED Tape/i);
+  total += c.xfmr      * rate(/Transformer & Controller/i);
+  total += c.wireLF    * rate(/Low-Voltage Wiring/i);
+  return {total:Math.round(total), n:c.n, counts:c};
+}
+
+function lightingPlace(){
+  if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
+  const polys=(PT.polys||[]).filter(q=>q&&q.pts);
+  const anyTrees=(PT.trees||[]).some(t=>_ptMarkMode(t)==="tree"||_ptMarkMode(t)==="pots");
+  const hasArea=m=>polys.some(q=>q.mode===m && q.pts.length>=3);
+  if(!hasArea("paving")&&!hasArea("turf")&&!hasArea("planting")&&!anyTrees){
+    alert("Nothing to light yet. Trace some paving, planting, turf or trees first, then place lighting.");
+    return;
   }
+  const p=lgtPoint();
+  const r=_lgtCompute(p);
+  ptSnap();
+  PT.trees=(PT.trees||[]).filter(t=>!(t._auto && _ptMarkMode(t)==="light"));
+  PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="tapelight"));
+  let ctrl="zone"; try{ ctrl=ptLightCtrl()||"zone"; }catch(e){}
+  let nPath=0,nUp=0,nDown=0;
+  r.fixtures.forEach(f=>{ PT.trees.push({x:f.x,y:f.y,mode:"light",size:f.type,ctrl,page:PT.page,_auto:true});
+    if(f.type==="Path / Area") nPath++; else if(f.type==="Downlight / Moonlight") nDown++; else nUp++; });
+  r.tapeRuns.forEach(pts=>PT.polys.push({pts,mode:"tapelight",kind:"linear",page:PT.page,_auto:true}));
 
   try{ ptDrawOverlay(); ptUpdateInfo(); if(typeof ptRenderModal==="function") ptRenderModal(); }catch(e){}
   const total=nPath+nUp+nDown;
   try{ _toast(`Placed ${total} fixtures — ${nPath} path · ${nUp} up · ${nDown} down`
-    +(tape?` · ${tape} tape run${tape>1?"s":""}`:"")+`. Adjust, then Apply.`,"#2F5B23"); }catch(e){}
+    +(r.tapeRuns.length?` · ${r.tapeRuns.length} tape run${r.tapeRuns.length>1?"s":""}`:"")+`. Adjust, then Apply.`,"#2F5B23"); }catch(e){}
 }
 
 // distance (ft) from a point to a polyline/polygon boundary. closed=true walks the
