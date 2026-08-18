@@ -208,3 +208,30 @@ this list is the highest-value next move on the tab.**
 - **Swaps inside builder sections** (walls, kitchen, pergola, water, pool). They
   set their own quantities, so moving a quantity between lines does nothing.
 - **Design fee estimator**, for comparing what VE saved against what design cost.
+
+## 13 · Algorithms tab (v933)
+Internal tab listing every derivation that is a **rule** rather than a rate.
+Rates stay in the Price Book; single numeric assumptions stay in its Assumptions
+pane; this is the arithmetic between them, and it links out rather than copying.
+
+Fifteen entries: Savings 6 · Pricing spine 2 · Planting 3 · Water 2 ·
+Structures 1 · Confidence 1. Each evaluates live against the open job.
+
+**Constants hoisted out of formulas** into `ALGO_DEFAULTS` (localStorage
+`studioh_algo_v1`), defaults unchanged:
+
+| Key | Default | Drives |
+|---|---|---|
+| `ve.impact.min` / `.med` | 1 / 2 | which tier a swap lands in |
+| `ve.frac.a` / `.b` | 0.4 / 0.2 | the partial-substitution shares |
+| `ve.minSave` | 250 | smallest saving offered |
+| `ve.roughin.kitchen/pergola/firepit` | 12 / 13 / 8 | what a Defer card is worth |
+| `plant.ocFactor` | 0.75 | spacing → plant count → most of a planting budget |
+| `plant.basal` | 0.8 | ground denied to groundcover |
+| `plant.mulchAllow` | 0.10 | mulch area at install |
+| `water.deficit.tree/shrub/gc` | 0.25 / 0.55 / 0.7 | established water per plant |
+
+**Still to add** — algorithms that exist in the code but are not yet described
+here: the pergola beam/post sizing, the louvered-kit build-up, transformer
+sizing (the numbers are in Assumptions but the formula is not), the MWELO water
+budget alongside the real-world model, and the establishment curve years 1–10.
