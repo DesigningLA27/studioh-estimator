@@ -235,3 +235,32 @@ Structures 1 · Confidence 1. Each evaluates live against the open job.
 here: the pergola beam/post sizing, the louvered-kit build-up, transformer
 sizing (the numbers are in Assumptions but the formula is not), the MWELO water
 budget alongside the real-world model, and the establishment curve years 1–10.
+
+## 14 · Lighting auto-estimate (v937)
+Conceptual lighting package, computed from area/count data at the Lighting
+section's price point. **Runs only when there is no lighting plan** (rule #1) —
+any fixture with a quantity, or a trace, makes it step aside. Feature lighting
+(BBQ, pergola, fire, water) is excluded; those are their builders.
+
+**Wired from real data now:**
+- Path/area: paving SF ÷ per-fixture (300/175/100 Accent/Std/Showcase)
+- Turf path: border LF ÷ spacing (25/15/10) — border is √area×4, an estimate
+- Tree uplights: 2 × density by box (sm 25/50/75%, big 50/75/100%)
+- Downlights: trees ≥48″ box × 2
+- Shrub uplights: bed SF ÷ 1000 × density (3/5/10)
+- Tape: (bench LF + step LF) × 1.0, Standard+ only
+- Wiring: fixtures × 25 LF; transformers: watts × headroom ÷ capacity
+
+**Held for a trace (constants stored, NOT applied):**
+- Front/rear/side yard factors (1.2 / 1.0 / 0.3) — needs to know which bed is where
+- Tree property-line proximity & side-yard exclusion
+- Walkway centreline LF (vs gross paving SF)
+- Driveway: wall-mount-first hierarchy, wall LF vs open-edge LF, garage bays
+- Downlight → path-light cross-reduction in turf (30′ spread)
+
+All 26 constants adjustable in the Algorithms tab (`lgt.*`). The percentages and
+spacings are Warwick's spec verbatim; the two softest — turf-border proxy and
+25 LF/fixture wiring — are flagged as estimates in the UI.
+
+**Next lighting step:** wire the trace-only refinements once a lighting trace
+layer exists, and add the driveway sub-algorithm (needs wall segments + bays).
