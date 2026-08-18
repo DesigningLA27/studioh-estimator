@@ -4304,7 +4304,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v955</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v956</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -35083,12 +35083,28 @@ function _cvPatchColour(dat,W,H,cx,cy,rad){
     for(let x=Math.max(0,cx-rad);x<=Math.min(W-1,cx+rad);x++){ const k=(y*W+x)*4; r+=dat[k];g+=dat[k+1];b+=dat[k+2];n++; }
   return n?{r:r/n,g:g/n,b:b/n}:{r:dat[0],g:dat[1],b:dat[2]};
 }
-// grow a region from the seed by colour similarity (the magic wand)
-function _floodRegion(dat,W,H,sx,sy,seed,tol){
+// luminance gradient (Sobel) — strong along the roof edge, weak inside it
+function _sobelMag(dat,W,H){
+  const g=new Float32Array(W*H);
+  const L=i=>0.299*dat[i*4]+0.587*dat[i*4+1]+0.114*dat[i*4+2];
+  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){ const i=y*W+x;
+    const gx=-L(i-1-W)+L(i+1-W)-2*L(i-1)+2*L(i+1)-L(i-1+W)+L(i+1+W);
+    const gy=-L(i-1-W)-2*L(i-W)-L(i+1-W)+L(i-1+W)+2*L(i+W)+L(i+1+W);
+    g[i]=Math.sqrt(gx*gx+gy*gy);
+  }
+  return g;
+}
+// grow a region from the seed by colour similarity, but NEVER cross a strong edge
+// and never run further than maxR from the tap — so a dark roof can't leak into its
+// own shadow or the dark ground below it.
+function _floodRegion(dat,W,H,sx,sy,seed,tol,edge,edgeTh,maxR){
   const seen=new Uint8Array(W*H), out=[]; const st=[sy*W+sx]; seen[sy*W+sx]=1; const t2=tol*tol;
   while(st.length){ const p=st.pop(); out.push(p); const x=p%W,y=(p/W)|0;
-    const push=n=>{ if(n<0||n>=W*H||seen[n]) return; const k=n*4;
-      const dr=dat[k]-seed.r,dg=dat[k+1]-seed.g,db=dat[k+2]-seed.b;
+    const push=n=>{ if(n<0||n>=W*H||seen[n]) return;
+      const nx=n%W, ny=(n/W)|0;
+      if(maxR && (Math.abs(nx-sx)>maxR || Math.abs(ny-sy)>maxR)) return;   // distance cap
+      if(edge && edge[n]>edgeTh) return;                                    // don't cross an edge
+      const k=n*4; const dr=dat[k]-seed.r,dg=dat[k+1]-seed.g,db=dat[k+2]-seed.b;
       if(dr*dr+dg*dg+db*db<=t2){ seen[n]=1; st.push(n); } };
     if(x>0)push(p-1); if(x<W-1)push(p+1); if(y>0)push(p-W); if(y<H-1)push(p+W);
   }
@@ -35115,9 +35131,12 @@ async function _roofPickAt(ll){
     const dat=ctx.getImageData(0,0,W,H).data;
     const sx=(W/2)|0, sy=(H/2)|0;
     const seed=_cvPatchColour(dat,W,H,sx,sy,2);
-    let region=null, tol=46;
-    for(let k=0;k<6;k++){ region=_floodRegion(dat,W,H,sx,sy,seed,tol);
-      if(region.length <= W*H*0.55) break; tol=Math.round(tol/1.5); }   // bled into the yard → tighten
+    const edge=_sobelMag(dat,W,H);
+    const maxR=Math.round(W*0.32);         // a roof won't span more than ~2/3 of the tap-centred view
+    let region=null, tol=40, edgeTh=90;
+    for(let k=0;k<6;k++){ region=_floodRegion(dat,W,H,sx,sy,seed,tol,edge,edgeTh,maxR);
+      if(region.length <= W*H*0.40) break;  // still bleeding → tighten colour AND edge gate
+      tol=Math.round(tol/1.4); edgeTh=Math.round(edgeTh*0.8); }
     BUILD_BUSY=false;
     if(!region || region.length < W*H*0.002){ alert("That tap didn't grab a clear roof area — try tapping the middle of a roof plane."); return; }
     const px=region.map(p=>({x:p%W, y:(p/W)|0}));
