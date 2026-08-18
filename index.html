@@ -2420,6 +2420,14 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkautobar .aitem:hover{background:rgba(255,255,255,.10);color:#BEE7AE}
 .tkautobar .aitem.soon{opacity:.4;cursor:default}
 .tkautobar .aitem.soon:hover{background:none;color:#9FBF95}
+.tkautobar .awrap{position:relative;display:flex}
+.tkautobar .a90{position:absolute;left:50%;bottom:calc(100% + 7px);transform:translateX(-50%);border:0;cursor:pointer;
+  padding:3px 9px;border-radius:10px;font:800 10px var(--tkf);letter-spacing:.03em;white-space:nowrap;
+  background:#5BA34A;color:#0F2409;box-shadow:0 5px 14px -4px rgba(0,0,0,.55)}
+.tkautobar .a90::after{content:"";position:absolute;left:50%;top:100%;transform:translateX(-50%);
+  border:5px solid transparent;border-top-color:#5BA34A}
+.tkautobar .a90.off{background:rgba(255,255,255,.14);color:#9FBF95}
+.tkautobar .a90.off::after{border-top-color:rgba(255,255,255,.14)}
 .tkb-t{width:52px;padding:7px 2px 5px;border:0;background:none;border-radius:13px;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;gap:3px;
   font:600 9.5px/1.15 var(--tkf);color:#9FBF95;text-align:center}
@@ -4304,7 +4312,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v956</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v957</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28756,6 +28764,7 @@ function ptAddAt(p,c,e){
       if(!isNaN(ft)&&ft>0){ PT.ppf=distPdf/ft; } PT.calibrating=false; PT.calib=[]; ptRenderModal(); }
     ptDrawOverlay(); ptUpdateInfo(); return; }
   const kind=_ptKind(PT.mode);
+  if(_orthoOn() && kind!=="count" && PT.cur.length>=2){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
   if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); if(PT.mode==="light") m.ctrl=ptLightCtrl(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(kind==="linear"){ if(PT.cur.length>=2){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
     ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); return; }
@@ -32039,8 +32048,8 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
 // from its algorithm, to look at and adjust. Lighting is live; the rest are the
 // next builds. Same dark pill as the tool rail so it reads as part of the tool.
 const PT_AUTOFILL=[
-  {k:"building", label:"Building", act:"buildingRoofPick()", live:true,
-   title:"Tap this, then tap a roof — it traces the roof under your finger by pixel contrast",
+  {k:"building", label:"Building", act:"ptBuildTrace()", live:true,
+   title:"Trace the building — square (90°) corners are on by default; tap the green 90° to free the angle",
    icon:'<path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-6h6v6"/><path d="M4 21h16"/>'},
   {k:"light", label:"Lighting", act:"lightingPlace()", live:true,
    title:"Place a lighting layout from the algorithm — adjust it, then Apply",
@@ -32052,13 +32061,46 @@ const PT_AUTOFILL=[
   {k:"drains", label:"Drains", live:false, title:"Coming soon — drain lines & inlets",
    icon:'<path d="M4 7h16"/><path d="M6 7l1.4 12.2a1.5 1.5 0 0 0 1.5 1.3h6.2a1.5 1.5 0 0 0 1.5-1.3L18 7"/><path d="M10 11v6M14 11v6"/>'}
 ];
+function _orthoOn(){ return typeof PT!=="undefined" && PT.ortho!==false; }   // default ON
+function ptRenderAutoBar(){ const el=document.getElementById("pt-autobar"); if(el) el.innerHTML=_ptAutoBarHTML(); }
+function ptBuildTrace(){
+  if(typeof PT==="undefined"||!PT.open) return;
+  if(PT.ortho===undefined) PT.ortho=true;
+  ptSetMode("building");                 // draw on the building layer
+  ptRenderAutoBar();                     // surface the green 90° pill above the icon
+  try{ _toast("Building layer · square 90° corners are on. Draw the first edge along a wall, then every corner snaps square. Tap the green 90° to free it.","#2F5B23"); }catch(e){}
+}
+function ptToggleOrtho(){ PT.ortho=!_orthoOn(); ptRenderAutoBar();
+  try{ _toast(_orthoOn()?"Square 90° corners ON":"Free angle — corners no longer snap","#2F5B23"); }catch(e){}
+}
+// Snap a clicked canvas point so its segment is parallel/perpendicular to the
+// building's first edge — i.e. every corner stays 90°, at any rotation.
+function _orthoSnapCanvas(c){
+  const cur=PT.cur; if(!cur||cur.length<2) return c;      // 1st edge is free (sets the rotation)
+  const L=_toCanvas(cur[cur.length-1]);
+  const p0=_toCanvas(cur[0]), p1=_toCanvas(cur[1]);
+  let dx=p1.x-p0.x, dy=p1.y-p0.y; const m=Math.hypot(dx,dy)||1; dx/=m; dy/=m;   // axis unit
+  const ax={x:dx,y:dy}, ay={x:-dy,y:dx};
+  const vx=c.x-L.x, vy=c.y-L.y;
+  const pa=vx*ax.x+vy*ax.y, pb=vx*ay.x+vy*ay.y;            // project onto each axis
+  return (Math.abs(pa)>=Math.abs(pb))
+    ? {x:L.x+ax.x*pa, y:L.y+ax.y*pa}
+    : {x:L.x+ay.x*pb, y:L.y+ay.y*pb};
+}
 function _ptAutoBarHTML(){
   return '<span class="albl">Auto-fill</span>'
-    + PT_AUTOFILL.map(a=>
-      '<button class="aitem'+(a.live?"":" soon")+'" title="'+escAttr(a.title)+'"'
-      + (a.live?' onclick="'+a.act+'"':' disabled')+'>'
-      + '<svg viewBox="0 0 24 24">'+a.icon+'</svg><span>'+a.label+(a.live?'':' ·')+'</span></button>'
-    ).join("");
+    + PT_AUTOFILL.map(a=>{
+      const btn='<button class="aitem'+(a.live?"":" soon")+'" title="'+escAttr(a.title)+'"'
+        + (a.live?' onclick="'+a.act+'"':' disabled')+'>'
+        + '<svg viewBox="0 0 24 24">'+a.icon+'</svg><span>'+a.label+(a.live?'':' ·')+'</span></button>';
+      if(a.k==="building" && typeof PT!=="undefined" && PT.mode==="building"){
+        const on=_orthoOn();
+        const pill='<button class="a90'+(on?'':' off')+'" onclick="event.stopPropagation();ptToggleOrtho()"'
+          +' title="'+(on?'Square 90° corners ON — tap to allow any angle':'Free angle — tap to lock square 90° corners')+'">90°</button>';
+        return '<span class="awrap">'+pill+btn+'</span>';
+      }
+      return btn;
+    }).join("");
 }
 function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
     const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
