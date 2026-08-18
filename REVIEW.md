@@ -286,3 +286,35 @@ makes possible but this first pass does not yet use): yard weighting from which
 polygon a bed/tree sits in, property-line proximity for tree uplights, walkway
 centrelines vs gross paving, driveway wall-vs-open-edge, downlight→path
 cross-reduction. The button is the hook to build these against next.
+
+## 16 · Lighting pricing corrected to the cost database (v940)
+Costs were ~2.5x too high ($43k/$83k/$126k on a 134-fixture package that should
+be ~$17k/$30k/$60k). Design and pricing were already separate — the design engine
+outputs counts, the Price Book prices them — so only the numbers changed.
+
+| Line | Old (lo/std/hi) | New (Low/Med/Prem) |
+|---|---|---|
+| Path / Area | 110/195/380 | 40/120/300 |
+| Uplight / Accent | 85/150/300 | 45/125/325 |
+| Downlight / Moonlight | 130/225/450 | 50/140/350 |
+| Step / Hardscape | 90/160/320 | 60/160/375 |
+| Bollard (≈Well) | 170/300/600 | 65/180/425 |
+| Low-Voltage Wire /LF | 4 – 12 | 0.7/0.85/1.1 |
+| LED Tape /LF | 18 – 45 | 15/28/55 |
+| Transformer & Controller | 650/1100/2400 | 475/850/1650 |
+
+- Wire was the single biggest error (~10x). Now $0.85/LF, 12 LF/fixture.
+- **Smart-control line no longer auto-added** — default control changed
+  smart -> standard. Smart is a premium trait folded into the premium
+  transformer, not a $1,325/transformer add-on on every scheme.
+- Install hours trimmed (downlight 1.8->1.0, step 1.2->0.9, path/up 0.6->0.5) so
+  per-fixture install lands near the DB's flat $55/75/120.
+- `lightRepriceV1` one-time reseed force-sets these onto existing saved books.
+
+**Not done (deliberately):** install stays hours x labor-rate rather than a flat
+per-fixture number. It already lands close to the DB and the hours model ties
+into the labor-tier system; converting to flat would decouple that. Revisit if
+the flat model is wanted.
+
+**Counts (design) are the other half of the "too high":** 100 uplights on the
+sample is density, tuned in the Algorithms tab (`lgt.*`), not pricing.
