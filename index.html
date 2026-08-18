@@ -4304,7 +4304,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v952</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v953</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -35015,6 +35015,16 @@ const _BUILD_PROMPT=
 +"each x and y is a fraction 0.0-1.0 of the image (x left->right, y top->bottom), tracing the roof "
 +"outline clockwise with 6 to 28 points and no holes. conf is how sure you are it is the main house.";
 
+// Ask the worker to fetch an image URL and return it base64 (needs the imgproxy
+// handler in the worker). Throws if the worker does not support it yet.
+async function _satBase64ViaWorker(ep, url){
+  const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({type:"imgproxy", url})});
+  if(!r.ok) throw new Error("imgproxy HTTP "+r.status);
+  const j=await r.json();
+  if(!j || j.ok===false || !j.data) throw new Error((j&&j.err)||"imgproxy: no data");
+  return {media_type:j.media_type, data:j.data};
+}
 async function buildingDetectAI(){
   if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
   if(!ptMapLive()){ alert("Building auto-detect reads the satellite view — trace on the map, not a PDF."); return; }
@@ -35030,13 +35040,19 @@ async function buildingDetectAI(){
   const url="https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center="
     +center.lat.toFixed(6)+","+center.lng.toFixed(6)+"&zoom="+zoom+"&size="+sizeCss+"x"+sizeCss
     +"&scale=2&key="+KEY;
+  // Anthropic can't fetch a referrer-locked Google tile, and the browser can't
+  // read it cross-origin, so the worker fetches it and we send it as base64.
+  // Falls back to a URL source if the worker has no imgproxy yet.
+  let imgSource={type:"url", url};
+  try{ const b=await _satBase64ViaWorker(ep, url);
+       if(b&&b.data) imgSource={type:"base64", media_type:b.media_type||"image/png", data:b.data}; }catch(e){}
   let poly=null, conf="Low";
   try{
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({model:"claude-sonnet-4-6", max_tokens:1200, temperature:0,
         system:"You read satellite imagery for a landscape architect and return building-roof outlines as JSON. Output only minified JSON, no prose.",
         messages:[{role:"user",content:[
-          {type:"image", source:{type:"url", url}},
+          {type:"image", source:imgSource},
           {type:"text", text:_BUILD_PROMPT}
         ]}]})});
     if(!r.ok){ let body=""; try{ body=(await r.text()||"").slice(0,220); }catch(e){}
