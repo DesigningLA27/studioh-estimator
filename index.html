@@ -2736,6 +2736,7 @@ body.sp-on .tb-sp:hover{background:var(--brand-soft);color:var(--gm)}
 .pb3-alt .as{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .pb3-alt .as span{font-size:11px;color:var(--tl)}
 .pb3-alt .as b{font-size:14px;font-weight:800;color:var(--gm);font-variant-numeric:tabular-nums}
+.pb3-alt .as b.up{color:var(--gold)}
 .pb3-alt.now{background:#C8DABE}
 .pb3-alt.now .an,.pb3-alt.now .ar{color:#22371A}
 .pb3-alt.now .as b{color:#22371A}
@@ -3957,7 +3958,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v924</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v925</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -23600,27 +23601,33 @@ function renderPriceBook(){
           peers=items.filter(x=>x!==it && !x.asm && x.u===it.u && !x.role);
           basis='measured in <b>'+esc(it.u)+'</b> in this section';
         }
-        // keep the six biggest savings, then show them dearest first
-        const cheaper=peers.map(x=>({x, r:rate(x)})).filter(p=>p.r>0 && p.r<mine)
-          .sort((a2,b2)=>a2.r-b2.r).slice(0,6).sort((a2,b2)=>b2.r-a2.r);
-        if(cheaper.length<2) return;
+        // Show the set, not only what is cheaper — on the cheapest line in a family there is
+        // nothing below it, and hiding the card there was the same as pretending it has no peers.
+        const all=peers.map(x=>({x, r:rate(x)})).filter(p=>p.r>0);
+        if(all.length<2) return;
+        const down=all.filter(p=>p.r<mine).sort((a2,b2)=>a2.r-b2.r).slice(0,4);   // biggest savings
+        const up  =all.filter(p=>p.r>=mine).sort((a2,b2)=>a2.r-b2.r).slice(0,2);  // nearest dearer
+        const cheaper=down.concat(up).sort((a2,b2)=>b2.r-a2.r);
+        if(!cheaper.length) return;
         // a saving only exists if this job measures the line
         const cs=(typeof S!=="undefined"&&S.cats)?S.cats[cat.id]:null;
         const jit=cs&&cs.items?cs.items.find(p=>p.n===it.n):null;
         const qty=(cs&&cs.on&&jit&&jit.checked)?(+jit.q||0):0;
         const top=Math.max(mine, ...cheaper.map(p=>p.r));
-        ins+='<h4>Cheaper ways to do this</h4>';
-        ins+='<div class="pb3-alt now"><span class="an">'+esc(it.n)+'</span>'
-          +'<span class="ar">'+money(mine)+' / '+esc(it.u)+'</span>'
-          +'<span class="ab"><i style="width:'+Math.round(mine/top*100)+'%"></i></span>'
-          +'<span class="as"><span class="tag">Specified now</span>'
-          +(qty?'<b>'+money(mine*qty)+'</b>':'')+'</span></div>';
-        cheaper.forEach(p=>{
-          ins+='<div class="pb3-alt"><span class="an">'+esc(p.x.n)+'</span>'
+        ins+='<h4>Other ways to do this</h4>';
+        const rows=cheaper.concat([{x:it, r:mine, me:1}]).sort((a2,b2)=>b2.r-a2.r);
+        rows.forEach(p=>{
+          const d=mine-p.r;
+          ins+='<div class="pb3-alt'+(p.me?" now":"")+'"><span class="an">'+esc(p.x.n)+'</span>'
             +'<span class="ar">'+money(p.r)+' / '+esc(p.x.u)+'</span>'
             +'<span class="ab"><i style="width:'+Math.round(p.r/top*100)+'%"></i></span>'
-            +'<span class="as">'+(qty?'<span>saves</span><b>−'+money((mine-p.r)*qty)+'</b>'
-                                     :'<span>'+money(mine-p.r)+' / '+esc(it.u)+' less</span>')+'</span></div>';
+            +'<span class="as">'
+            +(p.me ? '<span class="tag">Specified now</span>'+(qty?'<b>'+money(mine*qty)+'</b>':'')
+                   : (qty ? (d>0?'<span>saves</span><b>−'+money(d*qty)+'</b>'
+                                :'<span>adds</span><b class="up">+'+money(-d*qty)+'</b>')
+                          : (d>0?'<span>'+money(d)+' / '+esc(it.u)+' less</span>'
+                                :'<span>'+money(-d)+' / '+esc(it.u)+' more</span>')))
+            +'</span></div>';
         });
         ins+='<div class="pb3-altn">'+(qty?'Against the <b>'+(Math.round(qty*100)/100).toLocaleString()+' '+esc(it.u)+'</b> on this job. '
                                           :'Give this line a quantity in the estimate to see what a swap saves. ')
