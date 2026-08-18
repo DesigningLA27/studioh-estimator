@@ -171,19 +171,22 @@ would suggest where to cut to hit a budget.
 
 _(nothing yet)_
 
-## 10 · Value engineering — rough-in percentages (v929)
-Deferring a section re-prices it as a lump sum at a rough-in %. These are my
-placeholders, not measurements, and they change what every Defer card is worth:
+## 10 · Savings tab — what may be deferred, and the rough-in % (v930)
+v929 offered to defer a pool. Wrong, and Warwick was right to stop it: excavating,
+shooting gunite and re-plumbing through a finished garden costs far more than the
+deferral saves and destroys what is already built. Pool and water features are now
+excluded outright.
 
-| Section | Rough-in kept |
-|---|---|
-| Pool / Spa | 15% |
-| Pergola | 13% |
-| Outdoor Kitchen | 12% |
-| Water Features | 10% |
-| Fire Pit | 8% |
+Deferral is only offered where phase two **drops onto services left waiting**:
 
-**Your call.** `VE_ROUGHIN` in `index.html`.
+| Section | Rough-in kept | What has to go in first |
+|---|---|---|
+| Outdoor Kitchen | 12% | gas, water, drain, dedicated circuit stubbed to the slab |
+| Pergola | 13% | footings poured, conduit sleeved before the paving |
+| Fire Pit / Fireplace | 8% | gas line run and capped at the location |
+
+The percentages are my placeholders, not measurements, and they set what every
+Defer card is worth. **Your call.** `VE_DEFER` in `index.html`.
 
 ## 11 · Value engineering — substitution sets (v929)
 Which lines are interchangeable is domain knowledge, not something the data
