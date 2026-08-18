@@ -28,6 +28,17 @@ Live: designingla27.github.io/studioh-estimator · Repo: github.com/designingla2
 - `versions/` is gitignored — backups stay local, never pushed to GitHub.
 - **Auto-push every version.** Standing authorization: after validation passes, commit `index.html` and push to `origin/main` without asking. Commit message = the version's one-line change + `(vXXX)`. Never leave a finished version sitting unpushed.
 
+## Building from an approved mockup
+An approved mockup is a spec, not a reference. Before writing any code:
+1. **Open the mockup file and read it.** It is on disk in the scratchpad. Never work from memory of it.
+2. **Transcribe values, not token names.** A mockup defines its own `--card`, `--soft`, `--br`. The
+   same name means a different colour in `index.html` — map every one by hex.
+3. **Build all of it.** If any part is going to be skipped or kept from the old UI, say so *before*
+   building, not after.
+4. **Put the two pictures side by side before saying it is done.** Screenshot the build, crop it to
+   the same region as the mockup, and compare fill, border, radius, spacing, alignment and type
+   weight. Looking at the build alone does not count.
+
 ## Validation before shipping
 1. Python-extract each `<script>` block
 2. `node --check` each block — expect "ALL JS OK"
