@@ -170,3 +170,38 @@ would suggest where to cut to hit a budget.
 ## Settled
 
 _(nothing yet)_
+
+## 10 · Value engineering — rough-in percentages (v929)
+Deferring a section re-prices it as a lump sum at a rough-in %. These are my
+placeholders, not measurements, and they change what every Defer card is worth:
+
+| Section | Rough-in kept |
+|---|---|
+| Pool / Spa | 15% |
+| Pergola | 13% |
+| Outdoor Kitchen | 12% |
+| Water Features | 10% |
+| Fire Pit | 8% |
+
+**Your call.** `VE_ROUGHIN` in `index.html`.
+
+## 11 · Value engineering — substitution sets (v929)
+Which lines are interchangeable is domain knowledge, not something the data
+knows. Inferring it from a shared unit had the app offering a GFCI outlet in
+place of a main panel upgrade, so the sets are curated in `VE_SUBS`:
+paving materials · irrigation methods · decking · fencing · court surfaces.
+
+Anything not listed is never suggested — the safe direction, but it means the
+big material choices are currently invisible to the tab, because they live in
+builder sections (wall veneer, countertops, pool finishes, coping). **Extending
+this list is the highest-value next move on the tab.**
+
+## 12 · Value engineering — not built yet (v929)
+- **Running-cost savings.** Needs address → utility-rate resolution. Confirmed
+  for 1205 Patton Way: SoCalGas $2.08/therm, SCE 34.4¢/kWh, Cal Am San Marino
+  $6.05/HCF flat (CPUC sheet 11646-W, eff. 1 Jan 2026) — but San Marino is split
+  between Cal Am and Sunny Slope and the boundary runs inside the city, so the
+  purveyor has to be asked once and stored on the project.
+- **Swaps inside builder sections** (walls, kitchen, pergola, water, pool). They
+  set their own quantities, so moving a quantity between lines does nothing.
+- **Design fee estimator**, for comparing what VE saved against what design cost.
