@@ -4218,6 +4218,11 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .al-bar .sub{font-size:12px;color:var(--tl)}
 .al-btn{border:0;background:var(--pbpill);color:var(--tm);border-radius:12px;font:inherit;font-size:12px;
   font-weight:600;padding:8px 13px;cursor:pointer}
+.al-status{font-size:11.5px;line-height:1.5;border-radius:10px;padding:9px 11px;margin-top:9px;
+  background:var(--pbpill);color:var(--tm)}
+.al-status.ok{background:var(--brand-soft);color:var(--gm)}
+.al-apply{border:0;background:var(--gm);color:#fff;border-radius:12px;font:inherit;font-size:12.5px;
+  font-weight:700;padding:10px 14px;cursor:pointer;margin-top:10px;width:100%}
 </style>
 
 <script>
@@ -4230,7 +4235,16 @@ const ALGO_DEFAULTS={
   "ve.frac.a":0.4, "ve.frac.b":0.2, "ve.minSave":250,
   "ve.roughin.kitchen":12, "ve.roughin.pergola":13, "ve.roughin.firepit":8,
   "plant.ocFactor":0.75, "plant.basal":0.8, "plant.mulchAllow":0.10,
-  "water.deficit.tree":0.25, "water.deficit.gc":0.7, "water.deficit.shrub":0.55
+  "water.deficit.tree":0.25, "water.deficit.gc":0.7, "water.deficit.shrub":0.55,
+  // ── lighting auto-estimate (conceptual; only runs with no lighting plan) ──
+  "lgt.paving.low":300, "lgt.paving.std":175, "lgt.paving.prem":100,
+  "lgt.turf.low":25, "lgt.turf.std":15, "lgt.turf.prem":10,
+  "lgt.tree.up":2, "lgt.tree.down":2, "lgt.down.minBox":48,
+  "lgt.treeDen.smLow":25, "lgt.treeDen.smStd":50, "lgt.treeDen.smPrem":75,
+  "lgt.treeDen.bgLow":50, "lgt.treeDen.bgStd":75, "lgt.treeDen.bgPrem":100,
+  "lgt.shrub.low":3, "lgt.shrub.std":5, "lgt.shrub.prem":10,
+  "lgt.yard.front":1.2, "lgt.yard.rear":1.0, "lgt.yard.side":0.3,
+  "lgt.tape.bench":1.0, "lgt.tape.step":1.0, "lgt.wireRun":25
 };
 let ALGO=(function(){ try{ const s=localStorage.getItem("studioh_algo_v1"); if(s) return JSON.parse(s); }catch(e){} return {}; })();
 function algoSave(){ try{ localStorage.setItem("studioh_algo_v1", JSON.stringify(ALGO)); }catch(e){} }
@@ -4269,7 +4283,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v936</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v937</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -33865,6 +33879,7 @@ const ALGO_GROUPS=[
   {id:"price",  n:"Pricing spine"},
   {id:"plant",  n:"Planting"},
   {id:"water",  n:"Water"},
+  {id:"light",  n:"Lighting"},
   {id:"struct", n:"Structures"},
   {id:"conf",   n:"Confidence"}
 ];
@@ -34075,6 +34090,143 @@ const ALGO_DEFS=[
  why:"Should come from the property address once utility resolution is built — San Marino alone is "
     +"split between two purveyors. REVIEW #12."},
 
+
+// ── LIGHTING (conceptual auto-estimate) ─────────────────────────────────────
+{id:"light.summary", g:"light", n:"Lighting auto-estimate", u:"fixtures",
+ what:"When a job has no lighting plan yet, this turns the areas and counts it already knows into a "
+     +"fixture package at the price point the Lighting section is set to. The moment anyone draws "
+     +"lighting — a fixture with a quantity, or a trace — this steps aside and the plan stands. "
+     +"Feature lighting for a BBQ, pergola, fire pit or water feature is never counted here; those "
+     +"belong to their own builders.",
+ terms:()=>{ const r=lightingAuto(), pt={low:"Accent",std:"Standard",prem:"Showcase"}[r.point];
+   return [
+     {op:"", k:"Price point", sub:"from the Lighting section", v:pt},
+     {op:"", k:"Path / area lights", v:_n(r.path,0)},
+     {op:"+", k:"Uplights", sub:"trees + shrub beds", v:_n(r.uplight,0)},
+     {op:"+", k:"Downlights", v:_n(r.downlt,0)},
+     {op:"+", k:"LED tape", v:_n(r.tapeLF,0)+" LF"},
+     {op:"=", k:"Fixtures", sub:_n(r.wireLF,0)+" LF wiring · "+_n(r.xfmr,0)+" transformer(s)", v:_n(r.fixtures,0), tot:1}];
+ },
+ status:()=>lightingSpecified()
+   ? {t:"A lighting plan already exists on this job, so the auto-estimate is standing aside.", ok:1}
+   : {t:"No lighting plan yet — this estimate is what the job would use.", ok:0},
+ action:{n:"Fill the Lighting section from this", fn:"lightingApply"},
+ used:["Landscape Lighting section","Estimate total"],
+ src:"lightingAuto() · lightingApply()",
+ why:"A conceptual number beats a blank line at concept phase. It is deliberately area based — the "
+    +"geometric refinements need a trace, and once one exists this defers to it."},
+
+{id:"light.path", g:"light", n:"Path & area lights", u:"fixtures",
+ what:"The occupied paving — patios, decks, seating and dining — priced by area, one fixture per so "
+     +"many SF, tighter as the point rises. Turf adds path lights along its border.",
+ terms:()=>{ const r=lightingAuto(), d=r.data, pt=r.point;
+   const per={low:AK("lgt.paving.low"),std:AK("lgt.paving.std"),prem:AK("lgt.paving.prem")}[pt];
+   const sp={low:AK("lgt.turf.low"),std:AK("lgt.turf.std"),prem:AK("lgt.turf.prem")}[pt];
+   return [
+     {op:"", k:"Paving area", v:_n(d.pavingSF,0)+" SF"},
+     {op:"÷", k:"SF per fixture", sub:"at this point", v:_n(per,0)},
+     {op:"=", k:"Paving path lights", v:_n(r.pathPaving,0)},
+     {op:"", k:"Turf border", sub:"√area × 4 — estimate, needs a trace", v:_n(r.turfBorder,0)+" LF"},
+     {op:"÷", k:"LF per fixture", v:_n(sp,0)},
+     {op:"=", k:"Total path lights", v:_n(r.path,0), tot:1}];
+ },
+ params:[{k:"lgt.paving.low",n:"Accent · SF/fixture",step:25},{k:"lgt.paving.std",n:"Standard · SF/fixture",step:25},
+         {k:"lgt.paving.prem",n:"Showcase · SF/fixture",step:25},
+         {k:"lgt.turf.low",n:"Accent · turf LF/fixture",step:1},{k:"lgt.turf.std",n:"Standard · turf LF/fixture",step:1},
+         {k:"lgt.turf.prem",n:"Showcase · turf LF/fixture",step:1}],
+ used:["Lighting auto-estimate · path lights"], src:"lightingAuto()",
+ why:"Walkway centrelines would be better than gross area, but that needs a trace. Area is the honest "
+    +"proxy until then.",
+ warn:"The turf border is estimated from its area, not measured. A trace replaces it."},
+
+{id:"light.treeup", g:"light", n:"Tree uplights", u:"fixtures",
+ what:"Two uplights per tree, but only a share of the trees are lit — bigger specimens more often. "
+     +"The proximity-to-property-line and side-yard rules from the full spec need a trace, so every "
+     +"tree of a size is treated the same here.",
+ terms:()=>{ const r=lightingAuto(), d=r.data, pt=r.point;
+   const sm={low:AK("lgt.treeDen.smLow"),std:AK("lgt.treeDen.smStd"),prem:AK("lgt.treeDen.smPrem")}[pt];
+   const bg={low:AK("lgt.treeDen.bgLow"),std:AK("lgt.treeDen.bgStd"),prem:AK("lgt.treeDen.bgPrem")}[pt];
+   return [
+     {op:"", k:"Small trees", sub:"15-gal / 24″ box · "+sm+"% lit", v:_n(d.trees.small,0)},
+     {op:"", k:"Large trees", sub:"36″ box + · "+bg+"% lit", v:_n(d.trees.big,0)},
+     {op:"×", k:"Uplights per lit tree", v:_n(AK("lgt.tree.up"),0)},
+     {op:"=", k:"Tree uplights", v:_n(r.upTree,0), tot:1}];
+ },
+ params:[{k:"lgt.tree.up",n:"Uplights per tree",step:1},
+         {k:"lgt.treeDen.smLow",n:"Small · Accent %",step:5},{k:"lgt.treeDen.smStd",n:"Small · Standard %",step:5},
+         {k:"lgt.treeDen.smPrem",n:"Small · Showcase %",step:5},
+         {k:"lgt.treeDen.bgLow",n:"Large · Accent %",step:5},{k:"lgt.treeDen.bgStd",n:"Large · Standard %",step:5},
+         {k:"lgt.treeDen.bgPrem",n:"Large · Showcase %",step:5}],
+ used:["Lighting auto-estimate · uplights"], src:"lightingAuto() · lgtData()",
+ why:"Reads tree box sizes straight from the planting builder.",
+ warn:"Property-line proximity and the side-yard exclusion are trace-only, so they are not applied yet."},
+
+{id:"light.down", g:"light", n:"Downlights", u:"fixtures",
+ what:"Moonlighting from within a canopy needs a tree big enough to carry it. Any tree at or above "
+     +"the box size below gets two downlights.",
+ terms:()=>{ const r=lightingAuto(), d=r.data;
+   return [
+     {op:"", k:"Trees at or above the box size", v:_n(d.trees.down,0)},
+     {op:"×", k:"Downlights each", v:_n(AK("lgt.tree.down"),0)},
+     {op:"=", k:"Downlights", v:_n(r.downlt,0), tot:1}];
+ },
+ params:[{k:"lgt.down.minBox",n:"Minimum box for downlighting",sub:"inches",step:6},
+         {k:"lgt.tree.down",n:"Downlights per tree",step:1}],
+ used:["Lighting auto-estimate · downlights"], src:"lightingAuto()",
+ why:"In turf, downlights should also thin the path lights under their spread — that cross-reduction "
+    +"needs to know which trees stand in the turf, which needs a trace."},
+
+{id:"light.shrub", g:"light", n:"Shrub-bed uplights", u:"fixtures",
+ what:"Accent uplights in the planting beds, by area. The front / rear / side-yard weighting from "
+     +"the spec needs a trace to know which bed is where, so a blended factor of 1.0 is used until "
+     +"then.",
+ terms:()=>{ const r=lightingAuto(), d=r.data, pt=r.point;
+   const den={low:AK("lgt.shrub.low"),std:AK("lgt.shrub.std"),prem:AK("lgt.shrub.prem")}[pt];
+   return [
+     {op:"", k:"Shrub-bed area", sub:"planting − turf", v:_n(d.shrubSF,0)+" SF"},
+     {op:"×", k:"Fixtures per 1,000 SF", sub:"at this point", v:_n(den,0)},
+     {op:"=", k:"Shrub uplights", v:_n(r.upShrub,0), tot:1}];
+ },
+ params:[{k:"lgt.shrub.low",n:"Accent · per 1,000 SF",step:1},{k:"lgt.shrub.std",n:"Standard · per 1,000 SF",step:1},
+         {k:"lgt.shrub.prem",n:"Showcase · per 1,000 SF",step:1},
+         {k:"lgt.yard.front",n:"Front-yard factor (trace)",step:.1},{k:"lgt.yard.rear",n:"Rear-yard factor (trace)",step:.1},
+         {k:"lgt.yard.side",n:"Side-yard factor (trace)",step:.1}],
+ used:["Lighting auto-estimate · uplights"], src:"lightingAuto()",
+ why:"Bed area is known; where each bed sits is not, until the site is traced.",
+ warn:"The yard factors are stored but not applied without a trace — a blended 1.0 is used."},
+
+{id:"light.tape", g:"light", n:"Step & bench tape light", u:"LF",
+ what:"LED tape under bench seats and along step nosings, one foot of tape per foot of run. It is a "
+     +"finish move, so it is left out entirely at the Accent point and added at Standard and above.",
+ terms:()=>{ const r=lightingAuto(), d=r.data, on=r.point!=="low";
+   return [
+     {op:"", k:"Bench", sub:"× "+_n(AK("lgt.tape.bench")), v:_n(d.benchLF,0)+" LF"},
+     {op:"+", k:"Steps", sub:"× "+_n(AK("lgt.tape.step")), v:_n(d.stepLF,0)+" LF"},
+     {op:"=", k:on?"LED tape":"None at the Accent point", v:_n(r.tapeLF,0)+" LF", tot:1}];
+ },
+ params:[{k:"lgt.tape.bench",n:"Bench LF factor",step:.1},{k:"lgt.tape.step",n:"Step LF factor",step:.1}],
+ used:["Lighting auto-estimate · LED tape"], src:"lightingAuto()",
+ why:"Reads bench LF from Amenities and step LF from Paving. Tape reads as premium, so a budget "
+    +"scheme skips it."},
+
+{id:"light.infra", g:"light", n:"Wiring & transformers", u:"LF / EA",
+ what:"The unseen half of a package. Wiring is a rough run per fixture; transformers are sized from "
+     +"the connected load with headroom, the same rule the take-off uses.",
+ terms:()=>{ const r=lightingAuto();
+   let head=1.25,cap=300; try{ head=assumeVal("xfmr.head")||1.25; cap=assumeVal("xfmr.w")||300; }catch(e){}
+   return [
+     {op:"", k:"Fixtures", v:_n(r.fixtures,0)},
+     {op:"×", k:"LF wiring per fixture", v:_n(AK("lgt.wireRun"),0)},
+     {op:"=", k:"Low-voltage wiring", v:_n(r.wireLF,0)+" LF", tot:1},
+     {op:"", k:"Connected load", sub:"× "+_n(head)+" headroom ÷ "+_n(cap,0)+" W", v:_n(r.watts,0)+" W"},
+     {op:"=", k:"Transformers", v:_n(r.xfmr,0)}];
+ },
+ params:[{k:"lgt.wireRun",n:"LF wiring per fixture",sub:"a conceptual run length",step:5}],
+ used:["Lighting auto-estimate · wiring & transformer"], src:"lightingAuto()",
+ link:{n:"Transformer sizing lives in the Price Book · Assumptions", fn:null},
+ why:"Wiring per fixture is the softest number here — real runs come off the trace. Transformer "
+    +"sizing reuses the take-off's own headroom and capacity so the two never disagree."},
+
 // ── STRUCTURES ──────────────────────────────────────────────────────────────
 {id:"struct.louver", g:"struct", n:"Manual louvers against motorised", u:"×",
  what:"A manual louvered roof is priced as a ratio of the motorised one, taken from the two lines "
@@ -34162,12 +34314,15 @@ function renderAlgos(){
     +'<div class="al-t">'+_esc((ALGO_GROUPS.find(g=>g.id===d.g)||{}).n||"")+' · outputs '+_esc(d.u)+'</div>'
     +'<div class="al-what">'+_esc(d.what)+'</div>';
   if(d.warn) h+='<div class="al-warn">⚑ '+_esc(d.warn)+'</div>';
+  if(typeof d.status==="function"){ const st=_av(d.status);
+    if(st&&st.t) h+='<div class="al-status'+(st.ok?" ok":"")+'">'+(st.ok?"✓ ":"● ")+_esc(st.t)+'</div>'; }
   if(Array.isArray(terms)&&terms.length){
     h+='<h4>The formula, on this job</h4><div class="al-trm">'
       +terms.map(_algoTermRow).join("")+'</div>';
   }
   const t2=(typeof d.terms2==="function")?(_av(d.terms2)||[]):null;
   if(Array.isArray(t2)&&t2.length) h+='<div class="al-trm" style="margin-top:8px">'+t2.map(_algoTermRow).join("")+'</div>';
+  if(d.action) h+='<button class="al-apply" onclick="try{'+d.action.fn+'()}catch(e){}">'+_esc(d.action.n)+'</button>';
   if(params.length){
     h+='<h4>What you can change</h4>'+params.map(p=>
       '<div class="al-p"><span class="k">'+_esc(p.n)
@@ -34187,6 +34342,131 @@ function renderAlgos(){
   ins.innerHTML=h;
 }
 function _algoParams(d){ return (typeof d.params==="function")?(_av(d.params)||[]):(d.params||[]); }
+</script>
+
+
+<script>
+/* ══ LIGHTING · conceptual auto-estimate ═════════════════════════════════════
+   Runs ONLY when there is no lighting plan yet (no fixture has a quantity). It
+   turns the areas and counts the job already knows — paving SF, turf, shrub
+   beds, trees by box size, benches, steps — into a fixture count at the price
+   point the Lighting section is set to. It is deliberately area/count based: the
+   geometric refinements in the full spec (which yard a tree sits in, distance to
+   a property line, walkway centrelines, driveway walls) need a trace, and once a
+   trace exists this estimate steps aside for it. Feature lighting — BBQ, pergola,
+   fire, water — is never counted here; those live in their own builders. */
+
+// price point of the Lighting section → "low" | "std" | "prem"
+function lgtPoint(){
+  const cs=S.cats&&S.cats.lighting;
+  let ti=(cs&&cs.tier!=null)?cs.tier:(SEC_TIER_DEFAULT.lighting||1);
+  return ["low","std","prem"][Math.min(2,Math.max(0,ti))];
+}
+function _lgtItem(rx){ const cs=S.cats&&S.cats.lighting; if(!cs||!cs.items) return null;
+  return cs.items.find(it=>rx.test(it.n))||null; }
+// Has anyone already drawn the lighting? Any fixture with a quantity counts.
+function lightingSpecified(){
+  const cs=S.cats&&S.cats.lighting; if(!cs||!cs.items) return false;
+  return cs.items.some(it=>it.u==="EA" && +it.q>0 && !/transformer|smart|colour|tunable/i.test(it.n))
+      || (_lgtItem(/tape|strip/i)||{}).q>0;
+}
+// The raw job facts the estimate reads. Everything defends against missing data.
+function lgtData(){
+  const round=Math.round;
+  const areaOf=id=>{ try{ const u=secUsedSF(id); if(u>0) return u; }catch(e){} try{ return secArea(id); }catch(e){} return 0; };
+  const itemQ=(cat,rx)=>{ const cs=S.cats&&S.cats[cat]; if(!cs||!cs.items) return 0;
+    const it=cs.items.find(x=>rx.test(x.n)); return it?(+it.q||0):0; };
+  const pavingSF=areaOf("paving");
+  const turfSF=itemQ("planting",/lawn|sod/i)+itemQ("planting",/artificial turf/i);
+  const shrubSF=Math.max(0,(+S.plantingAreaSF||areaOf("planting"))-turfSF);
+  const benchLF=itemQ("amenities",/built-in seating|bench/i);
+  const stepLF=itemQ("paving",/^steps/i);
+  // trees by size, from the planting zones
+  let small=0, big=0, down=0;
+  try{ (S.planting&&S.planting.zones||[]).forEach(z=>(z.treeRows||[]).forEach(r=>{
+    const n=Math.max(0,Math.round(rowQty(r)|| +r.n||0)); if(!n) return;
+    const box=+r.box|| (/(\d+)/.test(r.size||"")?+RegExp.$1:0);
+    const isGal=/gal/i.test(r.size||"") && !r.box;
+    if(box>=AK("lgt.down.minBox")) down+=n;
+    if(box>=36) big+=n; else small+=n;          // 15g / 24"box = small, 36"box+ = big
+  })); }catch(e){}
+  return {pavingSF:round(pavingSF), turfSF:round(turfSF), shrubSF:round(shrubSF),
+          benchLF:round(benchLF), stepLF:round(stepLF), trees:{small,big,down}};
+}
+// √area × 4 is the perimeter of the equivalent square — a stand-in for a turf
+// border we have no trace of. Flagged as an estimate wherever it is shown.
+function lgtTurfBorderLF(sf){ return sf>0 ? Math.round(4*Math.sqrt(sf)) : 0; }
+
+function lightingAuto(){
+  const p=lgtPoint(), d=lgtData(), up=Math.ceil;
+  const pick=(a,b,c)=> p==="low"?a : p==="std"?b : c;
+
+  // path / area lights — outdoor-living SF ÷ per-fixture, + turf border spacing
+  const perFix=pick(AK("lgt.paving.low"),AK("lgt.paving.std"),AK("lgt.paving.prem"));
+  const pathPaving = d.pavingSF>0 ? up(d.pavingSF/perFix) : 0;
+  const turfSpace=pick(AK("lgt.turf.low"),AK("lgt.turf.std"),AK("lgt.turf.prem"));
+  const turfBorder=lgtTurfBorderLF(d.turfSF);
+  const pathTurf = turfBorder>0 ? up(turfBorder/turfSpace) : 0;
+
+  // tree uplights — 2 each × the share of trees lit at this point, by size
+  const smDen=pick(AK("lgt.treeDen.smLow"),AK("lgt.treeDen.smStd"),AK("lgt.treeDen.smPrem"))/100;
+  const bgDen=pick(AK("lgt.treeDen.bgLow"),AK("lgt.treeDen.bgStd"),AK("lgt.treeDen.bgPrem"))/100;
+  const upTree = up(d.trees.small*smDen*AK("lgt.tree.up")) + up(d.trees.big*bgDen*AK("lgt.tree.up"));
+
+  // shrub-bed uplights — density per 1000 SF (yard weighting needs a trace, so 1.0 blended)
+  const shDen=pick(AK("lgt.shrub.low"),AK("lgt.shrub.std"),AK("lgt.shrub.prem"));
+  const upShrub = d.shrubSF>0 ? up(d.shrubSF/1000*shDen) : 0;
+
+  // downlights — 2 per tree big enough to carry them
+  const downlt = d.trees.down*AK("lgt.tree.down");
+
+  // LED tape — benches and steps, standard & premium only
+  const tapeLF = p==="low" ? 0 : Math.round(d.benchLF*AK("lgt.tape.bench") + d.stepLF*AK("lgt.tape.step"));
+
+  const path=pathPaving+pathTurf, uplight=upTree+upShrub;
+  const fixtures=path+uplight+downlt;
+
+  // wiring — a rough run per fixture; transformers — connected watts ÷ usable, with headroom
+  const wireLF = Math.round(fixtures*AK("lgt.wireRun"));
+  const watts = path*(TK_LIGHT_W["Path / Area"]||4) + uplight*(TK_LIGHT_W["Uplight / Accent"]||6)
+              + downlt*(TK_LIGHT_W["Downlight / Moonlight"]||8) + tapeLF*3;
+  let head=1.25, cap=300; try{ head=assumeVal("xfmr.head")||1.25; cap=assumeVal("xfmr.w")||300; }catch(e){}
+  const xfmr = fixtures>0 ? Math.max(1, Math.ceil(watts*head/cap)) : 0;
+
+  return {point:p, data:d, turfBorder,
+    path, pathPaving, pathTurf, uplight, upTree, upShrub, downlt, tapeLF, wireLF, watts:Math.round(watts), xfmr,
+    fixtures};
+}
+
+// Fill the Lighting section from the estimate. Guarded — never runs over a plan.
+function lightingApply(){
+  if(lightingSpecified()){
+    alert("This job already has a lighting plan, so the estimate is not overriding it. "
+      +"Clear the fixture quantities in the Lighting section first if you want to re-estimate.");
+    return;
+  }
+  const r=lightingAuto();
+  if(!r.fixtures && !r.tapeLF){ alert("Nothing to light yet — set the landscape area and the "
+    +"paving / planting split first."); return; }
+  if(!confirm("Fill the Lighting section from this estimate?\n\n"
+    +r.path+" path/area · "+r.uplight+" uplights · "+r.downlt+" downlights · "
+    +r.tapeLF+" LF tape · "+r.wireLF+" LF wiring · "+r.xfmr+" transformer(s)\n\n"
+    +"You can adjust every fixture afterwards, and the numbers behind this live in the Algorithms tab.")) return;
+  const set=(rx,q)=>{ const it=_lgtItem(rx); if(it){ it.q=q; it.checked=q>0; } };
+  set(/path \/ area/i, r.path);
+  set(/uplight/i, r.uplight);
+  set(/downlight|moonlight/i, r.downlt);
+  set(/tape|strip/i, r.tapeLF);
+  set(/low-voltage wiring/i, r.wireLF);
+  set(/transformer & controller/i, r.xfmr);
+  try{ applyPriceBook(); }catch(e){}
+  try{ refreshCatTotals("lighting"); }catch(e){}
+  try{ renderTotal(); renderProSummary(); }catch(e){}
+  try{ if(typeof buildProCats==="function") buildProCats(); }catch(e){}
+  try{ saveLocal&&saveLocal(); }catch(e){}
+  try{ _toast&&_toast("Lighting estimated — "+r.fixtures+" fixtures"); }catch(e){}
+  try{ renderAlgos(); }catch(e){}
+}
 </script>
 
 </body>
