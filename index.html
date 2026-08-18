@@ -4287,7 +4287,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v945</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v946</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29924,44 +29924,40 @@ function ptSetLightCtrl(k){
 }
 // The whole scheme, worked out from the fixtures on the plan.
 function ptLightPlan(){
+  const pt=_lgtEffPt();
   const by={}; let n=0, watts=0;
   (PT.trees||[]).forEach(t=>{ if(_ptMarkMode(t)!=="light") return;
     const ty=t.size||"Path / Area";
-    by[ty]=(by[ty]||0)+1; n++; watts+=assumeVal("light.w|"+ty); });
-  const rows=[];
-  let total=0, hrs=0;
-  const lr=_tkLightLabor();
+    by[ty]=(by[ty]||0)+1; n++; watts+=(TK_LIGHT_W[ty]!=null?TK_LIGHT_W[ty]:5); });
+  const rows=[]; let total=0;
+  const inst=_lgtInstallAt(pt);
   Object.keys(by).forEach(ty=>{
-    const re=TK_LIGHT_ITEM[ty]; const rate=re?_tkRate("lighting",re):0;
-    const cost=rate*by[ty]; total+=cost;
-    rows.push({what:ty+" — fixture", qty:by[ty], unit:"ea", rate, cost});
-    const inst=lgtInstallPer();
+    const dbName=_LGT_TYPE_DB[ty];
+    const rate= dbName ? _lgtMat(dbName, pt) : _tkAt(pt, ()=>_tkRate("lighting", TK_LIGHT_ITEM[ty]||/^\b$/));
+    total+=rate*by[ty];
+    rows.push({what:ty+" — fixture", qty:by[ty], unit:"ea", rate, cost:rate*by[ty]});
     rows.push({what:ty+" — install", qty:by[ty], unit:"ea", rate:inst, cost:inst*by[ty]});
     total+=inst*by[ty];
   });
   if(!n) return {rows:[], n:0, watts:0, xfmr:0, total:0};
   const _xh=assumeVal("xfmr.head"), _xw=assumeVal("xfmr.w")||300;
   const xfmr=Math.max(1, Math.ceil((watts*_xh)/_xw));
-  const xr=_tkRate("lighting",/Transformer & Controller/i);
+  const xr=_lgtMat("Transformer & Controller", pt);
   rows.push({what:`Transformer & controller — ${_tkFmt(Math.round(watts))} W of fixtures at ${Math.round(_xh*100)}% headroom`,
              qty:xfmr, unit:"ea", rate:xr, cost:xr*xfmr}); total+=xr*xfmr;
-  const W=ptWireRun();
-  const wireLF=W.lf||Math.round(n*12), wr=_tkRate("lighting",/Low-Voltage Wiring/i);
-  rows.push({what:`Low-voltage wiring — ${W.from?`shortest run from ${W.from}, plus ${Math.round((TK_WIRE_SLACK-1)*100)}% slack`:"12′ a fixture"}`,
-             qty:wireLF, unit:"LF", rate:wr, cost:wr*wireLF});
-  total+=wr*wireLF;
+  const wireLF=Math.round(n*AK("lgt.wireRun")), wr=_lgtMat("Low-Voltage Wiring", pt);
+  rows.push({what:`Low-voltage wiring — ${AK("lgt.wireRun")}′ a fixture`,
+             qty:wireLF, unit:"LF", rate:wr, cost:wr*wireLF}); total+=wr*wireLF;
   const ctrl=ptLightCtrl();
   if(ctrl==="smart"||ctrl==="colour"){
-    const sr=_tkRate("lighting",/Smart Lighting Control/i);
-    rows.push({what:"Smart control — one per transformer", qty:xfmr, unit:"ea", rate:sr, cost:sr*xfmr});
-    total+=sr*xfmr;
+    const sr=_tkAt(pt,()=>_tkRate("lighting",/Smart Lighting Control/i));
+    rows.push({what:"Smart control — one per transformer", qty:xfmr, unit:"ea", rate:sr, cost:sr*xfmr}); total+=sr*xfmr;
   }
   if(ctrl==="colour"){
-    const cr=_tkRate("lighting",/Colour-Changing \/ Tunable/i);
-    rows.push({what:"Colour-changing / tunable upgrade", qty:n, unit:"ea", rate:cr, cost:cr*n});
-    total+=cr*n;
+    const cr=_tkAt(pt,()=>_tkRate("lighting",/Colour-Changing \/ Tunable/i));
+    rows.push({what:"Colour-changing / tunable upgrade", qty:n, unit:"ea", rate:cr, cost:cr*n}); total+=cr*n;
   }
-  return {rows, n, watts, xfmr, ctrl, hrs:+hrs.toFixed(1), laborRate:lr, wire:W, total};
+  return {rows, n, watts, xfmr, ctrl, total:Math.round(total)};
 }
 // ── FIREPLACE & PILASTER BUILDERS ───────────────────────────────────────────
 // Both were single allowance lines, which is fine for a range and useless for a conversation. A
@@ -34709,19 +34705,41 @@ function lightingCountAt(pt){
   return {path:by.path,uplight:by.uplight,downlight:by.downlight,tapeLF:Math.round(tapeLF),
           xfmr, wireLF:Math.round(n*AK("lgt.wireRun")), n, watts:Math.round(watts)};
 }
+// The effective price point for lighting: the light category's own override if
+// set, else the global take-off point. Everything about lighting money reads here.
+function _lgtEffPt(){ let v=null; try{ v=ptPointFor("light"); }catch(e){}
+  if(v==null){ try{ v=ptPricePoint(); }catch(e){} }
+  return Math.min(2,Math.max(0,+v||0)); }
+// Fixture material price at a tier — straight from the cost database, unless that
+// book line was hand-edited (then the edited book value wins). This is the single
+// source of truth, so the price on screen always matches and always varies by tier.
+const _LGT_TYPE_DB={
+  "Path / Area":"Path / Area Light", "Uplight / Accent":"Uplight / Accent",
+  "Step / Hardscape":"Step / Hardscape Light", "Downlight / Moonlight":"Downlight / Moonlight",
+  "Bollard":"Bollard Light"};
+function _lgtMat(dbName, pt){
+  pt=Math.min(2,Math.max(0,+pt||0));
+  let bit=null; try{ const lc=PB.find(c=>c.id==="lighting"); bit=lc&&lc.items&&lc.items.find(x=>x.n===dbName); }catch(e){}
+  if(bit && bit._lgtEdited){
+    if(pt===0) return +bit.lo||0; if(pt===2) return +bit.hi||0;
+    return (bit.std!=null&&bit.std!=="")?+bit.std:Math.round(((+bit.lo||0)+(+bit.hi||0))/2);
+  }
+  const d=LGT_PRICE_DB[dbName]; return d?+d[pt]:0;
+}
+function _lgtInstallAt(pt){ pt=+pt||0; return pt===0?AK("lgt.install.low") : pt===2?AK("lgt.install.prem") : AK("lgt.install.std"); }
+
 // Price a tier's own design at that tier — fully explicit, so the three tier
 // buttons are stable and read low < standard < premium.
 function _lgtPriceAt(pt){
   const c=lightingCountAt(pt);
-  const rate=re=>_tkAt(pt, ()=>_tkRate("lighting", re));
-  const inst = pt===0?AK("lgt.install.low") : pt===2?AK("lgt.install.prem") : AK("lgt.install.std");
+  const inst=_lgtInstallAt(pt);
   let total=0;
-  total += c.path      * (rate(/Path \/ Area Light/i) + inst);
-  total += c.uplight   * (rate(/Uplight \/ Accent/i) + inst);
-  total += c.downlight * (rate(/Downlight \/ Moonlight/i) + inst);
-  total += c.tapeLF    * rate(/LED Tape/i);
-  total += c.xfmr      * rate(/Transformer & Controller/i);
-  total += c.wireLF    * rate(/Low-Voltage Wiring/i);
+  total += c.path      * (_lgtMat("Path / Area Light",pt) + inst);
+  total += c.uplight   * (_lgtMat("Uplight / Accent",pt) + inst);
+  total += c.downlight * (_lgtMat("Downlight / Moonlight",pt) + inst);
+  total += c.tapeLF    * _lgtMat("LED Tape / Strip Light (installed w/ channel & driver)",pt);
+  total += c.xfmr      * _lgtMat("Transformer & Controller",pt);
+  total += c.wireLF    * _lgtMat("Low-Voltage Wiring",pt);
   return {total:Math.round(total), n:c.n, counts:c};
 }
 
