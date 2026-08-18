@@ -350,3 +350,24 @@ New constants: `lgt.install.low/std/prem`, `lgt.downNearPaving`, `lgt.edgeOffset
 Assumptions pane but no longer drive install (they're dead for pricing now) —
 remove or repurpose. Trace-geometry refinements from REVIEW #15 (yard weighting,
 walkway centrelines, driveway wall logic, downlight→path thinning) still pending.
+
+## 18 · Lighting tier buttons: stable & monotonic (v943)
+The Value/Standard/Premium buttons priced the CURRENT placement three ways, and
+auto-replace changed that placement on every click → all three totals shifted,
+and the popover rendered before the re-place so a tier showed the previous tier's
+count (Value appearing to have more uplights than Standard).
+
+Fix: geometry walk is now a pure counter (`_lgtCompute` / `lightingCountAt`), each
+tier priced from its own count at its own point (`_lgtPriceAt`). The three buttons
+are independent of the current placement — stable, low < std < prem. Verified
+12/20/36 uplights and stable totals [2850, 8007, 29526] regardless of which is
+clicked.
+
+**Watch — stale prices in the take-off:** the screenshots showed Path $415/ea and
+wire $8/LF, which match neither the old nor the corrected book. That is the
+price book on that project not carrying the v940/v941 corrections — most likely
+the Cloudflare-synced `studioh_pricebook_v5` (a SHARED_CFG key) restoring the old
+numbers over the local reseed. If prices still look stale after v943, Warwick
+should re-open the Price Book, confirm the lighting lines read 40/120/300 etc.,
+and **Publish** to push the corrected book to the cloud. Open question: should the
+reseed run after cloud pull, or is re-publish the intended path.
