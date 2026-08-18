@@ -47,12 +47,20 @@ Warwick's call: **build it.** A material should be a thing you pick, not a numbe
   product** — the same swap the *Other ways to do this* card offers, but by product rather than by
   price-book line.
 
-**Open questions to settle before building**
-- Does picking a product change **this job only**, or the Price Book line's default? (The
-  alternatives card already answers this for line swaps: the job. Materials should match.)
-- What happens to a line pointing at a product that is later deleted or discontinued?
-- Does the library carry installed cost, or material only with labour still coming from the
-  book's hours × rate? The second is more honest and matches how split lines already work.
+**Settled 17 Aug 2026**
+- **The Price Book line carries a default product.** That default is what the estimate specifies
+  unless the estimate overrides it on that job. So the book holds the standing choice; the job holds
+  the exception — the same rule the alternatives card already follows.
+- **Discontinued products auto-substitute** to a similar one rather than leaving a line dead.
+
+**Still to settle**
+- An auto-substitution **changes a price**. It has to say so — the drift bar built in v906 is the
+  pattern: *"2 lines were re-specified because a product was discontinued"*, with what changed and
+  what it cost. A silent substitution is the one thing that would make this untrustworthy.
+- What "similar" means, and who decides: same supplier, same category, nearest price, or AI. The
+  standing rule applies — it may rank and annotate, never invent.
+- Does the library carry installed cost, or material only with labour still coming from the book's
+  hours × rate? The second is more honest and matches how split lines already work.
 
 Related: [[material-library-roadmap]], [[mood-board-roadmap]], and REVIEW #9 (the AI layer on
 alternatives).
