@@ -4304,7 +4304,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v948</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v949</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -32038,7 +32038,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
 // from its algorithm, to look at and adjust. Lighting is live; the rest are the
 // next builds. Same dark pill as the tool rail so it reads as part of the tool.
 const PT_AUTOFILL=[
-  {k:"building", label:"Building", act:"buildingDetect()", live:true,
+  {k:"building", label:"Building", act:"buildingDetectAI()", live:true,
    title:"Auto-detect the building footprint from GIS and inset it 2 ft to the walls",
    icon:'<path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-6h6v6"/><path d="M4 21h16"/>'},
   {k:"light", label:"Lighting", act:"lightingPlace()", live:true,
@@ -34960,6 +34960,108 @@ async function buildingDetect(){
   const sf=poly.sf||Math.round(found.areaSF);
   try{ _toast("Building footprint placed · "+sf.toLocaleString()+" SF · "+AK("build.inset")
     +" ft wall inset · confidence "+conf+(conf==="Low"?" — review it":". Drag a corner to adjust."),"#2F5B23"); }catch(e){}
+}
+</script>
+
+
+<script>
+/* ══ BUILDING FOOTPRINT · AI vision on the actual tile ═══════════════════════
+   The GIS footprint data is mis-registered against Google's imagery, so instead
+   we read the SAME picture the user is looking at. Capture the parcel as a Google
+   Static Maps satellite image, hand it to Claude, and get the primary-residence
+   roof outline back in image fractions. Because it reads the displayed imagery,
+   the result lines up by construction. Then inset 2 ft roof→wall and drop it as
+   an editable building polygon. */
+
+// image fraction (0..1, top-left origin) → lat/lng, using the same Web-Mercator
+// projection the static map is drawn with (so it lands where the roof is)
+function _staticPxToLL(fx, fy, center, zoom, sizeCss){
+  const f=Math.pow(2,zoom), wc=_mercWorld(center.lat,center.lng);
+  return _mercInv(wc.x+(fx-0.5)*sizeCss/f, wc.y+(fy-0.5)*sizeCss/f);
+}
+function _staticLLToPx(lat,lng, center, zoom, sizeCss){
+  const f=Math.pow(2,zoom), wc=_mercWorld(center.lat,center.lng), w=_mercWorld(lat,lng);
+  return {fx:0.5+(w.x-wc.x)*f/sizeCss, fy:0.5+(w.y-wc.y)*f/sizeCss};
+}
+// parcel bounding box from the stored rings, else a small box round the address
+function _parcelBBox(){
+  let n=-1e9,s=1e9,e=-1e9,w=1e9, any=false;
+  try{ (window._parcelData&&window._parcelData.paths||[]).forEach(ring=>ring.forEach(p=>{
+    const lat=+p.lat, lng=+p.lng; if(!isFinite(lat)||!isFinite(lng)) return;
+    any=true; if(lat>n)n=lat; if(lat<s)s=lat; if(lng>e)e=lng; if(lng<w)w=lng; })); }catch(e){}
+  if(any) return {n,s,e,w};
+  const lat=+((S.pi&&S.pi.lat)||0), lng=+((S.pi&&S.pi.lng)||0);
+  if(lat&&lng){ const d=0.0006; return {n:lat+d,s:lat-d,e:lng+d,w:lng-d}; }
+  return null;
+}
+// largest zoom that fits the bbox inside the image with margin to spare
+function _fitZoom(bb, sizeCss, margin){
+  for(let z=21;z>=15;z--){ const f=Math.pow(2,z);
+    const a=_mercWorld(bb.n,bb.w), b=_mercWorld(bb.s,bb.e);
+    if(Math.abs(b.x-a.x)*f<=sizeCss*margin && Math.abs(b.y-a.y)*f<=sizeCss*margin) return z; }
+  return 18;
+}
+
+const _BUILD_PROMPT=
+ "You are looking at a satellite photo of one residential lot, centred on the property. "
++"Trace the outline of the PRIMARY RESIDENCE roof.\n"
++"INCLUDE, as one connected outline: the main house, any ATTACHED garage, and attached wings.\n"
++"EXCLUDE completely (do not trace): swimming pool, spa, tennis or sport court, driveway, "
++"patios and paving, lawn, trees and shrubs, and any DETACHED structure (guest house, cabana, "
++"shed, pergola, gazebo, patio cover) and neighbouring houses near the edges.\n"
++"If trees overhang the roof, infer the straight roof edge beneath them. Favour straight lines, "
++"right angles and symmetry, and preserve real courtyards and wings.\n"
++"Return ONLY minified JSON, no prose: {\"conf\":\"High|Medium|Low\",\"poly\":[[x,y],...]} where "
++"each x and y is a fraction 0.0-1.0 of the image (x left->right, y top->bottom), tracing the roof "
++"outline clockwise with 6 to 28 points and no holes. conf is how sure you are it is the main house.";
+
+async function buildingDetectAI(){
+  if(typeof PT==="undefined"||!PT.open){ alert("Open the trace tool first."); return; }
+  if(!ptMapLive()){ alert("Building auto-detect reads the satellite view — trace on the map, not a PDF."); return; }
+  const bb=_parcelBBox();
+  if(!bb){ alert("No property boundary loaded yet. Set the address in Project Info so the parcel loads, then try again."); return; }
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No AI endpoint configured."); return; }
+  if(BUILD_BUSY) return; BUILD_BUSY=true;
+  try{ _toast("Reading the roof from the satellite…","#2F5B23"); }catch(e){}
+  const KEY="AIzaSyC-RBQ1uiRRKA0dt5thTL-S64Rt1FnD5Mw", sizeCss=640;
+  const center={lat:(bb.n+bb.s)/2, lng:(bb.e+bb.w)/2};
+  const zoom=_fitZoom(bb, sizeCss, 0.82);
+  const url="https://maps.googleapis.com/maps/api/staticmap?maptype=satellite&center="
+    +center.lat.toFixed(6)+","+center.lng.toFixed(6)+"&zoom="+zoom+"&size="+sizeCss+"x"+sizeCss
+    +"&scale=2&key="+KEY;
+  let poly=null, conf="Low";
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6", max_tokens:1200,
+        messages:[{role:"user",content:[
+          {type:"image", source:{type:"url", url}},
+          {type:"text", text:_BUILD_PROMPT}
+        ]}]})});
+    const data=await r.json();
+    const t=((data.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"").trim();
+    const m=t.match(/\{[\s\S]*\}/); if(!m) throw new Error("no readable outline");
+    const j=JSON.parse(m[0]); conf=j.conf||"Low";
+    poly=(j.poly||[]).filter(p=>Array.isArray(p)&&p.length>=2
+       && +p[0]>=0&&+p[0]<=1&&+p[1]>=0&&+p[1]<=1);
+  }catch(e){ BUILD_BUSY=false;
+    alert("The AI read didn't come back cleanly ("+((e&&e.message)||"error")+").\n\nTry again, or trace the building by hand.");
+    return; }
+  BUILD_BUSY=false;
+  if(!poly || poly.length<3){
+    alert("Couldn't pick out a clear house roof here. Nudge the address pin onto the house and retry, or trace it by hand.");
+    return; }
+  const ring=poly.map(p=>_staticPxToLL(+p[0],+p[1],center,zoom,sizeCss));   // [{lat,lng}]
+  const inset=_polyInsetFt(ring, AK("build.inset"));
+  const pts=inset.map(p=>({x:p.lng, y:p.lat}));
+  ptSnap();
+  PT.polys=(PT.polys||[]).filter(q=>!(q._auto && q.mode==="building"));
+  const bpoly={pts, mode:"building", _auto:true, page:PT.page};
+  try{ bpoly.sf=Math.round(_ptPolySF(pts)); }catch(e){}
+  PT.polys.push(bpoly);
+  try{ ptDrawOverlay(); ptUpdateInfo(); if(typeof ptRenderModal==="function") ptRenderModal(); }catch(e){}
+  try{ _toast("Building roof placed · "+(bpoly.sf||0).toLocaleString()+" SF · "+AK("build.inset")
+    +" ft wall inset · confidence "+conf+(/low/i.test(conf)?" — review it.":". Nudge a corner if needed."),"#2F5B23"); }catch(e){}
 }
 </script>
 
