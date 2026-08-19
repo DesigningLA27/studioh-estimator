@@ -4345,7 +4345,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v976</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v977</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28805,7 +28805,7 @@ function ptAddAt(p,c,e){
     // Canvas-first layouts keep the selection live so the corner handles stay up,
     // instead of throwing a popover over the drawing you are editing.
     if(ptUiGet()!=="classic"){ if(hit&&hit.type==="poly") ptSelect(hit.idx); else if(hit) ptEditTree(hit.idx);
-        else { const gi=_ptGuideHit(c); if(gi>=0){ ptSnap(); PT.guides.splice(gi,1); ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); } else ptSelClear(); } return; }
+        else { const gi=_ptGuideHit(c); if(gi>=0){ PT.selGuide=gi; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); } else ptSelClear(); } return; }
     if(hit){ if(hit.type==="tree") ptEditTree(hit.idx); else ptEditPoly(hit.idx); } return; }
   if(PT.calibrating){ PT.calib.push(p); if(PT.calib.length===2){ const dx=PT.calib[1].x-PT.calib[0].x, dy=PT.calib[1].y-PT.calib[0].y; const distPdf=Math.hypot(dx,dy);
       const ans=prompt("How long is that line in the real world? Enter feet (e.g. 20 or 15.5):"); const ft=parseFloat(ans);
@@ -30671,6 +30671,8 @@ function ptCancelDraw(){ PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); p
 function _ptActBar(){
   const drawing=PT.cur&&PT.cur.length>0;
   const selected=(PT.selPoly!=null)&&!drawing;
+  const guideSel=(PT.selGuide!=null)&&!drawing;
+  if(guideSel) return '<div class="pt-actbar"><button onclick="PT.selGuide=null;ptDrawOverlay();ptRenderFloat()">Deselect</button><button class="del" onclick="ptDelSelGuide()">\u{1F5D1} Delete guide</button></div>';
   if(!drawing&&!selected) return "";
   let inner="";
   if(drawing){ const kind=_ptKind(PT.mode); const canFin=PT.cur.length>=(kind==="linear"?2:3);
@@ -31463,7 +31465,7 @@ function ptTkDragStart(e){ const card=document.getElementById("pt-card"); if(!ca
   window.addEventListener("pointermove",move,true);
   window.addEventListener("pointerup",up,true); }
 // ── selection & vertex editing ──────────────────────────────────────────────
-function ptSelClear(){ PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+function ptSelClear(){ PT.selGuide=null; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
 // Clear the whole trace. Undo still gets it back, and the property line redraws itself.
 // Delete is always there. With nothing picked it hands you the Select tool rather than doing nothing.
 function ptDeleteTap(){
@@ -31934,8 +31936,9 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     }
   }
   // Guide lines — dashed grey helpers for closing Fill areas (unpriced).
-  (PT.guides||[]).forEach(g=>{ if(g.page!==PT.page||!g.pts||g.pts.length<2) return; const cp=g.pts.map(_toCanvas);
-    s+='<polyline points="'+cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")+'" fill="none" stroke="#CBD0D8" stroke-width="2.5" stroke-dasharray="8 5" stroke-linecap="round" style="pointer-events:none"/>';
+  if(!PT.hideGuides) (PT.guides||[]).forEach(g=>{ if(g.page!==PT.page||!g.pts||g.pts.length<2) return; const cp=g.pts.map(_toCanvas);
+    const _gsel=(PT.selGuide===PT.guides.indexOf(g));
+    s+='<polyline points="'+cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")+'" fill="none" stroke="'+(_gsel?"#5BA34A":"#CBD0D8")+'" stroke-width="'+(_gsel?4:2.5)+'" stroke-dasharray="8 5" stroke-linecap="round" style="pointer-events:none"/>';
     cp.forEach(q=>{ s+='<circle cx="'+q.x.toFixed(1)+'" cy="'+q.y.toFixed(1)+'" r="3.5" fill="#fff" stroke="#CBD0D8" stroke-width="1.6" style="pointer-events:none"/>'; });
   });
   // Off the property is not the job. Fade it, so the eye stays on the site.
@@ -32061,14 +32064,20 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
   const _tbHTML=`
     <button class="tkb-tog" onclick="ptRailToggle()" title="${_wide?'Narrow the tools':'Widen the tools'}">${_wide?'‹':'›'}<span>${_wide?'Narrow':''}</span></button>
     <div class="tkb-scroll">
-    ${_lb("Tracing on")}
-    ${_t({label:ptBaseLabel(), act:"ptBasePopover()", title:"What you are tracing on",
-      icon:_ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/>')})}
-    ${(PT.live||_ptFlatOn())?'':_t({label:PT.ppf?"Scale set":"Set scale", act:"ptOpenScale()", cls:PT.ppf?'':'warn',
-      icon:_ic('<path d="M3 17h18M6 17v-4M12 17v-8M18 17v-6"/>')})}
+    <div class="tkb-pair">
+      <button id="pt-undo-btn" onclick="ptUndo()" title="Undo">${_ic('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10H9"/>')}</button>
+      <button id="pt-redo-btn" onclick="ptRedoAct()" title="Redo">${_ic('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h6"/>')}</button>
+    </div>
+    <div class="tkb-pair">
+      <button onclick="ptZoom(1.2)" title="Zoom in">＋</button>
+      <button onclick="ptZoom(0.83)" title="Zoom out">－</button>
+    </div>
     ${_hr}${_lb("Draw with")}
     ${_t({label:"Draw", on:!PT.selectMode&&(!PT.tool||PT.tool==="draw"), act:"ptSetTool('draw')", title:"Freeform polygon for the active area category",
       icon:_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')})}
+    ${_t({label:"Select", on:PT.selectMode, act:"if(!PT.selectMode)ptSelectMode()",
+      title:"Select, reshape or delete what you traced",
+      icon:_ic('<path d="M4 3l7 17 2-7 7-2L4 3Z"/>')})}
     ${_t({label:"Rect", on:_toolRect(), act:"ptSetTool('rect')", title:"Rectangle \u2014 corner, first edge, then width; shows ft + SF live",
       icon:_ic('<rect x="4" y="6" width="16" height="12" rx="1"/>')})}
     ${_t({label:"Line", on:PT.tool==="line", act:"ptSetTool('line')", title:"Guide line \u2014 keep clicking to add points; Done or double-tap the last point to finish. Unpriced; closes Fill areas",
@@ -32077,25 +32086,21 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       icon:_ic('<path d="M7 4v13h13"/><path d="M7 11h6v6"/>')})}
     ${_t({label:"Fill", on:!!(typeof PT!=="undefined"&&PT._fillPick), act:"ptFillMode()", title:"Fill an enclosed area (BO)",
       icon:_ic('<path d="M5 11 11 5l6 6-6 6-6-6z"/><path d="M11 5 8.5 2.5"/><path d="M18.6 14c.8 1 1.4 2 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-.8.6-1.8 1.4-2.8z"/>')})}
-    ${_t({label:"Select", on:PT.selectMode, act:"if(!PT.selectMode)ptSelectMode()",
-      title:"Select, reshape or delete what you traced",
-      icon:_ic('<path d="M4 3l7 17 2-7 7-2L4 3Z"/>')})}
-    <div class="tkb-pair">
-      <button id="pt-undo-btn" onclick="ptUndo()" title="Undo">${_ic('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10H9"/>')}</button>
-      <button id="pt-redo-btn" onclick="ptRedoAct()" title="Redo">${_ic('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h6"/>')}</button>
-    </div>
-    ${_drawing?`<button class="tkb-fin" onclick="ptFinishPoly()">${_md.kind==="linear"?"Finish line":"Close area"}</button>`:''}
     ${_t({label:"Delete", act:"ptDeleteTap()", cls:(PT.selPoly!=null?"warn":""), title:"Delete the selected area",
       icon:_ic('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>')})}
+    ${_drawing?`<button class="tkb-fin" onclick="ptFinishPoly()">${_md.kind==="linear"?"Finish line":"Close area"}</button>`:''}
+    ${_hr}${_lb("Base")}
+    ${(PT.live||_ptFlatOn())?'':_t({label:PT.ppf?"Scale set":"Set scale", act:"ptOpenScale()", cls:PT.ppf?'':'warn',
+      icon:_ic('<path d="M3 17h18M6 17v-4M12 17v-8M18 17v-6"/>')})}
+    ${_wide?_t({label:ptBaseLabel(), act:"ptBasePopover()", title:"What you are tracing on",
+      icon:_ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/>')}):''}
     ${_hr}${_lb("View")}
-    <div class="tkb-pair">
-      <button onclick="ptZoom(1.2)" title="Zoom in">＋</button>
-      <button onclick="ptZoom(0.83)" title="Zoom out">－</button>
-    </div>
     ${PT.numPages>1?`<div class="tkb-pair">
       <button onclick="ptPage(-1)" title="Previous page">‹</button>
       <button onclick="ptPage(1)" title="Next page">›</button></div>
       ${_wide?`<div class="tkb-lb" style="text-align:center">Page ${PT.page} of ${PT.numPages}</div>`:''}`:''}
+    ${(PT.guides&&PT.guides.length)?_t({label:"Guides", on:!PT.hideGuides, act:"ptToggleGuides()", title:"Show or hide all guide lines",
+      icon:_ic('<path d="M4 18l5-9 4 5 3-6 4 4"/>')}):''}
     ${_t({label:"Labels", act:"ptToggleLabels()", on:!PT.hideLabels,
       title:"Show or hide the figures on the plan",
       icon:_ic('<path d="M4 7h16M4 12h10M4 17h7"/>')})}
@@ -32230,6 +32235,10 @@ function _ptCommitGuide(){ if(!PT.cur||PT.cur.length<2){ PT.cur=[]; PT._rectCurs
   if(!PT.guides) PT.guides=[]; ptSnap();
   PT.guides.push({pts:PT.cur.map(q=>({x:q.x,y:q.y})), page:PT.page});
   PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
+function ptToggleGuides(){ PT.hideGuides=!PT.hideGuides; try{ ptDrawOverlay(); ptRenderModal(); }catch(e){}
+  try{ _toast(PT.hideGuides?"Guide lines hidden":"Guide lines shown","#2F5B23"); }catch(e){} }
+function ptDelSelGuide(){ if(PT.selGuide!=null&&PT.guides&&PT.guides[PT.selGuide]){ ptSnap(); PT.guides.splice(PT.selGuide,1); }
+  PT.selGuide=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
 function _ptGuideHit(c){ const tol=15; let best=-1, bd=tol;
   (PT.guides||[]).forEach((g,gi)=>{ if(g.page!==PT.page||!g.pts) return; const cp=g.pts.map(_toCanvas);
     for(let i=0;i<cp.length-1;i++){ const d=_ptSegDist(c.x,c.y,cp[i].x,cp[i].y,cp[i+1].x,cp[i+1].y); if(d<bd){ bd=d; best=gi; } } });
