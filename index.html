@@ -4334,7 +4334,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v970</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v971</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28800,6 +28800,15 @@ function ptAddAt(p,c,e){
   let _snapped=false;
   if(kind!=="count"){ const sn=_ptSnapTarget(c); if(sn){ c={x:sn.x,y:sn.y}; p=_toPdf(c); _snapped=true; } }
   if(!_snapped && _orthoOn() && kind!=="count" && PT.cur.length>=2){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
+  if(_toolRect() && kind==="area"){
+    if(PT.cur.length>=2){                                   // 3rd click: set width, finish the rectangle
+      const cor=_ptRectCorners(c);
+      if(cor&&cor.length===4){ ptSnap(); const pts=cor.map(_toPdf); const sf=_ptPolySF(pts);
+        PT.polys.push({mode:PT.mode,kind:"area",pts,sf,type:_ptCurType(PT.mode)||"",name:"",zone:"",phase:"",tags:"",page:PT.page,_rect:true}); }
+      PT.cur=[]; PT._rectCursor=null; ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); return;
+    }
+    ptSnap(); PT.cur.push(p); PT._rectCursor=null; ptDrawOverlay(); ptUpdateInfo(); return;   // 1st/2nd click
+  }
   if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); if(PT.mode==="light") m.ctrl=ptLightCtrl(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(kind==="linear"){ if(PT.cur.length>=2 && !_singleOn()){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
     ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo();
@@ -28900,7 +28909,8 @@ function ptDown(e){ const cv=e.currentTarget;
 function ptMove(e){ if(ptVertexMove(e)) return;
   if(_ptPan){ const dx=e.clientX-_ptPan.x, dy=e.clientY-_ptPan.y; if(Math.abs(dx)+Math.abs(dy)>5){ _ptPan.moved=true; const st=document.getElementById("pt-stage"); if(st){ st.scrollLeft=_ptPan.sl-dx; st.scrollTop=_ptPan.stp-dy; } } return; }
   if(!PT.selectMode && !PT.stamp && !PT.calibrating && _ptKind(PT.mode)!=="count") _ptSnapMarker(_ptSnapTarget(ptCanvasXY(e)));
-  else _ptSnapMarker(null); }
+  else _ptSnapMarker(null);
+  if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); } }
 function ptUp(e){ if(ptVertexUp()) return;
   if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
 function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
@@ -31864,6 +31874,29 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
   if(PT.cur.length){ const cpts=PT.cur.map(_toCanvas); const c=_ptColor(PT.mode); const isLine=_ptKind(PT.mode)==="linear";
     if(cpts.length>1) s+=`<polyline points="${cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ")}" fill="${isLine?'none':c}" fill-opacity="0.12" stroke="${c}" stroke-width="${isLine?5:3.5}" stroke-dasharray="7 4"/>`;
     cpts.forEach((q,i)=>{ const closer=isLine?(i===cpts.length-1&&cpts.length>=2):(i===0&&cpts.length>=3); s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${closer?7:5}" fill="${closer?c:'#fff'}" stroke="${c}" stroke-width="2.5"/>`; if(closer) s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="12" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2"/>`; }); }
+  // Rectangle tool — live preview with feet along the edges and SF in the middle.
+  if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && PT._rectCursor){
+    const rc=_ptColor(PT.mode);
+    if(PT.cur.length===1){
+      const a=_toCanvas(PT.cur[0]), b=_toCanvas(PT._rectCursor);
+      s+='<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+rc+'" stroke-width="2.5" stroke-dasharray="7 4"/>';
+      s+='<circle cx="'+a.x.toFixed(1)+'" cy="'+a.y.toFixed(1)+'" r="5" fill="#fff" stroke="'+rc+'" stroke-width="2.5"/>';
+      s+=_ptDimLabel((a.x+b.x)/2,(a.y+b.y)/2-14,_ptFmtFt(_ptFeetBetween(PT.cur[0],PT._rectCursor)),rc,false);
+    } else {
+      const cor=_ptRectCorners(_toCanvas(PT._rectCursor));
+      if(cor){
+        s+='<polygon points="'+cor.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")+'" fill="'+rc+'" fill-opacity="0.16" stroke="'+rc+'" stroke-width="2.5" stroke-dasharray="7 4"/>';
+        cor.forEach(q=>{ s+='<circle cx="'+q.x.toFixed(1)+'" cy="'+q.y.toFixed(1)+'" r="4.5" fill="#fff" stroke="'+rc+'" stroke-width="2.2"/>'; });
+        let dxx=cor[1].x-cor[0].x, dyy=cor[1].y-cor[0].y; const dl=Math.hypot(dxx,dyy)||1; dxx/=dl; dyy/=dl;
+        let pxx=cor[2].x-cor[1].x, pyy=cor[2].y-cor[1].y; const pl=Math.hypot(pxx,pyy)||1; pxx/=pl; pyy/=pl;
+        const lenFt=_ptFeetBetween(PT.cur[0],PT.cur[1]), widFt=_ptFeetBetween(_toPdf(cor[1]),_toPdf(cor[2]));
+        const sf=_ptPolySF(cor.map(_toPdf));
+        s+=_ptDimLabel((cor[0].x+cor[1].x)/2-pxx*16,(cor[0].y+cor[1].y)/2-pyy*16,_ptFmtFt(lenFt),rc,false);
+        s+=_ptDimLabel((cor[1].x+cor[2].x)/2+dxx*16,(cor[1].y+cor[2].y)/2+dyy*16,_ptFmtFt(widFt),rc,false);
+        if(Math.abs(sf)>=1) s+=_ptDimLabel((cor[0].x+cor[1].x+cor[2].x+cor[3].x)/4,(cor[0].y+cor[1].y+cor[2].y+cor[3].y)/4,Math.round(sf).toLocaleString()+" SF",rc,true);
+      }
+    }
+  }
   // Off the property is not the job. Fade it, so the eye stays on the site.
   if(!PT.hidden.lot){
     const lots=PT.polys.filter(p=>p.mode==="lot"&&p.page===PT.page&&p.pts&&p.pts.length>2);
@@ -32144,6 +32177,30 @@ function ptToggleAutofill(){ PT.lightAuto=!_lightAutoOn(); ptRenderAutoBar();
 }
 // Snap a clicked canvas point so its segment is parallel/perpendicular to the
 // building's first edge — i.e. every corner stays 90°, at any rotation.
+function _toolRect(){ return typeof PT!=="undefined" && PT.tool==="rect"; }
+function ptToolRect(){ PT.tool=_toolRect()?"draw":"rect"; PT.cur=[]; PT._rectCursor=null;
+  if(_toolRect()){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; }
+  try{ ptRenderAutoBar(); }catch(e){} try{ ptDrawOverlay(); }catch(e){}
+  try{ _toast(_toolRect()?"Rectangle: click a corner, click the first edge (any angle), move for width, click to finish.":"Freeform draw","#2F5B23"); }catch(e){} }
+// 4 rectangle corners (canvas px) from the first edge + the cursor's perpendicular offset
+function _ptRectCorners(cc){
+  if(!PT.cur||PT.cur.length<2) return null;
+  const c1=_toCanvas(PT.cur[0]), c2=_toCanvas(PT.cur[1]);
+  let dx=c2.x-c1.x, dy=c2.y-c1.y; const L=Math.hypot(dx,dy)||1; dx/=L; dy/=L;
+  const px=-dy, py=dx;                        // unit perpendicular to the first edge
+  const w=(cc.x-c2.x)*px+(cc.y-c2.y)*py;      // signed width = cursor distance off the edge
+  return [c1, c2, {x:c2.x+px*w,y:c2.y+py*w}, {x:c1.x+px*w,y:c1.y+py*w}];
+}
+function _ptFeetBetween(a,b){
+  if(ptMapLive()){ try{ return google.maps.geometry.spherical.computeDistanceBetween(new google.maps.LatLng(a.y,a.x), new google.maps.LatLng(b.y,b.x))*3.28084; }catch(e){} }
+  return Math.hypot(a.x-b.x,a.y-b.y)/(PT.ppf||1);
+}
+function _ptFmtFt(ft){ ft=Math.abs(ft); return (ft<20?ft.toFixed(1):Math.round(ft))+"\u2032"; }
+function _ptDimLabel(cx,cy,txt,col,big){
+  const w=Math.max(big?52:38, txt.length*(big?8.4:6.9)+12), h=big?22:18;
+  return '<g style="pointer-events:none"><rect x="'+(cx-w/2).toFixed(1)+'" y="'+(cy-h/2).toFixed(1)+'" width="'+w.toFixed(0)+'" height="'+h+'" rx="'+(h/2)+'" fill="#141A10" fill-opacity="0.92" stroke="'+col+'" stroke-width="1.5"/>'
+    + '<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+(big?13:11)+'" font-weight="800" fill="#EAF7E2">'+txt+'</text></g>';
+}
 function _orthoSnapCanvas(c){
   const cur=PT.cur; if(!cur||cur.length<2) return c;      // 1st edge is free (sets the rotation)
   const L=_toCanvas(cur[cur.length-1]);
@@ -32195,6 +32252,7 @@ function ptLiveSnapMove(e){
   if(PT.selectMode||PT.stamp||PT.calibrating||_ptKind(PT.mode)==="count"||PT._roofPick){ _ptSnapMarker(null); return; }
   const sn=_ptSnapTarget(_llToPx({x:e.latLng.lng(), y:e.latLng.lat()}));
   _ptSnapMarker(sn);
+  if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor={x:e.latLng.lng(), y:e.latLng.lat()}; ptDrawOverlay(); }
 }
 // ── FILL (BO / boundary) ─────────────────────────────────────────────────────
 // Draw lines that close a gap, tap Fill, tap inside — it walks the smallest loop
@@ -32352,7 +32410,10 @@ function _ptAutoBarHTML(){
   const line='<button class="aitem'+(_singleOn()?' on':'')+'" title="Single-line: each line is one segment (2 points), not a connected polyline" onclick="event.stopPropagation();ptToggleSingle()">'
     + '<svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.6 16.4 16.4 7.6"/></svg><span>Line</span></button>'
     + '<span class="asep"></span>';
-  return '<span class="albl">Tools</span>' + ortho + fill + line
+  const rect='<button class="aitem'+(_toolRect()?' on':'')+'" title="Rectangle: click a corner, click the first edge (any angle), move for width, click to finish \u2014 shows ft + SF live" onclick="event.stopPropagation();ptToolRect()">'
+    + '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg><span>Rect</span></button>'
+    + '<span class="asep"></span>';
+  return '<span class="albl">Tools</span>' + ortho + fill + line + rect
     + PT_AUTOFILL.map(a=>{
       const on=(active===a.mode), af=(a.assist==="autofill");
       return '<button class="aitem'+(af?' af':'')+(on?' on':'')+'" data-mode="'+a.mode+'" title="'+escAttr(a.label)+'" onclick="ptPickZone(\''+a.k+'\')">'
