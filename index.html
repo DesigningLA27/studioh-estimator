@@ -4345,7 +4345,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v974</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v975</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28704,7 +28704,7 @@ async function ptOpenSatellite(keepTrace){
   PT.live=true; PT.doc=null; PT.pdfData=null;
   PT.satBase={center:{lat:+ctr.lat,lng:+ctr.lng}, zoom, live:true, for:((S.pi&&S.pi.address)||"")};
   PT.numPages=1; PT.page=1; PT.ppf=1;   // measurements are geodesic on a live map; ppf only gates the old paths
-  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.subtype={};
+  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.guides=[]; PT.subtype={};
     // Drop in the county-parcel boundary as the property line — straight to lat/lng now.
     try{ const pd=window._parcelData; if(pd&&pd.paths&&pd.paths.length){ pd.paths.forEach(ring=>{ if(!ring||ring.length<3) return;
       const pts=ring.map(ll=>({x:ll.lng, y:ll.lat}));
@@ -28801,7 +28801,8 @@ function ptAddAt(p,c,e){
   if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c);
     // Canvas-first layouts keep the selection live so the corner handles stay up,
     // instead of throwing a popover over the drawing you are editing.
-    if(ptUiGet()!=="classic"){ if(hit&&hit.type==="poly") ptSelect(hit.idx); else if(hit) ptEditTree(hit.idx); else ptSelClear(); return; }
+    if(ptUiGet()!=="classic"){ if(hit&&hit.type==="poly") ptSelect(hit.idx); else if(hit) ptEditTree(hit.idx);
+        else { const gi=_ptGuideHit(c); if(gi>=0){ ptSnap(); PT.guides.splice(gi,1); ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); } else ptSelClear(); } return; }
     if(hit){ if(hit.type==="tree") ptEditTree(hit.idx); else ptEditPoly(hit.idx); } return; }
   if(PT.calibrating){ PT.calib.push(p); if(PT.calib.length===2){ const dx=PT.calib[1].x-PT.calib[0].x, dy=PT.calib[1].y-PT.calib[0].y; const distPdf=Math.hypot(dx,dy);
       const ans=prompt("How long is that line in the real world? Enter feet (e.g. 20 or 15.5):"); const ft=parseFloat(ans);
@@ -28811,6 +28812,12 @@ function ptAddAt(p,c,e){
   let _snapped=false;
   if(kind!=="count"){ const sn=_ptSnapTarget(c); if(sn){ c={x:sn.x,y:sn.y}; p=_toPdf(c); _snapped=true; } }
   if(!_snapped && _orthoOn() && kind!=="count" && PT.cur.length>=2){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
+  if(_ptGuideTool()){
+    ptSnap(); PT.cur.push(p); PT._rectCursor=null;
+    if(PT.tool==="line" && PT.cur.length>=2){ _ptCommitGuide(); }
+    else { ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }
+    return;
+  }
   if(_toolRect() && kind==="area"){
     if(PT.cur.length>=2){                                   // 3rd click: set width, finish the rectangle
       const cor=_ptRectCorners(c);
@@ -28861,7 +28868,7 @@ function _ptBBoxSpan(pts){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
   return Math.min(x1-x0, y1-y0); }
 function _ptPointInPoly(pt,pts){ let inside=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y; const hit=((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/((yj-yi)||1e-9)+xi); if(hit) inside=!inside; } return inside; }
 function ptDelPoly(i){ PT.polys.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
-function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
+function ptFinishPoly(){ if(_ptGuideTool()){ _ptCommitGuide(); return; } const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   if(kind==="linear"){ if(PT.cur.length>=2){ const lf=_ptLineLF(PT.cur); PT.polys.push({mode:PT.mode,kind:"linear",pts:PT.cur.slice(),lf,type:_ptCurType(PT.mode),name:"",zone:"",phase:"",tags:"",page:PT.page}); } }
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
       const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page,_tol:PT._drawTol||null};
@@ -31925,6 +31932,11 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       }
     }
   }
+  // Guide lines — dashed grey helpers for closing Fill areas (unpriced).
+  (PT.guides||[]).forEach(g=>{ if(g.page!==PT.page||!g.pts||g.pts.length<2) return; const cp=g.pts.map(_toCanvas);
+    s+='<polyline points="'+cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")+'" fill="none" stroke="#CBD0D8" stroke-width="2.5" stroke-dasharray="8 5" stroke-linecap="round" style="pointer-events:none"/>';
+    cp.forEach(q=>{ s+='<circle cx="'+q.x.toFixed(1)+'" cy="'+q.y.toFixed(1)+'" r="3.5" fill="#fff" stroke="#CBD0D8" stroke-width="1.6" style="pointer-events:none"/>'; });
+  });
   // Off the property is not the job. Fade it, so the eye stays on the site.
   if(!PT.hidden.lot){
     const lots=PT.polys.filter(p=>p.mode==="lot"&&p.page===PT.page&&p.pts&&p.pts.length>2);
@@ -32054,14 +32066,16 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
     ${(PT.live||_ptFlatOn())?'':_t({label:PT.ppf?"Scale set":"Set scale", act:"ptOpenScale()", cls:PT.ppf?'':'warn',
       icon:_ic('<path d="M3 17h18M6 17v-4M12 17v-8M18 17v-6"/>')})}
     ${_hr}${_lb("Draw with")}
-    ${_t({label:"Draw", on:!PT.selectMode&&!_toolRect(), act:"ptSetTool('draw')", title:"Freeform polygon / line",
+    ${_t({label:"Draw", on:!PT.selectMode&&(!PT.tool||PT.tool==="draw"), act:"ptSetTool('draw')", title:"Freeform polygon for the active area category",
       icon:_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')})}
     ${_t({label:"Rect", on:_toolRect(), act:"ptSetTool('rect')", title:"Rectangle \u2014 corner, first edge, then width; shows ft + SF live",
       icon:_ic('<rect x="4" y="6" width="16" height="12" rx="1"/>')})}
+    ${_t({label:"Line", on:PT.tool==="line", act:"ptSetTool('line')", title:"Guide line \u2014 one segment (2 points), unpriced; use it to close a Fill area",
+      icon:_ic('<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.6 16.4 16.4 7.6"/>')})}
+    ${_t({label:"Poly", on:PT.tool==="poly", act:"ptSetTool('poly')", title:"Guide polyline \u2014 many points, unpriced; use it to close a Fill area",
+      icon:_ic('<path d="M4 18l5-9 4 5 3-6 4 4"/><circle cx="4" cy="18" r="1.6"/><circle cx="20" cy="12" r="1.6"/>')})}
     ${_t({label:"90\u00b0", on:_orthoOn(), act:"ptToggleOrtho()", title:"Square 90\u00b0 corners while drawing",
       icon:_ic('<path d="M7 4v13h13"/><path d="M7 11h6v6"/>')})}
-    ${_t({label:"Line", on:_singleOn(), act:"ptToggleSingle()", title:"Single-line: each line is one segment",
-      icon:_ic('<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.6 16.4 16.4 7.6"/>')})}
     ${_t({label:"Fill", on:!!(typeof PT!=="undefined"&&PT._fillPick), act:"ptFillMode()", title:"Fill an enclosed area (BO)",
       icon:_ic('<path d="M5 11 11 5l6 6-6 6-6-6z"/><path d="M11 5 8.5 2.5"/><path d="M18.6 14c.8 1 1.4 2 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-.8.6-1.8 1.4-2.8z"/>')})}
     ${_t({label:"Select", on:PT.selectMode, act:"if(!PT.selectMode)ptSelectMode()",
@@ -32209,6 +32223,15 @@ function ptToggleAutofill(){ PT.lightAuto=!_lightAutoOn(); ptRenderAutoBar();
 // Snap a clicked canvas point so its segment is parallel/perpendicular to the
 // building's first edge — i.e. every corner stays 90°, at any rotation.
 function _toolRect(){ return typeof PT!=="undefined" && PT.tool==="rect"; }
+function _ptGuideTool(){ return typeof PT!=="undefined" && (PT.tool==="line"||PT.tool==="poly"); }
+function _ptCommitGuide(){ if(!PT.cur||PT.cur.length<2){ PT.cur=[]; PT._rectCursor=null; return; }
+  if(!PT.guides) PT.guides=[]; ptSnap();
+  PT.guides.push({pts:PT.cur.map(q=>({x:q.x,y:q.y})), page:PT.page});
+  PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
+function _ptGuideHit(c){ const tol=15; let best=-1, bd=tol;
+  (PT.guides||[]).forEach((g,gi)=>{ if(g.page!==PT.page||!g.pts) return; const cp=g.pts.map(_toCanvas);
+    for(let i=0;i<cp.length-1;i++){ const d=_ptSegDist(c.x,c.y,cp[i].x,cp[i].y,cp[i+1].x,cp[i+1].y); if(d<bd){ bd=d; best=gi; } } });
+  return best; }
 function ptSetTool(t){ PT.tool=t; PT.cur=[]; PT._rectCursor=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null;
   try{ ptMapCursor&&ptMapCursor(); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptDrawOverlay(); }catch(e){}
   try{ _toast(t==="rect"?"Rectangle: click a corner, click the first edge, move for width, click to finish.":"Freeform draw","#2F5B23"); }catch(e){} }
@@ -32311,6 +32334,8 @@ function _ptBoSegs(){
 
     const cp=p.pts.map(_toCanvas), n=cp.length, closed=(p.kind!=="linear"), lim=closed?n:n-1;
     for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); } });
+  (PT.guides||[]).forEach(g=>{ if(g.page!==PT.page||!g.pts||g.pts.length<2) return; const cp=g.pts.map(_toCanvas);
+    for(let i=0;i<cp.length-1;i++){ const a=cp[i], b=cp[i+1]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); } });
   return segs;
 }
 // smallest enclosing face (ring in canvas px) around the seed, or null if open.
@@ -32475,7 +32500,7 @@ function _ptAutoBarHTML(){
         + (a.assist?'<i class="afdot"></i>':'') + '</button>';
     }).join("");
 }
-function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
+function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,guides:(PT.guides||[]),demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
     const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
     const cn=(document.getElementById("client-name")||{}).value||"plan"; const base=(""+cn).replace(/[^a-z0-9]+/gi,"-").toLowerCase().replace(/^-+|-+$/g,"")||"plan";
     const d=new Date(), p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
@@ -32486,7 +32511,7 @@ async function ptRestoreTrace(d){ if(!d||(!d.polys&&!d.trees&&!d.demoN)){ alert(
   PT.pointBy=(d.pointBy&&typeof d.pointBy==="object")?Object.assign({},d.pointBy):{};
   const polys=d.polys||[]; const trees=(d.trees||[]).map(t=>({...t,mode:_ptMarkMode(t)}));
   if(d.pdf){ try{ await _ptOpenDocBuf(_b642ab(d.pdf), true); }catch(e){ alert("Couldn't open the embedded plan."); } }
-  PT.polys=polys; PT.trees=trees; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; if(d.pdf) PT.pdfData=d.pdf; if(d.sat) PT.satBase=d.sat;
+  PT.polys=polys; PT.trees=trees; PT.guides=Array.isArray(d.guides)?d.guides:[]; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; if(d.pdf) PT.pdfData=d.pdf; if(d.sat) PT.satBase=d.sat;
   PT.cur=[]; PT.undo=[]; PT.redo=[];
   ptRenderModal(); await ptRenderPage(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptLoadSaved(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
