@@ -2434,6 +2434,17 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkautobar .catsel .catdot{width:15px;height:15px;border-radius:5px;flex:none;box-shadow:0 0 0 1.5px rgba(255,255,255,.25)}
 .tkautobar .catsel span:last-child{font:700 12.5px var(--tkf);white-space:nowrap}
 .tkautobar .catsel:hover{background:rgba(255,255,255,.12)}
+.tkautobar .tsseg{display:flex;gap:2px;background:rgba(0,0,0,.28);border-radius:13px;padding:3px;flex:none}
+.tkautobar .tsbtn{display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:none;cursor:pointer;
+  color:#9FBF95;font:800 9px var(--tkf);padding:6px 10px 4px;border-radius:10px}
+.tkautobar .tsbtn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tkautobar .tsbtn.on{background:#5BA34A;color:#0E2408}
+.tkautobar .tsbtn.on svg{fill:rgba(14,36,8,.18)}
+.tkautobar .aifloors{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 8px;color:#BFD3AE;font:800 9px var(--tkf)}
+.tkautobar .aifloors>div{display:flex}
+.tkautobar .aifloors span{font:800 8.5px var(--tkf);letter-spacing:.06em;text-transform:uppercase;color:#8FA383}
+.tkautobar .aifloors button{border:0;background:rgba(255,255,255,.12);color:#EAF7E2;width:22px;height:22px;border-radius:7px;cursor:pointer;font-size:15px;line-height:1;margin:0 1px}
+.tkautobar .aifloors b{font:800 15px var(--tkf);min-width:16px;text-align:center;color:#EAF7E2}
 .tkautobar .aitem.ortho{min-width:48px}
 .tkautobar .aitem.ortho.on{background:#5BA34A;color:#0E2408}
 .tkautobar .aitem.ortho.on svg{stroke:#0E2408}
@@ -4345,7 +4356,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v978</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v979</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28714,7 +28725,7 @@ async function ptOpenSatellite(keepTrace){
   PT.live=true; PT.doc=null; PT.pdfData=null;
   PT.satBase={center:{lat:+ctr.lat,lng:+ctr.lng}, zoom, live:true, for:((S.pi&&S.pi.address)||"")};
   PT.numPages=1; PT.page=1; PT.ppf=1;   // measurements are geodesic on a live map; ppf only gates the old paths
-  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.guides=[]; PT.subtype={};
+  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.guides=[]; PT.ai=[]; PT.subtype={};
     // Drop in the county-parcel boundary as the property line — straight to lat/lng now.
     try{ const pd=window._parcelData; if(pd&&pd.paths&&pd.paths.length){ pd.paths.forEach(ring=>{ if(!ring||ring.length<3) return;
       const pts=ring.map(ll=>({x:ll.lng, y:ll.lat}));
@@ -28807,12 +28818,16 @@ function ptCanvasClick(e){ if(!PT.doc&&!ptMapLive()) return; const c=ptCanvasXY(
 function ptAddAt(p,c,e){
   if(PT._roofPick){ try{ _roofPickAt(p); }catch(err){ BUILD_BUSY=false; try{ _toast("Pick failed: "+(err&&err.message||err),"#B23F3C"); }catch(_){}} return; }
   if(PT._fillPick){ try{ _ptDoFill(c); }catch(err){ PT._fillPick=false; try{ ptRenderAutoBar(); }catch(_){} } return; }
+  if(_aiTool()){ try{ _ptPlaceAi(p,c); }catch(err){ PT._aiTool=null; PT._aiStart=null; } return; }
   if(PT.stamp) return;                 // you are positioning something
   if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c);
     // Canvas-first layouts keep the selection live so the corner handles stay up,
     // instead of throwing a popover over the drawing you are editing.
     if(ptUiGet()!=="classic"){ if(hit&&hit.type==="poly") ptSelect(hit.idx); else if(hit) ptEditTree(hit.idx);
-        else { const gi=_ptGuideHit(c); if(gi>=0){ PT.selGuide=gi; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); } else ptSelClear(); } return; }
+        else { const gi=_ptGuideHit(c); const aiH=_ptAiHit(c);
+          if(aiH>=0){ PT.selAi=aiH; PT.selGuide=null; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+          else if(gi>=0){ PT.selGuide=gi; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+          else ptSelClear(); } return; }
     if(hit){ if(hit.type==="tree") ptEditTree(hit.idx); else ptEditPoly(hit.idx); } return; }
   if(PT.calibrating){ PT.calib.push(p); if(PT.calib.length===2){ const dx=PT.calib[1].x-PT.calib[0].x, dy=PT.calib[1].y-PT.calib[0].y; const distPdf=Math.hypot(dx,dy);
       const ans=prompt("How long is that line in the real world? Enter feet (e.g. 20 or 15.5):"); const ft=parseFloat(ans);
@@ -28936,7 +28951,8 @@ function ptMove(e){ if(ptVertexMove(e)) return;
   if(_ptPan){ const dx=e.clientX-_ptPan.x, dy=e.clientY-_ptPan.y; if(Math.abs(dx)+Math.abs(dy)>5){ _ptPan.moved=true; const st=document.getElementById("pt-stage"); if(st){ st.scrollLeft=_ptPan.sl-dx; st.scrollTop=_ptPan.stp-dy; } } return; }
   if(!PT.selectMode && !PT.stamp && !PT.calibrating && _ptKind(PT.mode)!=="count") _ptSnapMarker(_ptSnapTarget(ptCanvasXY(e)));
   else _ptSnapMarker(null);
-  if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); } }
+  if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); }
+  if(PT._aiStart){ PT._aiCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); } }
 function ptUp(e){ if(ptVertexUp()) return;
   if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
 function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
@@ -30678,6 +30694,8 @@ function ptCancelDraw(){ PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); p
 function _ptActBar(){
   const drawing=PT.cur&&PT.cur.length>0;
   const selected=(PT.selPoly!=null)&&!drawing;
+  const aiSel=(PT.selAi!=null)&&!drawing;
+  if(aiSel) return '<div class="pt-actbar"><button onclick="PT.selAi=null;ptDrawOverlay();ptRenderFloat()">Deselect</button><button class="del" onclick="ptDelSelAi()">\u{1F5D1} Delete</button></div>';
   const guideSel=(PT.selGuide!=null)&&!drawing;
   if(guideSel) return '<div class="pt-actbar"><button onclick="PT.selGuide=null;ptDrawOverlay();ptRenderFloat()">Deselect</button><button class="del" onclick="ptDelSelGuide()">\u{1F5D1} Delete guide</button></div>';
   if(!drawing&&!selected) return "";
@@ -31472,7 +31490,7 @@ function ptTkDragStart(e){ const card=document.getElementById("pt-card"); if(!ca
   window.addEventListener("pointermove",move,true);
   window.addEventListener("pointerup",up,true); }
 // ── selection & vertex editing ──────────────────────────────────────────────
-function ptSelClear(){ PT.selGuide=null; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+function ptSelClear(){ PT.selGuide=null; PT.selAi=null; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
 // Clear the whole trace. Undo still gets it back, and the property line redraws itself.
 // Delete is always there. With nothing picked it hands you the Select tool rather than doing nothing.
 function ptDeleteTap(){
@@ -31949,6 +31967,38 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     s+='<polyline points="'+cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")+'" fill="none" stroke="'+(_gsel?"#5BA34A":"#CBD0D8")+'" stroke-width="'+(_gsel?4:2.5)+'" stroke-dasharray="8 5" stroke-linecap="round" style="pointer-events:none"/>';
     cp.forEach(q=>{ s+='<circle cx="'+q.x.toFixed(1)+'" cy="'+q.y.toFixed(1)+'" r="3.5" fill="#fff" stroke="#CBD0D8" stroke-width="1.6" style="pointer-events:none"/>'; });
   });
+  // AI annotations — design intelligence, never priced.
+  (function(){ const esc=x=>(""+x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const arrow=(a,b,col,w)=>{ const ang=Math.atan2(b.y-a.y,b.x-a.x),h=9;
+      return '<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+col+'" stroke-width="'+w+'" stroke-linecap="round"/>'
+        +'<path d="M'+b.x.toFixed(1)+' '+b.y.toFixed(1)+' L'+(b.x-h*Math.cos(ang-0.4)).toFixed(1)+' '+(b.y-h*Math.sin(ang-0.4)).toFixed(1)+' L'+(b.x-h*Math.cos(ang+0.4)).toFixed(1)+' '+(b.y-h*Math.sin(ang+0.4)).toFixed(1)+' z" fill="'+col+'"/>'; };
+    const cap=(x,y,txt,col)=>{ const w=txt.length*6.6+14; return '<rect x="'+(x-w/2).toFixed(1)+'" y="'+(y-9).toFixed(1)+'" width="'+w.toFixed(0)+'" height="18" rx="5" fill="#141A10" fill-opacity="0.92"/><text x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="800" fill="'+col+'">'+esc(txt)+'</text>'; };
+    (PT.ai||[]).forEach((a,ai)=>{ if(a.page!==PT.page) return; const sel=(PT.selAi===ai);
+      const c=_toCanvas({x:a.x,y:a.y});
+      if(a.t==="spot"){ const col=sel?"#7CE05E":"#E0A93C";
+        s+='<path d="M'+c.x.toFixed(1)+' '+(c.y-8).toFixed(1)+' l7 8 -7 8 -7 -8 z" fill="'+col+'" stroke="#0E2408" stroke-width="1.4" style="pointer-events:none"/>';
+        s+=cap(c.x+22+a.v.length*3, c.y, a.v+"\u2032", col);
+      } else if(a.t==="room"){ const col=sel?"#7CE05E":"#BFE9AE"; s+=cap(c.x, c.y, a.label, col); }
+      else if(a.tx!=null){ const e=_toCanvas({x:a.tx,y:a.ty}); const mid={x:(c.x+e.x)/2,y:(c.y+e.y)/2};
+        if(a.t==="door"){ const col=sel?"#7CE05E":"#4FA0E0";
+          s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="'+col+'" stroke-width="6" stroke-linecap="round"/>';
+          s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="#fff" stroke-width="1.6"/>';
+          s+=cap(mid.x, mid.y-13, "Door "+_ptFtText(a), col);
+        } else if(a.t==="nbr"){ const col=sel?"#7CE05E":"#E0A93C";
+          s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="'+col+'" stroke-width="5" stroke-dasharray="2 7" stroke-linecap="round"/>';
+          s+=cap(mid.x, mid.y-12, "Neighbor \u2014 screen", col);
+        } else { const col=sel?"#7CE05E":(a.t==="slope"?"#E86A4F":"#7CE05E"); s+=arrow(c,e,col,a.t==="slope"?5:3.5);
+          if(a.t==="slope") s+=cap(mid.x, mid.y-12, (a.pct||"")+"% \u2193", col);
+          else s+=cap(c.x, c.y-14, "View", col); }
+      }
+    });
+    // two-tap in progress: preview from the first tap to the cursor
+    if(PT._aiStart&&PT._aiCursor){ const a=_toCanvas(PT._aiStart), b=_toCanvas(PT._aiCursor);
+      const t=PT._aiTool; const col=(t==="slope")?"#E86A4F":(t==="door")?"#4FA0E0":(t==="nbr")?"#E0A93C":"#7CE05E";
+      if(t==="door") s+='<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+col+'" stroke-width="6" stroke-dasharray="6 4" stroke-linecap="round"/>';
+      else s+=arrow(a,b,col,3.5);
+    }
+  })();
   // Off the property is not the job. Fade it, so the eye stays on the site.
   if(!PT.hidden.lot){
     const lots=PT.polys.filter(p=>p.mode==="lot"&&p.page===PT.page&&p.pts&&p.pts.length>2);
@@ -32245,6 +32295,7 @@ function _ptCommitGuide(){ if(!PT.cur||PT.cur.length<2){ PT.cur=[]; PT._rectCurs
   PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
 function ptToggleGuides(){ PT.hideGuides=!PT.hideGuides; try{ ptDrawOverlay(); ptRenderModal(); }catch(e){}
   try{ _toast(PT.hideGuides?"Guide lines hidden":"Guide lines shown","#2F5B23"); }catch(e){} }
+function ptDelSelAi(){ if(PT.selAi!=null&&PT.ai&&PT.ai[PT.selAi]){ ptSnap(); PT.ai.splice(PT.selAi,1); } PT.selAi=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
 function ptDelSelGuide(){ if(PT.selGuide!=null&&PT.guides&&PT.guides[PT.selGuide]){ ptSnap(); PT.guides.splice(PT.selGuide,1); }
   PT.selGuide=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
 function _ptGuideHit(c){ const tol=15; let best=-1, bd=tol;
@@ -32330,6 +32381,7 @@ function ptLiveSnapMove(e){
   const sn=_ptSnapTarget(_llToPx({x:e.latLng.lng(), y:e.latLng.lat()}));
   _ptSnapMarker(sn);
   if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor={x:e.latLng.lng(), y:e.latLng.lat()}; ptDrawOverlay(); }
+  if(PT._aiStart){ PT._aiCursor={x:e.latLng.lng(), y:e.latLng.lat()}; ptDrawOverlay(); }
 }
 // ── FILL (BO / boundary) ─────────────────────────────────────────────────────
 // Draw lines that close a gap, tap Fill, tap inside — it walks the smallest loop
@@ -32495,6 +32547,79 @@ function _ptRenderFlatBar(){
 }
 // Rotate button: on the live map it flattens (and auto-squares); once flat it steps 90°.
 function ptRotateTool(){ if(ptMapLive()) ptFlatten(); else if(_ptFlatOn()) ptRotate90(); }
+// ── TOOL-SETS: Trace (measure/price) · AI (design intelligence) · Edit ──────────
+function ptToolset(t){ PT.toolset=t; PT._aiTool=null; PT._fillPick=false; PT._aiStart=null; PT._aiCursor=null;
+  PT.tool="draw"; PT.cur=[]; PT.selectMode=(t==="edit"); if(t!=="edit"){ PT.selPoly=null; PT.selGuide=null; PT._selStart=null; }
+  try{ ptRenderAutoBar(); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptMapCursor&&ptMapCursor(); ptDrawOverlay(); }catch(e){} }
+function _ptSetSelector(ts){
+  const b=(k,label,ic)=>'<button class="tsbtn'+(ts===k?' on':'')+'" onclick="ptToolset(\''+k+'\')" title="'+label+' tools"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+label+'</span></button>';
+  return '<div class="tsseg">'
+    + b("trace","Trace",'<path d="M4 20h16M7 16l5-11 5 11M9.5 11h5"/>')
+    + b("ai","AI",'<path d="M12 3l1.8 4.7L18 9l-4.2 1.3L12 15l-1.8-4.7L6 9l4.2-1.3z"/>')
+    + b("edit","Edit",'<path d="M4 3l7 17 2-7 7-2z"/>')
+    + '</div><span class="asep"></span>';
+}
+function _ptBuildingPoly(){ return (PT.polys||[]).find(p=>p.mode==="building"&&p.page===PT.page); }
+function _ptBuildingFloors(){ const b=_ptBuildingPoly(); return (b&&b.floors)||1; }
+function ptSetFloors(d){ const b=_ptBuildingPoly(); if(!b){ try{ _toast("Trace the Building first.","#B23F3C"); }catch(e){} return; }
+  b.floors=Math.max(1,Math.min(6,((b.floors||1)+d))); try{ ptRenderAutoBar(); ptDrawOverlay(); }catch(e){}
+  try{ _toast("Building: "+b.floors+" floor"+(b.floors>1?"s":""),"#2F5B23"); }catch(e){} }
+function _aiTool(){ return (typeof PT!=="undefined")?PT._aiTool:null; }
+function ptAiTool(t){ PT.toolset="ai"; PT._aiTool=(PT._aiTool===t)?null:t; PT._aiStart=null; PT._aiCursor=null;
+  PT.selectMode=false; PT.selPoly=null; PT.selGuide=null; PT.cur=[];
+  try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); ptDrawOverlay(); }catch(e){}
+  const one=(t==="spot"||(t&&t.indexOf("room:")===0));
+  if(PT._aiTool){ try{ _toast(one?"Tap where it goes.":(t==="slope"?"Tap the high point, then the low point (arrow = downhill).":"Tap the start, then drag/second-tap for direction &amp; length."),"#2F5B23"); }catch(e){} }
+}
+const _AI_ICON={ door:'<rect x="6" y="3" width="12" height="18" rx="1"/><circle cx="14.5" cy="12" r="1"/>',
+  view:'<path d="M12 5c5 0 9 7 9 7s-4 7-9 7-9-7-9-7 4-7 9-7z"/><circle cx="12" cy="12" r="2.5"/>',
+  slope:'<path d="M4 6h16M12 6v13M8 15l4 4 4-4"/>',
+  spot:'<circle cx="12" cy="12" r="7"/><path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>',
+  kit:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 4v6M8 8h3"/>',
+  liv:'<path d="M4 11h16v6H4z"/><path d="M6 11V8h12v3"/>',
+  bed:'<path d="M3 17v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4"/><path d="M3 17h18M6 11V8h12v3"/>',
+  nbr:'<path d="M6 3v18M6 3l12 3-12 3"/>' };
+function _ptAiBarHTML(){
+  const b=(t,label,ic)=>'<button class="aitem'+(PT._aiTool===t?' on':'')+'" onclick="event.stopPropagation();ptAiTool(\''+t+'\')" title="'+label+'"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+label+'</span></button>';
+  const f=_ptBuildingFloors();
+  const fctrl='<div class="aifloors" title="Building floors (bottom-floor doors/windows assumed)"><span>Floors</span>'
+    +'<button onclick="event.stopPropagation();ptSetFloors(-1)">\u2212</button><b>'+f+'</b><button onclick="event.stopPropagation();ptSetFloors(1)">+</button></div>';
+  return '<span class="albl">AI</span>'
+    + b("door","Door",_AI_ICON.door) + b("view","View",_AI_ICON.view)
+    + '<span class="asep"></span>'
+    + b("slope","Slope",_AI_ICON.slope) + b("spot","Spot elev",_AI_ICON.spot)
+    + '<span class="asep"></span>'
+    + b("room:Kitchen","Kitchen",_AI_ICON.kit)+b("room:Living","Living",_AI_ICON.liv)+b("room:Bed","Bed",_AI_ICON.bed)
+    + '<span class="asep"></span>'
+    + b("nbr","Neighbor",_AI_ICON.nbr)
+    + '<span class="asep"></span>' + fctrl;
+}
+function _ptEditBarHTML(){
+  return '<span class="albl">Edit</span>'
+    + '<button class="aitem on" title="Tap a shape or annotation to select it"><svg viewBox="0 0 24 24"><path d="M4 3l7 17 2-7 7-2z"/></svg><span>Select</span></button>'
+    + '<button class="aitem" onclick="ptDeleteTap()" title="Delete the selected item"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg><span>Delete</span></button>'
+    + '<button class="aitem" onclick="ptSelClear();PT.selGuide=null;try{ptDrawOverlay();ptRenderFloat()}catch(e){}" title="Clear the selection"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Deselect</span></button>';
+}
+// place an AI annotation (one-tap for spot/room; two-tap origin+direction for vectors)
+function _ptPlaceAi(p,c){
+  const t=PT._aiTool; if(!PT.ai) PT.ai=[];
+  if(t==="spot"){ const v=prompt("Spot elevation (e.g. 12.5, or +2 relative to datum):"); if(v==null) return;
+    ptSnap(); PT.ai.push({t:"spot",x:p.x,y:p.y,v:(""+v).trim(),page:PT.page}); PT._aiTool=null; return _aiDone(); }
+  if(t&&t.indexOf("room:")===0){ ptSnap(); PT.ai.push({t:"room",x:p.x,y:p.y,label:t.slice(5),page:PT.page}); PT._aiTool=null; return _aiDone(); }
+  if(!PT._aiStart){ PT._aiStart={x:p.x,y:p.y}; PT._aiCursor=null; ptDrawOverlay(); return; }   // first tap
+  const a=PT._aiStart; PT._aiStart=null; let ex={};
+  if(t==="slope"){ const pct=prompt("Slope grade (%)  e.g. 8:"); if(pct==null){ return _aiDone(); } ex.pct=(""+pct).trim(); }
+  ptSnap(); PT.ai.push(Object.assign({t:t,x:a.x,y:a.y,tx:p.x,ty:p.y,page:PT.page},ex));
+  PT._aiTool=null; _aiDone();
+}
+function _aiDone(){ PT._aiCursor=null; try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
+function _ptAiHit(c){ const tol=15; let best=-1, bd=tol;
+  (PT.ai||[]).forEach((a,i)=>{ if(a.page!==PT.page) return;
+    const p0=_toCanvas({x:a.x,y:a.y}); let d=Math.hypot(c.x-p0.x,c.y-p0.y);
+    if(a.tx!=null){ const p1=_toCanvas({x:a.tx,y:a.ty}); d=Math.min(d,_ptSegDist(c.x,c.y,p0.x,p0.y,p1.x,p1.y)); }
+    if(d<bd){ bd=d; best=i; } });
+  return best; }
+function _ptFtText(a){ try{ return Math.round(_ptFeetBetween({x:a.x,y:a.y},{x:a.tx,y:a.ty}))+"\u2032"; }catch(e){ return ""; } }
 function _ptAutoBarHTML(){
   const active=(typeof PT!=="undefined")?PT.mode:null;
   const catOn=(typeof PT!=="undefined");
@@ -32512,7 +32637,11 @@ function _ptAutoBarHTML(){
   const rect='<button class="aitem'+(_toolRect()?' on':'')+'" title="Rectangle: click a corner, click the first edge (any angle), move for width, click to finish \u2014 shows ft + SF live" onclick="event.stopPropagation();ptToolRect()">'
     + '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg><span>Rect</span></button>'
     + '<span class="asep"></span>';
-  return '<span class="albl">Trace</span>' + cat
+  const ts=(typeof PT!=="undefined"&&PT.toolset)||"trace";
+  const seg=_ptSetSelector(ts);
+  if(ts==="ai") return seg+_ptAiBarHTML();
+  if(ts==="edit") return seg+_ptEditBarHTML();
+  return seg + cat
     + PT_AUTOFILL.map(a=>{
       const on=(active===a.mode), af=(a.assist==="autofill");
       return '<button class="aitem'+(af?' af':'')+(on?' on':'')+'" data-mode="'+a.mode+'" title="'+escAttr(a.label)+'" onclick="ptPickZone(\''+a.k+'\')">'
@@ -32520,7 +32649,7 @@ function _ptAutoBarHTML(){
         + (a.assist?'<i class="afdot"></i>':'') + '</button>';
     }).join("");
 }
-function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,guides:(PT.guides||[]),demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
+function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,guides:(PT.guides||[]),ai:(PT.ai||[]),demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
     const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
     const cn=(document.getElementById("client-name")||{}).value||"plan"; const base=(""+cn).replace(/[^a-z0-9]+/gi,"-").toLowerCase().replace(/^-+|-+$/g,"")||"plan";
     const d=new Date(), p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
@@ -32531,7 +32660,7 @@ async function ptRestoreTrace(d){ if(!d||(!d.polys&&!d.trees&&!d.demoN)){ alert(
   PT.pointBy=(d.pointBy&&typeof d.pointBy==="object")?Object.assign({},d.pointBy):{};
   const polys=d.polys||[]; const trees=(d.trees||[]).map(t=>({...t,mode:_ptMarkMode(t)}));
   if(d.pdf){ try{ await _ptOpenDocBuf(_b642ab(d.pdf), true); }catch(e){ alert("Couldn't open the embedded plan."); } }
-  PT.polys=polys; PT.trees=trees; PT.guides=Array.isArray(d.guides)?d.guides:[]; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; if(d.pdf) PT.pdfData=d.pdf; if(d.sat) PT.satBase=d.sat;
+  PT.polys=polys; PT.trees=trees; PT.guides=Array.isArray(d.guides)?d.guides:[]; PT.ai=Array.isArray(d.ai)?d.ai:[]; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; if(d.pdf) PT.pdfData=d.pdf; if(d.sat) PT.satBase=d.sat;
   PT.cur=[]; PT.undo=[]; PT.redo=[];
   ptRenderModal(); await ptRenderPage(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptLoadSaved(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
