@@ -4357,7 +4357,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v982</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v983</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28891,7 +28891,7 @@ function _ptBBoxSpan(pts){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
   return Math.min(x1-x0, y1-y0); }
 function _ptPointInPoly(pt,pts){ let inside=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y; const hit=((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/((yj-yi)||1e-9)+xi); if(hit) inside=!inside; } return inside; }
 function ptDelPoly(i){ PT.polys.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
-function ptFinishPoly(){ if(_ptGuideTool()){ _ptCommitGuide(); return; } const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
+function ptFinishPoly(){ PT._drawCursor=null; if(_ptGuideTool()){ _ptCommitGuide(); return; } const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   if(kind==="linear"){ if(PT.cur.length>=2){ const lf=_ptLineLF(PT.cur); PT.polys.push({mode:PT.mode,kind:"linear",pts:PT.cur.slice(),lf,type:_ptCurType(PT.mode),name:"",zone:"",phase:"",tags:"",page:PT.page}); } }
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
       const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page,_tol:PT._drawTol||null};
@@ -28952,7 +28952,8 @@ function ptMove(e){ if(ptVertexMove(e)) return;
   if(!PT.selectMode && !PT.stamp && !PT.calibrating && _ptKind(PT.mode)!=="count") _ptSnapMarker(_ptSnapTarget(ptCanvasXY(e)));
   else _ptSnapMarker(null);
   if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); }
-  if(PT._aiStart){ PT._aiCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); } }
+  if(PT._aiStart){ PT._aiCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); }
+  else if(PT.cur&&PT.cur.length>=1 && !PT.selectMode && !_toolRect() && !_aiTool()){ PT._drawCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); } }
 function ptUp(e){ if(ptVertexUp()) return;
   if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
 function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
@@ -31841,6 +31842,9 @@ function _ptArmSvg(ctr, arm, color, live){
   s+=`<text x="${x}" y="${dn}" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="700" fill="${color}" style="pointer-events:none">✥</text>`;
   return s;
 }
+function _ptTagSvg(x,y,txt,col){ const esc=v=>(""+v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const w=(""+txt).length*6.6+14; const upr=(_ptFlatOn()&&PT.flatRot)?(' transform="rotate('+(-PT.flatRot)+' '+x.toFixed(1)+' '+y.toFixed(1)+')"'):'';
+  return '<g'+upr+' style="pointer-events:none"><rect x="'+(x-w/2).toFixed(1)+'" y="'+(y-9).toFixed(1)+'" width="'+w.toFixed(0)+'" height="18" rx="5" fill="#141A10" fill-opacity="0.92"/><text x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="800" fill="'+col+'">'+esc(txt)+'</text></g>'; }
 function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) return; let s=_ptDefs(); const hide=PT.hideLabels; const _placed=[]; const _dots=[]; const _holes=_ptHoles();
   // draw in height order, not in the order they happened to be traced
   const _order=PT.polys.map((p,i)=>i).sort((a,b)=>_ptZ(PT.polys[a].mode)-_ptZ(PT.polys[b].mode)||a-b);
@@ -31955,7 +31959,11 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
   });
   if(PT.cur.length){ const cpts=PT.cur.map(_toCanvas); const c=_ptColor(PT.mode); const isLine=_ptKind(PT.mode)==="linear";
     if(cpts.length>1) s+=`<polyline points="${cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ")}" fill="${isLine?'none':c}" fill-opacity="0.12" stroke="${c}" stroke-width="${isLine?5:3.5}" stroke-dasharray="7 4"/>`;
-    cpts.forEach((q,i)=>{ const closer=isLine?(i===cpts.length-1&&cpts.length>=2):(i===0&&cpts.length>=3); s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${closer?7:5}" fill="${closer?c:'#fff'}" stroke="${c}" stroke-width="2.5"/>`; if(closer) s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="12" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2"/>`; }); }
+    cpts.forEach((q,i)=>{ const closer=isLine?(i===cpts.length-1&&cpts.length>=2):(i===0&&cpts.length>=3); s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${closer?7:5}" fill="${closer?c:'#fff'}" stroke="${c}" stroke-width="2.5"/>`; if(closer) s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="12" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2"/>`; });
+    if(PT._drawCursor && !_toolRect() && !_aiTool()){ const last=_toCanvas(PT.cur[PT.cur.length-1]), cur=_toCanvas(PT._drawCursor);
+      s+=`<line x1="${last.x.toFixed(1)}" y1="${last.y.toFixed(1)}" x2="${cur.x.toFixed(1)}" y2="${cur.y.toFixed(1)}" stroke="${c}" stroke-width="2" stroke-dasharray="5 4" opacity="0.85"/>`;
+      let ft=0; try{ ft=_ptFeetBetween(PT.cur[PT.cur.length-1],PT._drawCursor); }catch(e){}
+      s+=_ptTagSvg((last.x+cur.x)/2,(last.y+cur.y)/2-13,_ptFmtFt(ft),c); } }
   // Rectangle tool — live preview with feet along the edges and SF in the middle.
   if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && PT._rectCursor){
     const rc=_ptColor(PT.mode);
@@ -31987,11 +31995,10 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
   });
   // AI annotations — design intelligence, never priced.
   (function(){ const esc=x=>(""+x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const cap=(x,y,txt,col)=>_ptTagSvg(x,y,txt,col);
     const arrow=(a,b,col,w)=>{ const ang=Math.atan2(b.y-a.y,b.x-a.x),h=15;
       return '<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+col+'" stroke-width="'+w+'" stroke-linecap="round"/>'
         +'<path d="M'+b.x.toFixed(1)+' '+b.y.toFixed(1)+' L'+(b.x-h*Math.cos(ang-0.4)).toFixed(1)+' '+(b.y-h*Math.sin(ang-0.4)).toFixed(1)+' L'+(b.x-h*Math.cos(ang+0.4)).toFixed(1)+' '+(b.y-h*Math.sin(ang+0.4)).toFixed(1)+' z" fill="'+col+'"/>'; };
-    const upr=(x,y)=>(_ptFlatOn()&&PT.flatRot)?(' transform="rotate('+(-PT.flatRot)+' '+x.toFixed(1)+' '+y.toFixed(1)+')"'):'';
-    const cap=(x,y,txt,col)=>{ const w=txt.length*6.6+14; return '<g'+upr(x,y)+' style="pointer-events:none"><rect x="'+(x-w/2).toFixed(1)+'" y="'+(y-9).toFixed(1)+'" width="'+w.toFixed(0)+'" height="18" rx="5" fill="#141A10" fill-opacity="0.92"/><text x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="800" fill="'+col+'">'+esc(txt)+'</text></g>'; };
     (PT.ai||[]).forEach((a,ai)=>{ if(a.page!==PT.page) return; const sel=(PT.selAi===ai);
       const c=_toCanvas({x:a.x,y:a.y});
       if(a.t==="spot"){ const col=sel?"#7CE05E":"#E0A93C";
@@ -32006,15 +32013,15 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
         } else if(a.t==="nbr"){ const col=sel?"#7CE05E":"#E0A93C";
           s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="'+col+'" stroke-width="5" stroke-dasharray="2 7" stroke-linecap="round"/>';
           s+=cap(mid.x, mid.y-12, "Neighbor \u2014 screen", col);
-        } else { const col=sel?"#7CE05E":(a.t==="slope"?"#E86A4F":"#7CE05E"); s+=arrow(c,e,col,a.t==="slope"?6.5:5);
-          if(a.t==="slope") s+=cap(mid.x, mid.y-12, (a.pct||"")+"% \u2193", col);
-          else s+=cap(c.x, c.y-14, "View", col); }
+        } else if(a.t==="slope"){ const col=sel?"#7CE05E":"#E86A4F"; s+=arrow(c,e,col,6.5); s+=cap(mid.x, mid.y-12, (a.pct||"")+"% \u2193", col); }
+        else { const col=sel?"#7CE05E":"#7CE05E"; s+=arrow(e,c,col,5); s+=cap(e.x, e.y+14, "View", col); }
       }
     });
     // two-tap in progress: preview from the first tap to the cursor
     if(PT._aiStart&&PT._aiCursor){ const a=_toCanvas(PT._aiStart), b=_toCanvas(PT._aiCursor);
       const t=PT._aiTool; const col=(t==="slope")?"#E86A4F":(t==="door")?"#4FA0E0":(t==="nbr")?"#E0A93C":"#7CE05E";
-      if(t==="door") s+='<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+col+'" stroke-width="6" stroke-dasharray="6 4" stroke-linecap="round"/>';
+      if(t==="door"||t==="garage") s+='<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+col+'" stroke-width="'+(t==="garage"?8:6)+'" stroke-dasharray="6 4" stroke-linecap="round"/>';
+      else if(t==="view") s+=arrow(b,a,col,5);
       else s+=arrow(a,b,col,5);
       let ft=""; try{ ft=Math.round(_ptFeetBetween(PT._aiStart,PT._aiCursor))+"\u2032"; }catch(_){}
       s+=cap((a.x+b.x)/2,(a.y+b.y)/2-13, ft, col);
@@ -32345,6 +32352,11 @@ function _ptFeetBetween(a,b){
   return Math.hypot(a.x-b.x,a.y-b.y)/(PT.ppf||1);
 }
 function _ptFmtFt(ft){ ft=Math.abs(ft); return (ft<20?ft.toFixed(1):Math.round(ft))+"\u2032"; }
+function _ptPxPerFt(a){ try{ if(ptMapLive()){ const p0=_toCanvas(a), a2={x:a.x+0.0002,y:a.y}, p1=_toCanvas(a2);
+      const ft=_ptFeetBetween(a,a2), px=Math.hypot(p1.x-p0.x,p1.y-p0.y); return ft>0?px/ft:2; }
+    return (PT.ppf||1)*(PT.renderScale||1)||2; }catch(e){ return 2; } }
+function _ptExtendToMin(a,p,minFt){ const c1=_toCanvas(a), c2=_toCanvas(p); let dx=c2.x-c1.x, dy=c2.y-c1.y; const L=Math.hypot(dx,dy);
+  const minPx=minFt*_ptPxPerFt(a); if(L>=minPx||L<0.001) return p; dx/=L; dy/=L; return _toPdf({x:c1.x+dx*minPx,y:c1.y+dy*minPx}); }
 function _ptDimLabel(cx,cy,txt,col,big){
   const w=Math.max(big?52:38, txt.length*(big?8.4:6.9)+12), h=big?22:18;
   return '<g style="pointer-events:none"><rect x="'+(cx-w/2).toFixed(1)+'" y="'+(cy-h/2).toFixed(1)+'" width="'+w.toFixed(0)+'" height="'+h+'" rx="'+(h/2)+'" fill="#141A10" fill-opacity="0.92" stroke="'+col+'" stroke-width="1.5"/>'
@@ -32404,6 +32416,7 @@ function ptLiveSnapMove(e){
   _ptSnapMarker(sn);
   if(_toolRect() && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor={x:e.latLng.lng(), y:e.latLng.lat()}; ptDrawOverlay(); }
   if(PT._aiStart){ PT._aiCursor={x:e.latLng.lng(), y:e.latLng.lat()}; ptDrawOverlay(); }
+  else if(PT.cur&&PT.cur.length>=1 && !PT.selectMode && !_toolRect() && !_aiTool()){ PT._drawCursor={x:e.latLng.lng(), y:e.latLng.lat()}; ptDrawOverlay(); }
 }
 // ── FILL (BO / boundary) ─────────────────────────────────────────────────────
 // Draw lines that close a gap, tap Fill, tap inside — it walks the smallest loop
@@ -32639,6 +32652,7 @@ function _ptPlaceAi(p,c){
   if(!PT._aiStart){ PT._aiStart={x:p.x,y:p.y}; PT._aiCursor=null; ptDrawOverlay(); return; }   // first tap
   const a=PT._aiStart; PT._aiStart=null; let ex={};
   if(t==="slope"){ const pct=prompt("Slope grade (%)  e.g. 8:"); if(pct==null){ return _aiDone(); } ex.pct=(""+pct).trim(); }
+  if(t==="door") p=_ptExtendToMin(a,p,3); else if(t==="garage") p=_ptExtendToMin(a,p,8); else if(t==="view") p=_ptExtendToMin(a,p,8);
   ptSnap(); PT.ai.push(Object.assign({t:t,x:a.x,y:a.y,tx:p.x,ty:p.y,page:PT.page},ex));
   _aiDone();
 }
