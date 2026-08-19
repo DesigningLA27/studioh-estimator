@@ -4411,7 +4411,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v989</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v990</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27813,7 +27813,7 @@ const _HATCH=(function(){ const P=(name,w,h,lines)=>({name,w,h,lines});
       [0,2,4].forEach(function(k){ lines.push([cx,cy,cx+v[k][0],cy+v[k][1]]); }); }); }
     H.cube=P("Cube",W,Ht,lines); })();
   return H; })();
-function _ptHatchPattern(patId,id,rot){ const Hh=_HATCH[id]; if(!Hh) return ""; const U=_HATCH_U;
+function _ptHatchPattern(patId,id,rot,scale){ const Hh=_HATCH[id]; if(!Hh) return ""; const U=_HATCH_U*(scale||1);
   const w=(Hh.w*U).toFixed(1), h=(Hh.h*U).toFixed(1);
   let body='<rect width="'+w+'" height="'+h+'" fill="#C9CBCE" fill-opacity="0.62"/>';
   body+=Hh.lines.map(l=>'<line x1="'+(l[0]*U).toFixed(1)+'" y1="'+(l[1]*U).toFixed(1)+'" x2="'+(l[2]*U).toFixed(1)+'" y2="'+(l[3]*U).toFixed(1)+'" stroke="#71777e" stroke-width="1.3"/>').join('');
@@ -27830,6 +27830,7 @@ function _ptApplyHatch(p,c){ const hit=_ptHitTest(p,c); if(!hit||hit.type!=="pol
 function ptHatchRot(d){ PT._hatchRot=((PT._hatchRot||0)+d);
   if(PT._hatchPoly!=null){ const pp=PT.polys[PT._hatchPoly]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.rot=(pp.hatch.rot||0)+d; } }
   try{ ptDrawOverlay(); _ptDockRefresh(); }catch(e){} }
+function ptHatchScale(f){ if(PT._hatchPoly!=null){ const pp=PT.polys[PT._hatchPoly]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.scale=Math.max(0.35,Math.min(4,(pp.hatch.scale||1)*f)); try{ ptDrawOverlay(); _ptDockRefresh(); }catch(e){} } } }
 function ptHatchAlign(){ PT._hatchAlign=!PT._hatchAlign; PT._hatchAlignA=null; try{ _ptDockRefresh(); }catch(e){}
   if(PT._hatchAlign) try{ _toast("Tap two points along the line you want the hatch to follow.","#2F5B23"); }catch(e){} }
 function _ptDefs(){
@@ -27844,7 +27845,7 @@ function _ptDefs(){
       <g stroke="#8A9096" stroke-width="1.15" stroke-opacity="0.9" fill="none">
         <line x1="0" y1="0" x2="30" y2="0"/><line x1="0" y1="15" x2="30" y2="15"/>
         <line x1="0" y1="0" x2="0" y2="15"/><line x1="15" y1="15" x2="15" y2="30"/></g></pattern>`;
-  (PT.polys||[]).forEach((p,i)=>{ if(p.hatch && _HATCH[p.hatch.id]) d+=_ptHatchPattern("hxp-"+i, p.hatch.id, p.hatch.rot||0); });
+  (PT.polys||[]).forEach((p,i)=>{ if(p.hatch && _HATCH[p.hatch.id]) d+=_ptHatchPattern("hxp-"+i, p.hatch.id, p.hatch.rot||0, p.hatch.scale||1); });
   return d+'</defs>';
 }
 const PT_TYPE_COLORS={
@@ -28959,6 +28960,15 @@ function ptAddAt(p,c,e){
     }
     ptSnap(); PT.cur.push(p); PT._rectCursor=null; ptDrawOverlay(); ptUpdateInfo(); return;   // center
   }
+  if(PT.tool==="spline" && (kind==="area"||kind==="linear")){
+    const closed=(kind==="area"), need=closed?3:2;
+    if(PT.cur.length>=need){
+      const f=_toCanvas(PT.cur[0]), l=_toCanvas(PT.cur[PT.cur.length-1]);
+      const hit = closed ? Math.hypot(c.x-f.x,c.y-f.y)<16 : Math.hypot(c.x-l.x,c.y-l.y)<16;
+      if(hit){ _ptFinishSpline(); return; }
+    }
+    ptSnap(); PT.cur.push(p); PT._drawCursor=null; ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); return;
+  }
   if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); if(PT.mode==="light") m.ctrl=ptLightCtrl(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(kind==="linear"){ if(PT.cur.length>=2 && !_singleOn()){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
     ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo();
@@ -28966,6 +28976,23 @@ function ptAddAt(p,c,e){
     return; }
   if(PT.cur.length>=3){ const f=_toCanvas(PT.cur[0]); if(Math.hypot(c.x-f.x,c.y-f.y)<14){ ptFinishPoly(); return; } }
   ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); }
+function _ptSplinePts(ctrl, closed){ const n=ctrl.length; if(n<3) return ctrl.slice();
+  const out=[], K=14;
+  const get=(i)=>{ if(closed){ return ctrl[((i%n)+n)%n]; } return ctrl[Math.max(0,Math.min(n-1,i))]; };
+  const segs=closed?n:n-1;
+  for(let i=0;i<segs;i++){ const p0=get(i-1),p1=get(i),p2=get(i+1),p3=get(i+2);
+    for(let t=0;t<K;t++){ const u=t/K,u2=u*u,u3=u2*u;
+      out.push({ x:0.5*((2*p1.x)+(-p0.x+p2.x)*u+(2*p0.x-5*p1.x+4*p2.x-p3.x)*u2+(-p0.x+3*p1.x-3*p2.x+p3.x)*u3),
+                 y:0.5*((2*p1.y)+(-p0.y+p2.y)*u+(2*p0.y-5*p1.y+4*p2.y-p3.y)*u2+(-p0.y+3*p1.y-3*p2.y+p3.y)*u3) }); } }
+  if(closed) out.push(out[0]); else out.push(ctrl[n-1]);
+  return out; }
+function _ptFinishSpline(){ PT._drawCursor=null; const kind=_ptKind(PT.mode); const closed=(kind==="area"); const need=closed?3:2;
+  if(!PT.cur||PT.cur.length<need){ PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); return; }
+  ptSnap(); const ctrl=PT.cur.slice(); const dense=_ptSplinePts(ctrl, closed);
+  if(closed){ const sf=_ptPolySF(dense); let nm=""; const md=_ptMode(PT.mode); if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
+    PT.polys.push({mode:PT.mode,kind:"area",pts:dense,sf,type:_ptCurType(PT.mode)||"",name:nm,zone:"",phase:"",tags:"",page:PT.page,_spline:true,ctrl:ctrl.slice()}); }
+  else { const lf=_ptLineLF(dense); PT.polys.push({mode:PT.mode,kind:"linear",pts:dense,lf,type:_ptCurType(PT.mode)||"",name:"",zone:"",phase:"",tags:"",page:PT.page,_spline:true,ctrl:ctrl.slice()}); }
+  PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }
 function _ptLineLenPdf(pts){ let d=0; for(let i=1;i<pts.length;i++){ d+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y); } return d; }
 function _ptLineLF(pts){ if(!pts||pts.length<2) return 0;
   if(ptMapLive()){ try{ return google.maps.geometry.spherical.computeLength(pts.map(q=>new google.maps.LatLng(q.y,q.x)))*3.280839895; }catch(e){ return 0; } }
@@ -29000,7 +29027,7 @@ function _ptBBoxSpan(pts){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
   return Math.min(x1-x0, y1-y0); }
 function _ptPointInPoly(pt,pts){ let inside=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y; const hit=((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/((yj-yi)||1e-9)+xi); if(hit) inside=!inside; } return inside; }
 function ptDelPoly(i){ PT.polys.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
-function ptFinishPoly(){ PT._drawCursor=null; if(_ptGuideTool()){ _ptCommitGuide(); return; } const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
+function ptFinishPoly(){ PT._drawCursor=null; if(PT.tool==="spline"){ _ptFinishSpline(); return; } if(_ptGuideTool()){ _ptCommitGuide(); return; } const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
   if(kind==="linear"){ if(PT.cur.length>=2){ const lf=_ptLineLF(PT.cur); PT.polys.push({mode:PT.mode,kind:"linear",pts:PT.cur.slice(),lf,type:_ptCurType(PT.mode),name:"",zone:"",phase:"",tags:"",page:PT.page}); } }
   else { if(PT.cur.length>=3){ const sf=_ptPolySF(PT.cur); let nm=""; if(md.autozone){ const n=PT.polys.filter(p=>p.mode===PT.mode).length+1; nm="Zone "+n; }
       const np={mode:PT.mode,kind:"area",pts:PT.cur.slice(),sf,type:_ptCurType(PT.mode),name:nm,zone:"",phase:"",tags:"",page:PT.page,_tol:PT._drawTol||null};
@@ -32067,13 +32094,22 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     }
     { const r=(mode==="tree"?8.5:11)*mS; s+=`<g style="${pe}" onclick="ptEditTree(${idx})"><circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${c}" fill-opacity="0.94" stroke="#fff" stroke-width="${((mode==='tree'?1.6:2)*mS).toFixed(2)}"/><text x="${q.x.toFixed(1)}" y="${q.y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="${((mode==='tree'?7.5:9)*mS).toFixed(1)}" font-weight="800" fill="#fff">${badge}</text></g>`; }
   });
-  if(PT.cur.length){ const cpts=PT.cur.map(_toCanvas); const c=_ptColor(PT.mode); const isLine=_ptKind(PT.mode)==="linear";
+  if(PT.cur.length && PT.tool!=="spline"){ const cpts=PT.cur.map(_toCanvas); const c=_ptColor(PT.mode); const isLine=_ptKind(PT.mode)==="linear";
     if(cpts.length>1) s+=`<polyline points="${cpts.map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ")}" fill="${isLine?'none':c}" fill-opacity="0.12" stroke="${c}" stroke-width="${isLine?5:3.5}" stroke-dasharray="7 4"/>`;
     cpts.forEach((q,i)=>{ const closer=isLine?(i===cpts.length-1&&cpts.length>=2):(i===0&&cpts.length>=3); s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${closer?7:5}" fill="${closer?c:'#fff'}" stroke="${c}" stroke-width="2.5"/>`; if(closer) s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="12" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 2"/>`; });
     if(PT._drawCursor && !_toolRect() && !_aiTool()){ const last=_toCanvas(PT.cur[PT.cur.length-1]), cur=_toCanvas(PT._drawCursor);
       s+=`<line x1="${last.x.toFixed(1)}" y1="${last.y.toFixed(1)}" x2="${cur.x.toFixed(1)}" y2="${cur.y.toFixed(1)}" stroke="${c}" stroke-width="2" stroke-dasharray="5 4" opacity="0.85"/>`;
       let ft=0; try{ ft=_ptFeetBetween(PT.cur[PT.cur.length-1],PT._drawCursor); }catch(e){}
       s+=_ptTagSvg((last.x+cur.x)/2,(last.y+cur.y)/2-13,_ptFmtFt(ft),c); } }
+  // Spline tool — smooth Catmull-Rom preview through the control points (+ live cursor).
+  if(PT.tool==="spline" && PT.cur.length>=1){ const c=_ptColor(PT.mode); const closed=_ptKind(PT.mode)==="area";
+    let ctrl=PT.cur.slice(); if(PT._drawCursor && !_toolRect() && !_aiTool()) ctrl=ctrl.concat([PT._drawCursor]);
+    if(ctrl.length>=3){ const dense=_ptSplinePts(ctrl, false).map(_toCanvas);
+      s+='<polyline points="'+dense.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")+'" fill="'+(closed?c:'none')+'" fill-opacity="0.10" stroke="'+c+'" stroke-width="'+(closed?3.5:5)+'" stroke-dasharray="7 4"/>'; }
+    else if(ctrl.length===2){ const a=_toCanvas(ctrl[0]),b=_toCanvas(ctrl[1]); s+='<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+c+'" stroke-width="3.5" stroke-dasharray="7 4"/>'; }
+    PT.cur.forEach((q,i)=>{ const cc=_toCanvas(q); const closer=(closed?(i===0&&PT.cur.length>=3):(i===PT.cur.length-1&&PT.cur.length>=2));
+      s+='<circle cx="'+cc.x.toFixed(1)+'" cy="'+cc.y.toFixed(1)+'" r="'+(closer?7:5)+'" fill="'+(closer?c:'#fff')+'" stroke="'+c+'" stroke-width="2.5"/>';
+      if(closer) s+='<circle cx="'+cc.x.toFixed(1)+'" cy="'+cc.y.toFixed(1)+'" r="12" fill="none" stroke="'+c+'" stroke-width="1.5" stroke-dasharray="3 2"/>'; }); }
   // Rectangle tool — live preview with feet along the edges and SF in the middle.
   if(PT.tool==="circle" && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && PT._rectCursor){
     const c1=_toCanvas(PT.cur[0]), cc=_toCanvas(PT._rectCursor), r=Math.hypot(cc.x-c1.x,cc.y-c1.y), rc=_ptColor(PT.mode);
@@ -32259,7 +32295,7 @@ const _DIC={ undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10H9"/>
   ai:'<path d="M12 3l1.8 4.7L18 9l-4.2 1.3L12 15l-1.8-4.7L6 9z"/>', edit:'<path d="M4 3l7 17 2-7 7-2z"/>',
   view:'<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/>',
   apply:'<polyline points="5,13 10,18 19,7"/>', close:'<path d="M6 6l12 12M18 6L6 18"/>',
-  rect:'<rect x="4" y="6" width="16" height="12" rx="1"/>', line:'<path d="M3 18l5.5-8 4 5L21 4"/><circle cx="3" cy="18" r="1.7"/><circle cx="8.5" cy="10" r="1.7"/><circle cx="12.5" cy="15" r="1.7"/><circle cx="21" cy="4" r="1.7"/>',
+  rect:'<rect x="4" y="6" width="16" height="12" rx="1"/>', spline:'<path d="M3 15c3.5 0 4-9 8-9s4.5 9 8 9"/><circle cx="3" cy="15" r="1.6"/><circle cx="11" cy="6" r="1.6"/><circle cx="19" cy="15" r="1.6"/>', line:'<path d="M3 18l5.5-8 4 5L21 4"/><circle cx="3" cy="18" r="1.7"/><circle cx="8.5" cy="10" r="1.7"/><circle cx="12.5" cy="15" r="1.7"/><circle cx="21" cy="4" r="1.7"/>',
   ortho:'<path d="M7 4v13h13"/><path d="M7 11h6v6"/>', fill:'<path d="M5 11 11 5l6 6-6 6-6-6z"/><path d="M11 5 8.5 2.5"/><path d="M18.6 14c.8 1 1.4 2 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-.8.6-1.8 1.4-2.8z"/>',
   sel:'<path d="M4 3l7 17 2-7 7-2z"/>', del:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   rotate:'<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/>',
@@ -32303,12 +32339,17 @@ function _ptDockPanel(g){
     +T("ptSetTool('rect')","Rectangle",_DIC.rect,PT.tool==="rect")
     +T("ptSetTool('circle')","Circle",_DIC.circle,PT.tool==="circle")
     +T("ptSetTool('line')","Line (polyline)",_DIC.line,PT.tool==="line")
+    +T("ptSetTool('spline')","Spline (smooth curve)",_DIC.spline,PT.tool==="spline")
     +S("Modifiers")+T("ptToggleOrtho()","90\u00b0 square corners",_DIC.ortho,_orthoOn())+T("ptFillMode()","Fill area (BO)",_DIC.fill,!!PT._fillPick)
     +S("Snap to (OSNAP)")
     +T("ptSnapToggle('line')","Line / edge",_DIC.snapL,_ptSnapOn('line'))
     +T("ptSnapToggle('corner')","Corner",_DIC.snapC,_ptSnapOn('corner'))
     +T("ptSnapToggle('mid')","Midpoint",_DIC.snapM,_ptSnapOn('mid'))
-    +T("ptSnapToggle('center')","Center",_DIC.snapCt,_ptSnapOn('center')); }
+    +T("ptSnapToggle('center')","Center",_DIC.snapCt,_ptSnapOn('center'))
+    +T("ptSnapToggle('perp')","Perpendicular",_DIC.snapP,_ptSnapOn('perp'))
+    +T("ptSnapToggle('tangent')","Tangent",_DIC.snapT,_ptSnapOn('tangent'))
+    +T("ptSnapToggle('intersect')","Intersection",_DIC.snapX,_ptSnapOn('intersect'))
+    +T("ptSnapMaster()","Snaps "+(PT.snapOff?"OFF":"ON")+"  (key \u2018)",_DIC.snap,!PT.snapOff); }
   if(g==="ai"){ const bp=_ptBuildingPoly(); const A=t=>PT._aiTool===t;
     let h=H("AI Tools",'<span class="free">Design intelligence \u00b7 never priced</span>')
     +S("Openings")+T("ptAiTool('door')","Door",_AI_ICON.door,A("door"),"3\u2032")+T("ptAiTool('garage')","Garage",_AI_ICON.garage,A("garage"),"18\u2032")+T("ptAiTool('window')","Window",_AI_ICON.view,A("window"))
@@ -32323,6 +32364,7 @@ function _ptDockPanel(g){
     h+='<button class="pdhsw'+(PT._hatchSel==="none"?" on":"")+'" onclick="ptHatchSel(\'none\')"><svg viewBox="0 0 24 24" class="pdhx"><path d="M5 5l14 14M19 5L5 19"/></svg><span>None</span></button></div>'
     +S("Adjust the selected zone")
     +'<div class="pdhrow"><button onclick="ptHatchRot(-15)">\u21ba \u221215\u00b0</button><b>'+((PT._hatchPoly!=null&&PT.polys[PT._hatchPoly]&&PT.polys[PT._hatchPoly].hatch)?Math.round(PT.polys[PT._hatchPoly].hatch.rot||0)+"\u00b0":"\u2014")+'</b><button onclick="ptHatchRot(15)">+15\u00b0 \u21bb</button></div>'
+    +'<div class="pdhrow"><button onclick="ptHatchScale(0.8)">\u2212 smaller</button><b>Scale</b><button onclick="ptHatchScale(1.25)">bigger +</button></div>'
     +T("ptHatchAlign()","Align to a line",_DIC.snapL,!!PT._hatchAlign)
     +'<div class="pdhint">Tap a pattern, then tap a zone. Align \u2192 tap two points on a line to match its angle.</div>';
     return h; }
@@ -32548,7 +32590,7 @@ function _ptGuideHit(c){ const tol=15; let best=-1, bd=tol;
   return best; }
 function ptSetTool(t){ PT.tool=t; PT.cur=[]; PT._rectCursor=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null;
   try{ ptMapCursor&&ptMapCursor(); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptDrawOverlay(); }catch(e){}
-  try{ _toast(t==="rect"?"Rectangle: click a corner, click the first edge, move for width, click to finish.":"Freeform draw","#2F5B23"); }catch(e){} }
+  try{ _toast(t==="rect"?"Rectangle: click a corner, click the first edge, move for width, click to finish.":(t==="spline"?"Spline: click points for a smooth curve; Done or tap the "+(_ptKind(PT.mode)==="area"?"first":"last")+" point to finish.":(t==="circle"?"Circle: click center, then click for radius.":"Freeform draw")),"#2F5B23"); }catch(e){} }
 function ptToolRect(){ PT.tool=_toolRect()?"draw":"rect"; PT.cur=[]; PT._rectCursor=null;
   if(_toolRect()){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; }
   try{ ptRenderAutoBar(); }catch(e){} try{ ptDrawOverlay(); }catch(e){}
@@ -32593,29 +32635,38 @@ function _orthoSnapCanvas(c){
 // While tracing, find the nearest corner (square) or line (circle) of any other
 // zone within a few px so a new shape locks cleanly to what's already drawn.
 function _ptSnapOn(m){ const S=PT.snap; if(!S) return (m==="line"||m==="corner"); return !!S[m]; }
+function _ptTangentPts(P,C,r){ const dx=P.x-C.x,dy=P.y-C.y,dd=Math.hypot(dx,dy); if(dd<=r||dd<1) return [];
+  const a=Math.acos(Math.max(-1,Math.min(1,r/dd))), base=Math.atan2(dy,dx);
+  return [{x:C.x+r*Math.cos(base+a),y:C.y+r*Math.sin(base+a)},{x:C.x+r*Math.cos(base-a),y:C.y+r*Math.sin(base-a)}]; }
 function _ptSnapTarget(c){
-  if(typeof PT==="undefined"||!PT.open) return null;
+  if(typeof PT==="undefined"||!PT.open||PT.snapOff) return null;
   const kind=_ptKind(PT.mode); if(kind==="count") return null;
-  const doC=_ptSnapOn("corner"), doL=_ptSnapOn("line"), doM=_ptSnapOn("mid"), doCtr=_ptSnapOn("center");
-  if(!doC&&!doL&&!doM&&!doCtr) return null;                     // all snaps off -> free
-  const THV=17, THE=13;                                        // point snaps reach a touch further than edge
-  let bV=null,bVd=THV, bE=null,bEd=THE;                        // bV = corner/mid/center, bE = edge
+  const doC=_ptSnapOn("corner"),doL=_ptSnapOn("line"),doM=_ptSnapOn("mid"),doCtr=_ptSnapOn("center"),doP=_ptSnapOn("perp"),doT=_ptSnapOn("tangent"),doX=_ptSnapOn("intersect");
+  if(!(doC||doL||doM||doCtr||doP||doT||doX)) return null;
+  const THV=17, THE=13; let bV=null,bVd=THV, bE=null,bEd=THE;
+  const last=(PT.cur&&PT.cur.length>=1)?_toCanvas(PT.cur[PT.cur.length-1]):null; const edges=[];
   const consider=(cp,closed)=>{
     if(doC) cp.forEach(q=>{ const d=Math.hypot(q.x-c.x,q.y-c.y); if(d<bVd){ bVd=d; bV={x:q.x,y:q.y,type:"corner"}; } });
     const n=cp.length, lim=closed?n:n-1;
     for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy; if(L2<1) continue;
+      if(doX) edges.push([a,b]);
       if(doM){ const mx=(a.x+b.x)/2, my=(a.y+b.y)/2, d=Math.hypot(mx-c.x,my-c.y); if(d<bVd){ bVd=d; bV={x:mx,y:my,type:"mid"}; } }
       if(doL){ let t=((c.x-a.x)*vx+(c.y-a.y)*vy)/L2; t=Math.max(0,Math.min(1,t)); const px=a.x+t*vx, py=a.y+t*vy, d=Math.hypot(px-c.x,py-c.y); if(d<bEd){ bEd=d; bE={x:px,y:py,type:"edge"}; } }
+      if(doP&&last){ let t=((last.x-a.x)*vx+(last.y-a.y)*vy)/L2; if(t>=-0.03&&t<=1.03){ t=Math.max(0,Math.min(1,t)); const px=a.x+t*vx, py=a.y+t*vy, d=Math.hypot(px-c.x,py-c.y); if(d<bVd){ bVd=d; bV={x:px,y:py,type:"perp"}; } } }
     }
     if(doCtr && closed && cp.length>=3){ const ct=_ptCentroid(cp); const d=Math.hypot(ct.x-c.x,ct.y-c.y); if(d<bVd){ bVd=d; bV={x:ct.x,y:ct.y,type:"center"}; } }
   };
-  (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||PT.hidden[p.mode]||!p.pts||p.pts.length<1) return; consider(p.pts.map(_toCanvas), p.kind!=="linear"); });
+  (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||PT.hidden[p.mode]||!p.pts||p.pts.length<1) return; const cp=p.pts.map(_toCanvas); consider(cp, p.kind!=="linear");
+    if(doT && last && p._circle && cp.length>=3){ const ct=_ptCentroid(cp); let r=0; cp.forEach(q=>r+=Math.hypot(q.x-ct.x,q.y-ct.y)); r/=cp.length;
+      _ptTangentPts(last,ct,r).forEach(q=>{ const d=Math.hypot(q.x-c.x,q.y-c.y); if(d<bVd){ bVd=d; bV={x:q.x,y:q.y,type:"tangent"}; } }); } });
   (PT.guides||[]).forEach(g=>{ if(g.page!==PT.page||PT.hideGuides||!g.pts||g.pts.length<1) return; consider(g.pts.map(_toCanvas), false); });
   if(doC && PT.cur&&PT.cur.length>=2){ const q=_toCanvas(PT.cur[0]); const d=Math.hypot(q.x-c.x,q.y-c.y); if(d<bVd){ bVd=d; bV={x:q.x,y:q.y,type:"corner"}; } }
-  return bV || bE || null;                                     // point snaps win over edge
+  if(doX){ for(let i=0;i<edges.length;i++) for(let j=i+1;j<edges.length;j++){ const X=_boSegInt(edges[i][0],edges[i][1],edges[j][0],edges[j][1]); if(X){ const d=Math.hypot(X.x-c.x,X.y-c.y); if(d<bVd){ bVd=d; bV={x:X.x,y:X.y,type:"intersect"}; } } } }
+  return bV || bE || null;
 }
-function ptSnapToggle(m){ if(!PT.snap) PT.snap={line:true,corner:true,mid:false,center:false}; PT.snap[m]=!PT.snap[m];
+function ptSnapToggle(m){ if(!PT.snap) PT.snap={line:true,corner:true,mid:false,center:false,perp:false,tangent:false,intersect:false}; PT.snap[m]=!PT.snap[m];
   try{ _ptDockRefresh(); }catch(e){} try{ _toast("Snap "+m+" "+(PT.snap[m]?"on":"off"),"#2F5B23"); }catch(e){} }
+function ptSnapMaster(){ PT.snapOff=!PT.snapOff; try{ _ptDockRefresh(); }catch(e){} try{ _toast(PT.snapOff?"Snaps OFF (press \u2018 or the Snap button to turn on)":"Snaps ON","#2F5B23"); }catch(e){} }
 function _ptSnapMarker(sn){
   const svg=document.getElementById("pt-svg");
   let m=document.getElementById("pt-snapmk");
@@ -32626,6 +32677,9 @@ function _ptSnapMarker(sn){
   if(t==="corner") m.innerHTML='<rect x="'+(x-6.5)+'" y="'+(y-6.5)+'" width="13" height="13" rx="1.5" fill="'+C+'" fill-opacity="0.22" stroke="'+C+'" stroke-width="2.5"/>';
   else if(t==="mid") m.innerHTML='<path d="M'+x+' '+(y-8)+' L'+(x+8)+' '+y+' L'+x+' '+(y+8)+' L'+(x-8)+' '+y+' Z" fill="'+C+'" fill-opacity="0.22" stroke="'+C+'" stroke-width="2.5"/>';
   else if(t==="center") m.innerHTML='<circle cx="'+x+'" cy="'+y+'" r="8" fill="'+C+'" fill-opacity="0.18" stroke="'+C+'" stroke-width="2.5"/><path d="M'+(x-5)+' '+y+'h10M'+x+' '+(y-5)+'v10" stroke="'+C+'" stroke-width="2"/>';
+  else if(t==="perp") m.innerHTML='<path d="M'+(x-8)+' '+(y+8)+' L'+(x-8)+' '+(y-8)+' M'+(x-8)+' '+(y+8)+' L'+(x+8)+' '+(y+8)+' M'+(x-8)+' '+(y+2)+' l6 0 0 6" fill="none" stroke="'+C+'" stroke-width="2.5"/>';
+  else if(t==="tangent") m.innerHTML='<circle cx="'+x+'" cy="'+y+'" r="7.5" fill="none" stroke="'+C+'" stroke-width="2.5"/><path d="M'+(x-9)+' '+(y+9)+' L'+(x+9)+' '+(y-9)+'" stroke="'+C+'" stroke-width="2"/>';
+  else if(t==="intersect") m.innerHTML='<path d="M'+(x-8)+' '+(y-8)+' L'+(x+8)+' '+(y+8)+' M'+(x+8)+' '+(y-8)+' L'+(x-8)+' '+(y+8)+'" stroke="'+C+'" stroke-width="3"/>';
   else m.innerHTML='<circle cx="'+x+'" cy="'+y+'" r="7.5" fill="'+C+'" fill-opacity="0.2" stroke="'+C+'" stroke-width="2.5"/>';
 }
 function ptLiveSnapMove(e){
@@ -32714,6 +32768,7 @@ document.addEventListener("keydown",function(e){
     else if(PT.selGuide!=null){ e.preventDefault(); try{ ptDelSelGuide(); }catch(_){} }
     else if(PT.selPoly!=null){ e.preventDefault(); try{ ptSelDelete(); }catch(_){} }
   } else if((e.metaKey||e.ctrlKey)&&(e.key==="z"||e.key==="Z")){ e.preventDefault(); if(e.shiftKey){ try{ ptRedoAct(); }catch(_){} } else { try{ ptUndoAct(); }catch(_){} } }
+  else if(e.key==="`"||e.key==="\u2018"){ e.preventDefault(); try{ ptSnapMaster(); }catch(_){} }
 });
 function ptFillMode(){
   if(typeof PT==="undefined"||!PT.open) return;
