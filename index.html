@@ -4427,7 +4427,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1005</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1006</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27858,7 +27858,7 @@ function ptHatchRot(d){ PT._hatchRot=((PT._hatchRot||0)+d);
   try{ ptDrawOverlay(); _ptDockRefresh(); }catch(e){} }
 function ptHatchScale(f){ if(PT._hatchPoly!=null){ const pp=PT.polys[PT._hatchPoly]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.scale=Math.max(0.35,Math.min(4,(pp.hatch.scale||1)*f)); try{ ptDrawOverlay(); _ptDockRefresh(); }catch(e){} } } }
 function ptHatchInfo(){ PT._hatchInfo=!PT._hatchInfo; try{ _ptDockRefresh(); }catch(e){} }
-function ptHatchAlign(){ PT._hatchAlign=PT._hatchAlign?0:1; PT._hatchAlignA=null; PT._hatchSel=null; try{ _ptDockRefresh(); ptMapCursor&&ptMapCursor(); }catch(e){}
+function ptHatchAlign(){ PT._hatchAlign=PT._hatchAlign?0:1; PT._hatchAlignA=null; PT._hatchAlignD=null; PT._hatchSel=null; try{ _ptDockRefresh(); ptMapCursor&&ptMapCursor(); }catch(e){}
   if(PT._hatchAlign) try{ _toast("Align \u00b7 step 1 of 3: tap the hatched zone.","#2F5B23"); }catch(e){} }
 // Press-and-hold the \u00b1 buttons to spin the angle in 1\u00b0 steps.
 let _ptRotHold=null;
@@ -28955,12 +28955,21 @@ function ptAddAt(p,c,e){
       if(!PT.polys[hit.idx].hatch){ try{ _toast("That zone has no hatch yet \u2014 add one first.","#8A6D1F"); }catch(_){} return; }
       PT._hatchPoly=hit.idx; PT._hatchAlign=2;
       try{ _toast("Align \u00b7 step 2 of 3: tap the first point on the line.","#2F5B23"); _ptDockRefresh(); }catch(_){} return; }
-    if(PT._hatchAlign===2){ PT._hatchAlignA={x:p.x,y:p.y}; PT._hatchAlign=3;
-      try{ _toast("Align \u00b7 step 3 of 3: tap a second point further along that line.","#2F5B23"); _ptDockRefresh(); }catch(_){} return; }
-    const a=_toCanvas(PT._hatchAlignA), b=_toCanvas(p);
-    if(Math.hypot(b.x-a.x,b.y-a.y)<6){ try{ _toast("Too close \u2014 tap a point further along the line.","#8A6D1F"); }catch(_){} return; }
-    const ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
-    PT._hatchAlign=0; PT._hatchAlignA=null; PT._hatchRot=ang;
+    if(PT._hatchAlign===2){ const e1=_ptAlignEdge(c);
+      PT._hatchAlignA = e1?_toPdf(e1.px):{x:p.x,y:p.y};
+      PT._hatchAlignD = e1?{x:e1.dir.x,y:e1.dir.y}:null; PT._hatchAlign=3;
+      try{ _toast(e1?"Snapped to that line \u00b7 step 3: tap a second point along it.":"Step 3: tap a second point further along that line.","#2F5B23"); _ptDockRefresh(); }catch(_){} return; }
+    const e2=_ptAlignEdge(c);
+    const a=_toCanvas(PT._hatchAlignA), b=e2?e2.px:_toCanvas(p);
+    const D=PT._hatchAlignD; let ang=null;
+    if(D){ const dAng=Math.atan2(D.y,D.x)*180/Math.PI;
+      if(!e2) ang=dAng;                                                    // only tap 1 hit a line — trust it
+      else if(_ptAngDiff(dAng, Math.atan2(e2.dir.y,e2.dir.x)*180/Math.PI)<6) ang=dAng;   // same wall — exact
+    }
+    if(ang==null){
+      if(Math.hypot(b.x-a.x,b.y-a.y)<6){ try{ _toast("Too close \u2014 tap a point further along the line.","#8A6D1F"); }catch(_){} return; }
+      ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI; }
+    PT._hatchAlign=0; PT._hatchAlignA=null; PT._hatchAlignD=null; PT._hatchRot=ang;
     if(PT._hatchPoly!=null){ const pp=PT.polys[PT._hatchPoly]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.rot=ang; } }
     try{ ptDrawOverlay(); _ptDockRefresh(); _toast("Aligned to "+Math.round(((ang%180)+180)%180)+"\u00b0","#2F5B23"); }catch(_){} return; }
   if(PT._hatchSel){ try{ _ptApplyHatch(p,c); }catch(_){} return; }
@@ -33166,6 +33175,18 @@ function _ptPlaceAi(p,c){
   _aiDone();
 }
 function _aiDone(){ PT._aiCursor=null; try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
+// Align needs the REAL line, not where a finger landed — a few px of tap error over a short
+// gap is several degrees of skew. Snap each tap onto the nearest edge and use that edge's own
+// direction when both taps sit on the same wall.
+function _ptAlignEdge(c){ let best=null, bd=60;
+  const scan=(pts,closed)=>{ const cp=pts.map(_toCanvas), n=cp.length, lim=closed?n:n-1;
+    for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; const d=_ptSegDist(c.x,c.y,a.x,a.y,b.x,b.y);
+      if(d<bd){ bd=d; const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy||1; let t=((c.x-a.x)*vx+(c.y-a.y)*vy)/L2; t=Math.max(0,Math.min(1,t));
+        best={ px:{x:a.x+t*vx,y:a.y+t*vy}, dir:{x:vx,y:vy} }; } } };
+  (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||!p.pts||p.pts.length<2||PT.hidden[p.mode]) return; scan(p.pts, p.kind!=="linear"); });
+  (PT.guides||[]).forEach(g=>{ if(g.page!==PT.page||PT.hideGuides||!g.pts||g.pts.length<2) return; scan(g.pts,false); });
+  return best; }
+function _ptAngDiff(a,b){ let d=Math.abs(((a-b)%180+180)%180); return d>90?180-d:d; }   // undirected, degrees
 function _ptNearestEdge(c){ let best=null, bd=44;
   (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||p.kind!=="area"||!p.pts||p.pts.length<2||PT.hidden[p.mode]) return;
     const cp=p.pts.map(_toCanvas), n=cp.length;
