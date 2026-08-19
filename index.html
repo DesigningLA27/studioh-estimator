@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1014</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1015</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31859,6 +31859,50 @@ function _ptWhyRowPaving(e, unit){
     ${e.demo&&e.demoCost>0?`<div style="font:700 10.5px ui-monospace,Menlo,monospace;color:#D9A441;margin-top:2px">+ ${fmtN(e.demoCost)} tear-out</div>`:""}
   </div>`;
 }
+// Appearance from the take-off popup. That popup is per layer, so these drive every trace in it —
+// a single zone is still overridden on its own from the Props panel.
+function _ptLayerStyleOf(mode){ let f=null,l=null;
+  (PT.polys||[]).forEach(p=>{ if(p.mode!==mode) return;
+    if(!f&&p.fill&&p.fill.col) f=p.fill; if(!l&&p.line&&(p.line.col||p.line.w)) l=p.line; });
+  return {fill:f,line:l}; }
+function ptLayerStyle(mode,grp,field,v,live){
+  const polys=(PT.polys||[]).filter(p=>p.mode===mode); if(!polys.length) return;
+  if(!live) ptSnap();
+  const md=_ptMode(mode), dc=(mode==="building")?"#FFFFFF":(md.color||"#5BA34A");
+  polys.forEach(p=>{
+    if(grp==="off"){ delete p.fill; delete p.line; return; }
+    if(grp==="fill"){ if(!p.fill) p.fill={col:dc,op:_ptFillOp(mode)}; p.fill[field]=v; }
+    else { if(!p.line) p.line={col:dc,w:(mode==="shade"?3.2:2.5)}; p.line[field]=v; } });
+  try{ ptDrawOverlay(); }catch(e){}
+  if(!live){ try{ _ptDockRefresh(); }catch(e){} try{ ptWhy(mode); }catch(e){} } }
+function _ptWhyStyleRow(mode){
+  const polys=(PT.polys||[]).filter(p=>p.mode===mode); if(!polys.length) return "";
+  const md=_ptMode(mode), cur=_ptLayerStyleOf(mode);
+  const dc=(mode==="building")?"#FFFFFF":(md.color||"#5BA34A");
+  const fc=(cur.fill&&cur.fill.col)||dc;
+  const fo=Math.round(((cur.fill&&cur.fill.op!=null)?cur.fill.op:_ptFillOp(mode))*100);
+  const lc=(cur.line&&cur.line.col)||dc, lw=(cur.line&&cur.line.w)||(mode==="shade"?3.2:2.5);
+  const ov=!!(cur.fill||cur.line);
+  const DOT="width:26px;height:26px;flex:none;padding:0;border:0;border-radius:8px;background:transparent;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.28)";
+  const RNG=f=>`--f:${f}%;flex:1;min-width:0;height:6px;border-radius:99px;background:linear-gradient(90deg,#6FBF5C 0 var(--f),rgba(255,255,255,.16) var(--f) 100%)`;
+  const K="font:700 10px var(--tkf);color:#8FA383;width:44px;flex:none";
+  const NUM="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:34px;text-align:right;flex:none";
+  return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.10)">
+    <div style="display:flex;align-items:center;margin-bottom:6px">
+      <span style="font:800 9.5px var(--tkf);letter-spacing:.13em;text-transform:uppercase;color:#8FA383">Appearance</span>
+      <button onclick="ptLayerStyle('${mode}','off')" style="margin-left:auto;border:0;background:none;cursor:pointer;font:700 10.5px var(--tkf);color:${ov?"#7CE05E":"#68765B"}">Match layer</button></div>
+    <div style="display:flex;align-items:center;gap:9px;margin:6px 0">
+      <span style="${K}">Fill</span>
+      <input type="color" value="${fc}" style="${DOT}" oninput="ptLayerStyle('${mode}','fill','col',this.value,1)" onchange="ptLayerStyle('${mode}','fill','col',this.value)">
+      <input type="range" min="0" max="100" value="${fo}" style="${RNG(fo)}" oninput="_pdFill(this);ptLayerStyle('${mode}','fill','op',this.value/100,1);var e=document.getElementById('wsfo');if(e)e.textContent=this.value+'%'" onchange="ptLayerStyle('${mode}','fill','op',this.value/100)">
+      <b id="wsfo" style="${NUM}">${fo}%</b></div>
+    <div style="display:flex;align-items:center;gap:9px;margin:6px 0">
+      <span style="${K}">Outline</span>
+      <input type="color" value="${lc}" style="${DOT}" oninput="ptLayerStyle('${mode}','line','col',this.value,1)" onchange="ptLayerStyle('${mode}','line','col',this.value)">
+      <input type="range" min="1" max="8" step="0.5" value="${lw}" style="${RNG((((+lw)-1)/7*100).toFixed(1))}" oninput="_pdFill(this);ptLayerStyle('${mode}','line','w',+this.value,1);var e=document.getElementById('wslw');if(e)e.textContent=(+this.value).toFixed(1)" onchange="ptLayerStyle('${mode}','line','w',+this.value)">
+      <b id="wslw" style="${NUM}">${(+lw).toFixed(1)}</b></div>
+    <div style="font:600 10.5px var(--tkf);color:#68765B;margin-top:3px">${polys.length===1?"Applies to this trace.":`Applies to all ${polys.length} traces on this layer.`}</div>
+  </div>`; }
 function _ptWhyRender(d, md, mode, x){
   const {unit, qty, pr, src, cut, each, marks, shapes}=x;
   const line=(k,v,acc)=>`<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.10)">
@@ -31909,6 +31953,7 @@ function _ptWhyRender(d, md, mode, x){
       ${line("Quantity used", `${_tkFmt(qty)} ${unit}`)}
       ${pr?line("Rate", `$${pr.per.toFixed(2)} / ${unit||"ea"}`):""}
       ${pr?line("Cost", fmtN(pr.total), "#8FE07A"):line("Cost","not priced yet")}`}
+    ${_ptWhyStyleRow(mode)}
     <div style="font:600 12px var(--tkf);color:#8FA383;margin-top:12px;line-height:1.5">
       The rate comes from ${src}.${cut?" Anything sitting on these has already been taken off above.":""}</div>`;
 }
