@@ -4411,7 +4411,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v991</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v992</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29081,16 +29081,29 @@ function ptToggleFullscreen(){ const el=document.getElementById("pt-modal"); if(
 function ptZoom(f){ if(ptMapLive()){ try{ PT.map.setZoom(Math.max(15,Math.min(22,PT.map.getZoom()+(f>1?1:-1)))); }catch(e){} return; }
   PT.scale=Math.min(4,Math.max(0.12,PT.scale*f)); ptRenderPage(); }
 let _ptPan=null;
+const _ptTouch=new Map(); let _ptPinch=null;               // two-finger pinch-zoom for the still / rotated plan
+function _ptPinchMid(){ const a=[..._ptTouch.values()]; return {x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.hypot(a[1].x-a[0].x,a[1].y-a[0].y)}; }
+function _ptStartPinch(){ if(_ptTouch.size<2||ptMapLive()) return; const m=_ptPinchMid();
+  _ptPinch={d0:m.d,s0:PT.scale}; _ptPan=null; PT._drawCursor=null; PT._rectCursor=null; PT._aiStart=null; PT.cur=(PT.cur&&PT.cur.length?PT.cur:[]); try{ _ptSnapMarker(null); }catch(_){} }
+function _ptPinchMove(){ if(!_ptPinch||_ptTouch.size<2||_ptPinch.d0<1) return; const m=_ptPinchMid();
+  const target=Math.min(4,Math.max(0.12,_ptPinch.s0*(m.d/_ptPinch.d0))); if(Math.abs(target-PT.scale)<0.003) return;
+  const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
+  const ax=(m.x-rect.left)+st.scrollLeft, ay=(m.y-rect.top)+st.scrollTop; const f=target/PT.scale; PT.scale=target;
+  ptRenderPage().then(()=>{ st.scrollLeft=ax*f-(m.x-rect.left); st.scrollTop=ay*f-(m.y-rect.top); }); }
 function ptDown(e){ const cv=e.currentTarget;
+  if(e.pointerType==="touch"){ _ptTouch.set(e.pointerId,{x:e.clientX,y:e.clientY}); try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+    if(_ptTouch.size>=2){ _ptStartPinch(); return; } }
   if(ptVertexDown(e)){ try{ cv.setPointerCapture(e.pointerId); }catch(_){} return; } try{ cv.setPointerCapture(e.pointerId); }catch(_){} const st=document.getElementById("pt-stage"); _ptPan={x:e.clientX,y:e.clientY,moved:false,sl:st?st.scrollLeft:0,stp:st?st.scrollTop:0}; }
-function ptMove(e){ if(ptVertexMove(e)) return;
+function ptMove(e){ if(e.pointerType==="touch"&&_ptTouch.has(e.pointerId)){ _ptTouch.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(_ptPinch&&_ptTouch.size>=2){ _ptPinchMove(); return; } }
+  if(ptVertexMove(e)) return;
   if(_ptPan){ const dx=e.clientX-_ptPan.x, dy=e.clientY-_ptPan.y; if(Math.abs(dx)+Math.abs(dy)>5){ _ptPan.moved=true; const st=document.getElementById("pt-stage"); if(st){ st.scrollLeft=_ptPan.sl-dx; st.scrollTop=_ptPan.stp-dy; } } return; }
   if(!PT.selectMode && !PT.stamp && !PT.calibrating && _ptKind(PT.mode)!=="count") _ptSnapMarker(_ptSnapTarget(ptCanvasXY(e)));
   else _ptSnapMarker(null);
   if((_toolRect()||PT.tool==="circle") && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); }
   if(PT._aiStart){ PT._aiCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); }
   else if(PT.cur&&PT.cur.length>=1 && !PT.selectMode && !_toolRect() && !_aiTool()){ PT._drawCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); } }
-function ptUp(e){ if(ptVertexUp()) return;
+function ptUp(e){ if(e.pointerType==="touch"&&_ptTouch.has(e.pointerId)){ _ptTouch.delete(e.pointerId); if(_ptTouch.size<2){ if(_ptPinch){ _ptPinch=null; _ptPan=null; return; } _ptPinch=null; } }
+  if(ptVertexUp()) return;
   if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
 function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
   const mx=(e.clientX-rect.left)+st.scrollLeft, my=(e.clientY-rect.top)+st.scrollTop; const old=PT.scale; const ratio=e.deltaY<0?1.12:0.89;
@@ -32485,7 +32498,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       ${PT.live?`<div id="pt-map" style="position:absolute;inset:0;background:#3a4030"></div>
       <svg id="pt-svg" style="position:absolute;inset:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>`:`<div id="pt-stage" style="flex:1;overflow:auto;background:#3a4030;position:relative;display:${_ptFlatOn()?'block':'flex'};align-items:safe center;justify-content:safe center;padding:${_ptFlatOn()?'0':'1rem'}">
         <div style="position:relative;line-height:0">
-          <canvas id="pt-canvas" onpointerdown="ptDown(event)" onpointermove="ptMove(event)" onpointerup="ptUp(event)" style="cursor:crosshair;box-shadow:0 4px 24px rgba(0,0,0,.5);touch-action:none"></canvas>
+          <canvas id="pt-canvas" onpointerdown="ptDown(event)" onpointermove="ptMove(event)" onpointerup="ptUp(event)" onpointercancel="ptUp(event)" style="cursor:crosshair;box-shadow:0 4px 24px rgba(0,0,0,.5);touch-action:none"></canvas>
           <svg id="pt-svg" style="position:absolute;top:0;left:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>
         </div>
       </div>`}
