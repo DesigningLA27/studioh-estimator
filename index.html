@@ -2430,6 +2430,10 @@ body:not(.sp-on) #sp-open{display:grid}
   background:#5BA34A;box-shadow:0 0 0 2px rgba(20,28,16,.55)}
 .tkautobar .aitem.af.on .afdot{background:#8BE06E}
 .tkautobar .asep{flex:none;width:1px;height:26px;background:rgba(255,255,255,.15);margin:0 4px}
+.tkautobar .catsel{flex-direction:row;align-items:center;gap:7px;min-width:auto;padding:8px 13px;color:#EAF7E2}
+.tkautobar .catsel .catdot{width:15px;height:15px;border-radius:5px;flex:none;box-shadow:0 0 0 1.5px rgba(255,255,255,.25)}
+.tkautobar .catsel span:last-child{font:700 12.5px var(--tkf);white-space:nowrap}
+.tkautobar .catsel:hover{background:rgba(255,255,255,.12)}
 .tkautobar .aitem.ortho{min-width:48px}
 .tkautobar .aitem.ortho.on{background:#5BA34A;color:#0E2408}
 .tkautobar .aitem.ortho.on svg{stroke:#0E2408}
@@ -4334,7 +4338,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v971</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v972</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -32025,9 +32029,17 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       icon:_ic('<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/>')})}
     ${(PT.live||_ptFlatOn())?'':_t({label:PT.ppf?"Scale set":"Set scale", act:"ptOpenScale()", cls:PT.ppf?'':'warn',
       icon:_ic('<path d="M3 17h18M6 17v-4M12 17v-8M18 17v-6"/>')})}
-    ${_hr}${_lb("Mode")}
-    ${_t({label:"Draw", on:!PT.selectMode, act:"if(PT.selectMode)ptSelectMode()",
+    ${_hr}${_lb("Draw with")}
+    ${_t({label:"Draw", on:!PT.selectMode&&!_toolRect(), act:"ptSetTool('draw')", title:"Freeform polygon / line",
       icon:_ic('<path d="M12 19l7-7-4-4-7 7v4h4Z"/><path d="M16 5l3 3"/>')})}
+    ${_t({label:"Rect", on:_toolRect(), act:"ptSetTool('rect')", title:"Rectangle \u2014 corner, first edge, then width; shows ft + SF live",
+      icon:_ic('<rect x="4" y="6" width="16" height="12" rx="1"/>')})}
+    ${_t({label:"90\u00b0", on:_orthoOn(), act:"ptToggleOrtho()", title:"Square 90\u00b0 corners while drawing",
+      icon:_ic('<path d="M7 4v13h13"/><path d="M7 11h6v6"/>')})}
+    ${_t({label:"Line", on:_singleOn(), act:"ptToggleSingle()", title:"Single-line: each line is one segment",
+      icon:_ic('<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.6 16.4 16.4 7.6"/>')})}
+    ${_t({label:"Fill", on:!!(typeof PT!=="undefined"&&PT._fillPick), act:"ptFillMode()", title:"Fill an enclosed area (BO)",
+      icon:_ic('<path d="M5 11 11 5l6 6-6 6-6-6z"/><path d="M11 5 8.5 2.5"/><path d="M18.6 14c.8 1 1.4 2 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-.8.6-1.8 1.4-2.8z"/>')})}
     ${_t({label:"Select", on:PT.selectMode, act:"if(!PT.selectMode)ptSelectMode()",
       title:"Select, reshape or delete what you traced",
       icon:_ic('<path d="M4 3l7 17 2-7 7-2L4 3Z"/>')})}
@@ -32038,11 +32050,6 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
     ${_drawing?`<button class="tkb-fin" onclick="ptFinishPoly()">${_md.kind==="linear"?"Finish line":"Close area"}</button>`:''}
     ${_t({label:"Delete", act:"ptDeleteTap()", cls:(PT.selPoly!=null?"warn":""), title:"Delete the selected area",
       icon:_ic('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>')})}
-    ${_hr}${_lb("Category")}
-    <button class="tkb-sw" onclick="ptCatMenu()" title="Pick what you are tracing">
-      <i style="background:${_md.color}"></i>
-      <span class="tx"><em>${_md.label}</em>${_u?`<b>${_n.toLocaleString()} ${_u}</b>`:(_md.types?`<b>${_ptCurType(PT.mode)||""}</b>`:'')}</span>
-      <u>▾</u></button>
     ${_hr}${_lb("View")}
     <div class="tkb-pair">
       <button onclick="ptZoom(1.2)" title="Zoom in">＋</button>
@@ -32149,7 +32156,7 @@ const PT_AUTOFILL=[
 ];
 function _orthoOn(){ return typeof PT!=="undefined" && PT.ortho===true; }        // default OFF; the 90° button turns it on
 function _singleOn(){ return typeof PT!=="undefined" && PT.singleSeg===true; }              // one segment per line, not a polyline
-function ptToggleSingle(){ PT.singleSeg=!_singleOn(); try{ ptRenderAutoBar(); }catch(e){}
+function ptToggleSingle(){ PT.singleSeg=!_singleOn(); try{ ptRenderModal(); }catch(e){}
   try{ _toast(_singleOn()?"Single-line: each line is one segment (2 points)":"Polyline: keep clicking to extend a line","#2F5B23"); }catch(e){} }
 function _lightAutoOn(){ return typeof PT!=="undefined" && PT.lightAuto!==false; } // default ON
 function ptRenderAutoBar(){ const el=document.getElementById("pt-autobar"); if(el){ el.innerHTML=_ptAutoBarHTML(); _ptCenterAutobar(); } }
@@ -32168,7 +32175,7 @@ function ptPickZone(k){
   ptRenderAutoBar();
   if(a.assist==="autofill" && _lightAutoOn()){ try{ lightingPlace(); }catch(e){} }
 }
-function ptToggleOrtho(){ PT.ortho=!_orthoOn(); ptRenderAutoBar();
+function ptToggleOrtho(){ PT.ortho=!_orthoOn(); try{ ptRenderModal(); }catch(e){}
   try{ _toast(_orthoOn()?"90° snap ON — corners lock square":"90° snap OFF","#2F5B23"); }catch(e){}
 }
 function ptToggleAutofill(){ PT.lightAuto=!_lightAutoOn(); ptRenderAutoBar();
@@ -32178,6 +32185,9 @@ function ptToggleAutofill(){ PT.lightAuto=!_lightAutoOn(); ptRenderAutoBar();
 // Snap a clicked canvas point so its segment is parallel/perpendicular to the
 // building's first edge — i.e. every corner stays 90°, at any rotation.
 function _toolRect(){ return typeof PT!=="undefined" && PT.tool==="rect"; }
+function ptSetTool(t){ PT.tool=t; PT.cur=[]; PT._rectCursor=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null;
+  try{ ptMapCursor&&ptMapCursor(); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptDrawOverlay(); }catch(e){}
+  try{ _toast(t==="rect"?"Rectangle: click a corner, click the first edge, move for width, click to finish.":"Freeform draw","#2F5B23"); }catch(e){} }
 function ptToolRect(){ PT.tool=_toolRect()?"draw":"rect"; PT.cur=[]; PT._rectCursor=null;
   if(_toolRect()){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; }
   try{ ptRenderAutoBar(); }catch(e){} try{ ptDrawOverlay(); }catch(e){}
@@ -32311,7 +32321,7 @@ function ptFillMode(){
   if(typeof PT==="undefined"||!PT.open) return;
   PT._fillPick=!PT._fillPick;
   if(PT._fillPick){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; }
-  try{ ptRenderAutoBar(); }catch(e){} try{ ptMapCursor&&ptMapCursor(); }catch(e){}
+  try{ ptRenderModal(); }catch(e){} try{ ptMapCursor&&ptMapCursor(); }catch(e){}
   if(PT._fillPick){ const m=(_ptKind(PT.mode)==="area")?_ptMode(PT.mode).label:"Paving";
     try{ _toast("Fill: tap inside a space fully closed by lines/edges \u2014 it becomes "+m+". Snap the line ends to the edges so there are no gaps.","#2F5B23"); }catch(e){} }
 }
@@ -32401,6 +32411,9 @@ function _ptRenderFlatBar(){
 function ptRotateTool(){ if(ptMapLive()) ptFlatten(); else if(_ptFlatOn()) ptRotate90(); }
 function _ptAutoBarHTML(){
   const active=(typeof PT!=="undefined")?PT.mode:null;
+  const catOn=(typeof PT!=="undefined");
+  const cat=catOn?('<button class="aitem catsel" title="Pick a category (all trace types)" onclick="ptCatMenu()">'
+    + '<span class="catdot" style="background:'+_ptColor(PT.mode)+'"></span><span>'+_ptMode(PT.mode).label+' \u25be</span></button><span class="asep"></span>'):'';
   const ortho='<button class="aitem ortho'+(_orthoOn()?' on':'')+'" title="Square 90\u00b0 corners \u2014 tap to toggle on/off" onclick="event.stopPropagation();ptToggleOrtho()">'
     + '<svg viewBox="0 0 24 24"><path d="M7 4v13h13"/><path d="M7 11h6v6"/></svg><span>90\u00b0</span></button>'
     + '<span class="asep"></span>';
@@ -32413,7 +32426,7 @@ function _ptAutoBarHTML(){
   const rect='<button class="aitem'+(_toolRect()?' on':'')+'" title="Rectangle: click a corner, click the first edge (any angle), move for width, click to finish \u2014 shows ft + SF live" onclick="event.stopPropagation();ptToolRect()">'
     + '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg><span>Rect</span></button>'
     + '<span class="asep"></span>';
-  return '<span class="albl">Tools</span>' + ortho + fill + line + rect
+  return '<span class="albl">Trace</span>' + cat
     + PT_AUTOFILL.map(a=>{
       const on=(active===a.mode), af=(a.assist==="autofill");
       return '<button class="aitem'+(af?' af':'')+(on?' on':'')+'" data-mode="'+a.mode+'" title="'+escAttr(a.label)+'" onclick="ptPickZone(\''+a.k+'\')">'
