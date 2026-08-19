@@ -4411,7 +4411,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v997</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v998</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29589,9 +29589,10 @@ function ptSetPolyRate(idx, v){                                  // manual $/SF 
   if(s===""||!isFinite(+s)) delete p.rate; else p.rate=+s;
   try{ ptDrawOverlay(); ptUpdateInfo(); if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
 }
-function ptSetPolyLoc(idx, v){                                   // yard location (AI fills it; editable here)
-  const p=PT.polys[idx]; if(!p) return; ptSnap(); p.loc=String(v||"");
-  try{ if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
+function ptSetPolyLoc(idx, v){                                   // yard location — doors derive it; manual pick overrides
+  const p=PT.polys[idx]; if(!p) return; ptSnap();
+  if(v==="__auto"||v==="") delete p.loc; else p.loc=String(v);
+  try{ ptDrawOverlay(); if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
 }
 // Totals with the excluded ground taken out — what the estimate actually works from.
 function ptScoped(){ return ptTotals(true); }
@@ -31555,10 +31556,11 @@ function ptWhy(mode){
     const nm=(p.name&&p.name.trim())||p.type||`${md.label} ${i+1}`;
     const dc=ptDemoCost(mode, net, 1);
     let _rate=rate, _cost=rate*net, _mat="", _ov=false, _loc="", _mrate=0;
-    if(mode==="paving"){ _mat=p.type||""; _ov=(p.rate!=null&&p.rate!==""&&isFinite(+p.rate)); _loc=p.loc||"";
+    let _locAuto=false;
+    if(mode==="paving"){ _mat=p.type||""; _ov=(p.rate!=null&&p.rate!==""&&isFinite(+p.rate)); _loc=(p.loc||_ptTraceLoc(p)||""); _locAuto=!p.loc&&!!_loc;
       _mrate=_pavMatRate(p)||0; const _rr=_pavRate(p); _rate=(_rr!=null?_rr:rate); _cost=_rate*net; }
     return {nm, net, taken, idx:p._i, demo:!!p._demo, excl:!!p._excl,
-            rawName:(p.name||""), zone:(p.zone||""), mat:_mat, ov:_ov, loc:_loc, matRate:_mrate,
+            rawName:(p.name||""), zone:(p.zone||""), mat:_mat, ov:_ov, loc:_loc, locAuto:_locAuto, matRate:_mrate,
             demoCost:dc.cost, sub:p.type&&p.name?p.type:"", rate:_rate, cost:_cost};
   });
   _ptWhyPop(md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length});
@@ -31603,8 +31605,8 @@ function ptWhyDerived(label){
 function _ptWhyRowPaving(e, unit){
   const q=v=>(""+v).replace(/"/g,"&quot;");
   const mats=`<option value="" ${!e.mat?"selected":""}>Material — pick…</option>`+PAV_MATS.map(m=>`<option ${e.mat===m?"selected":""}>${m}</option>`).join("");
-  const LOCS=[["","Location — AI"],["Front yard","Front yard"],["Rear yard","Rear yard"],["Side yard — left","Side yard — left"],["Side yard — right","Side yard — right"]];
-  const locSel=LOCS.map(l=>`<option value="${q(l[0])}" ${((e.loc||"")===l[0])?"selected":""}>${l[1]}</option>`).join("");
+  const LOCS=[["__auto",e.locAuto?`${e.loc} (auto)`:"Location — from doors"],["Front yard","Front yard"],["Rear yard","Rear yard"],["Side yard — left","Side yard — left"],["Side yard — right","Side yard — right"]];
+  const locSel=LOCS.map(l=>`<option value="${q(l[0])}" ${(((e.locAuto||!e.loc)&&l[0]==="__auto")||(!e.locAuto&&e.loc&&e.loc===l[0]))?"selected":""}>${l[1]}</option>`).join("");
   const rateStr=e.rate>0?(+e.rate).toFixed(2):"";
   const OV=e.ov;
   return `<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,.10)">
@@ -32267,10 +32269,10 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
         s+=cap(c.x+22+a.v.length*3, c.y, a.v+"\u2032", col);
       } else if(a.t==="room"){ const col=sel?"#7CE05E":"#BFE9AE"; s+=cap(c.x, c.y, a.label, col); }
       else if(a.tx!=null){ const e=_toCanvas({x:a.tx,y:a.ty}); const mid={x:(c.x+e.x)/2,y:(c.y+e.y)/2};
-        if(a.t==="door"||a.t==="garage"){ const isG=(a.t==="garage"); const col=sel?"#7CE05E":(isG?"#C58A3A":"#4FA0E0");
+        if(a.t==="door"||a.t==="garage"){ const isG=(a.t==="garage"); const D=isG?{label:"Garage",col:"#C58A3A"}:(PT_DOORTYPES[a.dt]||{label:"Door",col:"#4FA0E0"}); const col=sel?"#7CE05E":D.col;
           s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="'+col+'" stroke-width="'+(isG?8:6)+'" stroke-linecap="round"/>';
           s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="#fff" stroke-width="1.6"/>';
-          s+=cap(mid.x, mid.y-13, (isG?"Garage ":"Door ")+_ptFtText(a), col);
+          s+=cap(mid.x, mid.y-13, D.label+" "+_ptFtText(a), col);
         } else if(a.t==="nbr"){ const col=sel?"#7CE05E":"#E0A93C";
           s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="'+col+'" stroke-width="5" stroke-dasharray="2 7" stroke-linecap="round"/>';
           s+=cap(mid.x, mid.y-12, "Neighbor \u2014 screen", col);
@@ -32461,7 +32463,10 @@ function _ptDockPanel(g){
     +T("ptSnapMaster()","Snaps "+(PT.snapOff?"OFF":"ON")+"  (key \u2018)",_DIC.snap,!PT.snapOff); }
   if(g==="ai"){ const bp=_ptBuildingPoly(); const A=t=>PT._aiTool===t;
     let h=H("AI Tools",'<span class="free">Design intelligence \u00b7 never priced</span>')
-    +S("Openings")+T("ptAiTool('door')","Door",_AI_ICON.door,A("door"),"3\u2032")+T("ptAiTool('garage')","Garage",_AI_ICON.garage,A("garage"),"18\u2032")+T("ptAiTool('window')","Window",_AI_ICON.view,A("window"))
+    +(function(){ const AD=dt=>(PT._aiTool==="door"&&PT._doorType===dt); let d=S("Doors");
+        Object.keys(PT_DOORTYPES).forEach(k=>{ const D=PT_DOORTYPES[k]; d+=T("ptAiDoor('"+k+"')",D.label,_AI_ICON.door,AD(k),D.ft+"\u2032"+(D.face==="front"?" \u00b7 front":D.face==="rear"?" \u00b7 rear":"")); });
+        d+=T("ptAiTool('garage')","Garage",_AI_ICON.garage,A("garage"),"18\u2032 \u00b7 front");
+        return d+S("Windows")+T("ptAiTool('window')","Window",_AI_ICON.view,A("window")); })()
     +S("Sightlines")+T("ptAiTool('slope')","Slope",_AI_ICON.slope,A("slope"))+T("ptAiTool('spot')","Spot elevation",_AI_ICON.spot,A("spot"))
     +S("Rooms")+T("ptAiTool('room:Kitchen')","Kitchen",_AI_ICON.kit,A("room:Kitchen"))+T("ptAiTool('room:Living')","Living",_AI_ICON.liv,A("room:Living"))+T("ptAiTool('room:Bed')","Bedroom",_AI_ICON.bed,A("room:Bed"))
     +S("Context &amp; structure")+T("ptAiTool('nbr')","Neighbor edge",_AI_ICON.nbr,A("nbr"))
@@ -33037,6 +33042,33 @@ function _ptEditBarHTML(){
     + '<button class="aitem" onclick="ptDeleteTap()" title="Delete the selected item"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg><span>Delete</span></button>'
     + '<button class="aitem" onclick="ptSelClear();PT.selGuide=null;try{ptDrawOverlay();ptRenderFloat()}catch(e){}" title="Clear the selection"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Deselect</span></button>';
 }
+// Door types: default width by type + which way they orient the plan (front/garage face the street).
+const PT_DOORTYPES={
+  front:    {label:"Front door",   ft:4,  col:"#4FA0E0", face:"front"},
+  rear:     {label:"Rear door",    ft:3,  col:"#66B45A", face:"rear"},
+  side:     {label:"Side door",    ft:3,  col:"#9B8ED0", face:"side"},
+  double:   {label:"Double door",  ft:6,  col:"#4FA0E0", face:""},
+  sliding:  {label:"Sliding glass",ft:8,  col:"#48B0C4", face:"rear"},
+  accordion:{label:"Accordion",    ft:12, col:"#48B0C4", face:"rear"},
+};
+function ptAiDoor(dt){ PT._doorType=dt; ptAiTool("door"); }
+// Front axis (in canvas px) derived from the doors: front/garage point to the street, rear/sliding/accordion to the back.
+function _ptDoorFrontAxis(){ const Bc=_ptBldgCtrCanvas(); if(!Bc) return null; let sx=0,sy=0,n=0;
+  (PT.ai||[]).forEach(a=>{ if(a.page!==PT.page||a.tx==null) return;
+    const face=(a.t==="garage")?"front":((PT_DOORTYPES[a.dt]||{}).face||"");
+    if(face!=="front"&&face!=="rear") return;
+    const A=_toCanvas({x:a.x,y:a.y}), B=_toCanvas({x:a.tx,y:a.ty}); const mid={x:(A.x+B.x)/2,y:(A.y+B.y)/2};
+    let dx=B.x-A.x, dy=B.y-A.y; const L=Math.hypot(dx,dy)||1; dx/=L; dy/=L; let nx=-dy, ny=dx;   // wall normal
+    if(nx*(mid.x-Bc.x)+ny*(mid.y-Bc.y)<0){ nx=-nx; ny=-ny; }                                     // point outward
+    const sgn=(face==="front")?1:-1; sx+=nx*sgn; sy+=ny*sgn; n++; });
+  if(!n) return null; const L=Math.hypot(sx,sy)||1; return {x:sx/L, y:sy/L}; }
+// Which yard a paving trace sits in — manual p.loc wins, else derived from the doors' front axis. "" if unknown.
+function _ptTraceLoc(p){ if(p&&p.loc) return p.loc;
+  const F=_ptDoorFrontAxis(); if(!F) return ""; const Bc=_ptBldgCtrCanvas(); if(!Bc) return "";
+  let Tc; try{ Tc=_toCanvas(_ptCentroid(p.pts)); }catch(e){ return ""; }
+  const vx=Tc.x-Bc.x, vy=Tc.y-Bc.y; const fc=vx*F.x+vy*F.y, sc=vx*F.y-vy*F.x;   // front comp, side comp
+  if(Math.abs(fc)>=Math.abs(sc)) return fc>=0?"Front yard":"Rear yard";
+  return sc>=0?"Side yard — right":"Side yard — left"; }
 // place an AI annotation (one-tap for spot/room; two-tap origin+direction for vectors)
 function _ptPlaceAi(p,c){
   const t=PT._aiTool; if(!PT.ai) PT.ai=[];
@@ -33045,9 +33077,9 @@ function _ptPlaceAi(p,c){
   if(t&&t.indexOf("room:")===0){ ptSnap(); PT.ai.push({t:"room",x:p.x,y:p.y,label:t.slice(5),page:PT.page}); return _aiDone(); }
   if(t==="door"||t==="garage"||t==="window"){        // one tap: place default width, aligned to the nearest wall
     const e=_ptNearestEdge(c); const at=e?e.px:c; let dir=e?e.dir:{x:1,y:0}; const dl=Math.hypot(dir.x,dir.y)||1; dir={x:dir.x/dl,y:dir.y/dl};
-    const mat=_toPdf(at); const half=((t==="garage"?18:3)/2)*_ptPxPerFt(mat);
+    const mat=_toPdf(at); const dwFt=(t==="garage")?18:((PT_DOORTYPES[PT._doorType]&&PT_DOORTYPES[PT._doorType].ft)||3); const half=(dwFt/2)*_ptPxPerFt(mat);
     const a1=_toPdf({x:at.x-dir.x*half,y:at.y-dir.y*half}), a2=_toPdf({x:at.x+dir.x*half,y:at.y+dir.y*half});
-    ptSnap(); const o={t:t,x:a1.x,y:a1.y,tx:a2.x,ty:a2.y,page:PT.page}; if(t==="window") o.imp=1; PT.ai.push(o);
+    ptSnap(); const o={t:t,x:a1.x,y:a1.y,tx:a2.x,ty:a2.y,page:PT.page}; if(t==="window") o.imp=1; if(t==="door") o.dt=PT._doorType||"front"; PT.ai.push(o);
     return _aiDone();
   }
   if(!PT._aiStart){ PT._aiStart={x:p.x,y:p.y}; PT._aiCursor=null; ptDrawOverlay(); return; }   // first tap (slope / neighbor)
