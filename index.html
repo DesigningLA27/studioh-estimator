@@ -2434,6 +2434,10 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkautobar .aitem.ortho.on{background:#5BA34A;color:#0E2408}
 .tkautobar .aitem.ortho.on svg{stroke:#0E2408}
 .tkautobar .aitem.ortho.on:hover{background:#69B657;color:#0E2408}
+#pt-snap{position:absolute;width:15px;height:15px;transform:translate(-50%,-50%);pointer-events:none;z-index:8;
+  border:2.5px solid #FFD400;background:rgba(255,212,0,.20);box-shadow:0 0 0 1.5px rgba(0,0,0,.45),0 0 8px rgba(255,212,0,.5)}
+#pt-snap.edge{border-radius:50%}
+#pt-snap.corner{border-radius:2px;width:14px;height:14px}
 .tkautobar .zpill,#pt-zpill{position:fixed;z-index:10050;} #pt-zpill{transform:none !important;left:0;bottom:auto;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);border:0;cursor:pointer;
   padding:5px 13px;border-radius:13px;white-space:nowrap;font:700 11.5px var(--tkf);letter-spacing:.02em;
   color:#0E2408;background:#5BA34A;box-shadow:0 9px 22px -6px rgba(0,0,0,.65)}
@@ -4326,7 +4330,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v959</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v960</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27862,9 +27866,11 @@ function ptMapBuild(center, zoom){
   PT._ov.setMap(PT.map);
   let _rq=0;
   const redraw=()=>{ if(_rq) return;                      // one repaint per frame, not per event
-    _rq=requestAnimationFrame(()=>{ _rq=0; try{ ptRenderPage(); }catch(e){} }); };
+    _rq=requestAnimationFrame(()=>{ _rq=0; try{ _ptSnapMarker(null); }catch(e){} try{ ptRenderPage(); }catch(e){} }); };
   ["bounds_changed","zoom_changed","drag","idle"].forEach(ev=>{ try{ PT.map.addListener(ev,redraw); }catch(e){} });
   try{ PT.map.addListener("click",e=>ptMapClick(e)); }catch(e){}
+  try{ PT.map.addListener("mousemove",e=>ptLiveSnapMove(e)); }catch(e){}
+  try{ const sw=document.getElementById("pt-stagewrap"); if(sw) sw.addEventListener("mouseleave",()=>_ptSnapMarker(null)); }catch(e){}
   try{ google.maps.event.addListenerOnce(PT.map,"idle",()=>{ PT._mapReady=true; redraw(); }); }catch(e){}
   ptPenBind(); ptMapCursor();
 }
@@ -28725,7 +28731,7 @@ function _ptParseScale(t){ if(!t) return null; t=t.replace(/\s+/g," ");
   // engineering: 1" = 20'  (1 paper inch = N feet -> paper inches per foot = 1/N)
   m=t.match(/1\s*["″]?\s*=\s*(\d+)\s*'/); if(m){ const n=parseFloat(m[1]); if(n>0) return 1/n; }
   return null; }
-function ptClose(){ PT.open=false; try{ const z=document.getElementById("pt-zpill"); if(z) z.remove(); }catch(e){}
+function ptClose(){ PT.open=false; try{ const z=document.getElementById("pt-zpill"); if(z) z.remove(); }catch(e){} try{ const sm=document.getElementById("pt-snap"); if(sm) sm.remove(); }catch(e){}
   try{ if(PT._ov) PT._ov.setMap(null); }catch(e){}
   PT._ov=null; PT.map=null; PT._mapReady=false;
   // MUST fully exit fullscreen BEFORE removing the fullscreen element, or the browser
@@ -28778,7 +28784,9 @@ function ptAddAt(p,c,e){
       if(!isNaN(ft)&&ft>0){ PT.ppf=distPdf/ft; } PT.calibrating=false; PT.calib=[]; ptRenderModal(); }
     ptDrawOverlay(); ptUpdateInfo(); return; }
   const kind=_ptKind(PT.mode);
-  if(_orthoOn() && kind!=="count" && PT.cur.length>=2){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
+  let _snapped=false;
+  if(kind!=="count"){ const sn=_ptSnapTarget(c); if(sn){ c={x:sn.x,y:sn.y}; p=_toPdf(c); _snapped=true; } }
+  if(!_snapped && _orthoOn() && kind!=="count" && PT.cur.length>=2){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
   if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); if(PT.mode==="light") m.ctrl=ptLightCtrl(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
   if(kind==="linear"){ if(PT.cur.length>=2){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
     ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); return; }
@@ -28832,7 +28840,7 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
     } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
-function ptSetMode(m){ if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); try{ ptRenderAutoBar(); }catch(e){} ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
+function ptSetMode(m){ try{ _ptSnapMarker(null); }catch(e){} if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); try{ ptRenderAutoBar(); }catch(e){} ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
 function ptSetSubtype(v){
   if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):","");
     const L=parseFloat(l),W=parseFloat(w);
@@ -32112,6 +32120,44 @@ function _orthoSnapCanvas(c){
   return (Math.abs(pa)>=Math.abs(pb))
     ? {x:L.x+ax.x*pa, y:L.y+ax.y*pa}
     : {x:L.x+ay.x*pb, y:L.y+ay.y*pb};
+}
+// ── SNAP TO NEARBY GEOMETRY ──────────────────────────────────────────────────
+// While tracing, find the nearest corner (square) or line (circle) of any other
+// zone within a few px so a new shape locks cleanly to what's already drawn.
+function _ptSnapTarget(c){
+  if(typeof PT==="undefined"||!PT.open) return null;
+  const kind=_ptKind(PT.mode); if(kind==="count") return null;
+  const THC=11, THE=8;                                   // corner reaches a touch further than edge
+  let bC=null,bCd=THC, bE=null,bEd=THE;
+  const consider=(cp,closed)=>{
+    cp.forEach(q=>{ const d=Math.hypot(q.x-c.x,q.y-c.y); if(d<bCd){ bCd=d; bC=q; } });
+    const n=cp.length, lim=closed?n:n-1;
+    for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy; if(L2<1) continue;
+      let t=((c.x-a.x)*vx+(c.y-a.y)*vy)/L2; t=Math.max(0,Math.min(1,t));
+      const px=a.x+t*vx, py=a.y+t*vy, d=Math.hypot(px-c.x,py-c.y); if(d<bEd){ bEd=d; bE={x:px,y:py}; } }
+  };
+  (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||PT.hidden[p.mode]||!p.pts||p.pts.length<1) return;
+    consider(p.pts.map(_toCanvas), p.kind!=="linear"); });
+  if(PT.cur&&PT.cur.length>=2){ const q=_toCanvas(PT.cur[0]);           // let it snap-close to its own start
+    const d=Math.hypot(q.x-c.x,q.y-c.y); if(d<bCd){ bCd=d; bC=q; } }
+  if(bC) return {x:bC.x, y:bC.y, type:"corner"};
+  if(bE) return {x:bE.x, y:bE.y, type:"edge"};
+  return null;
+}
+function _ptSnapMarker(sn){
+  const host=document.getElementById("pt-stagewrap");
+  let m=document.getElementById("pt-snap");
+  if(!sn||!host||!ptMapLive()){ if(m) m.style.display="none"; return; }
+  if(!m){ m=document.createElement("div"); m.id="pt-snap"; host.appendChild(m); }
+  else if(m.parentNode!==host) host.appendChild(m);
+  m.className=(sn.type==="corner")?"corner":"edge";
+  m.style.display="block"; m.style.left=sn.x+"px"; m.style.top=sn.y+"px";
+}
+function ptLiveSnapMove(e){
+  if(!ptMapLive()||!e||!e.latLng) return;
+  if(PT.selectMode||PT.stamp||PT.calibrating||_ptKind(PT.mode)==="count"||PT._roofPick){ _ptSnapMarker(null); return; }
+  const sn=_ptSnapTarget(_llToPx({x:e.latLng.lng(), y:e.latLng.lat()}));
+  _ptSnapMarker(sn);
 }
 function _ptAutoBarHTML(){
   const active=(typeof PT!=="undefined")?PT.mode:null;
