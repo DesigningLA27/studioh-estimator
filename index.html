@@ -4334,7 +4334,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v967</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v968</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28735,7 +28735,7 @@ function _ptParseScale(t){ if(!t) return null; t=t.replace(/\s+/g," ");
   // engineering: 1" = 20'  (1 paper inch = N feet -> paper inches per foot = 1/N)
   m=t.match(/1\s*["″]?\s*=\s*(\d+)\s*'/); if(m){ const n=parseFloat(m[1]); if(n>0) return 1/n; }
   return null; }
-function ptClose(){ PT.open=false; try{ const z=document.getElementById("pt-zpill"); if(z) z.remove(); }catch(e){} try{ const sm=document.getElementById("pt-snap"); if(sm) sm.remove(); }catch(e){}
+function ptClose(){ PT.open=false; PT._fillPick=false; try{ const z=document.getElementById("pt-zpill"); if(z) z.remove(); }catch(e){} try{ const sm=document.getElementById("pt-snap"); if(sm) sm.remove(); }catch(e){}
   try{ if(PT._ov) PT._ov.setMap(null); }catch(e){}
   PT._ov=null; PT.map=null; PT._mapReady=false;
   // MUST fully exit fullscreen BEFORE removing the fullscreen element, or the browser
@@ -28785,6 +28785,7 @@ function ptCanvasClick(e){ if(!PT.doc&&!ptMapLive()) return; const c=ptCanvasXY(
 // p = a point in whatever the base measures in; c = the same point in screen pixels.
 function ptAddAt(p,c,e){
   if(PT._roofPick){ try{ _roofPickAt(p); }catch(err){ BUILD_BUSY=false; try{ _toast("Pick failed: "+(err&&err.message||err),"#B23F3C"); }catch(_){}} return; }
+  if(PT._fillPick){ try{ _ptDoFill(c); }catch(err){ PT._fillPick=false; try{ ptRenderAutoBar(); }catch(_){} } return; }
   if(PT.stamp) return;                 // you are positioning something
   if(PT.selectMode && !PT.calibrating){ const hit=_ptHitTest(p,c);
     // Canvas-first layouts keep the selection live so the corner handles stay up,
@@ -28852,7 +28853,7 @@ function ptFinishPoly(){ const kind=_ptKind(PT.mode); const md=_ptMode(PT.mode);
     } }
   PT.cur=[]; ptDrawOverlay(); ptUpdateInfo(); }
 function ptUndo(){ ptUndoAct(); }
-function ptSetMode(m){ try{ _ptSnapMarker(null); }catch(e){} if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); try{ ptRenderAutoBar(); }catch(e){} ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
+function ptSetMode(m){ PT._fillPick=false; try{ _ptSnapMarker(null); }catch(e){} if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null; ptMapCursor(); const kind=_ptKind(PT.mode); if(kind!=="count" && PT.cur.length>= (kind==="linear"?2:3)){ ptSnap(); ptFinishPoly(); } else { PT.cur=[]; } PT.mode=m; const st=document.getElementById("pt-stage"); const sl=st?st.scrollLeft:0, stp=st?st.scrollTop:0; ptRenderModal(); try{ ptRenderAutoBar(); }catch(e){} ptRenderPage().then(()=>{ const s2=document.getElementById("pt-stage"); if(s2){ s2.scrollLeft=sl; s2.scrollTop=stp; } }); }
 function ptSetSubtype(v){
   if(v==="Custom…"){ const l=prompt("Stepper length (inches):",""); const w=prompt("Stepper width (inches):","");
     const L=parseFloat(l),W=parseFloat(w);
@@ -32182,6 +32183,75 @@ function ptLiveSnapMove(e){
   const sn=_ptSnapTarget(_llToPx({x:e.latLng.lng(), y:e.latLng.lat()}));
   _ptSnapMarker(sn);
 }
+// ── FILL (BO / boundary) ─────────────────────────────────────────────────────
+// Draw lines that close a gap, tap Fill, tap inside — it walks the smallest loop
+// of lines/edges around that point and drops it as a filled area polygon.
+function _boSegInt(a,b,c,d){
+  const rx=b.x-a.x, ry=b.y-a.y, sx=d.x-c.x, sy=d.y-c.y;
+  const rxs=rx*sy-ry*sx; if(Math.abs(rxs)<1e-9) return null;
+  const t=((c.x-a.x)*sy-(c.y-a.y)*sx)/rxs, u=((c.x-a.x)*ry-(c.y-a.y)*rx)/rxs;
+  if(t<-1e-9||t>1+1e-9||u<-1e-9||u>1+1e-9) return null;
+  return {x:a.x+t*rx, y:a.y+t*ry};
+}
+function _boParam(a,b,p){ const dx=b.x-a.x, dy=b.y-a.y, L=dx*dx+dy*dy; return L?((p.x-a.x)*dx+(p.y-a.y)*dy)/L:0; }
+function _boArea(r){ let s=0; for(let i=0;i<r.length;i++){ const j=(i+1)%r.length; s+=r[i].x*r[j].y-r[j].x*r[i].y; } return s/2; }
+function _boInRing(p,r){ let inside=false; for(let i=0,j=r.length-1;i<r.length;j=i++){
+  const xi=r[i].x,yi=r[i].y,xj=r[j].x,yj=r[j].y;
+  if(((yi>p.y)!==(yj>p.y)) && (p.x<(xj-xi)*(p.y-yi)/(yj-yi)+xi)) inside=!inside; } return inside; }
+// every edge on the page (area rings closed, linear open) in canvas px
+function _ptBoSegs(){
+  const segs=[];
+  (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||PT.hidden[p.mode]||!p.pts||p.pts.length<2) return;
+    const cp=p.pts.map(_toCanvas), n=cp.length, closed=(p.kind!=="linear"), lim=closed?n:n-1;
+    for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); } });
+  return segs;
+}
+// smallest enclosing face (ring in canvas px) around the seed, or null if open
+function _boFace(seed, segs, eps){
+  eps=eps||1.4; const N=segs.length; const splits=segs.map(()=>[]);
+  for(let i=0;i<N;i++){ splits[i].push({t:0,pt:segs[i][0]}); splits[i].push({t:1,pt:segs[i][1]}); }
+  for(let i=0;i<N;i++) for(let j=i+1;j<N;j++){ const X=_boSegInt(segs[i][0],segs[i][1],segs[j][0],segs[j][1]); if(!X) continue;
+    splits[i].push({t:_boParam(segs[i][0],segs[i][1],X),pt:X}); splits[j].push({t:_boParam(segs[j][0],segs[j][1],X),pt:X}); }
+  const nodes=new Map(), key=p=>Math.round(p.x/eps)+"|"+Math.round(p.y/eps);
+  const node=p=>{ const k=key(p); let n=nodes.get(k); if(!n){ n={x:p.x,y:p.y,k:k,nb:new Set()}; nodes.set(k,n); } return n; };
+  for(let i=0;i<N;i++){ const arr=splits[i].sort((a,b)=>a.t-b.t);
+    for(let a=0;a<arr.length-1;a++){ const A=node(arr[a].pt), B=node(arr[a+1].pt); if(A.k!==B.k){ A.nb.add(B.k); B.nb.add(A.k); } } }
+  nodes.forEach(n=>{ n.adj=[...n.nb].map(k=>{ const m=nodes.get(k); return {k,ang:Math.atan2(m.y-n.y,m.x-n.x)}; }); });
+  const nextHalf=(u,v)=>{ const nv=nodes.get(v), nu=nodes.get(u); const a0=Math.atan2(nu.y-nv.y,nu.x-nv.x);
+    let bk=null,bd=Infinity; for(const e of nv.adj){ let d=a0-e.ang; while(d<=1e-9) d+=2*Math.PI; if(d<bd){bd=d;bk=e.k;} } return bk; };
+  const seen=new Set(), faces=[];
+  nodes.forEach(n=>{ n.adj.forEach(e=>{ const u0=n.k,v0=e.k; if(seen.has(u0+">"+v0)) return;
+    const ring=[]; let u=u0,v=v0,g=0;
+    do{ seen.add(u+">"+v); ring.push(u); const w=nextHalf(u,v); if(w==null) break; u=v; v=w; } while(!(u===u0&&v===v0)&&g++<200000);
+    if(ring.length>=3) faces.push(ring.map(k=>nodes.get(k))); }); });
+  let best=null,bestA=Infinity;
+  faces.forEach(r=>{ const a=Math.abs(_boArea(r)); if(a<1) return; if(_boInRing(seed,r)&&a<bestA){ bestA=a; best=r; } });
+  return best ? best.map(n=>({x:n.x,y:n.y})) : null;
+}
+function ptFillMode(){
+  if(typeof PT==="undefined"||!PT.open) return;
+  PT._fillPick=!PT._fillPick;
+  if(PT._fillPick){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; }
+  try{ ptRenderAutoBar(); }catch(e){} try{ ptMapCursor&&ptMapCursor(); }catch(e){}
+  if(PT._fillPick){ const m=(_ptKind(PT.mode)==="area")?_ptMode(PT.mode).label:"Paving";
+    try{ _toast("Fill: tap inside a space fully closed by lines/edges \u2014 it becomes "+m+". Snap the line ends to the edges so there are no gaps.","#2F5B23"); }catch(e){} }
+}
+function _ptDoFill(c){
+  PT._fillPick=false; try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); }catch(e){}
+  const segs=_ptBoSegs();
+  if(segs.length<3){ try{ _toast("Draw or trace some edges first.","#B23F3C"); }catch(e){} return; }
+  const ring=_boFace(c, segs, 1.4);
+  if(!ring||ring.length<3){ try{ _toast("No enclosed area there \u2014 make sure the lines fully close the space (snap the ends to the edges).","#B23F3C"); }catch(e){} return; }
+  const mode=(_ptKind(PT.mode)==="area")?PT.mode:"paving";
+  const pts=ring.map(q=>_toPdf(q));
+  ptSnap();
+  let sf=0; try{ sf=_ptPolySF(pts); }catch(e){}
+  const np={mode, kind:"area", pts, sf, type:_ptCurType(mode)||"", name:"", zone:"", phase:"", tags:"", page:PT.page, _fill:true};
+  PT.polys.push(np);
+  PT.selectMode=true; PT.selPoly=PT.polys.length-1; PT._selStart=sf;
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){}
+  try{ _toast("Filled "+_ptMode(mode).label+" \u00b7 "+Math.round(sf).toLocaleString()+" SF","#2F5B23"); }catch(e){}
+}
 // ── FLATTEN & ROTATE ─────────────────────────────────────────────────────────
 // Snapshot the live view to a high-res still, spin it so the house sits square,
 // trace with the plan up-and-down. SF is untouched: measurements on a still are
@@ -32255,7 +32325,10 @@ function _ptAutoBarHTML(){
   const ortho='<button class="aitem ortho'+(_orthoOn()?' on':'')+'" title="Square 90\u00b0 corners \u2014 tap to toggle on/off" onclick="event.stopPropagation();ptToggleOrtho()">'
     + '<svg viewBox="0 0 24 24"><path d="M7 4v13h13"/><path d="M7 11h6v6"/></svg><span>90\u00b0</span></button>'
     + '<span class="asep"></span>';
-  return '<span class="albl">Tools</span>' + ortho
+  const fill='<button class="aitem'+((typeof PT!=="undefined"&&PT._fillPick)?' on':'')+'" title="Fill (BO): close a gap with lines, tap Fill, then tap inside the space" onclick="event.stopPropagation();ptFillMode()">'
+    + '<svg viewBox="0 0 24 24"><path d="M5 11 11 5l6 6-6 6-6-6z"/><path d="M11 5 8.5 2.5"/><path d="M18.6 14c.8 1 1.4 2 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-.8.6-1.8 1.4-2.8z"/></svg><span>Fill</span></button>'
+    + '<span class="asep"></span>';
+  return '<span class="albl">Tools</span>' + ortho + fill
     + PT_AUTOFILL.map(a=>{
       const on=(active===a.mode), af=(a.assist==="autofill");
       return '<button class="aitem'+(af?' af':'')+(on?' on':'')+'" data-mode="'+a.mode+'" title="'+escAttr(a.label)+'" onclick="ptPickZone(\''+a.k+'\')">'
