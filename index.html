@@ -4334,7 +4334,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v966</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v967</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28910,8 +28910,9 @@ async function ptFitPage(){ if(ptMapLive()) return;   // the map owns its own fr
   if(_ptFlatOn()){                          // fill the stage (cover) so the still's edges never show
     const CW=(st?st.clientWidth:1000), CH=(st?st.clientHeight:700);
     const th=(PT.flatRot||0)*Math.PI/180, ct=Math.abs(Math.cos(th)), sn=Math.abs(Math.sin(th));
-    let s=Math.max((CW*ct+CH*sn)/vp1.width, (CW*sn+CH*ct)/vp1.height)*1.02;   // 2% over-cover, no edge sliver
-    if(!isFinite(s)||s<=0) s=1; PT.scale=Math.max(0.12,Math.min(3,s)); PT._fitScale=PT.scale; return; }
+    let s=Math.max((CW*ct+CH*sn)/vp1.width, (CW*sn+CH*ct)/vp1.height)*1.35;   // 35% over-cover -> pan room all round
+    const maxSc=3900/Math.max(vp1.width,vp1.height);                            // keep the canvas under the ~4096 limit
+    if(!isFinite(s)||s<=0) s=1; PT.scale=Math.max(0.12,Math.min(maxSc,s)); PT._fitScale=PT.scale; return; }
   let s=Math.min(cw/vp1.width, ch/vp1.height); if(!isFinite(s)||s<=0) s=1; PT.scale=Math.max(0.12,Math.min(3,s)); PT._fitScale=PT.scale; }
 async function ptPage(d){ const n=PT.page+d; if(n<1||n>PT.numPages) return; PT.page=n; PT.cur=[]; await ptRenderPage(); ptRenderModal(); await ptRenderPage(); }
 function ptDelTree(i){ ptSnap(); PT.trees.splice(i,1); ptDrawOverlay(); ptUpdateInfo(); }
@@ -32052,7 +32053,7 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       </div>`:''}
       <div id="pt-stagewrap" style="flex:1;position:relative;display:flex;overflow:hidden">
       ${PT.live?`<div id="pt-map" style="position:absolute;inset:0;background:#3a4030"></div>
-      <svg id="pt-svg" style="position:absolute;inset:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>`:`<div id="pt-stage" style="flex:1;overflow:${_ptFlatOn()?'hidden':'auto'};background:#3a4030;position:relative;display:flex;align-items:${_ptFlatOn()?'center':'safe center'};justify-content:${_ptFlatOn()?'center':'safe center'};padding:${_ptFlatOn()?'0':'1rem'}">
+      <svg id="pt-svg" style="position:absolute;inset:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>`:`<div id="pt-stage" style="flex:1;overflow:auto;background:#3a4030;position:relative;display:${_ptFlatOn()?'block':'flex'};align-items:safe center;justify-content:safe center;padding:${_ptFlatOn()?'0':'1rem'}">
         <div style="position:relative;line-height:0">
           <canvas id="pt-canvas" onpointerdown="ptDown(event)" onpointermove="ptMove(event)" onpointerup="ptUp(event)" style="cursor:crosshair;box-shadow:0 4px 24px rgba(0,0,0,.5);touch-action:none"></canvas>
           <svg id="pt-svg" style="position:absolute;top:0;left:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>
@@ -32203,7 +32204,7 @@ async function ptFlatten(){
   const center={lat:+PT.satBase.center.lat, lng:+PT.satBase.center.lng};
   try{ _toast("Capturing a high-res still (with the neighbours)…","#2F5B23"); }catch(e){}
   const g=_satGridFor(); const grid={gx:Math.min(4,g.gx+1), gy:Math.min(4,g.gy+1)};   // wider = neighbours in frame
-  let r; try{ r=await _fetchSatStitched(center, 21, grid, 2); }catch(e){ PT._flatBusy=false; alert("Couldn't capture the still."); return; }
+  let r; try{ r=await _fetchSatStitched(center, 20, grid, 2); }catch(e){ PT._flatBusy=false; alert("Couldn't capture the still."); return; }
   const sb=r.sb;
   const mpp=156543.03392*Math.cos(center.lat*Math.PI/180)/Math.pow(2,sb.zoom)/sb.scale;
   const ppf=1/(mpp*3.28084);
@@ -32218,11 +32219,14 @@ async function ptFlatten(){
   PT.flatRot=_ptSquareRot();
   PT._flatBusy=false;
   ptRenderModal();                                  // swap the map stage for the still canvas
-  try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){}
+  try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ _ptFlatCenter(); }catch(e){}
   try{ _toast("Flattened · house squared. ⟲ rotates 90°, ◱ returns to the live map.","#2F5B23"); }catch(e){}
 }
 function ptRotate90(){ if(!_ptFlatOn()) return; PT.flatRot=(((PT.flatRot||0)+90)%360);
-  ptFitPage().then(ptRenderPage); }
+  ptFitPage().then(()=>ptRenderPage().then(()=>{ try{ _ptFlatCenter(); }catch(e){} })); }
+function _ptFlatCenter(){ const st=document.getElementById("pt-stage"); if(!st) return;
+  st.scrollLeft=Math.max(0,(st.scrollWidth-st.clientWidth)/2);
+  st.scrollTop =Math.max(0,(st.scrollHeight-st.clientHeight)/2); }
 async function ptReturnLive(){ PT.flat=false; PT.flatRot=0;
   try{ await ptOpenSatellite(true); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptRenderPage(); }catch(e){} }
 function _ptRenderFlatBar(){
