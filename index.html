@@ -4359,7 +4359,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v984</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v985</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28626,8 +28626,10 @@ function ptMapClick(e){ if(!e||!e.latLng) return;
   if(PT._penTapAt && Date.now()-PT._penTapAt<500){ PT._penTapAt=0; return; }   // already placed by the pen
   const p={x:e.latLng.lng(), y:e.latLng.lat()};
   const c=_llToPx(p);
-  if(PT.selectMode){ const hit=_ptHitTest(p,c);
-    if(hit&&hit.type==="poly") ptSelect(hit.idx);
+  if(PT.selectMode){ const aiH=_ptAiHit(c); const gi=(aiH<0)?_ptGuideHit(c):-1; const hit=_ptHitTest(p,c);
+    if(aiH>=0){ PT.selAi=aiH; PT.selGuide=null; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+    else if(gi>=0){ PT.selGuide=gi; PT.selAi=null; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+    else if(hit&&hit.type==="poly") ptSelect(hit.idx);
     else if(hit) ptEditTree(hit.idx);
     else ptSelClear();
     return; }
@@ -32016,6 +32018,17 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
           s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="'+col+'" stroke-width="5" stroke-dasharray="2 7" stroke-linecap="round"/>';
           s+=cap(mid.x, mid.y-12, "Neighbor \u2014 screen", col);
         } else if(a.t==="slope"){ const col=sel?"#7CE05E":"#E86A4F"; s+=arrow(c,e,col,6.5); s+=cap(mid.x, mid.y-12, (a.pct||"")+"% \u2193", col); }
+        else if(a.t==="window"){ const col=sel?"#7CE05E":"#7FD0F5";
+          // the opening on the wall
+          s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="'+col+'" stroke-width="6.5" stroke-linecap="round"/>';
+          s+='<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+e.x.toFixed(1)+'" y2="'+e.y.toFixed(1)+'" stroke="#fff" stroke-width="1.9"/>';
+          // a soft view cone pointing outward, sized by importance (imp)
+          let dx=e.x-c.x, dy=e.y-c.y; const L=Math.hypot(dx,dy)||1; dx/=L; dy/=L; let px=-dy, py=dx;
+          const bc=_ptBldgCtrCanvas(); if(bc){ if(px*(mid.x-bc.x)+py*(mid.y-bc.y)<0){ px=-px; py=-py; } }
+          const imp=a.imp||1, depth=L*(1.1+0.95*imp), sprd=L*0.62;
+          const t1x=mid.x+px*depth-dx*sprd, t1y=mid.y+py*depth-dy*sprd, t2x=mid.x+px*depth+dx*sprd, t2y=mid.y+py*depth+dy*sprd;
+          s+='<path d="M'+mid.x.toFixed(1)+' '+mid.y.toFixed(1)+' L'+t1x.toFixed(1)+' '+t1y.toFixed(1)+' L'+t2x.toFixed(1)+' '+t2y.toFixed(1)+' z" fill="'+col+'" fill-opacity="0.16" stroke="'+col+'" stroke-width="1.3" stroke-opacity="0.55"/>';
+        }
         else { const col=sel?"#7CE05E":"#7CE05E"; s+=arrow(e,c,col,5); s+=cap(e.x, e.y+14, "View", col); }
       }
     });
@@ -32492,7 +32505,11 @@ document.addEventListener("keydown",function(e){
   } else if(e.key==="Enter"){
     const kind=_ptKind(PT.mode);
     if(PT.cur&&PT.cur.length>=(kind==="linear"?2:3)){ e.preventDefault(); try{ ptFinishPoly(); }catch(_){} }
-  }
+  } else if((e.key==="Delete"||e.key==="Backspace")){
+    if(PT.selAi!=null){ e.preventDefault(); try{ ptDelSelAi(); }catch(_){} }
+    else if(PT.selGuide!=null){ e.preventDefault(); try{ ptDelSelGuide(); }catch(_){} }
+    else if(PT.selPoly!=null){ e.preventDefault(); try{ ptSelDelete(); }catch(_){} }
+  } else if((e.metaKey||e.ctrlKey)&&(e.key==="z"||e.key==="Z")){ e.preventDefault(); if(e.shiftKey){ try{ ptRedoAct(); }catch(_){} } else { try{ ptUndoAct(); }catch(_){} } }
 });
 function ptFillMode(){
   if(typeof PT==="undefined"||!PT.open) return;
@@ -32611,8 +32628,8 @@ function _aiTool(){ return (typeof PT!=="undefined")?PT._aiTool:null; }
 function ptAiTool(t){ PT.toolset="ai"; PT._aiTool=(PT._aiTool===t)?null:t; PT._aiStart=null; PT._aiCursor=null;
   PT.selectMode=false; PT.selPoly=null; PT.selGuide=null; PT.cur=[];
   try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); ptDrawOverlay(); }catch(e){}
-  const one=(t==="spot"||(t&&t.indexOf("room:")===0));
-  if(PT._aiTool){ try{ _toast(one?"Tap where it goes.":(t==="slope"?"Tap the high point, then the low point (arrow = downhill).":"Tap the start, then drag/second-tap for direction &amp; length."),"#2F5B23"); }catch(e){} }
+  const wall=(t==="door"||t==="garage"||t==="window");
+  if(PT._aiTool){ try{ _toast(wall?"Tap on a wall \u2014 it snaps to the line and drops a default-size mark (this tool stays on).":(t==="slope"?"Tap the high point, then the low point (arrow = downhill).":(t==="nbr"?"Tap the start, then the end of the neighbour edge.":"Tap where it goes.")),"#2F5B23"); }catch(e){} }
 }
 const _AI_ICON={ door:'<rect x="6" y="3" width="12" height="18" rx="1"/><circle cx="14.5" cy="12" r="1"/>',
   view:'<path d="M12 5c5 0 9 7 9 7s-4 7-9 7-9-7-9-7 4-7 9-7z"/><circle cx="12" cy="12" r="2.5"/>',
@@ -32630,7 +32647,7 @@ function _ptAiBarHTML(){
   const bp=_ptBuildingPoly();
   const ffe=bp?('<button class="aitem" onclick="event.stopPropagation();ptSetFFE()" title="Building finished-floor elevation"><svg viewBox="0 0 24 24"><path d="M4 21V9l8-5 8 5v12"/><path d="M8 21v-6h8v6"/></svg><span>FFE '+(bp.ffe!=null?bp.ffe+"\u2032":"\u2013")+'</span></button>'):'';
   return '<span class="albl">AI</span>'
-    + b("door","Door",_AI_ICON.door) + b("garage","Garage",_AI_ICON.garage) + b("view","Window",_AI_ICON.view)
+    + b("door","Door",_AI_ICON.door) + b("garage","Garage",_AI_ICON.garage) + b("window","Window",_AI_ICON.view)
     + '<span class="asep"></span>'
     + b("slope","Slope",_AI_ICON.slope) + b("spot","Spot elev",_AI_ICON.spot)
     + '<span class="asep"></span>'
@@ -32651,14 +32668,29 @@ function _ptPlaceAi(p,c){
   if(t==="spot"){ const v=prompt("Spot elevation (e.g. 12.5, or +2 relative to datum):"); if(v==null) return;
     ptSnap(); PT.ai.push({t:"spot",x:p.x,y:p.y,v:(""+v).trim(),page:PT.page}); return _aiDone(); }
   if(t&&t.indexOf("room:")===0){ ptSnap(); PT.ai.push({t:"room",x:p.x,y:p.y,label:t.slice(5),page:PT.page}); return _aiDone(); }
-  if(!PT._aiStart){ PT._aiStart={x:p.x,y:p.y}; PT._aiCursor=null; ptDrawOverlay(); return; }   // first tap
+  if(t==="door"||t==="garage"||t==="window"){        // one tap: place default width, aligned to the nearest wall
+    const e=_ptNearestEdge(c); const at=e?e.px:c; let dir=e?e.dir:{x:1,y:0}; const dl=Math.hypot(dir.x,dir.y)||1; dir={x:dir.x/dl,y:dir.y/dl};
+    const mat=_toPdf(at); const half=((t==="garage"?18:3)/2)*_ptPxPerFt(mat);
+    const a1=_toPdf({x:at.x-dir.x*half,y:at.y-dir.y*half}), a2=_toPdf({x:at.x+dir.x*half,y:at.y+dir.y*half});
+    ptSnap(); const o={t:t,x:a1.x,y:a1.y,tx:a2.x,ty:a2.y,page:PT.page}; if(t==="window") o.imp=1; PT.ai.push(o);
+    return _aiDone();
+  }
+  if(!PT._aiStart){ PT._aiStart={x:p.x,y:p.y}; PT._aiCursor=null; ptDrawOverlay(); return; }   // first tap (slope / neighbor)
   const a=PT._aiStart; PT._aiStart=null; let ex={};
   if(t==="slope"){ const pct=prompt("Slope grade (%)  e.g. 8:"); if(pct==null){ return _aiDone(); } ex.pct=(""+pct).trim(); }
-  if(t==="door") p=_ptExtendToMin(a,p,3); else if(t==="garage") p=_ptExtendToMin(a,p,8); else if(t==="view") p=_ptExtendToMin(a,p,8);
   ptSnap(); PT.ai.push(Object.assign({t:t,x:a.x,y:a.y,tx:p.x,ty:p.y,page:PT.page},ex));
   _aiDone();
 }
 function _aiDone(){ PT._aiCursor=null; try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
+function _ptNearestEdge(c){ let best=null, bd=44;
+  (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||p.kind!=="area"||!p.pts||p.pts.length<2||PT.hidden[p.mode]) return;
+    const cp=p.pts.map(_toCanvas), n=cp.length;
+    for(let i=0;i<n;i++){ const a=cp[i], b=cp[(i+1)%n]; const d=_ptSegDist(c.x,c.y,a.x,a.y,b.x,b.y);
+      const w=(p.mode==="building")?d-8:d;                 // prefer the building wall
+      if(w<bd){ bd=w; const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy||1; let t=((c.x-a.x)*vx+(c.y-a.y)*vy)/L2; t=Math.max(0,Math.min(1,t));
+        best={ px:{x:a.x+t*vx,y:a.y+t*vy}, dir:{x:vx,y:vy} }; } } });
+  return best; }
+function _ptBldgCtrCanvas(){ const b=_ptBuildingPoly(); if(!b||!b.pts) return null; try{ return _toCanvas(_ptCentroid(b.pts)); }catch(e){ return null; } }
 function _ptAiHit(c){ const tol=15; let best=-1, bd=tol;
   (PT.ai||[]).forEach((a,i)=>{ if(a.page!==PT.page) return;
     const p0=_toCanvas({x:a.x,y:a.y}); let d=Math.hypot(c.x-p0.x,c.y-p0.y);
