@@ -4427,7 +4427,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1004</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1005</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28923,7 +28923,7 @@ async function ptRenderPage(){
   const ctx=cv.getContext("2d"); await page.render({canvasContext:ctx,viewport:vp}).promise;
   const svg=document.getElementById("pt-svg"); if(svg){ svg.setAttribute("width",vp.width); svg.setAttribute("height",vp.height); svg.setAttribute("viewBox",`0 0 ${vp.width} ${vp.height}`); }
   const _wrap=cv.parentNode; if(_wrap&&_wrap.style){ _wrap.style.transformOrigin="center center"; _wrap.style.transform=(_ptFlatOn()&&PT.flatRot)?("rotate("+PT.flatRot+"deg)"):""; }
-  try{ _ptGestureBind(); }catch(e){}
+  try{ _ptGestureBind(); }catch(e){} try{ _ptApplyStagePad(); }catch(e){}
   ptDrawOverlay(); ptUpdateInfo(); try{ _ptRenderFlatBar(); }catch(e){} }
 function _ptShoelace(pts){ let a=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; a+=pts[i].x*pts[j].y-pts[j].x*pts[i].y; } return Math.abs(a)/2; }
 function _ptPolySF(pdfPts){ if(!pdfPts||pdfPts.length<3) return 0;
@@ -29126,6 +29126,19 @@ function ptToggleFullscreen(){ const el=document.getElementById("pt-modal"); if(
 function ptZoom(f){ if(ptMapLive()){ try{ PT.map.setZoom(Math.max(15,Math.min(22,PT.map.getZoom()+(f>1?1:-1)))); }catch(e){} return; }
   PT.scale=Math.min(4,Math.max(0.12,PT.scale*f)); ptRenderPage(); }
 let _ptPan=null;
+// Scroll can never go past the canvas edge, so without slack an edge of the plan can never be
+// centred. Pad the stage by half its own size on every side: pan room without a bigger image.
+function _ptPad(){ const st=document.getElementById("pt-stage"); if(!st) return {x:0,y:0};
+  const cs=getComputedStyle(st); return {x:parseFloat(cs.paddingLeft)||0, y:parseFloat(cs.paddingTop)||0}; }
+function _ptApplyStagePad(){ const st=document.getElementById("pt-stage"); if(!st) return;
+  if(!_ptFlatOn()){ return; }                                  // PDF/live keep their own framing
+  const r=st.getBoundingClientRect();                          // border-box: fixed by flex, unaffected by our padding
+  // A rotated canvas keeps its upright layout box, so its visual edges stick out past it —
+  // add that overhang or the rotated plan still stops short.
+  const cw=PT.canvasW||0, ch=PT.canvasH||0, rot=((PT.flatRot||0)%180)!==0;
+  const ovx=rot?Math.max(0,(ch-cw)/2):0, ovy=rot?Math.max(0,(cw-ch)/2):0;
+  const px=Math.round(r.width*0.5+ovx), py=Math.round(r.height*0.5+ovy);
+  if(px>0&&py>0) st.style.padding=py+"px "+px+"px"; }
 const _ptTouch=new Map(); let _ptPinch=null;
 let _ptGest=null, _ptGestBound=false;                      // iOS Safari two-finger pinch (most reliable on iPad)
 function _ptGestureBind(){ if(_ptGestBound) return; _ptGestBound=true;
@@ -29133,8 +29146,8 @@ function _ptGestureBind(){ if(_ptGestBound) return; _ptGestBound=true;
   document.addEventListener("gesturestart",e=>{ if(!ok())return; e.preventDefault(); _ptGest={s0:PT.scale}; },{passive:false});
   document.addEventListener("gesturechange",e=>{ if(!ok()||!_ptGest)return; e.preventDefault();
     const st=document.getElementById("pt-stage"); if(!st)return; const target=Math.min(4,Math.max(0.12,_ptGest.s0*e.scale)); if(Math.abs(target-PT.scale)<0.004)return;
-    const rect=st.getBoundingClientRect(), cx=e.clientX-rect.left, cy=e.clientY-rect.top, ax=cx+st.scrollLeft, ay=cy+st.scrollTop, f=target/PT.scale; PT.scale=target;
-    ptRenderPage().then(()=>{ st.scrollLeft=ax*f-cx; st.scrollTop=ay*f-cy; }); },{passive:false});
+    const rect=st.getBoundingClientRect(), cx=e.clientX-rect.left, cy=e.clientY-rect.top, ax=cx+st.scrollLeft, ay=cy+st.scrollTop, f=target/PT.scale; const P=_ptPad(); PT.scale=target;
+    ptRenderPage().then(()=>{ st.scrollLeft=P.x+(ax-P.x)*f-cx; st.scrollTop=P.y+(ay-P.y)*f-cy; }); },{passive:false});
   document.addEventListener("gestureend",()=>{ _ptGest=null; },{passive:false}); }               // two-finger pinch-zoom for the still / rotated plan
 function _ptPinchMid(){ const a=[..._ptTouch.values()]; return {x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.hypot(a[1].x-a[0].x,a[1].y-a[0].y)}; }
 function _ptStartPinch(){ if(_ptTouch.size<2||ptMapLive()) return; const m=_ptPinchMid();
@@ -29142,8 +29155,8 @@ function _ptStartPinch(){ if(_ptTouch.size<2||ptMapLive()) return; const m=_ptPi
 function _ptPinchMove(){ if(!_ptPinch||_ptTouch.size<2||_ptPinch.d0<1) return; const m=_ptPinchMid();
   const target=Math.min(4,Math.max(0.12,_ptPinch.s0*(m.d/_ptPinch.d0))); if(Math.abs(target-PT.scale)<0.003) return;
   const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
-  const ax=(m.x-rect.left)+st.scrollLeft, ay=(m.y-rect.top)+st.scrollTop; const f=target/PT.scale; PT.scale=target;
-  ptRenderPage().then(()=>{ st.scrollLeft=ax*f-(m.x-rect.left); st.scrollTop=ay*f-(m.y-rect.top); }); }
+  const ax=(m.x-rect.left)+st.scrollLeft, ay=(m.y-rect.top)+st.scrollTop; const f=target/PT.scale; const P=_ptPad(); PT.scale=target;
+  ptRenderPage().then(()=>{ st.scrollLeft=P.x+(ax-P.x)*f-(m.x-rect.left); st.scrollTop=P.y+(ay-P.y)*f-(m.y-rect.top); }); }
 function ptDown(e){ const cv=e.currentTarget;
   if(e.pointerType==="touch"){ _ptTouch.set(e.pointerId,{x:e.clientX,y:e.clientY}); try{ cv.setPointerCapture(e.pointerId); }catch(_){}
     if(_ptTouch.size>=2){ _ptStartPinch(); return; } }
@@ -29161,8 +29174,8 @@ function ptUp(e){ if(e.pointerType==="touch"&&_ptTouch.has(e.pointerId)){ _ptTou
   if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
 function ptWheel(e){ if(!PT.doc) return; e.preventDefault(); const st=document.getElementById("pt-stage"); if(!st) return; const rect=st.getBoundingClientRect();
   const mx=(e.clientX-rect.left)+st.scrollLeft, my=(e.clientY-rect.top)+st.scrollTop; const old=PT.scale; const ratio=e.deltaY<0?1.12:0.89;
-  PT.scale=Math.min(4,Math.max(0.12,PT.scale*ratio)); const f=PT.scale/old;
-  ptRenderPage().then(()=>{ st.scrollLeft=mx*f-(e.clientX-rect.left); st.scrollTop=my*f-(e.clientY-rect.top); }); }
+  PT.scale=Math.min(4,Math.max(0.12,PT.scale*ratio)); const f=PT.scale/old; const P=_ptPad();
+  ptRenderPage().then(()=>{ st.scrollLeft=P.x+(mx-P.x)*f-(e.clientX-rect.left); st.scrollTop=P.y+(my-P.y)*f-(e.clientY-rect.top); }); }
 async function ptFitPage(){ if(ptMapLive()) return;   // the map owns its own framing
   if(!PT.doc) return; const page=await PT.doc.getPage(PT.page); const vp1=page.getViewport({scale:1});
   const st=document.getElementById("pt-stage"); const cw=(st?st.clientWidth:1000)-48, ch=(st?st.clientHeight:700)-48;
