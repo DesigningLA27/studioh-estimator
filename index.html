@@ -4474,7 +4474,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1011</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1012</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31934,6 +31934,18 @@ function ptTkDragStart(e){ const card=document.getElementById("pt-card"); if(!ca
   window.addEventListener("pointerup",up,true); }
 // ── selection & vertex editing ──────────────────────────────────────────────
 function ptSelClear(){ PT.selGuide=null; PT.selAi=null; PT.selPoly=null; PT._selStart=null; ptDrawOverlay(); ptRenderFloat(); }
+// One button that puts everything down: any selection, any half-drawn shape, and any armed
+// tool. Esc walks back one step at a time; this clears the lot in one tap.
+function ptDeselectAll(){ if(typeof PT==="undefined"||!PT.open) return;
+  PT.selPoly=null; PT._selStart=null; PT.selAi=null; PT.selGuide=null;
+  PT._hatchSel=null; PT._hatchPick=false; PT._hatchMatch=0; PT._hatchAlign=0; PT._hatchAlignA=null; PT._hatchAlignD=null; PT._hatchPoly=null;
+  PT._aiTool=null; PT._aiStart=null; PT._aiCursor=null;
+  PT._fillPick=false; PT._roofPick=false; PT.selectMode=false;
+  PT.cur=[]; PT._rectCursor=null;
+  if(PT.stamp&&PT.stamp.editIdx!=null) PT.stamp=null;
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); _ptDockRefresh(); }catch(e){}
+  try{ ptRenderAutoBar(); }catch(e){}
+  try{ ptMapCursor&&ptMapCursor(); }catch(e){} }
 // Clear the whole trace. Undo still gets it back, and the property line redraws itself.
 // Delete is always there. With nothing picked it hands you the Select tool rather than doing nothing.
 function ptDeleteTap(){
@@ -32625,7 +32637,8 @@ const _DIC={ undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10H9"/>
   snapX:'<path d="M5 5l14 14M19 5L5 19"/>',
   snap:'<path d="M6 3v7a6 6 0 0 0 12 0V3"/><path d="M6 3h3.5M14.5 3H18"/>',
   hatch:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M9 4v16M14 4v16"/>',
-  mprop:'<path d="M17.5 3.2a2.2 2.2 0 0 1 3.1 3.1L12.5 14l-3-3z"/><path d="M9.2 14.6c0 2.1-1.1 3.3-3.2 3.8-1.5.4-2 1.4-2 1.4s2.1.6 3.7 0c2.1-.8 3.6-2.3 3.6-4.4z"/>' };
+  mprop:'<path d="M17.5 3.2a2.2 2.2 0 0 1 3.1 3.1L12.5 14l-3-3z"/><path d="M9.2 14.6c0 2.1-1.1 3.3-3.2 3.8-1.5.4-2 1.4-2 1.4s2.1.6 3.7 0c2.1-.8 3.6-2.3 3.6-4.4z"/>',
+  desel:'<path d="M5.5 3.2l8.6 15.3 2.1-5.9 5.9-2.1z"/><path d="M3 21L21 3" stroke-width="2.4"/>' };
 function ptDockGroup(g){ PT.dockGroup=(PT.dockGroup===g)?null:g; _ptDockRefresh(); }
 function _ptDockRefresh(){
   const cols=document.getElementById("pt-dockcols"); if(cols) cols.innerHTML=_ptDockCols();
@@ -32636,7 +32649,7 @@ function _ptDockRefresh(){
 function _ptDockCols(){ const g=PT.dockGroup;
   const gb=(k,l,ic)=>'<button class="pdg'+(g===k?" on":"")+'" onclick="ptDockGroup(\''+k+'\')" title="'+l+' tools"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+l+'</span></button>';
   const ub=(fn,l,ic)=>'<button class="pdg util" onclick="'+fn+'" title="'+l+'"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+l+'</span></button>';
-  return ub("ptUndoAct()","Undo",_DIC.undo)+ub("ptRedoAct()","Redo",_DIC.redo)+'<div class="pdsep"></div>'
+  return ub("ptUndoAct()","Undo",_DIC.undo)+ub("ptRedoAct()","Redo",_DIC.redo)+ub("ptDeselectAll()","Deselect",_DIC.desel)+'<div class="pdsep"></div>'
     +gb("trace","Trace",_DIC.trace)+gb("draw","Draw",_DIC.draw)+gb("ai","AI",_DIC.ai)+gb("edit","Edit",_DIC.edit)+gb("view","View",_DIC.view)+gb("hatch","Hatch",_DIC.hatch)
     +'<div class="pdsep"></div>'
     +ub("ptZoom(1.2)","Zoom +",_DIC.zin)+ub("ptZoom(0.83)","Zoom \u2212",_DIC.zout)
@@ -33127,13 +33140,18 @@ function _boFace(seed, segs, TOL){
 // selection; Enter (or Return) finishes the shape you are drawing.
 document.addEventListener("keydown",function(e){
   if(typeof PT==="undefined"||!PT.open) return;
-  const t=e.target; if(t&&/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  const t=e.target, inFld=!!(t&&/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  if(inFld && e.key!=="Escape") return;
+  if(inFld) { try{ t.blur(); }catch(_){} }
   if(e.key==="Escape"){
+    if(PT._hatchPick||PT._hatchMatch||PT._hatchSel||PT._hatchAlign){ PT._hatchPick=false; PT._hatchMatch=0; PT._hatchSel=null; PT._hatchAlign=0; PT._hatchAlignA=null; PT._hatchAlignD=null;
+      try{ _ptDockRefresh(); ptMapCursor&&ptMapCursor(); }catch(_){} e.preventDefault(); return; }
     if(PT._aiTool||PT._aiStart){ PT._aiTool=null; PT._aiStart=null; PT._aiCursor=null; try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); ptDrawOverlay(); }catch(_){} e.preventDefault(); return; }
     if(PT.selAi!=null||PT.selGuide!=null){ PT.selAi=null; PT.selGuide=null; try{ ptDrawOverlay(); ptRenderFloat(); }catch(_){} e.preventDefault(); return; }
     if(PT._fillPick||PT._roofPick){ PT._fillPick=false; PT._roofPick=false; try{ ptRenderModal(); ptMapCursor&&ptMapCursor(); }catch(_){} e.preventDefault(); return; }
     if(PT.cur&&PT.cur.length){ PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); }catch(_){} e.preventDefault(); return; }
     if(PT.selPoly!=null){ try{ ptSelClear(); }catch(_){} e.preventDefault(); return; }
+    if(PT._hatchPoly!=null){ PT._hatchPoly=null; try{ ptDrawOverlay(); _ptDockRefresh(); }catch(_){} e.preventDefault(); return; }
     if(PT.selectMode){ try{ ptSelectMode(); }catch(_){} e.preventDefault(); return; }
   } else if(e.key==="Enter"){
     const kind=_ptKind(PT.mode);
