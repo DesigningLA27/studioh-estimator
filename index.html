@@ -2439,6 +2439,13 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkautobar .aitem.ortho.on svg{stroke:#0E2408}
 .tkautobar .aitem.ortho.on:hover{background:#69B657;color:#0E2408}
 #pt-flatbar{position:absolute;z-index:9;display:flex;flex-direction:column;gap:8px}
+.pt-actbar{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:7;display:flex;gap:7px;pointer-events:auto;
+  background:rgba(18,24,15,.93);padding:6px;border-radius:14px;box-shadow:0 12px 30px -12px rgba(0,0,0,.6);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.pt-actbar button{border:0;border-radius:10px;padding:9px 14px;font:800 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer;background:rgba(255,255,255,.12);color:#EAF7E2;white-space:nowrap}
+.pt-actbar button:hover{background:rgba(255,255,255,.2)}
+.pt-actbar button.go{background:#5BA34A;color:#0E2408}
+.pt-actbar button.del{background:#C0524F;color:#fff}
+.pt-actbar button.dim{background:none;color:#8FA383;cursor:default;font-weight:600}
 #pt-flatbar .fbtn{width:56px;height:56px;border-radius:14px;background:rgba(19,25,15,.92);border:0;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
   color:#D8E4CE;font:600 9.5px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -4338,7 +4345,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v973</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v974</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30639,7 +30646,7 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
   if(ui==="D") extra=_tkInspector(G);
   if(ui==="E") extra=_tkTargetCard(G,tot,live);
   if(ui==="F") extra=_tkLedgerBar(tot,live);
-  el.innerHTML=`<div id="pt-stampbar"></div>`+tray+liveBox+extra;
+  el.innerHTML=`<div id="pt-stampbar"></div>`+tray+liveBox+extra+_ptActBar();
   try{ ptStampBar(); }catch(e){}
   // a row left open stays open through a redraw
   if(PT._openRow){ const r=el.querySelector('.tkrow-body[data-mode="'+PT._openRow+'"]');
@@ -30649,6 +30656,23 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
     else PT._openRow=null; }
   try{ _ptRenderFlatBar(); }catch(e){}
   try{ _ptCenterAutobar(); }catch(e){}
+}
+function ptUndoPoint(){ if(PT.cur&&PT.cur.length){ PT.cur.pop(); PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} } }
+function ptCancelDraw(){ PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
+// A big, obvious touch bar for finishing / undoing / deselecting — for finger use on iPad.
+function _ptActBar(){
+  const drawing=PT.cur&&PT.cur.length>0;
+  const selected=(PT.selPoly!=null)&&!drawing;
+  if(!drawing&&!selected) return "";
+  let inner="";
+  if(drawing){ const kind=_ptKind(PT.mode); const canFin=PT.cur.length>=(kind==="linear"?2:3);
+    inner='<button onclick="ptUndoPoint()">\u21b6 Undo point</button>'
+      + (canFin?'<button class="go" onclick="ptFinishPoly()">\u2713 Done</button>':'<button class="dim" disabled>'+(kind==="linear"?"2 pts to finish":(3-PT.cur.length)+" more pts")+'</button>')
+      + '<button onclick="ptCancelDraw()">\u2715 Cancel</button>';
+  } else {
+    inner='<button onclick="ptSelClear()">Deselect</button><button class="del" onclick="ptSelDelete()">\u{1F5D1} Delete</button>';
+  }
+  return '<div class="pt-actbar">'+inner+'</div>';
 }
 function _tkInspector(G){ const i=PT.selPoly; if(i==null) return "";
   const p=PT.polys[i]; if(!p) return ""; const m=_ptMode(p.mode);
@@ -31466,7 +31490,7 @@ function _ptRemeasure(p){ if(!p) return;
 // Which handle is under the pointer: a corner, or a midpoint that would become one.
 function _ptHandleAt(e){ if(PT.selPoly==null) return null; const p=PT.polys[PT.selPoly];
   if(!p||p.page!==PT.page||!p.pts) return null;
-  const c=ptCanvasXY(e); const tol=13;
+  const c=ptCanvasXY(e); const tol=18;
   for(let i=0;i<p.pts.length;i++){ const q=_toCanvas(p.pts[i]);
     if(Math.hypot(c.x-q.x,c.y-q.y)<=tol) return {pi:i,mid:false}; }
   const segs=(p.kind==="linear")?p.pts.length-1:p.pts.length;
@@ -32229,7 +32253,7 @@ function _orthoSnapCanvas(c){
 function _ptSnapTarget(c){
   if(typeof PT==="undefined"||!PT.open) return null;
   const kind=_ptKind(PT.mode); if(kind==="count") return null;
-  const THC=11, THE=8;                                   // corner reaches a touch further than edge
+  const THC=17, THE=13;                                  // finger-friendly snap reach
   let bC=null,bCd=THC, bE=null,bEd=THE;
   const consider=(cp,closed)=>{
     cp.forEach(q=>{ const d=Math.hypot(q.x-c.x,q.y-c.y); if(d<bCd){ bCd=d; bC=q; } });
