@@ -4338,7 +4338,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v972</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v973</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -32283,6 +32283,8 @@ function _boInRing(p,r){ let inside=false; for(let i=0,j=r.length-1;i<r.length;j
 function _ptBoSegs(){
   const segs=[];
   (PT.polys||[]).forEach(p=>{ if(p.page!==PT.page||PT.hidden[p.mode]||!p.pts||p.pts.length<2) return;
+    if(p.mode==="lot"||p.mode==="limit") return;   // boundary lines must not close a Fill region
+
     const cp=p.pts.map(_toCanvas), n=cp.length, closed=(p.kind!=="linear"), lim=closed?n:n-1;
     for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); } });
   return segs;
@@ -32317,6 +32319,21 @@ function _boFace(seed, segs, TOL){
   faces.forEach(r=>{ const a=Math.abs(_boArea(r)); if(a<1) return; if(_boInRing(seed,r)&&a<bestA){ bestA=a; best=r; } });
   return best?best.map(n=>({x:n.x,y:n.y})):null;
 }
+// Keyboard while the trace is open: Esc cancels a pick / an in-progress shape / a
+// selection; Enter (or Return) finishes the shape you are drawing.
+document.addEventListener("keydown",function(e){
+  if(typeof PT==="undefined"||!PT.open) return;
+  const t=e.target; if(t&&/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  if(e.key==="Escape"){
+    if(PT._fillPick||PT._roofPick){ PT._fillPick=false; PT._roofPick=false; try{ ptRenderModal(); ptMapCursor&&ptMapCursor(); }catch(_){} e.preventDefault(); return; }
+    if(PT.cur&&PT.cur.length){ PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); }catch(_){} e.preventDefault(); return; }
+    if(PT.selPoly!=null){ try{ ptSelClear(); }catch(_){} e.preventDefault(); return; }
+    if(PT.selectMode){ try{ ptSelectMode(); }catch(_){} e.preventDefault(); return; }
+  } else if(e.key==="Enter"){
+    const kind=_ptKind(PT.mode);
+    if(PT.cur&&PT.cur.length>=(kind==="linear"?2:3)){ e.preventDefault(); try{ ptFinishPoly(); }catch(_){} }
+  }
+});
 function ptFillMode(){
   if(typeof PT==="undefined"||!PT.open) return;
   PT._fillPick=!PT._fillPick;
@@ -32329,7 +32346,7 @@ function _ptDoFill(c){
   PT._fillPick=false; try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); }catch(e){}
   const segs=_ptBoSegs();
   if(segs.length<3){ try{ _toast("Draw or trace some edges first.","#B23F3C"); }catch(e){} return; }
-  const ring=_boFace(c, segs, 6);
+  const ring=_boFace(c, segs, 10);
   if(!ring||ring.length<3){ try{ _toast("No enclosed area there \u2014 make sure the lines fully close the space (snap the ends to the edges).","#B23F3C"); }catch(e){} return; }
   const mode=(_ptKind(PT.mode)==="area")?PT.mode:"paving";
   const pts=ring.map(q=>_toPdf(q));
