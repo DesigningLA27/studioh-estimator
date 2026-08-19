@@ -4411,7 +4411,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v996</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v997</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29578,6 +29578,21 @@ function ptDemoPolyToggle(idx){
   try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
   try{ if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
 }
+function ptSetPolyMat(idx, v){                                   // paving material -> default hatch, prices off the book
+  const p=PT.polys[idx]; if(!p) return; ptSnap(); p.type=String(v||"");
+  if(p.type && PAV_HATCH.hasOwnProperty(p.type)){ const hid=PAV_HATCH[p.type];
+    if(hid && _HATCH[hid]) p.hatch={id:hid, rot:(p.hatch&&p.hatch.rot)||0, scale:(p.hatch&&p.hatch.scale)||1}; else delete p.hatch; }
+  try{ ptDrawOverlay(); ptUpdateInfo(); if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
+}
+function ptSetPolyRate(idx, v){                                  // manual $/SF override for this trace (this project only)
+  const p=PT.polys[idx]; if(!p) return; const s=String(v==null?"":v).trim(); ptSnap();
+  if(s===""||!isFinite(+s)) delete p.rate; else p.rate=+s;
+  try{ ptDrawOverlay(); ptUpdateInfo(); if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
+}
+function ptSetPolyLoc(idx, v){                                   // yard location (AI fills it; editable here)
+  const p=PT.polys[idx]; if(!p) return; ptSnap(); p.loc=String(v||"");
+  try{ if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
+}
 // Totals with the excluded ground taken out — what the estimate actually works from.
 function ptScoped(){ return ptTotals(true); }
 function _tkFmt(n){ return Math.round(n||0).toLocaleString(); }
@@ -30321,6 +30336,37 @@ const TK_MARK_EACH={
   light:     ["lighting",  /Path \/ Area/i]
 };
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
+// ── Paving materials: each trace priced by its own material's installed $/SF from the price book ──
+// (only engages once a material is chosen; a paving trace with no material prices exactly as before)
+const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
+const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Permeable Pavers":"basket"};
+function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
+function _pavPoint(){ let pt=(typeof _tkPointOverride!=="undefined"&&_tkPointOverride!=null)?_tkPointOverride:null;   // _tkAt sets this when the 3 tier buttons compute
+  if(pt==null){ try{ pt=ptPointFor("paving"); }catch(e){} }
+  if(pt==null){ try{ pt=ptPricePoint(); }catch(e){} }
+  return (pt===0||pt===1||pt===2)?pt:1; }
+function _pavMatRate(p){ const it=_pavItem(p&&p.type); if(!it||it.u!=="SF") return null;
+  const tiers=SEC_TIERS.paving; let ti=(SEC_TIER_DEFAULT.paving||1)+(_pavPoint()-1); ti=Math.max(0,Math.min(tiers.length-1,ti));
+  return tierUC(it,tiers,ti); }
+function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const tiers=SEC_TIERS.paving;
+  const at=pt=>{ let ti=(SEC_TIER_DEFAULT.paving||1)+(pt-1); ti=Math.max(0,Math.min(tiers.length-1,ti)); return tierUC(it,tiers,ti); };
+  return [at(0),at(1),at(2)]; }                                  // Value / Standard / Premium $/SF
+function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate; return _pavMatRate(p); }
+function _ptTraceNet(p){ const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0); let taken=0;
+  PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0) return; if(_ptEnclosing(x,PT.polys)===p) taken+=_tkCutSF(x); });
+  (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
+    if(_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys)===p) taken+=fp; });
+  return Math.max(0, raw-taken); }
+function _pavAnyOverride(){ return (PT&&PT.polys||[]).some(p=>p.mode==="paving"&&p.kind==="area"&&!p._demo&&!p._excl&&p.rate!=null&&p.rate!==""&&isFinite(+p.rate)); }
+function _pavAnyMat(){ return (PT&&PT.polys||[]).some(p=>p.mode==="paving"&&p.kind==="area"&&!p._demo&&!p._excl&&(_pavItem(p.type)||(p.rate!=null&&p.rate!==""))); }
+function _pavCatSum(qty){                                        // blended $/SF from the materials, applied to the category qty so totals stay consistent
+  const polys=(PT&&PT.polys||[]).filter(p=>p.mode==="paving"&&p.kind==="area"&&!p._demo&&!p._excl);
+  if(!polys.length) return null;
+  if(!polys.some(p=>_pavItem(p.type)||(p.rate!=null&&p.rate!==""))) return null;
+  let sum=0, sf=0; const bench=(ptBenchRate("paving","SF").rate)||20;
+  polys.forEach(p=>{ const net=_ptTraceNet(p); const r=_pavRate(p); sf+=net; sum+=net*((r!=null)?r:bench); });
+  if(sf<=0) return null; const per=sum/sf;
+  return {total: per*(qty||sf), per, from:"rate"}; }
 function _ptPriceFor(mode, qty){
   if(ptExcl(mode)) return null;                 // out of the scope, so it has no price
   const cat=TK_CAT2EST[mode]; if(!cat||!(qty>0)) return null;
@@ -30458,6 +30504,7 @@ function _ptPriceFor(mode, qty){
       }
     }
   }
+  if(mode==="paving"){ const pv=_pavCatSum(qty); if(pv) return pv; }   // per-material paving (opt-in; unset = unchanged)
   const rate=ptUnitRate(cat, unit);
   if(rate>0) return {total:rate*qty, per:rate, from:"rate"};
   const b=ptBenchRate(cat, unit);                  // nothing priced yet — assume a normal build
@@ -30974,7 +31021,7 @@ function _tkLedgerBar(tot,live){
                  :(m.k==="exclude")?"existing — not in the scope"
                  :(m.k==="building")?"footprint"
                  :(PT_CUTS.indexOf(m.k)>=0&&_ptCutHost(m.k)&&!pr?`taken out of ${_ptCutHost(m.k)} — not priced yet`
-                 :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":""}`
+                 :(pr?`$${pr.per.toFixed(2)} / ${u}${pr.from==="assumed"?" · assumed":(m.k==="paving"&&_pavAnyOverride()?" · edited":"")}`
                  :(TK_CAT2EST[m.k]?"not priced yet":"")));
         const ex=ptExcl(m.k), dm=ptDemo(m.k), hid=!!PT.hidden[m.k];
         return `<div class="tkrow">
@@ -30993,7 +31040,7 @@ function _tkLedgerBar(tot,live){
             ${note?`<span style="display:block;font:600 11px ${F};color:#8FA383;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${note}</span>`:''}</span>
           <span style="margin-left:auto;text-align:right;flex:none;white-space:nowrap">
             <b style="display:block;font:750 15px ${MN};color:#EAF0E4;letter-spacing:-.02em;white-space:nowrap">${_tkRollSpan("tkq-"+m.k, tot[m.k], "", " "+u)}</b>
-            <span style="display:block;font:700 12px ${MN};color:${ex?"#7FA7DE":(pr&&pr.from==="assumed"?"#C9D8BE":"#8FE07A")}">${ex?"excluded":(pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—")}</span></span>
+            <span style="display:block;font:700 12px ${MN};color:${ex?"#7FA7DE":(m.k==="paving"&&_pavAnyOverride()?"#F2C14E":(pr&&pr.from==="assumed"?"#C9D8BE":"#8FE07A"))}">${ex?"excluded":(pr?_tkRollSpan("tk$-"+m.k, pr.total, "$"):"—")}</span></span>
         </div></div>`; }).join('')
         + (()=>{ const d=ptDerived(); if(!d.rows.length) return '';
             return `<div style="padding:13px 8px 2px;font:800 9.5px ${F};letter-spacing:.11em;
@@ -31507,9 +31554,12 @@ function ptWhy(mode){
     const net=Math.max(0, raw-taken);
     const nm=(p.name&&p.name.trim())||p.type||`${md.label} ${i+1}`;
     const dc=ptDemoCost(mode, net, 1);
+    let _rate=rate, _cost=rate*net, _mat="", _ov=false, _loc="", _mrate=0;
+    if(mode==="paving"){ _mat=p.type||""; _ov=(p.rate!=null&&p.rate!==""&&isFinite(+p.rate)); _loc=p.loc||"";
+      _mrate=_pavMatRate(p)||0; const _rr=_pavRate(p); _rate=(_rr!=null?_rr:rate); _cost=_rate*net; }
     return {nm, net, taken, idx:p._i, demo:!!p._demo, excl:!!p._excl,
-            rawName:(p.name||""), zone:(p.zone||""),
-            demoCost:dc.cost, sub:p.type&&p.name?p.type:"", cost:rate*net};
+            rawName:(p.name||""), zone:(p.zone||""), mat:_mat, ov:_ov, loc:_loc, matRate:_mrate,
+            demoCost:dc.cost, sub:p.type&&p.name?p.type:"", rate:_rate, cost:_cost};
   });
   _ptWhyPop(md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length});
 }
@@ -31550,13 +31600,45 @@ function ptWhyDerived(label){
       Nobody traced this — it follows from what you did trace, at rates from the price book.
       Change the rate there and this changes with it.</div>`;
 }
+function _ptWhyRowPaving(e, unit){
+  const q=v=>(""+v).replace(/"/g,"&quot;");
+  const mats=`<option value="" ${!e.mat?"selected":""}>Material — pick…</option>`+PAV_MATS.map(m=>`<option ${e.mat===m?"selected":""}>${m}</option>`).join("");
+  const LOCS=[["","Location — AI"],["Front yard","Front yard"],["Rear yard","Rear yard"],["Side yard — left","Side yard — left"],["Side yard — right","Side yard — right"]];
+  const locSel=LOCS.map(l=>`<option value="${q(l[0])}" ${((e.loc||"")===l[0])?"selected":""}>${l[1]}</option>`).join("");
+  const rateStr=e.rate>0?(+e.rate).toFixed(2):"";
+  const OV=e.ov;
+  return `<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,.10)">
+    <div style="display:flex;gap:8px;align-items:center">
+      <input value="${q(e.rawName)}" placeholder="${q(e.nm)}" onchange="ptRenamePoly(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+        style="flex:1;min-width:0;box-sizing:border-box;font:650 13px var(--tkf);color:#EAF0E4;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:5px 7px">
+      <button onclick="ptDemoPolyToggle(${e.idx})" title="Demolish existing, build new over it"
+        style="flex:none;border:1.5px solid ${e.demo?"#D9A441":"rgba(255,255,255,.18)"};border-radius:9px;padding:5px 9px;cursor:pointer;font:700 11px var(--tkf);background:${e.demo?"#D9A441":"transparent"};color:${e.demo?"#1A1206":"#9FBF95"}">Demo</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:5px">
+      <select onchange="ptSetPolyMat(${e.idx},this.value)" style="flex:2;min-width:0;box-sizing:border-box;font:600 11.5px var(--tkf);color:#EAF0E4;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:4px 6px">${mats}</select>
+      <select onchange="ptSetPolyLoc(${e.idx},this.value)" title="Where AI placed it — editable" style="flex:1.5;min-width:0;box-sizing:border-box;font:600 11px var(--tkf);color:#9FBF95;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);border-radius:7px;padding:4px 5px">${locSel}</select>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+      <span style="font:600 11px var(--tkf);color:#8FA383">$/SF</span>
+      <input value="${rateStr}" placeholder="${e.matRate>0?(+e.matRate).toFixed(2):(e.mat?"—":"pick a material")}" inputmode="decimal" onchange="ptSetPolyRate(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+        style="width:70px;box-sizing:border-box;font:700 12px ui-monospace,Menlo,monospace;text-align:right;color:${OV?"#F2C14E":"#EAF0E4"};background:rgba(255,255,255,.06);border:1px solid ${OV?"#F2C14E":"rgba(255,255,255,.12)"};border-radius:7px;padding:4px 6px">
+      ${OV?`<span style="font:700 10px var(--tkf);color:#F2C14E">edited</span>`:(e.mat?`<span style="font:600 10px var(--tkf);color:#8FA383">material + install</span>`:"")}
+      <span style="flex:1"></span>
+      <span style="text-align:right;white-space:nowrap">
+        <b style="display:block;font:700 12.5px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${unit}</b>
+        <span style="display:block;font:700 12px ui-monospace,Menlo,monospace;color:${OV?"#F2C14E":"#8FE07A"}">${e.cost>0?fmtN(e.cost):"—"}</span></span>
+    </div>
+    ${e.taken?`<div style="font:600 10.5px var(--tkf);color:#8FA383;margin-top:4px">less ${_tkFmt(e.taken)} taken out</div>`:""}
+    ${e.demo&&e.demoCost>0?`<div style="font:700 10.5px ui-monospace,Menlo,monospace;color:#D9A441;margin-top:2px">+ ${fmtN(e.demoCost)} tear-out</div>`:""}
+  </div>`;
+}
 function _ptWhyRender(d, md, mode, x){
   const {unit, qty, pr, src, cut, each, marks, shapes}=x;
   const line=(k,v,acc)=>`<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.10)">
       <span style="font:600 13px var(--tkf);color:#9FBF95;flex:1">${k}</span>
       <b style="font:700 13px ui-monospace,Menlo,monospace;color:${acc||"#EAF0E4"};white-space:nowrap">${v}</b></div>`;
   const _zl=(()=>{ try{ return areaOptions().slice(); }catch(_){ return []; } })();
-  const rows=each.map(e=>`<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid rgba(255,255,255,.10)">
+  const rows=each.map(e=> (mode==="paving"&&e.idx!=null) ? _ptWhyRowPaving(e, unit) : `<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid rgba(255,255,255,.10)">
       <span style="flex:1;min-width:0">
         ${e.idx!=null?`<input value="${(e.rawName||"").replace(/"/g,"&quot;")}" placeholder="${e.nm.replace(/"/g,"&quot;")}"
             onchange="ptRenamePoly(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
