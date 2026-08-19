@@ -4334,7 +4334,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v968</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v969</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28801,8 +28801,10 @@ function ptAddAt(p,c,e){
   if(kind!=="count"){ const sn=_ptSnapTarget(c); if(sn){ c={x:sn.x,y:sn.y}; p=_toPdf(c); _snapped=true; } }
   if(!_snapped && _orthoOn() && kind!=="count" && PT.cur.length>=2){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
   if(kind==="count"){ ptSnap(); const m={x:p.x,y:p.y,mode:PT.mode,page:PT.page}; if(_ptMode(PT.mode).types) m.size=_ptCurType(PT.mode); if(PT.mode==="tree") m.cls=ptTreeClass(); if(PT.mode==="light") m.ctrl=ptLightCtrl(); PT.trees.push(m); ptDrawOverlay(); ptUpdateInfo(); return; }
-  if(kind==="linear"){ if(PT.cur.length>=2){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
-    ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); return; }
+  if(kind==="linear"){ if(PT.cur.length>=2 && !_singleOn()){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<14){ ptFinishPoly(); return; } }
+    ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo();
+    if(_singleOn() && PT.cur.length>=2){ ptFinishPoly(); }        // one segment, then done
+    return; }
   if(PT.cur.length>=3){ const f=_toCanvas(PT.cur[0]); if(Math.hypot(c.x-f.x,c.y-f.y)<14){ ptFinishPoly(); return; } }
   ptSnap(); PT.cur.push(p); ptDrawOverlay(); ptUpdateInfo(); }
 function _ptLineLenPdf(pts){ let d=0; for(let i=1;i<pts.length;i++){ d+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y); } return d; }
@@ -32112,6 +32114,9 @@ const PT_AUTOFILL=[
    icon:'<path d="M4 7h16"/><path d="M6 7l1.4 12.2a1.5 1.5 0 0 0 1.5 1.3h6.2a1.5 1.5 0 0 0 1.5-1.3L18 7"/><path d="M10 11v6M14 11v6"/>'}
 ];
 function _orthoOn(){ return typeof PT!=="undefined" && PT.ortho===true; }        // default OFF; the 90° button turns it on
+function _singleOn(){ return typeof PT!=="undefined" && PT.singleSeg===true; }              // one segment per line, not a polyline
+function ptToggleSingle(){ PT.singleSeg=!_singleOn(); try{ ptRenderAutoBar(); }catch(e){}
+  try{ _toast(_singleOn()?"Single-line: each line is one segment (2 points)":"Polyline: keep clicking to extend a line","#2F5B23"); }catch(e){} }
 function _lightAutoOn(){ return typeof PT!=="undefined" && PT.lightAuto!==false; } // default ON
 function ptRenderAutoBar(){ const el=document.getElementById("pt-autobar"); if(el) el.innerHTML=_ptAutoBarHTML(); }
 // pick a zone from the bottom bar: switch the trace layer; run auto-fill if that zone has it on
@@ -32206,27 +32211,35 @@ function _ptBoSegs(){
     for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); } });
   return segs;
 }
-// smallest enclosing face (ring in canvas px) around the seed, or null if open
-function _boFace(seed, segs, eps){
-  eps=eps||1.4; const N=segs.length; const splits=segs.map(()=>[]);
-  for(let i=0;i<N;i++){ splits[i].push({t:0,pt:segs[i][0]}); splits[i].push({t:1,pt:segs[i][1]}); }
-  for(let i=0;i<N;i++) for(let j=i+1;j<N;j++){ const X=_boSegInt(segs[i][0],segs[i][1],segs[j][0],segs[j][1]); if(!X) continue;
-    splits[i].push({t:_boParam(segs[i][0],segs[i][1],X),pt:X}); splits[j].push({t:_boParam(segs[j][0],segs[j][1],X),pt:X}); }
-  const nodes=new Map(), key=p=>Math.round(p.x/eps)+"|"+Math.round(p.y/eps);
-  const node=p=>{ const k=key(p); let n=nodes.get(k); if(!n){ n={x:p.x,y:p.y,k:k,nb:new Set()}; nodes.set(k,n); } return n; };
-  for(let i=0;i<N;i++){ const arr=splits[i].sort((a,b)=>a.t-b.t);
-    for(let a=0;a<arr.length-1;a++){ const A=node(arr[a].pt), B=node(arr[a+1].pt); if(A.k!==B.k){ A.nb.add(B.k); B.nb.add(A.k); } } }
-  nodes.forEach(n=>{ n.adj=[...n.nb].map(k=>{ const m=nodes.get(k); return {k,ang:Math.atan2(m.y-n.y,m.x-n.x)}; }); });
-  const nextHalf=(u,v)=>{ const nv=nodes.get(v), nu=nodes.get(u); const a0=Math.atan2(nu.y-nv.y,nu.x-nv.x);
+// smallest enclosing face (ring in canvas px) around the seed, or null if open.
+// TOL = closure tolerance: ends within TOL of another end/edge are treated as joined.
+function _boFace(seed, segs, TOL){
+  TOL=TOL||6; const nodes=[];
+  const nodeOf=p=>{ for(let i=0;i<nodes.length;i++){ if(Math.hypot(nodes[i].x-p.x,nodes[i].y-p.y)<=TOL) return i; }
+    nodes.push({x:p.x,y:p.y,nb:new Set()}); return nodes.length-1; };
+  const N=segs.length; const segN=segs.map(sg=>[nodeOf(sg[0]),nodeOf(sg[1])]);
+  const splits=segs.map((sg,i)=>[{t:0,ni:segN[i][0]},{t:1,ni:segN[i][1]}]);
+  for(let i=0;i<N;i++) for(let j=i+1;j<N;j++){ const X=_boSegInt(segs[i][0],segs[i][1],segs[j][0],segs[j][1]);
+    if(X){ const ni=nodeOf(X); splits[i].push({t:_boParam(segs[i][0],segs[i][1],X),ni}); splits[j].push({t:_boParam(segs[j][0],segs[j][1],X),ni}); } }
+  // a node lying within TOL of a segment interior splits it — this joins ends that
+  // snapped *near* an edge but not exactly on it (the "within 3px = closed" rule)
+  for(let i=0;i<N;i++){ const a=segs[i][0], b=segs[i][1];
+    for(let k=0;k<nodes.length;k++){ const r=nodes[k], t=_boParam(a,b,r);
+      if(t>0.002&&t<0.998){ const px=a.x+t*(b.x-a.x), py=a.y+t*(b.y-a.y);
+        if(Math.hypot(px-r.x,py-r.y)<=TOL) splits[i].push({t,ni:k}); } } }
+  for(let i=0;i<N;i++){ const arr=splits[i].sort((x,y)=>x.t-y.t);
+    for(let a=0;a<arr.length-1;a++){ const u=arr[a].ni, v=arr[a+1].ni; if(u!==v){ nodes[u].nb.add(v); nodes[v].nb.add(u); } } }
+  nodes.forEach(n=>{ n.adj=[...n.nb].map(k=>({k,ang:Math.atan2(nodes[k].y-n.y,nodes[k].x-n.x)})); });
+  const nextHalf=(u,v)=>{ const nv=nodes[v], a0=Math.atan2(nodes[u].y-nv.y,nodes[u].x-nv.x);
     let bk=null,bd=Infinity; for(const e of nv.adj){ let d=a0-e.ang; while(d<=1e-9) d+=2*Math.PI; if(d<bd){bd=d;bk=e.k;} } return bk; };
   const seen=new Set(), faces=[];
-  nodes.forEach(n=>{ n.adj.forEach(e=>{ const u0=n.k,v0=e.k; if(seen.has(u0+">"+v0)) return;
+  nodes.forEach((n,ni)=>{ n.adj.forEach(e=>{ const u0=ni,v0=e.k; if(seen.has(u0+">"+v0)) return;
     const ring=[]; let u=u0,v=v0,g=0;
     do{ seen.add(u+">"+v); ring.push(u); const w=nextHalf(u,v); if(w==null) break; u=v; v=w; } while(!(u===u0&&v===v0)&&g++<200000);
-    if(ring.length>=3) faces.push(ring.map(k=>nodes.get(k))); }); });
+    if(ring.length>=3) faces.push(ring.map(k=>nodes[k])); }); });
   let best=null,bestA=Infinity;
   faces.forEach(r=>{ const a=Math.abs(_boArea(r)); if(a<1) return; if(_boInRing(seed,r)&&a<bestA){ bestA=a; best=r; } });
-  return best ? best.map(n=>({x:n.x,y:n.y})) : null;
+  return best?best.map(n=>({x:n.x,y:n.y})):null;
 }
 function ptFillMode(){
   if(typeof PT==="undefined"||!PT.open) return;
@@ -32240,7 +32253,7 @@ function _ptDoFill(c){
   PT._fillPick=false; try{ ptRenderAutoBar(); ptMapCursor&&ptMapCursor(); }catch(e){}
   const segs=_ptBoSegs();
   if(segs.length<3){ try{ _toast("Draw or trace some edges first.","#B23F3C"); }catch(e){} return; }
-  const ring=_boFace(c, segs, 1.4);
+  const ring=_boFace(c, segs, 6);
   if(!ring||ring.length<3){ try{ _toast("No enclosed area there \u2014 make sure the lines fully close the space (snap the ends to the edges).","#B23F3C"); }catch(e){} return; }
   const mode=(_ptKind(PT.mode)==="area")?PT.mode:"paving";
   const pts=ring.map(q=>_toPdf(q));
@@ -32328,7 +32341,10 @@ function _ptAutoBarHTML(){
   const fill='<button class="aitem'+((typeof PT!=="undefined"&&PT._fillPick)?' on':'')+'" title="Fill (BO): close a gap with lines, tap Fill, then tap inside the space" onclick="event.stopPropagation();ptFillMode()">'
     + '<svg viewBox="0 0 24 24"><path d="M5 11 11 5l6 6-6 6-6-6z"/><path d="M11 5 8.5 2.5"/><path d="M18.6 14c.8 1 1.4 2 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-.8.6-1.8 1.4-2.8z"/></svg><span>Fill</span></button>'
     + '<span class="asep"></span>';
-  return '<span class="albl">Tools</span>' + ortho + fill
+  const line='<button class="aitem'+(_singleOn()?' on':'')+'" title="Single-line: each line is one segment (2 points), not a connected polyline" onclick="event.stopPropagation();ptToggleSingle()">'
+    + '<svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.6 16.4 16.4 7.6"/></svg><span>Line</span></button>'
+    + '<span class="asep"></span>';
+  return '<span class="albl">Tools</span>' + ortho + fill + line
     + PT_AUTOFILL.map(a=>{
       const on=(active===a.mode), af=(a.assist==="autofill");
       return '<button class="aitem'+(af?' af':'')+(on?' on':'')+'" data-mode="'+a.mode+'" title="'+escAttr(a.label)+'" onclick="ptPickZone(\''+a.k+'\')">'
