@@ -9,33 +9,41 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
-### 0 · Seeded material price points — review and adjust
-**v1044 · 2026-08-20 · price book**
+### 0 · Material price points — researched, with sources
+**v1045 · 2026-08-20 · price book**
 
-You asked me to put starting values in so you could review them. These are **my numbers, not yours** —
-Southern California retail, material only, before waste, tax and freight. Every one is a guess I would
-not normally make; adjust under Installation assemblies → Materials.
+Replaced my earlier guessed figures with researched ones. Material only, $/SF, before waste, tax and
+freight. Where national averages sit low against high-end SoCal residential, the Premium point is set
+above the published range deliberately.
 
-| Material | Value | Standard | Premium |
-|---|---|---|---|
-| Natural Stone Paving | $12 | $25 | $60 |
-| 3/4" Calibrated Limestone | $14 | $22 | $38 |
-| 2" Bluestone | $18 | $28 | $45 |
-| Porcelain Pavers | $8 | $14 | $28 |
-| Concrete Pavers | $4 | $7 | $12 |
-| Brick Paving | $5 | $9 | $16 |
-| Permeable Pavers | $6 | $10 | $16 |
-| Pebble / Baja Stone | $6 | $12 | $22 |
+| Material | Value | Standard | Premium | Research range (material only) |
+|---|---|---|---|---|
+| Natural Stone Paving | $10 | $22 | $45 | $6–25/SF; bluestone $10–20, sandstone $5–12, local $3–8 |
+| 3/4" Calibrated Limestone | $12 | $20 | $34 | select/calibrated sits at the top of the stone range |
+| 2" Bluestone | $12 | $18 | $28 | bluestone $10–20/SF |
+| Porcelain Pavers | $6 | $10 | $16 | 2cm porcelain $5–10/SF, to $15 |
+| Concrete Pavers | $3 | $6 | $10 | wholesale from $2.50; Angelus $4–8; Belgard $6–7 |
+| Brick Paving | $4 | $7 | $12 | brick pavers $4–8/SF, to $14 |
+| Permeable Pavers | $5 | $9 | $13 | PICP $7–12/SF installed; material below that |
+| Pebble / Baja Stone | $1 | $2 | $4 | **corrected** — sold by the ton at $38–66, ~100 SF at 2–3" |
 
-Concrete flatwork, stamped concrete and gravel/DG carry no separate material price — their material
-is inside the assembly.
+**The pebble figure was my worst guess** — I had it at $6/$12/$22. It sells by the ton, so the stone
+is well under $1/SF and the cost of a pebble surface is labour, not material.
 
-Worth checking first: Natural Stone Paving at Standard now derives **$57.13/SF** against the old typed
-band of $40–$95, so the Standard price point moves from $58 to $57.13. Close, but the Entry and Luxury
-ends move much further — $37.28 and $103.34 against $40 and $95.
+Sources: [homeguide flagstone](https://homeguide.com/costs/flagstone-cost) ·
+[homeguide pavers/SF](https://homeguide.com/costs/pavers-cost-per-square-foot) ·
+[Angi flagstone](https://www.angi.com/articles/what-are-common-flagstone-prices.htm) ·
+[Prime — LA paver costs](https://prime3.com/blog/paver-cost-los-angeles) ·
+[Levelworks — Angelus](https://www.levelworksinc.com/post/angelus-pavers-guide) ·
+[Eagle Pavers — Belgard](https://eaglepavers.us/how-much-do-belgard-pavers-cost/) ·
+[Angi porcelain](https://www.angi.com/articles/how-much-porcelain-pavers-cost.htm) ·
+[homeguide brick patio](https://homeguide.com/costs/brick-patio-cost) ·
+[homeguide permeable](https://homeguide.com/costs/permeable-pavers-cost) ·
+[Cummin — beach pebbles](https://cumminlandscapesupply.com/beachpebbles1-riverrock_2)
+
+Still yours to confirm. Adjust under Installation assemblies → Materials.
 
 ---
-
 ### 0 · Same component, different prices — the auditor's first findings
 **v1037 · 2026-08-20 · knowledge model**
 
