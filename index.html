@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1035</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1036</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30685,6 +30685,164 @@ const TK_MARK_EACH={
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 // ── Paving materials: each trace priced by its own material's installed $/SF from the price book ──
 // (only engages once a material is chosen; a paving trace with no material prices exactly as before)
+// ══ STUDIO H AI ORCHESTRATOR ═════════════════════════════════════════════════
+// One AI experience. Many specialist workers. One shared knowledge model. One source of truth.
+//
+// The user talks to "Studio H AI". The orchestrator reads the request and the project, decides
+// which specialists are needed, calls them, and merges the answers. Nobody outside this file needs
+// to know which specialist replied.
+//
+// Adding a capability means registering another specialist — never redesigning the architecture.
+
+// ── The shared knowledge model ───────────────────────────────────────────────
+// Every specialist reads from here. No specialist may own a private database.
+function aiContext(extra){
+  const g=n=>{ try{ return eval(n); }catch(e){ return null; } };
+  const ctx={
+    project:   (typeof S!=="undefined")?{name:(S.pi&&S.pi.name)||"", address:(S.pi&&S.pi.addr)||"",
+                 city:(S.pi&&S.pi.city)||"", lotSF:(S.pi&&S.pi.lotSF)||null,
+                 phase:(S.phase||null), modifiers:(typeof modSel==="function")?modSel():{}}:null,
+    assemblies:(typeof ASM_LIB!=="undefined")?ASM_LIB:null,
+    materials: (typeof ASM_MATS!=="undefined")?ASM_MATS:null,
+    patterns:  (typeof ASM_PATTERNS!=="undefined")?ASM_PATTERNS:null,
+    tiers:     (typeof CONTRACTOR_TIERS!=="undefined")?CONTRACTOR_TIERS:null,
+    modifiers: (typeof PROJECT_MODIFIERS!=="undefined")?PROJECT_MODIFIERS:null,
+    priceBook: (typeof PB!=="undefined")?PB:null,
+    laborRates:(typeof LABOR_RATES!=="undefined")?LABOR_RATES:null,
+    plants:    g("PLANT_BOOK")||g("PLANTS")||null,
+    prefs:     g("PREFS")||null,
+    takeoff:   (typeof PT!=="undefined")?{polys:(PT.polys||[]).length, open:!!PT.open}:null
+  };
+  return Object.assign(ctx, extra||{});
+}
+
+// ── The specialist registry ──────────────────────────────────────────────────
+// `run` is a local capability that works today. A specialist with no `run` is declared but not yet
+// available — it appears in the roadmap rather than pretending to answer.
+const AI_SPECIALISTS=[];
+function aiRegister(spec){
+  const i=AI_SPECIALISTS.findIndex(x=>x.id===spec.id);
+  if(i>=0) AI_SPECIALISTS[i]=spec; else AI_SPECIALISTS.push(spec);
+  return spec;
+}
+function aiSpecialist(id){ return AI_SPECIALISTS.find(x=>x.id===id)||null; }
+function aiAvailable(){ return AI_SPECIALISTS.filter(x=>typeof x.run==="function"); }
+function aiRoadmap(){ return AI_SPECIALISTS.filter(x=>typeof x.run!=="function").map(x=>x.name); }
+
+// Route a request to the specialists whose capabilities it touches. Deterministic today; the
+// orchestrator can hand routing to the model later without any specialist changing.
+function aiRoute(request){
+  const q=String(request||"").toLowerCase();
+  const hits=[];
+  AI_SPECIALISTS.forEach(sp=>{
+    const score=(sp.triggers||[]).reduce((n,t)=>n+(q.indexOf(t)>=0?1:0),0);
+    if(score>0) hits.push({sp, score});
+  });
+  hits.sort((a,b)=>b.score-a.score);
+  return hits.map(h=>h.sp);
+}
+// One question in, one answer out. The parts are kept so the UI can show its working if asked.
+function aiOrchestrate(request, opts){
+  opts=opts||{};
+  const ctx=aiContext(opts.context);
+  let chosen=(opts.only?opts.only.map(aiSpecialist).filter(Boolean):aiRoute(request));
+  // Pull in anything the chosen specialists depend on. You cannot answer "how do I save $40k"
+  // without knowing what it costs now.
+  for(let pass=0; pass<3; pass++){
+    const add=[];
+    chosen.forEach(sp=>(sp.needs||[]).forEach(id=>{
+      if(!chosen.some(x=>x.id===id) && !add.some(x=>x.id===id)){ const d=aiSpecialist(id); if(d) add.push(d); } }));
+    if(!add.length) break; chosen=chosen.concat(add);
+  }
+  const ran=[], pending=[];
+  chosen.forEach(sp=>{
+    if(typeof sp.run!=="function"){ pending.push(sp.name); return; }
+    try{ ran.push({id:sp.id, name:sp.name, result:sp.run(request, ctx, opts)}); }
+    catch(e){ ran.push({id:sp.id, name:sp.name, error:String(e&&e.message||e)}); }
+  });
+  return {request, answered:ran.length>0, parts:ran, pending,
+          consulted:chosen.map(s=>s.name),
+          note:pending.length?("Not yet available: "+pending.join(", ")):""};
+}
+
+// ── The specialists that can run today ───────────────────────────────────────
+aiRegister({ id:"estimating", name:"Estimating AI", domain:"cost",
+  triggers:["cost","price","estimate","budget","how much","$","rate","total"],
+  reads:["assemblies","materials","priceBook","laborRates","modifiers"],
+  run:(q,ctx,o)=>{
+    const comps=(o&&o.components)||[];
+    if(!comps.length) return {kind:"estimate", note:"No components supplied to price."};
+    const sys=asmSystemCost(comps, o||{});
+    return {kind:"estimate", directCost:sys.directCost, assemblyCost:sys.assemblyCost,
+            jobCost:sys.jobCost, incomplete:sys.incomplete, rows:sys.rows.length}; }});
+
+aiRegister({ id:"assembly", name:"Assembly Selection AI", domain:"construction",
+  triggers:["assembly","install","mortar","sand set","how should","method","build"],
+  reads:["assemblies","materials"],
+  run:(q,ctx,o)=>{ const r=asmRecommend((o&&o.selection)||{}); 
+    return {kind:"assembly", pick:r.asm, why:r.why, confidence:r.confidence, pending:r.pending}; }});
+
+// Answers "how can I save money" from what the estimate already knows: optional lines that are on,
+// lines that could be deferred, and assemblies with a cheaper alternative for the same material.
+aiRegister({ id:"ve", name:"Value Engineering AI", domain:"cost",
+  triggers:["save","cheaper","reduce","value engineer","budget","cut","trim","alternative"],
+  reads:["assemblies","materials","modifiers"], needs:["estimating"],
+  run:(q,ctx,o)=>{
+    const comps=(o&&o.components)||[]; const ideas=[], blocked=[];
+    comps.forEach(c=>{
+      const A=asmGet(c.asm); if(!A) return;
+      const r=asmCost(Object.assign({}, o||{}, c, {areaSF:asmQty(c.asm,c.measure,c.params).qty}));
+      if(!r||r.needsNumbers||r.needsRetail){
+        blocked.push({on:c.label||A.name,
+          why:(r&&r.needsNumbers)?"assembly has no costs yet":"material has no price yet"});
+        return; }
+      (r.lines||[]).forEach(L=>{
+        if(L.state!=="on") return;
+        if(!L.opt) return;                       // only optional lines are safe to propose dropping
+        ideas.push({what:"Remove "+L.n, on:c.label||A.name, saveSF:L.costSF,
+                    save:_asm2(L.costSF*r.area), kind:"option"});
+      });
+      const alts=(asmMat(c.material||"")||{}).asm||[];
+      alts.filter(id=>id!==A.id).forEach(id=>{
+        const alt=asmCost(Object.assign({}, o||{}, c, {asm:id, areaSF:r.area}));
+        if(alt&&!alt.needsNumbers&&!alt.needsRetail&&alt.installedSF<r.installedSF)
+          ideas.push({what:"Switch to "+ASM_LIB[id].short, on:c.label||A.name,
+                      saveSF:_asm2(r.installedSF-alt.installedSF),
+                      save:_asm2((r.installedSF-alt.installedSF)*r.area), kind:"assembly"});
+      });
+    });
+    ideas.sort((a,b)=>b.save-a.save);
+    return {kind:"value-engineering", ideas, blocked,
+            total:_asm2(ideas.reduce((s,i)=>s+i.save,0)),
+            note:(!ideas.length&&blocked.length)?"Nothing to propose until those are priced.":""}; }});
+
+aiRegister({ id:"conditions", name:"Site Conditions AI", domain:"project",
+  triggers:["access","slope","crane","staging","haul","shoring","condition","difficult","modifier"],
+  reads:["modifiers","project"],
+  run:(q,ctx,o)=>{ const r=modRecommend((o&&o.site)||{});
+    return {kind:"conditions", considered:r.considered, scored:r.scored, note:r.note}; }});
+
+// ── Declared, not yet available ──────────────────────────────────────────────
+// Registered so the orchestrator already knows they exist and the UI can show the roadmap.
+// None of them answer until a worker backs them; the orchestrator reports them as pending.
+[["research","Price Research AI","cost",["research","current price","market","supplier","quote"]],
+ ["plant","Plant AI","planting",["plant","tree","shrub","species","water use","maintenance"]],
+ ["material","Material AI","materials",["material","supplier","finish","product"]],
+ ["code","Code / HOA / DRC AI","compliance",["hoa","code","setback","permit","drc","ordinance"]],
+ ["irrigation","Irrigation AI","irrigation",["irrigation","valve","emitter","controller"]],
+ ["lighting","Lighting AI","lighting",["lighting","fixture","lumen","transformer"]],
+ ["construction","Construction AI","construction",["detail","sequence","buildability"]],
+ ["sustain","Sustainability AI","sustainability",["sustainab","water wise","native","permeable"]],
+ ["carbon","Carbon AI","sustainability",["carbon","embodied","emissions"]],
+ ["demo","Demolition AI","construction",["demo","demolition","tear out","removal"]],
+ ["logistics","Logistics AI","project",["logistics","delivery","laydown","sequencing"]],
+ ["schedule","Scheduling AI","project",["schedule","duration","timeline","weeks"]],
+ ["procure","Procurement AI","project",["procure","lead time","order","purchase"]],
+ ["present","Client Presentation AI","client",["present","client","proposal","report"]],
+ ["spec","Specification AI","documents",["spec","specification","submittal"]],
+ ["maint","Maintenance AI","maintenance",["maintenance","upkeep","care","prune"]]
+].forEach(([id,name,domain,triggers])=>aiRegister({id,name,domain,triggers,reads:["*"]}));
+
 // ══ PROJECT MODIFIERS ════════════════════════════════════════════════════════
 // Assemblies describe WHAT is being built. Modifiers describe HOW DIFFICULT it is to build.
 // They are project-level conditions and never touch the price book.
