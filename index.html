@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1036</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1037</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30764,6 +30764,58 @@ function aiOrchestrate(request, opts){
           consulted:chosen.map(s=>s.name),
           note:pending.length?("Not yet available: "+pending.join(", ")):""};
 }
+
+// ── Knowledge model auditor ──────────────────────────────────────────────────
+// Every reusable fact should be stored once and referenced everywhere. Until the component library
+// is normalised, the same fact IS stored many times — so the auditor's first job is to find where
+// those copies disagree, and to keep reporting it until they are shared objects rather than copies.
+function kmAudit(){
+  const findings=[];
+  // 1. the same component, priced differently in different assemblies
+  const byName={};
+  Object.keys(ASM_LIB).forEach(id=>{ const A=ASM_LIB[id];
+    (A.items||[]).forEach(x=>{
+      const k=x.n.trim().toLowerCase();
+      (byName[k]=byName[k]||[]).push({asm:id, name:x.n,
+        v:asmItem(A,x,"v"), hr:asmItem(A,x,"hr")}); }); });
+  Object.keys(byName).forEach(k=>{
+    const uses=byName[k]; if(uses.length<2) return;
+    const vs=[...new Set(uses.map(u=>u.v).filter(v=>v!=null))];
+    const hs=[...new Set(uses.map(u=>u.hr).filter(v=>v!=null))];
+    if(vs.length>1) findings.push({kind:"duplicate-material", severity:"high", component:uses[0].name,
+      values:vs, used_by:uses.map(u=>u.asm),
+      says:'"'+uses[0].name+'" is priced '+vs.length+' different ways across '+uses.length+' assemblies ('+vs.map(v=>"$"+(+v).toFixed(2)).join(", ")+'). Change one and the others do not follow.'});
+    if(hs.length>1) findings.push({kind:"duplicate-labour", severity:"medium", component:uses[0].name,
+      values:hs, used_by:uses.map(u=>u.asm),
+      says:'"'+uses[0].name+'" carries '+hs.length+' different labour assumptions ('+hs.map(v=>(+v).toFixed(3)+" hr").join(", ")+').'});
+  });
+  // 2. assemblies that cannot price yet
+  Object.keys(ASM_LIB).forEach(id=>{ if(asmIncomplete(id))
+    findings.push({kind:"incomplete", severity:"low", component:ASM_LIB[id].name, used_by:[id],
+      says:ASM_LIB[id].name+" has no costs yet, so anything using it falls back."}); });
+  // 3. project overrides that sit a long way from the default they replaced
+  try{ const P=_valProject();
+    Object.keys(P).forEach(k=>{ const r=P[k]; const d=valGet(k, null).dflt;
+      if(r&&r.v!=null&&d!=null&&+d!==0){
+        const pct=Math.round(((+r.v-+d)/+d)*1000)/10;
+        if(Math.abs(pct)>=25) findings.push({kind:"override-drift", severity:"medium", component:k,
+          values:[+d,+r.v], used_by:["project"],
+          says:"This project overrides "+k.split("|").slice(-2).join(" ")+" by "+(pct>0?"+":"")+pct+"% against the default."}); }
+    }); }catch(e){}
+  // 4. modifiers switched on with nothing behind them
+  try{ const md=modResolve();
+    (md.unpriced||[]).forEach(n=>findings.push({kind:"modifier-unpriced", severity:"medium",
+      component:n, used_by:["project"], says:n+" is switched on but has no values, so it changes nothing."})); }catch(e){}
+  const order={high:0, medium:1, low:2};
+  findings.sort((a,b)=>order[a.severity]-order[b.severity]);
+  return {findings, counts:{high:findings.filter(f=>f.severity==="high").length,
+                            medium:findings.filter(f=>f.severity==="medium").length,
+                            low:findings.filter(f=>f.severity==="low").length}};
+}
+aiRegister({ id:"audit", name:"Knowledge Auditor AI", domain:"knowledge",
+  triggers:["audit","inconsistent","consistency","check","duplicate","stale","out of date","review"],
+  reads:["assemblies","materials","modifiers","priceBook"],
+  run:()=>{ const a=kmAudit(); return {kind:"audit", counts:a.counts, findings:a.findings.slice(0,20)}; }});
 
 // ── The specialists that can run today ───────────────────────────────────────
 aiRegister({ id:"estimating", name:"Estimating AI", domain:"cost",

@@ -9,6 +9,34 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Same component, different prices — the auditor's first findings
+**v1037 · 2026-08-20 · knowledge model**
+
+`kmAudit()` reads the whole assembly library looking for the same fact stored more than once with
+different values. It found 7 high, 7 medium, 10 low. Two are real discrepancies in the source cost
+sheets and need your answer:
+
+| Component | Priced as | In |
+|---|---|---|
+| **4″ road base** | **$2.00** | stone mortar-set |
+| | **$0.70** | concrete flatwork, stamped, gravel/DG |
+| **4″ concrete** | **$3.50** | stone mortar-set |
+| | **$2.75** | concrete flatwork, stamped |
+
+Same nominal item, different number. Either the stone assembly is carrying something extra, or one
+of the sheets is out of date. Also inconsistent: Forms ($0.25 / $0.20), Bedding sand ($0.50 / $0.30),
+Edge restraint ($0.40 / $0.45), Miscellaneous materials (four different values).
+
+**The underlying cause is architectural.** Components are copies, not references — "4″ road base"
+is seven separate numbers, so changing one changes nothing else. The fix is a shared resource
+library: materials and labour tasks as objects with unit prices, assemblies declaring how much of
+each they consume. Not started; Warwick does not want it rushed.
+
+Until then the auditor reports the disagreements every time it runs, and is registered as a
+specialist so it can be asked directly.
+
+---
+
 ### 0 · Project Modifiers — how hard, kept separate from what
 **v1035 · 2026-08-20 · estimating engine**
 
