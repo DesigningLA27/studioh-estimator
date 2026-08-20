@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1025</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1026</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24373,19 +24373,24 @@ function renderPriceBook(){
     const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const att=v=>esc(v).replace(/"/g,"&quot;");
     const ids=Object.keys(ASM_LIB);
-    const rows=ids.map(id=>({t:"a",id})).concat(ASM_MATS.map(m=>({t:"m",id:m.n})));
+    const rows=ids.map(id=>({t:"a",id})).concat(ASM_MATS.map(m=>({t:"m",id:m.n})))
+                  .concat(ASM_PATTERNS.map(x=>({t:"p",id:x.id})));
     let sel=Math.max(0,Math.min(pb3Sel("__asm"), rows.length-1));
     const R=rows[sel];
 
     let list="", run=null;
     rows.forEach((r,i)=>{
-      const grp=(r.t==="a")?"Assemblies":"Materials";
+      const grp=(r.t==="a")?"Assemblies":(r.t==="m"?"Materials":"Installation patterns");
       if(grp!==run){ run=grp; list+='<div class="pb3-sec">'+grp+'</div>'; }
       if(r.t==="a"){ const A=ASM_LIB[r.id];
         list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__asm\','+i+')">'
           +'<span class="cv"></span><span class="nm">'+esc(A.name)+'</span>'
           +'<span class="u">'+esc(A.unit)+'</span>'
           +'<span class="v">'+asmHrTotal(A).toFixed(3)+' hr</span></button>';
+      } else if(r.t==="p"){ const X=asmPattern(r.id);
+        list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__asm\','+i+')">'
+          +'<span class="cv"></span><span class="nm">'+esc(X.n)+'</span>'
+          +'<span class="u">hrs</span><span class="v">×'+(+X.cx).toFixed(2)+'</span></button>';
       } else { const M=asmMat(r.id); const rt=M&&M.supply?M.supply.retail:null;
         const n=(M&&M.asm||[]).length;
         list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__asm\','+i+')">'
@@ -24423,15 +24428,26 @@ function renderPriceBook(){
         +'<b>'+esc(ASM_LABOR_TRADE)+'</b> rate. '
         +'<button class="pb3-link" onclick="pbGotoRate(\''+att(ASM_LABOR_TRADE)+'\')">Change that rate</button></div>';
       ["value","standard","premium"].forEach(t=>{
-        const r=asmTierRate(t);
-        ins+='<div class="pb3-f"><span class="k">'+asmTier(t).label+' · $'+r+'/hr</span>'
-          +'<span>'+money(bh*r)+' / '+esc(A.unit)+'</span></div>';
+        const r=asmTierRate(t), T=asmTier(t);
+        ins+='<div class="pb3-f"><span class="k">'+T.label+' · $'+r+'/hr · ×'+(+T.prod).toFixed(2)+' hrs</span>'
+          +'<span>'+money(bh*(+T.prod||1)*r)+' / '+esc(A.unit)+'</span></div>';
       });
       ins+='<h4>Used by</h4>';
       const uses=ASM_MATS.filter(m=>(m.asm||[]).indexOf(A.id)>=0).map(m=>m.n);
       ins+=uses.length
         ? '<div class="pb3-used">'+uses.map(n=>'<span>'+esc(n)+'</span>').join('')+'</div>'
         : '<div style="font-size:11.5px;color:var(--tl)">No material declares this assembly yet.</div>';
+    } else if(R&&R.t==="p"){
+      const X=asmPattern(R.id);
+      ins+='<div class="pb3-nm" style="cursor:default">'+esc(X.n)+'</div>'
+        +'<div class="t">Multiplier on labour hours · any material can use it</div>';
+      ins+='<h4>Complexity</h4>';
+      ins+='<div class="pb3-f on"><span class="k">× labour hours</span>'
+        +'<span><input type="number" class="no-spin" value="'+(+X.cx).toFixed(2)+'" step="0.01" '
+        +'onchange="asmSetPatternCx(\''+att(X.id)+'\',this.value);renderPriceBook()"></span></div>';
+      ins+='<h4>Where it lands</h4>';
+      ins+='<div style="font-size:11.5px;color:var(--tl);line-height:1.5">Base hours × <b>this</b> × job size × crew productivity × hourly rate. '
+        +'Complexity belongs to the pattern, so every compatible material shares one set of assumptions.</div>';
     } else if(R){
       const M=asmMat(R.id);
       ins+='<div class="pb3-nm" style="cursor:default">'+esc(R.id)+'</div>'
@@ -24451,11 +24467,7 @@ function renderPriceBook(){
       const d=(sup.retail==null)?null:asmDelivered(sup);
       ins+='<div class="pb3-bu tot"><span>Delivered</span><b>'+(d?money(d.delivered):"—")+'</b></div>';
       if(sup.retail==null) ins+='<div style="font-size:11.5px;color:var(--gold,#8A6D1F);line-height:1.45">No price set, so any assembly on this material stays on the flat book band.</div>';
-      ins+='<h4>Labour complexity</h4>';
-      ins+='<div class="pb3-f"><span class="k">Multiplier on hours</span>'
-        +'<span><input type="number" class="no-spin" value="'+(M.cx!=null?M.cx:1)+'" step="0.05" '
-        +'onchange="asmSetCx(\''+att(R.id)+'\',this.value);renderPriceBook()"></span></div>';
-      ins+='<div style="font-size:11.5px;color:var(--tl);line-height:1.45">1.00 = the assembly\'s base hours. Raise it for a harder pattern or an irregular material.</div>';
+      ins+='<div style="margin-top:8px;font-size:11.5px;color:var(--tl);line-height:1.45">Labour complexity is set by the installation pattern, not the material.</div>';
       ins+='<h4>Assemblies it supports</h4>';
       asmFor("paving").forEach(A=>{
         const on=(M.asm||[]).indexOf(A.id)>=0;
@@ -30691,11 +30703,29 @@ function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", 
 // Contractor quality tiers. Today they set the labour rate. They are shaped to carry
 // productivity, waste, overhead, profit and quality later — those sit neutral until
 // Warwick sets them, so nothing here is a guessed number.
+// prod = labour-hour multiplier. A Value crew takes ~10% more hours, a Premium crew ~10% fewer.
+// It is deliberately independent of the hourly rate — a dearer crew is often a faster one.
 const CONTRACTOR_TIERS=[
-  {id:"value",    label:"Value",    labor:55,  prod:1, waste:1, oh:0, profit:0},
-  {id:"standard", label:"Standard", labor:85,  prod:1, waste:1, oh:0, profit:0},
-  {id:"premium",  label:"Premium",  labor:120, prod:1, waste:1, oh:0, profit:0}
+  {id:"value",    label:"Value",    labor:55,  prod:1.10, waste:1, oh:0, profit:0},
+  {id:"standard", label:"Standard", labor:85,  prod:1.00, waste:1, oh:0, profit:0},
+  {id:"premium",  label:"Premium",  labor:120, prod:0.90, waste:1, oh:0, profit:0}
 ];
+// Complexity belongs to the laying pattern, not the material, so every compatible material
+// reuses one set of productivity assumptions.
+let ASM_PATTERNS=(function(){ try{ const s=localStorage.getItem("studioh_assemblies_v1");
+  if(s){ const j=JSON.parse(s); if(j&&j.patterns) return j.patterns; } }catch(e){} return null; })() || [
+  {id:"running",   n:"Running Bond",        cx:1.00},
+  {id:"stack",     n:"Stack Bond",          cx:0.98},
+  {id:"ashlar",    n:"Random Ashlar",       cx:1.10},
+  {id:"french",    n:"French Pattern",      cx:1.12},
+  {id:"basket",    n:"Basket Weave",        cx:1.15},
+  {id:"herring45", n:"45° Herringbone",     cx:1.20},
+  {id:"herring90", n:"90° Herringbone",     cx:1.18},
+  {id:"flagstone", n:"Irregular Flagstone", cx:1.30}
+];
+function asmPattern(id){ return ASM_PATTERNS.find(x=>x.id===id)||ASM_PATTERNS[0]; }
+function asmPatternCx(id){ const p=asmPattern(id); return p?(+p.cx||1):1; }
+function asmSetPatternCx(id,v){ const p=asmPattern(id); if(p){ p.cx=Math.max(0.1,+v||1); asmSave(); } }
 function asmTier(id){ return CONTRACTOR_TIERS.find(t=>t.id===id)||CONTRACTOR_TIERS[1]; }
 // The rate comes from the Price Book, not from here. Value/Standard/Premium map onto the trade's
 // own three tiers, so editing Skilled Labor in the book re-prices every assembly. The constants
@@ -30743,11 +30773,11 @@ const ASM_LIB={
           "4″ compacted aggregate road base","4″ reinforced concrete slab","#3 rebar ~18″ OC each way"],
     mats:[{n:"Aggregate road base",v:2.00},{n:"Concrete material",v:3.50},{n:"Rebar material",v:0.85},
           {n:"Form materials",v:0.25},{n:"Mortar / thinset",v:1.50},{n:"Grout",v:0.75},
-          {n:"Sealer material",v:0.75},{n:"Miscellaneous materials",v:0.50}],
+          {n:"Sealer material",v:0.75,opt:true},{n:"Miscellaneous materials",v:0.50}],
     labor:[{n:"Excavation / rough grading",hr:0.012},{n:"Subgrade compaction",hr:0.006},
            {n:"Road base placement",hr:0.012},{n:"Forms",hr:0.006},{n:"Rebar installation",hr:0.010},
            {n:"Concrete placement",hr:0.020},{n:"Mortar preparation",hr:0.008},{n:"Stone setting",hr:0.055},
-           {n:"Cutting / fitting",hr:0.010},{n:"Grouting",hr:0.015},{n:"Sealer application",hr:0.008},
+           {n:"Cutting / fitting",hr:0.010},{n:"Grouting",hr:0.015},{n:"Sealer application",hr:0.008,opt:true},
            {n:"Cleanup",hr:0.006}],
     minThick:0, maxThick:1.0 },
   "pav.sandset":{
@@ -30756,13 +30786,78 @@ const ASM_LIB={
     spec:["Full-thickness paver ~1.25″–2″","Sand set","~1″ bedding sand","Polymeric joint sand",
           "4″–6″ compacted aggregate road base","Edge restraint included","Penetrating sealer"],
     mats:[{n:"Aggregate road base",v:2.50},{n:"Bedding sand",v:0.50},{n:"Edge restraint",v:0.40},
-          {n:"Polymeric joint sand",v:0.50},{n:"Sealer material",v:0.75},{n:"Miscellaneous materials",v:0.40}],
+          {n:"Polymeric joint sand",v:0.50},{n:"Sealer material",v:0.75,opt:true},{n:"Miscellaneous materials",v:0.40}],
     labor:[{n:"Excavation / rough grading",hr:0.014},{n:"Subgrade compaction",hr:0.006},
            {n:"Road base placement",hr:0.014},{n:"Bedding sand",hr:0.008},{n:"Stone setting",hr:0.055},
            {n:"Cutting / fitting",hr:0.010},{n:"Edge restraint",hr:0.006},{n:"Polymeric joint sand",hr:0.006},
-           {n:"Sealer application",hr:0.008},{n:"Cleanup",hr:0.006}],
+           {n:"Sealer application",hr:0.008,opt:true},{n:"Cleanup",hr:0.006}],
+    minThick:1.25, maxThick:99 },
+  // ── Assemblies awaiting Warwick's numbers. The line names are his; the values are null so the
+  //    engine refuses to price them rather than inventing a rate. `opt:true` = optional modifier:
+  //    attached to the project but out of the price until it is switched on.
+  "pav.concrete":{
+    id:"pav.concrete", cat:"paving", unit:"SF", needsNumbers:true,
+    name:"Concrete flatwork — reinforced slab", short:"Concrete",
+    spec:["Compacted base","Forms","Rebar","Concrete","Finish","Curing"],
+    mats:[{n:"Aggregate road base",v:null},{n:"Concrete material",v:null},{n:"Rebar material",v:null},
+          {n:"Form materials",v:null},{n:"Curing compound",v:null},{n:"Miscellaneous materials",v:null},
+          {n:"Admixtures",v:null,opt:true},{n:"Expansion joint upgrade",v:null,opt:true}],
+    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
+           {n:"Road base placement",hr:null},{n:"Forms",hr:null},{n:"Rebar installation",hr:null},
+           {n:"Concrete placement",hr:null},{n:"Finishing",hr:null},{n:"Curing",hr:null},{n:"Cleanup",hr:null}],
+    minThick:0, maxThick:99 },
+  "pav.stamped":{
+    id:"pav.stamped", cat:"paving", unit:"SF", needsNumbers:true,
+    name:"Stamped / coloured concrete", short:"Stamped",
+    spec:["Standard concrete assembly","Integral colour","Release","Stamping","Sealer"],
+    mats:[{n:"Aggregate road base",v:null},{n:"Concrete material",v:null},{n:"Rebar material",v:null},
+          {n:"Form materials",v:null},{n:"Miscellaneous materials",v:null},
+          {n:"Integral colour",v:null,opt:true},{n:"Release agent",v:null},{n:"Sealer material",v:null,opt:true}],
+    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
+           {n:"Road base placement",hr:null},{n:"Forms",hr:null},{n:"Rebar installation",hr:null},
+           {n:"Concrete placement",hr:null},{n:"Stamping",hr:null},{n:"Colour / release application",hr:null},
+           {n:"Sealer application",hr:null,opt:true},{n:"Cleanup",hr:null}],
+    minThick:0, maxThick:99 },
+  "pav.dg":{
+    id:"pav.dg", cat:"paving", unit:"SF", needsNumbers:true,
+    name:"Gravel / decomposed granite", short:"Gravel / DG",
+    spec:["Compacted subgrade","Aggregate base where required","DG","Stabiliser optional","Compaction","Edging"],
+    mats:[{n:"Aggregate base",v:null},{n:"Decomposed granite",v:null},{n:"Edging",v:null},
+          {n:"Miscellaneous materials",v:null},{n:"Stabiliser",v:null,opt:true}],
+    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
+           {n:"Aggregate base placement",hr:null},{n:"DG placement",hr:null},
+           {n:"Stabiliser mixing",hr:null,opt:true},{n:"Compaction",hr:null},
+           {n:"Edging installation",hr:null},{n:"Cleanup",hr:null}],
+    minThick:0, maxThick:99 },
+  "pav.cpaver":{
+    id:"pav.cpaver", cat:"paving", unit:"SF", needsNumbers:true,
+    name:"Concrete pavers — sand set", short:"Concrete Paver",
+    spec:["Concrete paver","Sand set","Bedding sand","Polymeric joint sand","Edge restraint","Aggregate base"],
+    mats:[{n:"Aggregate road base",v:null},{n:"Bedding sand",v:null},{n:"Edge restraint",v:null},
+          {n:"Polymeric joint sand",v:null},{n:"Miscellaneous materials",v:null},
+          {n:"Sealer material",v:null,opt:true},{n:"Decorative band",v:null,opt:true}],
+    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
+           {n:"Road base placement",hr:null},{n:"Bedding sand",hr:null},{n:"Paver setting",hr:null},
+           {n:"Cutting / fitting",hr:null},{n:"Edge restraint",hr:null},{n:"Polymeric joint sand",hr:null},
+           {n:"Sealer application",hr:null,opt:true},{n:"Cleanup",hr:null}],
+    minThick:1.25, maxThick:99 },
+  "pav.brick":{
+    id:"pav.brick", cat:"paving", unit:"SF", needsNumbers:true,
+    name:"Brick paving", short:"Brick",
+    spec:["Clay brick paver","Sand or mortar set","Jointing","Edge restraint","Aggregate base"],
+    mats:[{n:"Aggregate road base",v:null},{n:"Bedding sand",v:null},{n:"Edge restraint",v:null},
+          {n:"Joint material",v:null},{n:"Miscellaneous materials",v:null},
+          {n:"Sealer material",v:null,opt:true},{n:"Decorative border",v:null,opt:true}],
+    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
+           {n:"Road base placement",hr:null},{n:"Bedding sand",hr:null},{n:"Brick setting",hr:null},
+           {n:"Cutting / fitting",hr:null},{n:"Edge restraint",hr:null},{n:"Jointing",hr:null},
+           {n:"Sealer application",hr:null,opt:true},{n:"Cleanup",hr:null}],
     minThick:1.25, maxThick:99 }
 };
+// An assembly cannot price until every non-optional line has a number.
+function asmIncomplete(A){ A=asmGet(A); if(!A) return true;
+  const bad=x=>!x.opt && (x.v==null && x.hr==null);
+  return (A.mats||[]).some(m=>!m.opt&&m.v==null) || (A.labor||[]).some(l=>!l.opt&&l.hr==null); }
 function asmMatTotal(a){ return (a&&a.mats||[]).reduce((s,m)=>s+(+m.v||0),0); }
 function asmHrTotal(a){ return (a&&a.labor||[]).reduce((s,l)=>s+(+l.hr||0),0); }
 function asmGet(a){ return (typeof a==="string")?ASM_LIB[a]:a; }
@@ -30779,20 +30874,20 @@ let ASM_MATS=(function(){ try{ const s=localStorage.getItem("studioh_assemblies_
   {n:"2″ Bluestone",              cat:"paving", thick:2.0,  asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
   {n:"Natural Stone Paving",      cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
   {n:"Porcelain Pavers",          cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
-  {n:"Concrete Pavers",           cat:"paving", thick:2.375,asm:["pav.sandset","pav.mortarset"], supply:{retail:null}, cx:1},
-  {n:"Brick Paving",              cat:"paving", thick:2.25, asm:["pav.sandset","pav.mortarset"], supply:{retail:null}, cx:1},
-  {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.sandset"], supply:{retail:null}, cx:1},
+  {n:"Concrete Pavers",           cat:"paving", thick:2.375,asm:["pav.cpaver"], supply:{retail:null}},
+  {n:"Brick Paving",              cat:"paving", thick:2.25, asm:["pav.brick"], supply:{retail:null}},
+  {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.cpaver"], supply:{retail:null}},
   {n:"Pebble / Baja Stone Paving",cat:"paving", thick:null, asm:["pav.mortarset"], supply:{retail:null}, cx:1},
   // Poured and loose surfaces are not a set material over a sub-base — they need their own
   // assemblies, so they declare none and keep pricing off the flat book band.
-  {n:"Concrete Flatwork",         cat:"paving", thick:null, asm:[], supply:{retail:null}, cx:1},
-  {n:"Stamped / Colored Concrete",cat:"paving", thick:null, asm:[], supply:{retail:null}, cx:1},
-  {n:"Gravel / Decomposed Granite",cat:"paving",thick:null, asm:[], supply:{retail:null}, cx:1}
+  {n:"Concrete Flatwork",         cat:"paving", thick:null, asm:["pav.concrete"], supply:{retail:null}},
+  {n:"Stamped / Colored Concrete",cat:"paving", thick:null, asm:["pav.stamped"], supply:{retail:null}},
+  {n:"Gravel / Decomposed Granite",cat:"paving",thick:null, asm:["pav.dg"], supply:{retail:null}}
 ];
 function asmMat(name){ return ASM_MATS.find(m=>m.n===name)||null; }
 // Assemblies and the material catalogue persist and publish with the rest of the price book.
 function asmSave(){ try{ localStorage.setItem("studioh_assemblies_v1",
-  JSON.stringify({lib:ASM_LIB, mats:ASM_MATS})); }catch(e){} }
+  JSON.stringify({lib:ASM_LIB, mats:ASM_MATS, patterns:ASM_PATTERNS})); }catch(e){} }
 (function(){ try{ const s=localStorage.getItem("studioh_assemblies_v1"); if(!s) return;
   const j=JSON.parse(s); if(j&&j.lib) Object.keys(j.lib).forEach(k=>{ if(ASM_LIB[k]) ASM_LIB[k]=j.lib[k]; }); }catch(e){} })();
 function asmSetLine(asmId,kind,name,val){ const A=ASM_LIB[asmId]; if(!A) return;
@@ -30801,8 +30896,7 @@ function asmSetLine(asmId,kind,name,val){ const A=ASM_LIB[asmId]; if(!A) return;
   asmSave(); }
 function asmSetSupply(matName,key,val){ const m=asmMat(matName); if(!m) return;
   m.supply=m.supply||{}; m.supply[key]=Math.max(0,+val||0); asmSave(); }
-function asmSetCx(matName,val){ const m=asmMat(matName); if(!m) return;
-  m.cx=Math.max(0.1,+val||1); asmSave(); }
+function asmSetCx(matName,val){ /* complexity moved to the installation pattern */ }
 function asmToggleMatAsm(matName,asmId){ const m=asmMat(matName); if(!m) return;
   m.asm=m.asm||[]; const i=m.asm.indexOf(asmId);
   if(i>=0) m.asm.splice(i,1); else m.asm.push(asmId); asmSave(); }
@@ -30842,47 +30936,64 @@ function _asm2(n){ return Math.round((+n||0)*100)/100; }
 // engineering surface: drop the sealer, defer the sealer, and the price moves by exactly its
 // material plus its hours — no guesswork about what a saving is worth.
 function asmLineKey(kind,n){ return kind+":"+n; }
-function asmIsOff(off,kind,n){ return !!(off&&off.indexOf(asmLineKey(kind,n))>=0); }
+// Per-trace line state: "on" switches an optional modifier in, "off" takes a standard line out,
+// "defer" keeps it on the job but out of this price.
+function asmLineState(lines,L){
+  const st=lines&&lines[L.key];
+  if(st) return st;
+  return L.opt ? "off" : "on";
+}
 function asmCost(o){
   o=o||{}; const A=asmGet(o.asm); if(!A) return null;
   const mat=(typeof o.material==="string")?asmMat(o.material):o.material;
   const area=Math.max(0,+o.areaSF||0);
+  if(asmIncomplete(A)) return {needsNumbers:true, assembly:A.id, assemblyName:A.name};
   const retail=asmRetailOf(o);
   if(retail==null) return {needsRetail:true, assembly:A.id, assemblyName:A.name, material:(mat&&mat.n)||o.material||""};
   const sup=asmDelivered(Object.assign({}, (mat&&mat.supply)||{}, o.supply||{}, {retail:retail}));
-  const off=o.off||[];
+
+  const st=o.lines||{};
+  const pat=o.pattern||"running";
+  const patCx=asmPatternCx(pat);
   const mult=asmAreaMult(area);
-  const cx=(o.complexity!=null?+o.complexity:(mat&&mat.cx!=null?+mat.cx:1))||1;
-  const rate=asmTierRate(o.tier||asmTierId());
+  const tierId=o.tier||asmTierId();
+  const T=asmTier(tierId), rate=asmTierRate(tierId), prod=+T.prod||1;
 
-  let nonMat=0, baseHr=0, offMat=0, offHr=0;
+  // Base Labour Hours × Pattern Complexity × Area Efficiency × Contractor Productivity × Rate
+  const HRF=(hr,pr)=>hr*patCx*mult*pr;
+
+  let nonMat=0, baseHr=0, offMat=0, offHr=0, defMat=0, defHr=0;
   const lines=[];
-  (A.mats||[]).forEach(m=>{ const dead=asmIsOff(off,"m",m.n); const v=+m.v||0;
-    if(dead) offMat+=v; else nonMat+=v;
-    lines.push({kind:"m", key:asmLineKey("m",m.n), n:m.n, matSF:_asm2(v), hr:0, off:dead}); });
-  (A.labor||[]).forEach(l=>{ const dead=asmIsOff(off,"l",l.n); const h=+l.hr||0;
-    if(dead) offHr+=h; else baseHr+=h;
-    lines.push({kind:"l", key:asmLineKey("l",l.n), n:l.n, matSF:0, hr:h, off:dead}); });
+  (A.mats||[]).forEach(m=>{ const state=asmLineState(st,{key:asmLineKey("m",m.n),opt:m.opt}); const v=+m.v||0;
+    if(state==="on") nonMat+=v; else if(state==="defer") defMat+=v; else offMat+=v;
+    lines.push({kind:"m", key:asmLineKey("m",m.n), n:m.n, opt:!!m.opt, state, matSF:_asm2(v), hr:0}); });
+  (A.labor||[]).forEach(l=>{ const state=asmLineState(st,{key:asmLineKey("l",l.n),opt:l.opt}); const h=+l.hr||0;
+    if(state==="on") baseHr+=h; else if(state==="defer") defHr+=h; else offHr+=h;
+    lines.push({kind:"l", key:asmLineKey("l",l.n), n:l.n, opt:!!l.opt, state, matSF:0, hr:h}); });
 
-  const adjHr=baseHr*mult*cx;
-  lines.forEach(L=>{ L.laborSF=L.hr?_asm2(L.hr*mult*cx*rate):0; L.costSF=_asm2(L.matSF+L.laborSF); });
+  const adjHr=HRF(baseHr,prod);
+  lines.forEach(L=>{ L.laborSF=L.hr?_asm2(HRF(L.hr,prod)*rate):0; L.costSF=_asm2(L.matSF+L.laborSF); });
 
   const out={assembly:A.id, assemblyName:A.name, unit:A.unit, area, areaMult:mult,
-             baseHours:baseHr, complexity:cx, adjHours:adjHr, laborRate:rate, trade:ASM_LABOR_TRADE,
+             pattern:pat, patternName:asmPattern(pat).n, patternCx:patCx,
+             tier:tierId, productivity:prod, laborRate:rate, trade:ASM_LABOR_TRADE,
+             baseHours:baseHr, adjHours:adjHr,
              supply:sup, deliveredSF:_asm2(sup.delivered), nonMatSF:_asm2(nonMat), lines,
-             omitted:{matSF:_asm2(offMat), hours:offHr, savingSF:_asm2(offMat+offHr*mult*cx*rate),
-                      n:lines.filter(L=>L.off).length},
+             omitted:{matSF:_asm2(offMat), hours:offHr, savingSF:_asm2(offMat+HRF(offHr,prod)*rate),
+                      n:lines.filter(L=>L.state==="off"&&!L.opt).length},
+             deferred:{matSF:_asm2(defMat), hours:defHr, valueSF:_asm2(defMat+HRF(defHr,prod)*rate),
+                       n:lines.filter(L=>L.state==="defer").length},
              tiers:{}};
   CONTRACTOR_TIERS.forEach(t=>{
-    const r=asmTierRate(t.id);
-    const laborSF=_asm2(adjHr*r);
+    const r=asmTierRate(t.id), pr=+t.prod||1;
+    const laborSF=_asm2(HRF(baseHr,pr)*r);
     const instSF=_asm2(sup.delivered+nonMat+laborSF);
-    out.tiers[t.id]={label:t.label, laborRate:r, laborSF, installedSF:instSF, total:_asm2(instSF*area)};
+    out.tiers[t.id]={label:t.label, laborRate:r, prod:pr, hours:HRF(baseHr,pr), laborSF,
+                     installedSF:instSF, total:_asm2(instSF*area)};
   });
-  out.installedSF=out.tiers[o.tier||asmTierId()]?out.tiers[o.tier||asmTierId()].installedSF:out.tiers.standard.installedSF;
+  out.installedSF=out.tiers[tierId].installedSF;
   return out;
 }
-
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
 const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
@@ -30899,8 +31010,18 @@ function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const ti
 // Price for one paving trace, most specific first:
 //   1. a rate you typed for this trace   2. its installation assembly   3. the flat book band
 function _pavAsmCost(p){ if(!p||!p.asm||!ASM_LIB[p.asm]) return null;
-  try{ return asmCost({asm:p.asm, material:p.type, off:p.asmOff, areaSF:_ptTraceNet(p),
+  try{ return asmCost({asm:p.asm, material:p.type, lines:p.asmLines, pattern:p.asmPat,
+                       areaSF:_ptTraceNet(p),
                        supply:(p.matOv!=null&&p.matOv!=="")?{retail:+p.matOv}:null}); }catch(e){ return null; } }
+function ptSetAsmPattern(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
+  if(!v||v==="running") delete p.asmPat; else p.asmPat=v;
+  try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
+// in → deferred → out → in. Optional modifiers start out and cycle out → in → deferred.
+function ptAsmCycle(idx,key,isOpt){ const p=PT.polys[idx]; if(!p) return; ptSnap();
+  const L=p.asmLines=Object.assign({},p.asmLines);
+  const cur=L[key]||(isOpt?"off":"on");
+  L[key]=(cur==="on")?"defer":((cur==="defer")?"off":"on");
+  p.asmLines=L; try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
 // A material cost you have in mind for this job. Overrides the book for this trace only and never
 // writes back to it — the book stays the source of truth for everyone else.
 function ptSetMatOv(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
@@ -30927,10 +31048,7 @@ function pbOpenAsm(matName){
 function ptSetPolyAsm(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
   if(!v){ delete p.asm; } else { p.asm=v; }
   try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
-function ptAsmLineToggle(idx,key){ const p=PT.polys[idx]; if(!p) return; ptSnap();
-  const off=(p.asmOff||[]).slice(); const i=off.indexOf(key);
-  if(i>=0) off.splice(i,1); else off.push(key);
-  p.asmOff=off; try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
+
 function ptAsmOpen(idx){ PT._asmOpen=(PT._asmOpen===idx)?null:idx; try{ ptWhy("paving"); }catch(e){} }
 function _ptTraceNet(p){ const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0); let taken=0;
   PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0) return; if(_ptEnclosing(x,PT.polys)===p) taken+=_tkCutSF(x); });
@@ -32267,27 +32385,40 @@ function _ptAsmBlock(e){
         <span style="display:block;font:600 9.5px var(--tkf);color:#68765B">${(p.matOv!=null&&p.matOv!=="")?"set for this job":"from the price book"}</span></span>
       <b style="font:700 12px ui-monospace,Menlo,monospace;color:${RET==null?"#F2C14E":"#EAF0E4"}">${RET==null?"not set":money2(RET)}</b></div>`;
   const bookLink=`<button onclick="pbOpenAsm('${q(p.type||"")}')" style="margin-top:7px;border:0;background:none;padding:0;cursor:pointer;font:700 10.5px var(--tkf);color:#7CE05E">Edit in Price Book →</button>`;
+  if(R.needsNumbers) return head+`<div style="margin-top:7px;padding:9px 10px;border:1px solid #F2C14E;border-radius:11px;background:rgba(242,193,78,.10)">
+      <div style="font:700 11.5px var(--tkf);color:#F2C14E">${R.assemblyName} has no costs yet</div>
+      <div style="font:600 10.5px var(--tkf);color:#C7D6BB;margin-top:3px;line-height:1.45">Fill in its materials and labour hours in the price book. Until then this trace prices off the flat book rate.</div>
+      ${bookLink}</div>`;
   if(R.needsRetail) return head+`<div style="margin-top:7px;padding:9px 10px;border:1px solid #F2C14E;border-radius:11px;background:rgba(242,193,78,.10)">
       <div style="font:700 11.5px var(--tkf);color:#F2C14E">${R.assemblyName} needs a material price</div>
       <div style="font:600 10.5px var(--tkf);color:#C7D6BB;margin-top:3px;line-height:1.45">Set it in the price book. Until then this trace prices off the flat book rate.</div>
       ${bookLink}</div>`;
   const q=v=>(""+v).replace(/"/g,"&quot;");
-  const row=L=>`<div style="display:flex;gap:7px;align-items:center;padding:4px 0;${L.off?"opacity:.45":""}">
-      <button onclick="ptAsmLineToggle(${e.idx},'${L.key.replace(/'/g,"\\'")}')" title="${L.off?"Put this back":"Take this out"}"
+  const MARK={on:{bg:"#6FBF5C",bd:"#6FBF5C",g:"✓",t:"In the price · tap to defer"},
+              defer:{bg:"#D9A441",bd:"#D9A441",g:"»",t:"Deferred to a later phase · tap to remove"},
+              off:{bg:"transparent",bd:"rgba(255,255,255,.25)",g:"",t:"Not in the price · tap to add"}};
+  const row=L=>{ const M=MARK[L.state]||MARK.on; const dim=(L.state!=="on");
+    return `<div style="display:flex;gap:7px;align-items:center;padding:4px 0;${dim?"opacity:.6":""}">
+      <button onclick="ptAsmCycle(${e.idx},'${L.key.replace(/'/g,"\\'")}',${L.opt?1:0})" title="${M.t}"
         style="flex:none;width:17px;height:17px;border-radius:5px;cursor:pointer;padding:0;
-        border:1.5px solid ${L.off?"rgba(255,255,255,.25)":"#6FBF5C"};background:${L.off?"transparent":"#6FBF5C"};
-        color:#0c2007;font:800 10px var(--tkf);line-height:1">${L.off?"":"✓"}</button>
-      <span style="flex:1;min-width:0;font:600 11px var(--tkf);color:#C7D6BB;${L.off?"text-decoration:line-through":""}">${L.n}</span>
+        border:1.5px solid ${M.bd};background:${M.bg};color:#0c2007;font:800 10px var(--tkf);line-height:1">${M.g}</button>
+      <span style="flex:1;min-width:0;font:600 11px var(--tkf);color:#C7D6BB;${L.state==="off"?"text-decoration:line-through":""}">${L.n}${L.opt?'<span style="color:#68765B;font-weight:600"> · option</span>':''}</span>
       <span style="width:58px;flex:none;text-align:right;font:600 10px ui-monospace,Menlo,monospace;color:#68765B">${L.kind==="m"?money2(L.matSF):(+L.hr).toFixed(3)+" hr"}</span>
-      <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(L.costSF)}</b>
-    </div>`;
+      <b style="font:700 11px ui-monospace,Menlo,monospace;color:${L.state==="on"?"#EAF0E4":"#68765B"};width:52px;text-align:right">${money2(L.costSF)}</b>
+    </div>`; };
   const sec=(t,arr)=>`<div style="font:800 8.5px var(--tkf);letter-spacing:.13em;text-transform:uppercase;color:#8FA383;margin:8px 0 2px">${t}</div>`+arr.map(row).join("");
   const om=R.omitted;
   return head+`<div style="margin-top:7px;padding:9px 10px;border:1px solid rgba(255,255,255,.12);border-radius:11px;background:rgba(255,255,255,.03)">
     <div style="display:flex;gap:8px;align-items:baseline">
       <span style="flex:1;font:700 11.5px var(--tkf);color:#EAF0E4">${R.assemblyName}</span>
       <span style="font:600 10px var(--tkf);color:#8FA383">${R.area.toLocaleString()} SF · ×${R.areaMult.toFixed(2)}</span></div>
-    <div style="font:600 10px var(--tkf);color:#68765B;margin-top:2px">Labour ${R.trade} at ${money2(R.laborRate)}/hr · efficiency applies to hours only</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+      <span style="font:600 10px var(--tkf);color:#8FA383;flex:none">Pattern</span>
+      <select onchange="ptSetAsmPattern(${e.idx},this.value)" style="flex:1;min-width:0;box-sizing:border-box;font:600 11px var(--tkf);color:#EAF0E4;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:3px 6px">
+        ${ASM_PATTERNS.map(x=>`<option value="${x.id}" ${R.pattern===x.id?"selected":""}>${x.n} · ×${(+x.cx).toFixed(2)}</option>`).join("")}
+      </select></div>
+    <div style="font:600 9.5px var(--tkf);color:#68765B;margin-top:5px;line-height:1.5">
+      ${R.baseHours.toFixed(3)} hr × ${R.patternCx.toFixed(2)} pattern × ${R.areaMult.toFixed(2)} size × ${R.productivity.toFixed(2)} crew × ${money2(R.laborRate)}/hr</div>
     ${retIn}
     <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,.09)">
       <span style="flex:1;font:600 11px var(--tkf);color:#C7D6BB">Material delivered<span style="display:block;font:600 9.5px var(--tkf);color:#68765B">retail + ${Math.round(R.supply.wastePct*100)}% waste + ${Math.round(R.supply.taxPct*100)}% tax + ${money2(R.supply.freight)} freight</span></span>
@@ -32297,8 +32428,10 @@ function _ptAsmBlock(e){
     <div style="display:flex;gap:8px;padding:8px 0 0;margin-top:5px;border-top:1px solid rgba(255,255,255,.22)">
       <span style="flex:1;font:750 12px var(--tkf);color:#EAF0E4">Installed</span>
       <b style="font:800 13px ui-monospace,Menlo,monospace;color:#8FE07A">${money2(R.installedSF)} / SF</b></div>
-    ${om.n?`<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(242,193,78,.12);font:700 10.5px var(--tkf);color:#F2C14E">
-        ${om.n} line${om.n===1?"":"s"} taken out — saves ${money2(om.savingSF)}/SF, ${fmtN(Math.round(om.savingSF*R.area))} on this trace</div>`:""}
+    ${om.n?`<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.06);font:700 10.5px var(--tkf);color:#C7D6BB">
+        ${om.n} line${om.n===1?"":"s"} removed — saves ${money2(om.savingSF)}/SF, ${fmtN(Math.round(om.savingSF*R.area))}</div>`:""}
+    ${R.deferred.n?`<div style="margin-top:6px;padding:7px 9px;border-radius:9px;background:rgba(217,164,65,.14);font:700 10.5px var(--tkf);color:#D9A441">
+        ${R.deferred.n} deferred to a later phase — ${money2(R.deferred.valueSF)}/SF, ${fmtN(Math.round(R.deferred.valueSF*R.area))} still on the job</div>`:""}
     <div style="font:600 9.5px var(--tkf);color:#68765B;margin-top:8px;line-height:1.45">Every number here is read from the price book. Ticking a line changes what is in this project's scope, not the price of it.</div>
     ${bookLink}
   </div>`;
