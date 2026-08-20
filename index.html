@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1042</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1043</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24417,8 +24417,33 @@ function renderPriceBook(){
     h+='<div style="font-size:11px;color:var(--tl);line-height:1.5;padding:2px 0 4px">'
       +R.baseHours.toFixed(3)+' hr × '+R.patternCx.toFixed(2)+' pattern × '+R.areaMult.toFixed(2)+' size × '
       +R.productivity.toFixed(2)+' crew × '+m2(R.laborRate)+'/hr &nbsp;·&nbsp; before O&amp;P</div>';
-    h+='<div class="pb3-bu"><span>Book price at Standard</span><b>'+fmtN(tierUC(it,(SEC_TIERS[PB[ci].id]||["Low","Standard","High"]),1))+' / '+esc(R.unit)+'</b></div>';
-    h+='<button class="pb3-link" onclick="pbSelSet(\'__asm\')">Edit this assembly →</button>';
+    // The three price points, built from this same breakdown rather than typed in by hand.
+    const PP=[["value","Entry"],["standard","Standard"],["premium","Luxury"]];
+    const derived={};
+    PP.forEach(function(pt){
+      try{ const rr=asmCost({asm:pick, material:it.n, areaSF:qty, tier:pt[0], mods:false});
+           if(rr&&!rr.needsNumbers&&!rr.needsRetail) derived[pt[0]]=rr; }catch(e){}
+    });
+    const have=PP.filter(function(pt){ return derived[pt[0]]; });
+    if(have.length===3){
+      h+='<h4>Price points, derived</h4>';
+      PP.forEach(function(pt){
+        const rr=derived[pt[0]], T=asmTier(pt[0]);
+        h+='<div class="pb3-f'+(pt[0]===asmTierId()?' on':'')+'"><span class="k">'+pt[1]
+          +'<span style="display:block;color:var(--tl);font-size:10.5px">'
+          +(rr.needsMaterial?('material '+m2(rr.supply.retail)+' · '):'')
+          +'labour '+rr.tiers[pt[0]].hours.toFixed(3)+' hr × '+m2(T.labor)+'/hr</span></span>'
+          +'<b>'+m2(rr.installedSF)+' / '+esc(rr.unit)+'</b></div>';
+      });
+      const bandNow=[it.lo,it.std,it.hi].map(function(v){ return v==null?null:+v; });
+      const dv=[derived.value.installedSF, derived.standard.installedSF, derived.premium.installedSF];
+      const same=(bandNow[0]===Math.round(dv[0])&&bandNow[2]===Math.round(dv[2]));
+      h+='<div style="font-size:11px;color:var(--tl);line-height:1.45;padding:2px 0 6px">'
+        +'The band above is hand-entered ('+fmtN(bandNow[0]||0)+'–'+fmtN(bandNow[2]||0)+'). '
+        +(same?'It matches this build-up.':'It is not derived from this build-up.')+'</div>';
+      if(!same) h+='<button class="btn" style="font-size:.76rem" onclick="pbUseDerived('+ci+','+sel+')">Use the derived price points</button>';
+    }
+    h+='<div style="margin-top:8px"><button class="pb3-link" onclick="pbSelSet(\'__asm\')">Edit this assembly →</button></div>';
     return h;
   }
 
@@ -24446,7 +24471,7 @@ function renderPriceBook(){
         list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__asm\','+i+')">'
           +'<span class="cv"></span><span class="nm">'+esc(X.n)+'</span>'
           +'<span class="u">hrs</span><span class="v">×'+(+X.cx).toFixed(2)+'</span></button>';
-      } else { const M=asmMat(r.id); const rt=M&&M.supply?M.supply.retail:null;
+      } else { const M=asmMat(r.id); const rt=asmMatRetail(r.id, asmTierId());
         const n=(M&&M.asm||[]).length;
         list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__asm\','+i+')">'
           +'<span class="cv"></span><span class="nm">'+esc(r.id)+'</span>'
@@ -24512,14 +24537,22 @@ function renderPriceBook(){
         +'<input type="number" class="no-spin" value="'+(sup[key]!=null?sup[key]:dflt)+'" step="'+step+'" '
         +'onchange="asmSetSupply(\''+att(R.id)+'\',\''+key+'\',this.value);renderPriceBook()">'
         +(unit&&unit!=="$"?'<span style="color:var(--tl);font-size:11px">'+unit+'</span>':'')+'</span></div>';
-      ins+='<div class="pb3-f'+(sup.retail==null?'':' on')+'"><span class="k">Retail / '+esc(ASM_LIB[(M.asm||[])[0]]?ASM_LIB[(M.asm||[])[0]].unit:"SF")+'</span>'
-        +'<span style="display:flex;align-items:center;gap:3px"><span style="color:var(--tl);font-size:12px">$</span>'
-        +'<input type="number" class="no-spin" placeholder="not set" value="'+(sup.retail==null?"":sup.retail)+'" step="0.5" '
-        +'onchange="asmSetRetail(\''+att(R.id)+'\',this.value);renderPriceBook()"></span></div>';
+      const _u=esc(ASM_LIB[(M.asm||[])[0]]?ASM_LIB[(M.asm||[])[0]].unit:"SF");
+      const _cur=asmTierId();
+      [["value","Value"],["standard","Standard"],["premium","Premium"]].forEach(function(pt){
+        const rv=asmMatRetail(R.id, pt[0]);
+        const own=valGet(asmMatKey(R.id,"retail."+pt[0]), null).value;
+        ins+='<div class="pb3-f'+(pt[0]===_cur?' on':'')+'"><span class="k">'+pt[1]+' / '+_u+'</span>'
+          +'<span style="display:flex;align-items:center;gap:3px"><span style="color:var(--tl);font-size:12px">$</span>'
+          +'<input type="number" class="no-spin" placeholder="'+(rv==null?"not set":(+rv).toFixed(2))+'" value="'+(own==null?"":own)+'" step="0.5" '
+          +'onchange="asmSetMatRetail(\''+att(R.id)+'\',\''+pt[0]+'\',this.value);renderPriceBook()"></span></div>';
+      });
+      ins+='<div style="font-size:11px;color:var(--tl);line-height:1.45;margin:2px 0 4px">Blank follows Standard. The job\'s price point picks which one is used.</div>';
       ins+=F("Waste","waste",0.01,"×",0.10)+F("Sales tax","tax",0.01,"×",0.10)+F("Freight / delivery","freight",0.25,"$",2.50);
-      const d=(sup.retail==null)?null:asmDelivered(sup);
-      ins+='<div class="pb3-bu tot"><span>Delivered</span><b>'+(d?fmtN(d.delivered):"—")+'</b></div>';
-      if(sup.retail==null) ins+='<div style="font-size:11.5px;color:var(--gold,#8A6D1F);line-height:1.45">No price set, so any assembly on this material stays on the flat book band.</div>';
+      const _rt=asmMatRetail(R.id,_cur);
+      const d=(_rt==null)?null:asmDelivered(Object.assign({},sup,{retail:_rt}));
+      ins+='<div class="pb3-bu tot"><span>Delivered at '+esc(asmTier(_cur).label)+'</span><b>'+(d?fmtN(d.delivered):"—")+'</b></div>';
+      if(_rt==null) ins+='<div style="font-size:11.5px;color:var(--gold,#8A6D1F);line-height:1.45">No price set, so any assembly on this material stays on the flat book band.</div>';
       ins+='<div style="margin-top:8px;font-size:11.5px;color:var(--tl);line-height:1.45">Labour complexity is set by the installation pattern, not the material.</div>';
       ins+='<h4>Assemblies it supports</h4>';
       asmFor("paving").forEach(A=>{
@@ -24729,6 +24762,17 @@ function pbSetMode(mode){ GSET.pbMode=(mode==="contractor")?"contractor":"concep
 function pbSetCprice(ci,idx,val){ const it=PB[ci].items[idx]; it.cprice=(val===""||val==null)?null:(+val||0); pbSave(); }
 function pbStepCprice(ci,idx,d){ const it=PB[ci].items[idx]; it.cprice=Math.max(0,(contractorPrice(it))+d); pbSave(); renderPriceBook(); }
 function pbToggleItemized(ci,idx){ const it=PB[ci].items[idx]; if(it.cmode==="itemized"){ it.cmode="single"; } else { it.cmode="itemized"; if(!it.comp||!it.comp.length){ it.comp=[{n:"Material",qty:1,u:it.u,uc:0},{n:"Labor",qty:1,u:"HR",uc:GSET.laborRate||95}]; } } pbSave(); renderPriceBook(); }
+// Replace the hand-entered band with what the assembly actually computes. Never automatic —
+// the old numbers are only overwritten when the user asks for it.
+function pbUseDerived(ci,idx){ const it=PB[ci].items[idx]; if(!it||!it.asm) return;
+  const qty=(+it.asmQty>0)?+it.asmQty:500; const out={};
+  ["value","standard","premium"].forEach(function(t){
+    try{ const r=asmCost({asm:it.asm, material:it.n, areaSF:qty, tier:t, mods:false});
+         if(r&&!r.needsNumbers&&!r.needsRetail) out[t]=r.installedSF; }catch(e){} });
+  if(out.value==null||out.standard==null||out.premium==null) return;
+  it.lo=Math.round(out.value); it.std=Math.round(out.standard); it.hi=Math.round(out.premium);
+  it.derivedFrom=it.asm; pbSave(); renderPriceBook();
+  try{ _toast("Price points rebuilt from the assembly.","#2F5B23"); }catch(e){} }
 function pbSetItemAsm(ci,idx,v){ const it=PB[ci].items[idx]; if(!it) return; it.asm=v||undefined; pbSave(); renderPriceBook(); }
 function pbSetItemAsmQty(ci,idx,v){ const it=PB[ci].items[idx]; if(!it) return; it.asmQty=Math.max(1,+v||500); pbSave(); renderPriceBook(); }
 function pbAddComp(ci,idx){ const it=PB[ci].items[idx]; (it.comp=it.comp||[]).push({n:"",qty:1,u:it.u,uc:0}); it.cmode="itemized"; pbSave(); renderPriceBook(); }
@@ -31234,12 +31278,26 @@ function asmAreaMult(qty, unit){ const c=QTY_EFF[unit||"SF"]||AREA_EFF; const a=
 const ASM_SUPPLY_DEF={retail:25.00, waste:0.10, tax:0.10, freight:2.50};
 function asmMatKey(name,field){ return valKey("mat",name,field); }
 function asmMatVal(name,field,dflt){ return valOf(asmMatKey(name,field), dflt); }
+// Material cost has its own price points. Paving material varies far more than the crew rate does —
+// a Value flagstone and a Premium calibrated limestone are not the same purchase.
+const MAT_POINTS=["value","standard","premium"];
+function asmMatRetail(name, tier){
+  tier=(MAT_POINTS.indexOf(tier)>=0)?tier:"standard";
+  const m=asmMat(name); const dflt=(m&&m.supply)?m.supply.retail:null;
+  const d=(dflt&&typeof dflt==="object")?dflt[tier]:dflt;              // legacy single number still works
+  const v=asmMatVal(name,"retail."+tier, (d==null?null:d));
+  if(v!=null&&v!=="") return +v;
+  if(tier!=="standard"){                                              // fall back to Standard if unset
+    const st=asmMatVal(name,"retail.standard",(dflt&&typeof dflt==="object")?dflt.standard:dflt);
+    if(st!=null&&st!=="") return +st; }
+  return null; }
+function asmSetMatRetail(name,tier,v){ return valSet(asmMatKey(name,"retail."+tier),(v===""?null:+v)); }
 function asmRetailOf(o){
   if(o&&o.supply&&o.supply.retail!=null&&o.supply.retail!=="") return +o.supply.retail;
   const m=(o&&typeof o.material==="string")?asmMat(o.material):(o&&o.material);
   if(!m) return null;
-  const tracked=asmMatVal(m.n,"retail",(m.supply&&m.supply.retail!=null)?m.supply.retail:null);
-  return (tracked==null||tracked==="")?null:+tracked; }
+  const tier=(o&&o.matPoint)||(o&&o.tier)||asmTierId();
+  return asmMatRetail(m.n, tier); }
 function asmDelivered(sup){
   const s=Object.assign({},ASM_SUPPLY_DEF,sup||{});
   if(s.retail==null||s.retail==="") s.retail=ASM_SUPPLY_DEF.retail;
