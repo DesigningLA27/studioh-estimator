@@ -25,10 +25,17 @@ above the published range deliberately.
 | Concrete Pavers | $3 | $6 | $10 | wholesale from $2.50; Angelus $4–8; Belgard $6–7 |
 | Brick Paving | $4 | $7 | $12 | brick pavers $4–8/SF, to $14 |
 | Permeable Pavers | $5 | $9 | $13 | PICP $7–12/SF installed; material below that |
-| Pebble / Baja Stone | $1 | $2 | $4 | **corrected** — sold by the ton at $38–66, ~100 SF at 2–3" |
+| Pebble / Baja Stone | $1.50 | $4.50 | $8.00 | 2"–3" cobble: bulk ~$66/ton, premium washed black $0.20/lb ($400/ton), select to ~$750/ton; ~90–100 SF/ton |
 
-**The pebble figure was my worst guess** — I had it at $6/$12/$22. It sells by the ton, so the stone
-is well under $1/SF and the cost of a pebble surface is labour, not material.
+**Pebble, corrected twice.** I first guessed $6/$12/$22, then over-corrected to $1/$2/$4 by pricing
+bulk small gravel. Warwick's definition is the right one: **Mexican beach pebble means the 2"–3"
+rounded black or white cobble**, not the small stuff — that is *rolled 3/8" pebble*, a separate
+product. The 2"–3" cobble carries a wide spread: bulk yards ~$66/ton, premium washed black at
+$0.20/lb ($400/ton), select graded to ~$750/ton. At 90–100 SF per ton that lands at roughly
+$0.70–$8.00/SF, hence $1.50 / $4.50 / $8.00.
+
+**Open question:** should *rolled 3/8" pebble* be added as its own material? It is a different
+product with different coverage, and today it has nowhere to live.
 
 Sources: [homeguide flagstone](https://homeguide.com/costs/flagstone-cost) ·
 [homeguide pavers/SF](https://homeguide.com/costs/pavers-cost-per-square-foot) ·
