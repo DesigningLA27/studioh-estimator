@@ -9,6 +9,37 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Architecture validated across 4 categories — three changes it needs
+**v1031 · 2026-08-20 · estimating engine**
+
+Scaffolded walls (3), decking (3) and planting (4) alongside paving (7) to test whether one
+framework really covers every category. Material → Assembly → Pattern → Options → Complexity →
+Area Efficiency → Productivity → Rate → Cost held up. Paving numbers unchanged, verified.
+
+**What broke, and what it needs:**
+
+**1. Efficiency is a quantity curve, and quantity is not always SF.** Done structurally — `QTY_EFF`
+is now keyed by unit. Only the SF curve is yours. LF and EA fall back to it and report
+`effAssumed:true`, because 30 plants is not the same job shape as 30 SF. **Need your LF and EA
+curves.**
+
+**2. Walls have a second dimension the engine cannot carry.** A retaining wall is quantified in LF
+but its cost scales with height — a 2ft wall and a 6ft wall are not the same LF rate. The assemblies
+carry `driver:"heightFt"` as a marker but nothing consumes it. Options: (a) per-unit line items
+scale with a declared driver, (b) assemblies quantified by SF of wall face instead of LF, or
+(c) height bands. **This is the one real architectural gap. Needs your call.**
+
+**3. Irrigation, lighting and drainage need multiple quantity drivers at once.** An irrigation
+assembly is LF of pipe *and* EA of heads *and* EA of valves *and* one controller. Today an assembly
+has a single unit, so these three categories cannot be modelled without either composite assemblies
+(an assembly made of sub-assemblies with their own units) or multi-driver line items. Deliberately
+not built until #2 is decided, since the answer probably serves both.
+
+**All 10 new assemblies carry component names only — no costs.** They refuse to price until filled
+in, so nothing can quietly produce an invented number.
+
+---
+
 ### 0 · Assembly engine — two things deliberately deferred
 **v1028 · 2026-08-19 · estimating engine**
 

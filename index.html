@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1030</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1031</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30739,9 +30739,14 @@ function asmTierId(){ let pt=1; try{ pt=_pavPoint(); }catch(e){}
 // Production efficiency by job size. Small jobs carry proportionally more setup, layout,
 // cutting, mobilisation and cleanup. APPLIES TO LABOUR HOURS ONLY — never to materials.
 const AREA_EFF=[[25,1.40],[50,1.30],[100,1.20],[250,1.10],[750,1.00],[1500,0.95],[3000,0.90],[Infinity,0.88]];
-function asmAreaMult(sf){ const a=Math.max(0,+sf||0);
-  for(let i=0;i<AREA_EFF.length;i++){ if(a<=AREA_EFF[i][0]) return AREA_EFF[i][1]; }
-  return AREA_EFF[AREA_EFF.length-1][1]; }
+// Efficiency is a quantity curve, and quantity is not always square feet. LF and EA behave
+// differently from SF — 30 plants is not the same job shape as 30 SF — so each unit gets its own
+// curve. Only the SF curve is Warwick's; the others fall back to it and say so via asmEffAssumed().
+const QTY_EFF={SF:AREA_EFF, LF:null, EA:null};
+function asmEffAssumed(unit){ return !QTY_EFF[unit||"SF"]; }
+function asmAreaMult(qty, unit){ const c=QTY_EFF[unit||"SF"]||AREA_EFF; const a=Math.max(0,+qty||0);
+  for(let i=0;i<c.length;i++){ if(a<=c[i][0]) return c[i][1]; }
+  return c[c.length-1][1]; }
 
 // Delivered cost of the material itself. Waste, tax and freight ride on the retail price.
 const ASM_SUPPLY_DEF={retail:25.00, waste:0.10, tax:0.10, freight:2.50};
@@ -30886,7 +30891,153 @@ const ASM_LIB={
       {n:"Edge restraint",             v:0.45, hr:0.006},
       {n:"Miscellaneous materials",    v:0.25, hr:0},
       {n:"Cleanup",                    v:0,    hr:0.005}],
-    minThick:1.25, maxThick:99 }
+    minThick:1.25, maxThick:99 },
+  // ── WALLS · unit LF, with height as a second driver the engine cannot yet carry ──────────
+  "wall.cmu":{
+    id:"wall.cmu", cat:"wall", unit:"LF", driver:"heightFt",
+    name:"Retaining wall — CMU on concrete footing", short:"CMU",
+    spec:["Reinforced CMU stem","Concrete spread footing","Vertical + horizontal rebar","Solid grouted cells","Drainage behind wall"],
+    items:[
+      {n:"Excavation",              v:null, hr:null},
+      {n:"Footing forms",           v:null, hr:null},
+      {n:"Footing rebar",           v:null, hr:null},
+      {n:"Footing concrete",        v:null, hr:null},
+      {n:"CMU block",               v:null, hr:null},
+      {n:"Vertical / horizontal rebar", v:null, hr:null},
+      {n:"Grout",                   v:null, hr:null},
+      {n:"Waterproofing",           v:null, hr:null, opt:true},
+      {n:"Drainage gravel",         v:null, hr:null},
+      {n:"Perforated drain pipe",   v:null, hr:null},
+      {n:"Backfill / compaction",   v:null, hr:null},
+      {n:"Cap units",               v:null, hr:null, opt:true},
+      {n:"Cleanup",                 v:null, hr:null}] },
+  "wall.cip":{
+    id:"wall.cip", cat:"wall", unit:"LF", driver:"heightFt",
+    name:"Retaining wall — cast-in-place concrete", short:"Cast-in-place",
+    spec:["Formed both faces","Reinforced stem and footing","Drainage behind wall"],
+    items:[
+      {n:"Excavation",              v:null, hr:null},
+      {n:"Footing forms",           v:null, hr:null},
+      {n:"Footing rebar",           v:null, hr:null},
+      {n:"Footing concrete",        v:null, hr:null},
+      {n:"Stem forms — two faces",  v:null, hr:null},
+      {n:"Stem rebar",              v:null, hr:null},
+      {n:"Stem concrete",           v:null, hr:null},
+      {n:"Strip / patch / rub",     v:null, hr:null},
+      {n:"Waterproofing",           v:null, hr:null, opt:true},
+      {n:"Drainage gravel",         v:null, hr:null},
+      {n:"Perforated drain pipe",   v:null, hr:null},
+      {n:"Backfill / compaction",   v:null, hr:null},
+      {n:"Cleanup",                 v:null, hr:null}] },
+  "wall.segmental":{
+    id:"wall.segmental", cat:"wall", unit:"LF", driver:"heightFt",
+    name:"Retaining wall — segmental block", short:"Segmental",
+    spec:["Dry-stacked segmental units","Compacted levelling pad","Geogrid where required","Drainage behind wall"],
+    items:[
+      {n:"Excavation",              v:null, hr:null},
+      {n:"Levelling pad",           v:null, hr:null},
+      {n:"Block units",             v:null, hr:null},
+      {n:"Geogrid",                 v:null, hr:null, opt:true},
+      {n:"Drainage gravel",         v:null, hr:null},
+      {n:"Perforated drain pipe",   v:null, hr:null},
+      {n:"Backfill / compaction",   v:null, hr:null},
+      {n:"Cap units",               v:null, hr:null},
+      {n:"Cleanup",                 v:null, hr:null}] },
+
+  // ── DECKING · unit SF, same shape as paving ───────────────────────────────────────────────
+  "deck.joist":{
+    id:"deck.joist", cat:"decking", unit:"SF",
+    name:"Deck — framed on footings", short:"Framed",
+    spec:["Concrete pier footings","Posts and beams","Joists at 16″ OC","Decking boards","Fascia"],
+    items:[
+      {n:"Layout / excavation",     v:null, hr:null},
+      {n:"Pier footings",           v:null, hr:null},
+      {n:"Posts",                   v:null, hr:null},
+      {n:"Beams",                   v:null, hr:null},
+      {n:"Joists",                  v:null, hr:null},
+      {n:"Hardware / fasteners",    v:null, hr:null},
+      {n:"Decking boards",          v:null, hr:null, pat:true},
+      {n:"Fascia / trim",           v:null, hr:null},
+      {n:"Sealer / finish",         v:null, hr:null, opt:true},
+      {n:"Cleanup",                 v:null, hr:null}] },
+  "deck.pedestal":{
+    id:"deck.pedestal", cat:"decking", unit:"SF",
+    name:"Deck — pedestal set", short:"Pedestal",
+    spec:["Adjustable pedestals","No fixed substructure","Deck units set on pedestals"],
+    items:[
+      {n:"Substrate preparation",   v:null, hr:null},
+      {n:"Pedestals",               v:null, hr:null},
+      {n:"Framing / trays",         v:null, hr:null},
+      {n:"Deck units",              v:null, hr:null, pat:true},
+      {n:"Cutting / fitting",       v:null, hr:null, pat:true},
+      {n:"Perimeter trim",          v:null, hr:null},
+      {n:"Cleanup",                 v:null, hr:null}] },
+  "deck.rooftop":{
+    id:"deck.rooftop", cat:"decking", unit:"SF",
+    name:"Deck — rooftop over membrane", short:"Rooftop",
+    spec:["Membrane protection layer","Adjustable pedestals","Deck units","No penetrations"],
+    items:[
+      {n:"Membrane protection mat", v:null, hr:null},
+      {n:"Pedestals",               v:null, hr:null},
+      {n:"Framing",                 v:null, hr:null},
+      {n:"Deck units",              v:null, hr:null, pat:true},
+      {n:"Cutting / fitting",       v:null, hr:null, pat:true},
+      {n:"Perimeter trim",          v:null, hr:null},
+      {n:"Hoisting / access",       v:null, hr:null, opt:true},
+      {n:"Cleanup",                 v:null, hr:null}] },
+
+  // ── PLANTING · hydroseed by SF, containers by EA ──────────────────────────────────────────
+  "plant.hydroseed":{
+    id:"plant.hydroseed", cat:"planting", unit:"SF", noMaterial:true,
+    name:"Hydroseed", short:"Hydroseed",
+    spec:["Soil preparation","Amendment","Seed slurry","Tackifier"],
+    items:[
+      {n:"Soil preparation",        v:null, hr:null},
+      {n:"Amendment",               v:null, hr:null},
+      {n:"Seed slurry",             v:null, hr:null},
+      {n:"Tackifier",               v:null, hr:null},
+      {n:"Cleanup",                 v:null, hr:null}] },
+  "plant.1gal":{
+    id:"plant.1gal", cat:"planting", unit:"EA",
+    name:"Container planting — 1 gallon", short:"1 gal",
+    spec:["1 gallon container","Amended backfill","Mulch","Water in"],
+    items:[
+      {n:"Excavate pit",            v:null, hr:null},
+      {n:"Amendment",               v:null, hr:null},
+      {n:"Backfill",                v:null, hr:null},
+      {n:"Fertiliser tablets",      v:null, hr:null, opt:true},
+      {n:"Mulch",                   v:null, hr:null},
+      {n:"Water in",                v:null, hr:null},
+      {n:"Cleanup",                 v:null, hr:null}] },
+  "plant.5gal":{
+    id:"plant.5gal", cat:"planting", unit:"EA",
+    name:"Container planting — 5 gallon", short:"5 gal",
+    spec:["5 gallon container","Amended backfill","Mulch","Water in"],
+    items:[
+      {n:"Excavate pit",            v:null, hr:null},
+      {n:"Amendment",               v:null, hr:null},
+      {n:"Backfill",                v:null, hr:null},
+      {n:"Fertiliser tablets",      v:null, hr:null, opt:true},
+      {n:"Staking",                 v:null, hr:null, opt:true},
+      {n:"Mulch",                   v:null, hr:null},
+      {n:"Water in",                v:null, hr:null},
+      {n:"Cleanup",                 v:null, hr:null}] },
+  "plant.box24":{
+    id:"plant.box24", cat:"planting", unit:"EA",
+    name:"Container planting — 24″ box", short:"24″ box",
+    spec:["24″ box tree","Machine or crane set","Amended backfill","Staked","Water basin"],
+    items:[
+      {n:"Excavate pit",            v:null, hr:null},
+      {n:"Access / equipment",      v:null, hr:null},
+      {n:"Set tree",                v:null, hr:null},
+      {n:"Amendment",               v:null, hr:null},
+      {n:"Backfill",                v:null, hr:null},
+      {n:"Fertiliser tablets",      v:null, hr:null, opt:true},
+      {n:"Staking",                 v:null, hr:null},
+      {n:"Water basin",             v:null, hr:null},
+      {n:"Mulch",                   v:null, hr:null},
+      {n:"Water in",                v:null, hr:null},
+      {n:"Cleanup",                 v:null, hr:null}] }
 };
 // An assembly that supplies its own material (concrete, DG) needs no separate material price.
 function asmNeedsMaterial(A){ A=asmGet(A); return !!A && !A.noMaterial; }
@@ -30992,7 +31143,7 @@ function asmCost(o){
 
   const st=o.lines||{};
   const pat=o.pattern||"running", patCx=asmPatternCx(pat);
-  const mult=asmAreaMult(area);
+  const mult=asmAreaMult(area, A.unit);
   const tierId=o.tier||asmTierId();
   const T=asmTier(tierId), rate=asmTierRate(tierId), prod=+T.prod||1;
   // Pattern complexity applies to laying, cutting and fitting only — never to excavation,
@@ -31018,6 +31169,7 @@ function asmCost(o){
   const out={assembly:A.id, assemblyName:A.name, unit:A.unit, area, areaMult:mult,
              pattern:pat, patternName:asmPattern(pat).n, patternCx:patCx,
              tier:tierId, productivity:prod, laborRate:rate, trade:ASM_LABOR_TRADE,
+             effAssumed:asmEffAssumed(A.unit),
              baseHours:_asmR(hrIn,6), adjHours:adjHr, needsMaterial:asmNeedsMaterial(A),
              supply:sup, deliveredSF:_asm2(delivered), nonMatSF:_asm2(matIn), lines,
              omitted:{matSF:_asm2(offMat), hours:offHr+offHrPat,
