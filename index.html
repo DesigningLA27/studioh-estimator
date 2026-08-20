@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1028</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1029</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16892,7 +16892,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -31030,8 +31030,29 @@ function asmCost(o){
     out.tiers[t.id]={label:t.label, laborRate:r, prod:pr, hours:h, laborSF, installedSF:instSF, total:_asm2(instSF*area)};
   });
   out.installedSF=out.tiers[tierId].installedSF;
+  out.directCostSF=out.installedSF;      // DIRECT CONSTRUCTION COST — no O&P, no margin, no markup
   return out;
 }
+// ── Pricing layer ────────────────────────────────────────────────────────────
+// Cost is what it takes to build. Price is what you choose to charge. Assemblies only ever
+// produce cost; O&P is applied here, on top, and never inside the cost database.
+// Resolution order, most specific first: line → project → contractor profile → global default.
+// Every level sits at zero until Warwick sets it, so applying the layer changes nothing today.
+const OAP_DEFAULTS={global:0, tiers:{value:0, standard:0, premium:0}};
+let OAP=(function(){ try{ const s=localStorage.getItem("studioh_oap_v1"); if(s) return JSON.parse(s); }catch(e){} return null; })()
+        || JSON.parse(JSON.stringify(OAP_DEFAULTS));
+function oapSave(){ try{ localStorage.setItem("studioh_oap_v1", JSON.stringify(OAP)); }catch(e){} }
+function oapResolve(o){ o=o||{};
+  if(o.line!=null && o.line!=="") return {pct:+o.line, from:"line"};
+  if(o.project!=null && o.project!=="") return {pct:+o.project, from:"project"};
+  const t=OAP.tiers&&OAP.tiers[o.tier||asmTierId()];
+  if(t!=null && t!=="" && +t>0) return {pct:+t, from:"contractor profile"};
+  return {pct:+OAP.global||0, from:"global default"};
+}
+// Turn a direct cost into a price. Returns the cost untouched when no O&P is set anywhere.
+function asmPrice(costSF, o){ const r=oapResolve(o);
+  return {costSF:_asm2(costSF), oapPct:r.pct, oapFrom:r.from,
+          oapSF:_asm2(costSF*r.pct/100), priceSF:_asm2(costSF*(1+r.pct/100))}; }
 function _asmR(n,d){ const m=Math.pow(10,d||2); return Math.round((+n||0)*m)/m; }
 
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
@@ -32465,7 +32486,7 @@ function _ptAsmBlock(e){
       <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(R.deliveredSF)}</b></div>`:""}
     ${sec("Build-up", R.lines)}
     <div style="display:flex;gap:8px;padding:8px 0 0;margin-top:5px;border-top:1px solid rgba(255,255,255,.22)">
-      <span style="flex:1;font:750 12px var(--tkf);color:#EAF0E4">Installed</span>
+      <span style="flex:1;font:750 12px var(--tkf);color:#EAF0E4">Direct cost<span style="display:block;font:600 9px var(--tkf);color:#68765B">before O&amp;P</span></span>
       <b style="font:800 13px ui-monospace,Menlo,monospace;color:#8FE07A">${money2(R.installedSF)} / SF</b></div>
     ${om.n?`<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.06);font:700 10.5px var(--tkf);color:#C7D6BB">
         ${om.n} line${om.n===1?"":"s"} removed — saves ${money2(om.savingSF)}/SF, ${fmtN(Math.round(om.savingSF*R.area))}</div>`:""}
