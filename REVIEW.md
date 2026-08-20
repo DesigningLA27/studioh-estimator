@@ -9,6 +9,33 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Seeded material price points — review and adjust
+**v1044 · 2026-08-20 · price book**
+
+You asked me to put starting values in so you could review them. These are **my numbers, not yours** —
+Southern California retail, material only, before waste, tax and freight. Every one is a guess I would
+not normally make; adjust under Installation assemblies → Materials.
+
+| Material | Value | Standard | Premium |
+|---|---|---|---|
+| Natural Stone Paving | $12 | $25 | $60 |
+| 3/4" Calibrated Limestone | $14 | $22 | $38 |
+| 2" Bluestone | $18 | $28 | $45 |
+| Porcelain Pavers | $8 | $14 | $28 |
+| Concrete Pavers | $4 | $7 | $12 |
+| Brick Paving | $5 | $9 | $16 |
+| Permeable Pavers | $6 | $10 | $16 |
+| Pebble / Baja Stone | $6 | $12 | $22 |
+
+Concrete flatwork, stamped concrete and gravel/DG carry no separate material price — their material
+is inside the assembly.
+
+Worth checking first: Natural Stone Paving at Standard now derives **$57.13/SF** against the old typed
+band of $40–$95, so the Standard price point moves from $58 to $57.13. Close, but the Entry and Luxury
+ends move much further — $37.28 and $103.34 against $40 and $95.
+
+---
+
 ### 0 · Same component, different prices — the auditor's first findings
 **v1037 · 2026-08-20 · knowledge model**
 

@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1043</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1044</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24076,7 +24076,10 @@ function renderPriceBook(){
           ins+=fld('Price',cp,'pbSetCprice('+ci+','+sel+',this.value)',true);
         }
       } else {
-        // Price points — the section's own names on the three stored anchors.
+        // Price points — when an assembly builds this line, the assembly IS the price.
+        const _asmPP=(function(){ try{ return _pbPricePoints(it, ci, sel); }catch(e){ return ""; } })();
+        if(_asmPP){ ins+=_asmPP; }
+        else {
         ins+='<h4>Price points</h4>';
         if(bdOn){
           ins+=drv('Built-up',computeBuildupUC(it),'set by the material + hours below, not typed here');
@@ -24095,6 +24098,7 @@ function renderPriceBook(){
             ins+=drv(t,tierUC(it,tiers,ti),
               money(it.lo)+' + ('+money(it.hi)+' − '+money(it.lo)+') × '+ti+'/'+(tiers.length-1));
           });
+        }
         }
 
         if(bdOn){
@@ -24370,6 +24374,71 @@ function renderPriceBook(){
 
   // ── Assembly details + cost breakdown, on the line item itself ─────────────
   // Click a price book line and see how it is actually built, not just what it costs.
+  // Derived price points. Tap one and the whole build-up opens underneath it — option A with
+  // option B's detail. A typed number becomes a visible override, never a silent second price.
+  const PB_PPOPEN=(window.__PB_PPOPEN=window.__PB_PPOPEN||{});
+  function pbPPToggle(ci,sel,tier){ const k=ci+":"+sel+":"+tier;
+    PB_PPOPEN[k]=!PB_PPOPEN[k]; renderPriceBook(); }
+  function pbPPOverride(ci,sel,tier,v){ const it=PB[ci].items[sel]; if(!it) return;
+    it.ppOv=Object.assign({}, it.ppOv);
+    if(v===""||v==null) delete it.ppOv[tier]; else it.ppOv[tier]=Math.max(0,+v||0);
+    if(!Object.keys(it.ppOv).length) delete it.ppOv;
+    pbSave(); renderPriceBook(); }
+  function pbPPRevert(ci,sel,tier){ pbPPOverride(ci,sel,tier,""); }
+  // inline onclick handlers resolve against window, so these must be reachable there
+  try{ window.pbPPToggle=pbPPToggle; window.pbPPOverride=pbPPOverride; window.pbPPRevert=pbPPRevert; }catch(e){}
+  function _pbPricePoints(it, ci, sel){
+    const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const M=(typeof asmMat==="function")?asmMat(it.n):null;
+    const opts=(M&&(M.asm||[]).map(id=>ASM_LIB[id]).filter(Boolean))||[];
+    if(!opts.length) return "";                       // no assembly — the typed band stands
+    const pick=(it.asm&&ASM_LIB[it.asm])?it.asm:opts[0].id;
+    const qty=(+it.asmQty>0)?+it.asmQty:500;
+    const PP=[["value","Entry"],["standard","Standard"],["premium","Luxury"]];
+    const R={}; let ok=true;
+    PP.forEach(function(pt){ try{ const r=asmCost({asm:pick, material:it.n, areaSF:qty, tier:pt[0], mods:false});
+      if(r&&!r.needsNumbers&&!r.needsRetail) R[pt[0]]=r; else ok=false; }catch(e){ ok=false; } });
+    if(!ok) return "";                                // not priceable yet — fall back to the typed band
+    const m2=v=>"$"+(+v||0).toFixed(2);
+    const cur=asmTierId();
+    let h='<h4>Price points <span class="pb3-chip">from assembly</span></h4>';
+    PP.forEach(function(pt){
+      const r=R[pt[0]], key=ci+":"+sel+":"+pt[0], open=!!PB_PPOPEN[key];
+      const ov=(it.ppOv&&it.ppOv[pt[0]]!=null)?+it.ppOv[pt[0]]:null;
+      const shown=(ov!=null)?ov:r.installedSF;
+      h+='<div class="pb3-f'+(pt[0]===cur?' on':'')+'" style="cursor:pointer'+(ov!=null?';background:var(--mg-bg)':'')+'" onclick="pbPPToggle('+ci+','+sel+',\''+pt[0]+'\')">'
+        +'<span class="k">'+pt[1]
+        +'<span style="display:block;font-size:10.5px;color:'+(ov!=null?'var(--mg-acc)':'var(--tl)')+'">'
+        +(ov!=null?('typed · assembly says '+m2(r.installedSF)):(r.needsMaterial?(m2(r.supply.retail)+' material · '):'')+r.tiers[pt[0]].hours.toFixed(3)+' hr × '+m2(r.tiers[pt[0]].laborRate)+'/hr')
+        +'</span></span>'
+        +'<b style="'+(ov!=null?'color:var(--mg-acc)':'')+'">'+m2(shown)+'</b>'
+        +'<span style="color:var(--tl);font-size:12px;margin-left:6px;display:inline-block;transform:rotate('+(open?90:0)+'deg)">›</span></div>';
+      if(open){
+        h+='<div style="background:var(--pbpill,rgba(0,0,0,.03));border-radius:10px;padding:9px 11px;margin:-2px 0 7px">';
+        if(r.needsMaterial) h+='<div class="pb3-f" style="background:none;padding:3px 0"><span class="k">Material delivered'
+          +'<span style="display:block;font-size:10px;color:var(--tl)">'+m2(r.supply.retail)+' + '+Math.round(r.supply.wastePct*100)+'% waste + '+Math.round(r.supply.taxPct*100)+'% tax + '+m2(r.supply.freight)+' freight</span></span>'
+          +'<b>'+m2(r.deliveredSF)+'</b></div>';
+        (r.lines||[]).forEach(function(L){
+          if(L.state!=="on"&&L.costSF===0) return;
+          h+='<div class="pb3-f" style="background:none;padding:3px 0;'+(L.state!=="on"?'opacity:.45;':'')+'">'
+            +'<span class="k">'+esc(L.n)+(L.opt?'<span style="color:var(--tl)"> · option</span>':'')
+            +(L.hr>0?'<span style="display:block;font-size:10px;color:var(--tl)">'+(+L.hr).toFixed(3)+' hr'+(L.pat?' · pattern':'')+'</span>':'')
+            +'</span><b>'+m2(L.costSF)+'</b></div>';
+        });
+        h+='<div class="pb3-bu tot" style="margin-top:4px"><span>Installed</span><b>'+m2(r.installedSF)+' / '+esc(r.unit)+'</b></div>';
+        h+='<div style="font-size:10.5px;color:var(--tl);line-height:1.45;margin-top:4px">'
+          +r.baseHours.toFixed(3)+' hr × '+r.patternCx.toFixed(2)+' pattern × '+r.areaMult.toFixed(2)+' size × '+r.productivity.toFixed(2)+' crew · '+esc(r.assemblyName)+'</div>';
+        h+='<div class="pb3-bu" style="margin-top:6px"><span>Override for the book</span>'
+          +'<span style="display:flex;align-items:center;gap:4px">'
+          +'<input type="number" class="no-spin" placeholder="'+r.installedSF.toFixed(2)+'" value="'+(ov!=null?ov:"")+'" step="1" onclick="event.stopPropagation()" onchange="pbPPOverride('+ci+','+sel+',\''+pt[0]+'\',this.value)">'
+          +(ov!=null?'<button class="pb3-link" onclick="event.stopPropagation();pbPPRevert('+ci+','+sel+',\''+pt[0]+'\')">↺ revert</button>':'')
+          +'</span></div>';
+        h+='</div>';
+      }
+    });
+    h+='<div style="font-size:11px;color:var(--tl);line-height:1.45;margin:2px 0 6px">These are computed from the assembly. Typing a number here overrides it for the price book only.</div>';
+    return h;
+  }
   function _pbAsmBlock(it, ci, sel){
     const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const att=v=>esc(v).replace(/"/g,"&quot;");
@@ -31642,14 +31711,14 @@ let ASM_MATS=(function(){ try{ const s=localStorage.getItem("studioh_assemblies_
   if(s){ const j=JSON.parse(s); if(j&&j.mats) return j.mats; } }catch(e){} return null; })() || [
   // Install method is domain knowledge, so it is mapped here. Retail $/SF is NOT — it stays null
   // until entered, and an assembly will not price a trace without it.
-  {n:"3/4″ Calibrated Limestone", cat:"paving", thick:0.75, asm:["pav.mortarset"], supply:{retail:null}, cx:1},
-  {n:"2″ Bluestone",              cat:"paving", thick:2.0,  asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
-  {n:"Natural Stone Paving",      cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
-  {n:"Porcelain Pavers",          cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
-  {n:"Concrete Pavers",           cat:"paving", thick:2.375,asm:["pav.cpaver"], supply:{retail:null}},
-  {n:"Brick Paving",              cat:"paving", thick:2.25, asm:["pav.brick"], supply:{retail:null}},
-  {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.cpaver"], supply:{retail:null}},
-  {n:"Pebble / Baja Stone Paving",cat:"paving", thick:null, asm:["pav.mortarset"], supply:{retail:null}, cx:1},
+  {n:"3/4″ Calibrated Limestone", cat:"paving", thick:0.75, asm:["pav.mortarset"], supply:{retail:{value:14, standard:22, premium:38}}},
+  {n:"2″ Bluestone",              cat:"paving", thick:2.0,  asm:["pav.mortarset","pav.sandset"], supply:{retail:{value:18, standard:28, premium:45}}},
+  {n:"Natural Stone Paving",      cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:{value:12, standard:25, premium:60}}},
+  {n:"Porcelain Pavers",          cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:{value:8, standard:14, premium:28}}},
+  {n:"Concrete Pavers",           cat:"paving", thick:2.375,asm:["pav.cpaver"], supply:{retail:{value:4, standard:7, premium:12}}},
+  {n:"Brick Paving",              cat:"paving", thick:2.25, asm:["pav.brick"], supply:{retail:{value:5, standard:9, premium:16}}},
+  {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.cpaver"], supply:{retail:{value:6, standard:10, premium:16}}},
+  {n:"Pebble / Baja Stone Paving",cat:"paving", thick:null, asm:["pav.mortarset"], supply:{retail:{value:6, standard:12, premium:22}}},
   // Poured and loose surfaces are not a set material over a sub-base — they need their own
   // assemblies, so they declare none and keep pricing off the flat book band.
   {n:"Concrete Flatwork",         cat:"paving", thick:null, asm:["pav.concrete"], supply:{retail:null}},
