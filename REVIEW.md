@@ -25,7 +25,8 @@ above the published range deliberately.
 | Concrete Pavers | $3 | $6 | $10 | wholesale from $2.50; Angelus $4–8; Belgard $6–7 |
 | Brick Paving | $4 | $7 | $12 | brick pavers $4–8/SF, to $14 |
 | Permeable Pavers | $5 | $9 | $13 | PICP $7–12/SF installed; material below that |
-| Pebble / Baja Stone | $1.50 | $4.50 | $8.00 | 2"–3" cobble: bulk ~$66/ton, premium washed black $0.20/lb ($400/ton), select to ~$750/ton; ~90–100 SF/ton |
+| Pebble / Baja Stone (2"–3") | **$4.50 flat** | | | one price per product, not a band |
+| Rolled 3/8" Pebble | **$0.90 flat** | | | $60–120/ton decorative, ~120 SF/ton at 2" |
 
 **Pebble, corrected twice.** I first guessed $6/$12/$22, then over-corrected to $1/$2/$4 by pricing
 bulk small gravel. Warwick's definition is the right one: **Mexican beach pebble means the 2"–3"
@@ -34,8 +35,16 @@ product. The 2"–3" cobble carries a wide spread: bulk yards ~$66/ton, premium 
 $0.20/lb ($400/ton), select graded to ~$750/ton. At 90–100 SF per ton that lands at roughly
 $0.70–$8.00/SF, hence $1.50 / $4.50 / $8.00.
 
-**Open question:** should *rolled 3/8" pebble* be added as its own material? It is a different
-product with different coverage, and today it has nowhere to live.
+**Settled:** pebble does not carry a price band — one product, one price. Both pebbles are now single
+values that apply at every price point. *Rolled 3/8" pebble* is its own material.
+
+**New assembly, needs your eye:** `pav.pebble` — *Loose decorative pebble over base*, because the
+existing gravel/DG assembly has its material baked in and would have double-counted. Its line items
+and hours are **your DG numbers with the DG material line removed** (base $0.70/0.012, placement
+0.014, edging $0.50/0.008, compaction 0.008, misc $0.20, cleanup 0.004 = $1.40 and 0.064 hr).
+Nothing invented, but placing 3/8" pebble may not take the same hours as placing DG.
+
+Rolled 3/8" pebble prices at **$10.43/SF** installed at Standard; 2"–3" set in mortar at **$32.33/SF**.
 
 Sources: [homeguide flagstone](https://homeguide.com/costs/flagstone-cost) ·
 [homeguide pavers/SF](https://homeguide.com/costs/pavers-cost-per-square-foot) ·
