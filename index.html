@@ -4522,7 +4522,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1052</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1053</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24427,7 +24427,7 @@ function renderPriceBook(){
     if(!opts.length) return "";                       // no assembly — the typed band stands
     const pick=(it.asm&&ASM_LIB[it.asm])?it.asm:opts[0].id;
     const qty=(+it.asmQty>0)?+it.asmQty:500;
-    const PP=[["value","Entry"],["standard","Standard"],["premium","Luxury"]];
+    const PP=CONTRACTOR_TIERS.map(t=>[t.id,t.label]);
     const R={}; let ok=true;
     PP.forEach(function(pt){ try{ const r=asmCost({asm:pick, material:it.n, areaSF:qty, tier:pt[0], mods:false});
       if(r&&!r.needsNumbers&&!r.needsRetail) R[pt[0]]=r; else ok=false; }catch(e){ ok=false; } });
@@ -24508,7 +24508,7 @@ function renderPriceBook(){
       +R.baseHours.toFixed(3)+' hr × '+R.patternCx.toFixed(2)+' pattern × '+R.areaMult.toFixed(2)+' size × '
       +R.productivity.toFixed(2)+' crew × '+m2(R.laborRate)+'/hr &nbsp;·&nbsp; before O&amp;P</div>';
     // The three price points, built from this same breakdown rather than typed in by hand.
-    const PP=[["value","Entry"],["standard","Standard"],["premium","Luxury"]];
+    const PP=CONTRACTOR_TIERS.map(t=>[t.id,t.label]);
     const derived={};
     PP.forEach(function(pt){
       try{ const rr=asmCost({asm:pick, material:it.n, areaSF:qty, tier:pt[0], mods:false});
@@ -24665,7 +24665,7 @@ function renderPriceBook(){
     const att=v=>esc(v).replace(/"/g,"&quot;");
     const num=n=>{ const x=+n||0; return (Math.round(x*100)/100).toString(); };
     const sel=Math.max(0, Math.min(pb3Sel("__assume"), ASSUME_DEFS.length-1));
-    const PPN=["Value","Standard","Premium"];
+    const PPN=["Basic","Standard","Premium"];
 
     let list="", run=null;
     ASSUME_DEFS.forEach((d,i)=>{
@@ -31272,7 +31272,7 @@ function valAcceptProposal(pr, scope){
 // prod = labour-hour multiplier. A Value crew takes ~10% more hours, a Premium crew ~10% fewer.
 // It is deliberately independent of the hourly rate — a dearer crew is often a faster one.
 const CONTRACTOR_TIERS=[
-  {id:"value",    label:"Value",    labor:55,  prod:1.10, waste:1, oh:0, profit:0},
+  {id:"value",    label:"Basic",    labor:55,  prod:1.10, waste:1, oh:0, profit:0},
   {id:"standard", label:"Standard", labor:85,  prod:1.00, waste:1, oh:0, profit:0},
   {id:"premium",  label:"Premium",  labor:120, prod:0.90, waste:1, oh:0, profit:0}
 ];
@@ -31947,13 +31947,22 @@ function asmCost(o){
                        valueSF:_asm2(defMat+(HR(defHr,false,prod)+HR(defHrPat,true,prod))*rate),
                        n:lines.filter(L=>L.state==="defer").length},
              tiers:{}};
+  // Each tier is priced properly, not just re-rated: the material price point moves with it,
+  // unless a cost has been set for this job, which then applies at every point.
+  const fixedRetail=!!(o&&o.supply&&o.supply.retail!=null&&o.supply.retail!=="");
   CONTRACTOR_TIERS.forEach(t=>{
     const r=asmTierRate(t.id), pr=+t.prod||1, h=hoursAt(pr);
+    let deliveredT=delivered;
+    if(asmNeedsMaterial(A) && !fixedRetail && mat){
+      const rt=asmMatRetail(mat.n, t.id);
+      if(rt!=null) deliveredT=asmDelivered(Object.assign({}, (A.waste!=null)?{waste:A.waste}:{},
+        mat.supply||{}, {retail:rt})).delivered*mMat;
+    }
     const laborSF=_asm2(h*r);
     const eqSF=_asm2((MD&&MD.equipmentUnit)||0);
-    const instSF=_asm2(delivered+matIn+laborSF+eqSF);
+    const instSF=_asm2(deliveredT+matIn+laborSF+eqSF);
     out.tiers[t.id]={label:t.label, laborRate:r, prod:pr, hours:h, laborSF, equipmentSF:eqSF,
-                     installedSF:instSF, total:_asm2(instSF*area)};
+                     deliveredSF:_asm2(deliveredT), installedSF:instSF, total:_asm2(instSF*area)};
   });
   out.installedSF=out.tiers[tierId].installedSF;
   out.directCostSF=out.installedSF;      // DIRECT CONSTRUCTION COST — no O&P, no margin, no markup
@@ -31998,8 +32007,14 @@ function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const ti
 //   1. a rate you typed for this trace   2. its installation assembly   3. the flat book band
 function _pavAsmCost(p){ if(!p||!p.asm||!ASM_LIB[p.asm]) return null;
   try{ return asmCost({asm:p.asm, material:asmMatName(p.type), lines:p.asmLines, pattern:p.asmPat,
-                       areaSF:_ptTraceNet(p),
+                       tier:p.tier||undefined, areaSF:_ptTraceNet(p),
                        supply:(p.matOv!=null&&p.matOv!=="")?{retail:+p.matOv}:null}); }catch(e){ return null; } }
+// Price this one zone at a different point. Falls back to the job's point when unset.
+function ptSetZoneTier(idx,t){ const p=PT.polys[idx]; if(!p) return; ptSnap();
+  if(!t||t===asmTierId()) delete p.tier; else p.tier=t;
+  try{ ptUpdateInfo(); ptRenderFloat(); }catch(e){}
+  try{ ptBuildupRefresh(); }catch(e){}
+  try{ ptWhy("paving"); }catch(e){} }
 function ptSetAsmPattern(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
   if(!v||v==="running") delete p.asmPat; else p.asmPat=v;
   try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
@@ -33328,6 +33343,7 @@ function ptBuildupPop(idx){
   d=document.createElement("div"); d.id="pt-buildup";
   d.style.cssText="position:fixed;inset:0;z-index:10004;background:rgba(10,16,8,.55);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto";
   d.addEventListener("mousedown",e=>{ if(e.target===d) ptBuildupClose(); });
+  d.setAttribute("data-idx", String(idx));
   d.innerHTML=_ptBuildupHtml(idx);
   (document.getElementById("pt-modal")||document.body).appendChild(d);
 }
@@ -33357,11 +33373,13 @@ function _ptBuildupHtml(idx){
   h+='<div style="font:600 10.5px '+F+';color:#8FA383;margin-top:2px">'+escAttr(A.name)+' \u00b7 '+_tkFmt(net)+' '+escAttr(R.unit)+'</div>';
   // the three price points for this zone
   h+='<div style="display:flex;gap:6px;margin:10px 0 2px">';
-  [["value","Entry"],["standard","Standard"],["premium","Luxury"]].forEach(function(pt){
-    const t=R.tiers[pt[0]], on=(R.tier===pt[0]);
-    h+='<div style="flex:1;border-radius:10px;padding:7px 3px;text-align:center;background:'+(on?"#5BA34A":"rgba(255,255,255,.06)")+';color:'+(on?"#0c2007":"#EAF0E4")+'">'
-      +'<b style="display:block;font:750 10.5px '+F+'">'+pt[1]+'</b>'
-      +'<span style="display:block;font:800 11.5px '+MN+';margin-top:1px">'+m2(t.installedSF)+'</span></div>';
+  CONTRACTOR_TIERS.forEach(function(T){
+    const t=R.tiers[T.id], on=(R.tier===T.id);
+    h+='<button onclick="ptSetZoneTier('+idx+',\''+T.id+'\')" title="Price this zone at '+T.label+'" '
+      +'style="flex:1;border:0;cursor:pointer;border-radius:10px;padding:7px 3px;text-align:center;font-family:'+F+';background:'
+      +(on?"#5BA34A":"rgba(255,255,255,.06)")+';color:'+(on?"#0c2007":"#EAF0E4")+'">'
+      +'<b style="display:block;font:750 10.5px '+F+'">'+T.label+'</b>'
+      +'<span style="display:block;font:800 11.5px '+MN+';margin-top:1px">'+m2(t.installedSF)+'</span></button>';
   });
   h+='</div>';
   h+=_ptMatCostRow({idx:idx, matRate:0, wide:1});
@@ -37264,7 +37282,7 @@ const ALGO_DEFS=[
  terms:()=>[
    {op:"", k:"Typed Standard", sub:"used as-is when present", v:"if set"},
    {op:"", k:"Otherwise", sub:"low + (high − low) × index ÷ (tiers − 1)", v:"interpolated"},
-   {op:"=", k:"Unit cost at the point in play", v:["Value","Standard","Premium"][_av(ptPricePoint)]||"—", tot:1}],
+   {op:"=", k:"Unit cost at the point in play", v:["Basic","Standard","Premium"][_av(ptPricePoint)]||"—", tot:1}],
  used:["Price Book","Every section subtotal","Savings · swap cards"],
  src:"tierUC(it, tiers, ti) · SEC_TIERS",
  why:"Sections do not all have three tiers, so the step cannot be hard-coded."},
