@@ -45,12 +45,21 @@ ground cover in its attributes.
 
 | | Stone | Assembly | Hours | Installed @ Standard |
 |---|---|---|---|---|
-| 2"–3" beach pebble | $7.95 | $0.83 | 0.044 | **$12.52 / SF** |
+| 2"–3" beach pebble | $9.76 | $0.83 | 0.044 | **$14.33 / SF** |
 | Rolled 3/8" pebble | $3.59 | $0.83 | 0.044 | **$8.16 / SF** |
 
-**Two numbers in it are mine, not yours:** weed barrier fabric at **$0.18/SF** (commercial woven runs
-$0.12–0.15/SF, pro-grade to $0.45+) and its **0.006 hr** to lay. Placement hours are your DG figure
-(0.014) — placing pebble may not match placing DG.
+**Labour: researched, and DG's rate stands.** Published spreading productivity is 120–160 SF/hr per
+worker by hand (0.006–0.008 hr/SF) and about 0.009 hr/SF for a 3-man crew with a tractor at 324
+SF/hr. Your DG figure of **0.014 hr/SF** sits above both, which is right here — Warwick confirms
+2"–3" pebble arrives in 50 lb bags that are dumped and spread, so there is bag handling on top of
+spreading, but no hand-placing. **Both pebbles keep 0.014 and no complexity multiplier.**
+
+**Material corrected again:** 2"–3" pebble was $4.50/SF, which works out near $430/ton. Published
+pricing is $475–800/ton and $500–950/ton for premium, against $0.20/lb ($400/ton) wholesale in San
+Diego. Set to **$6.00/SF** (~$570/ton at 95 SF/ton).
+
+**Still mine, not yours:** weed barrier fabric at **$0.18/SF** (commercial woven $0.12–0.15, pro-grade
+to $0.45+) and **0.006 hr** to lay it.
 
 Sources: [homeguide flagstone](https://homeguide.com/costs/flagstone-cost) ·
 [homeguide pavers/SF](https://homeguide.com/costs/pavers-cost-per-square-foot) ·
