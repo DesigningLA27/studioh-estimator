@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1021</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1022</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30589,6 +30589,17 @@ const CONTRACTOR_TIERS=[
   {id:"premium",  label:"Premium",  labor:120, prod:1, waste:1, oh:0, profit:0}
 ];
 function asmTier(id){ return CONTRACTOR_TIERS.find(t=>t.id===id)||CONTRACTOR_TIERS[1]; }
+// The rate comes from the Price Book, not from here. Value/Standard/Premium map onto the trade's
+// own three tiers, so editing Skilled Labor in the book re-prices every assembly. The constants
+// above are only the fallback when the book has not loaded.
+const ASM_TRADE_TIER={value:"low", standard:"med", premium:"high"};
+let ASM_LABOR_TRADE="Skilled Labor";
+function asmTierRate(id){
+  try{ const r=laborRateFor(ASM_LABOR_TRADE, ASM_TRADE_TIER[id]||"med"); if(r>0) return r; }catch(e){}
+  return asmTier(id).labor; }
+// Which contractor tier the job is currently priced at.
+function asmTierId(){ let pt=1; try{ pt=_pavPoint(); }catch(e){}
+  return ["value","standard","premium"][pt]||"standard"; }
 
 // Production efficiency by job size. Small jobs carry proportionally more setup, layout,
 // cutting, mobilisation and cleanup. APPLIES TO LABOUR HOURS ONLY — never to materials.
@@ -30683,24 +30694,46 @@ function asmRecommend(o){
 // ── Cost Engine ──────────────────────────────────────────────────────────────
 // Never multiplies the installed rate by the area multiplier. Only labour hours are scaled.
 function _asm2(n){ return Math.round((+n||0)*100)/100; }
+// Every line of an assembly can be switched off or pushed to a later phase. That is the value
+// engineering surface: drop the sealer, defer the sealer, and the price moves by exactly its
+// material plus its hours — no guesswork about what a saving is worth.
+function asmLineKey(kind,n){ return kind+":"+n; }
+function asmIsOff(off,kind,n){ return !!(off&&off.indexOf(asmLineKey(kind,n))>=0); }
 function asmCost(o){
   o=o||{}; const A=asmGet(o.asm); if(!A) return null;
   const mat=(typeof o.material==="string")?asmMat(o.material):o.material;
   const area=Math.max(0,+o.areaSF||0);
   const sup=asmDelivered(o.supply||(mat&&mat.supply));
-  const nonMat=asmMatTotal(A);
-  const baseHr=asmHrTotal(A);
+  const off=o.off||[];
   const mult=asmAreaMult(area);
   const cx=(o.complexity!=null?+o.complexity:(mat&&mat.cx!=null?+mat.cx:1))||1;
+  const rate=asmTierRate(o.tier||asmTierId());
+
+  let nonMat=0, baseHr=0, offMat=0, offHr=0;
+  const lines=[];
+  (A.mats||[]).forEach(m=>{ const dead=asmIsOff(off,"m",m.n); const v=+m.v||0;
+    if(dead) offMat+=v; else nonMat+=v;
+    lines.push({kind:"m", key:asmLineKey("m",m.n), n:m.n, matSF:_asm2(v), hr:0, off:dead}); });
+  (A.labor||[]).forEach(l=>{ const dead=asmIsOff(off,"l",l.n); const h=+l.hr||0;
+    if(dead) offHr+=h; else baseHr+=h;
+    lines.push({kind:"l", key:asmLineKey("l",l.n), n:l.n, matSF:0, hr:h, off:dead}); });
+
   const adjHr=baseHr*mult*cx;
+  lines.forEach(L=>{ L.laborSF=L.hr?_asm2(L.hr*mult*cx*rate):0; L.costSF=_asm2(L.matSF+L.laborSF); });
+
   const out={assembly:A.id, assemblyName:A.name, unit:A.unit, area, areaMult:mult,
-             baseHours:baseHr, complexity:cx, adjHours:adjHr,
-             supply:sup, deliveredSF:_asm2(sup.delivered), nonMatSF:_asm2(nonMat), tiers:{}};
+             baseHours:baseHr, complexity:cx, adjHours:adjHr, laborRate:rate, trade:ASM_LABOR_TRADE,
+             supply:sup, deliveredSF:_asm2(sup.delivered), nonMatSF:_asm2(nonMat), lines,
+             omitted:{matSF:_asm2(offMat), hours:offHr, savingSF:_asm2(offMat+offHr*mult*cx*rate),
+                      n:lines.filter(L=>L.off).length},
+             tiers:{}};
   CONTRACTOR_TIERS.forEach(t=>{
-    const laborSF=_asm2(adjHr*t.labor);
+    const r=asmTierRate(t.id);
+    const laborSF=_asm2(adjHr*r);
     const instSF=_asm2(sup.delivered+nonMat+laborSF);
-    out.tiers[t.id]={label:t.label, laborRate:t.labor, laborSF, installedSF:instSF, total:_asm2(instSF*area)};
+    out.tiers[t.id]={label:t.label, laborRate:r, laborSF, installedSF:instSF, total:_asm2(instSF*area)};
   });
+  out.installedSF=out.tiers[o.tier||asmTierId()]?out.tiers[o.tier||asmTierId()].installedSF:out.tiers.standard.installedSF;
   return out;
 }
 
@@ -30717,7 +30750,28 @@ function _pavMatRate(p){ const it=_pavItem(p&&p.type); if(!it||it.u!=="SF") retu
 function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const tiers=SEC_TIERS.paving;
   const at=pt=>{ let ti=(SEC_TIER_DEFAULT.paving||1)+(pt-1); ti=Math.max(0,Math.min(tiers.length-1,ti)); return tierUC(it,tiers,ti); };
   return [at(0),at(1),at(2)]; }                                  // Value / Standard / Premium $/SF
-function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate; return _pavMatRate(p); }
+// Price for one paving trace, most specific first:
+//   1. a rate you typed for this trace   2. its installation assembly   3. the flat book band
+function _pavAsmCost(p){ if(!p||!p.asm||!ASM_LIB[p.asm]) return null;
+  try{ return asmCost({asm:p.asm, material:p.type, supply:p.asmSupply, off:p.asmOff,
+                       complexity:p.asmCx, areaSF:_ptTraceNet(p)}); }catch(e){ return null; } }
+function _pavAsmRate(p){ const r=_pavAsmCost(p); return r?r.installedSF:null; }
+function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate;
+  const a=_pavAsmRate(p); if(a!=null&&a>0) return a;
+  return _pavMatRate(p); }
+// Assemblies a material can be built with. Falls back to every assembly in the category when the
+// material is not in the catalogue yet, so nothing is unreachable while the library is filled in.
+function ptAsmOptions(matName){ const m=asmMat(matName);
+  if(m&&m.asm&&m.asm.length) return m.asm.map(k=>ASM_LIB[k]).filter(Boolean);
+  return asmFor("paving"); }
+function ptSetPolyAsm(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
+  if(!v){ delete p.asm; } else { p.asm=v; }
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
+function ptAsmLineToggle(idx,key){ const p=PT.polys[idx]; if(!p) return; ptSnap();
+  const off=(p.asmOff||[]).slice(); const i=off.indexOf(key);
+  if(i>=0) off.splice(i,1); else off.push(key);
+  p.asmOff=off; try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
+function ptAsmOpen(idx){ PT._asmOpen=(PT._asmOpen===idx)?null:idx; try{ ptWhy("paving"); }catch(e){} }
 function _ptTraceNet(p){ const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0); let taken=0;
   PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0) return; if(_ptEnclosing(x,PT.polys)===p) taken+=_tkCutSF(x); });
   (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
@@ -31995,8 +32049,57 @@ function _ptWhyRowPaving(e, unit){
         <b style="display:block;font:700 12.5px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${unit}</b>
         <span style="display:block;font:700 12px ui-monospace,Menlo,monospace;color:${OV?"#F2C14E":"#8FE07A"}">${e.cost>0?fmtN(e.cost):"—"}</span></span>
     </div>
+    ${_ptAsmBlock(e)}
     ${e.taken?`<div style="font:600 10.5px var(--tkf);color:#8FA383;margin-top:4px">less ${_tkFmt(e.taken)} taken out</div>`:""}
     ${e.demo&&e.demoCost>0?`<div style="font:700 10.5px ui-monospace,Menlo,monospace;color:#D9A441;margin-top:2px">+ ${fmtN(e.demoCost)} tear-out</div>`:""}
+  </div>`;
+}
+// The assembly picker and its line-by-line build-up. Every line can be switched off, and the panel
+// says what that saves — this is where value engineering happens, at the level of "drop the sealer".
+function _ptAsmBlock(e){
+  if(e.idx==null) return "";
+  const p=PT.polys[e.idx]; if(!p) return "";
+  const opts=ptAsmOptions(p.type);
+  if(!opts.length) return "";
+  const rec=(()=>{ try{ return asmRecommend({material:p.type, cat:"paving"}); }catch(_){ return null; } })();
+  const cur=p.asm&&ASM_LIB[p.asm]?p.asm:"";
+  const sel=`<select onchange="ptSetPolyAsm(${e.idx},this.value)" style="flex:1;min-width:0;box-sizing:border-box;font:600 11.5px var(--tkf);color:#EAF0E4;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:4px 6px">`
+    +`<option value="" ${cur?"":"selected"}>Assembly — flat book rate</option>`
+    +opts.map(a=>`<option value="${a.id}" ${cur===a.id?"selected":""}>${a.short}${rec&&rec.asm===a.id?" · suggested":""}</option>`).join("")
+    +`</select>`;
+  const open=(PT._asmOpen===e.idx);
+  const head=`<div style="display:flex;gap:6px;align-items:center;margin-top:6px">${sel}`
+    +(cur?`<button onclick="ptAsmOpen(${e.idx})" style="flex:none;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:4px 9px;cursor:pointer;font:700 11px var(--tkf);background:transparent;color:#9FBF95">${open?"Hide":"Build-up"}</button>`:"")
+    +`</div>`;
+  if(!cur||!open) return head;
+  const R=_pavAsmCost(p); if(!R) return head;
+  const money2=v=>"$"+(+v||0).toFixed(2);
+  const row=L=>`<div style="display:flex;gap:8px;align-items:center;padding:4px 0;${L.off?"opacity:.45":""}">
+      <button onclick="ptAsmLineToggle(${e.idx},'${L.key.replace(/'/g,"\\'")}')" title="${L.off?"Put this back":"Take this out"}"
+        style="flex:none;width:17px;height:17px;border-radius:5px;cursor:pointer;padding:0;
+        border:1.5px solid ${L.off?"rgba(255,255,255,.25)":"#6FBF5C"};background:${L.off?"transparent":"#6FBF5C"};
+        color:#0c2007;font:800 10px var(--tkf);line-height:1">${L.off?"":"✓"}</button>
+      <span style="flex:1;min-width:0;font:600 11px var(--tkf);color:#C7D6BB;${L.off?"text-decoration:line-through":""}">${L.n}</span>
+      <span style="font:600 9.5px ui-monospace,Menlo,monospace;color:#68765B;white-space:nowrap">${L.hr?L.hr.toFixed(3)+" hr":""}</span>
+      <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(L.costSF)}</b>
+    </div>`;
+  const sec=(t,arr)=>`<div style="font:800 8.5px var(--tkf);letter-spacing:.13em;text-transform:uppercase;color:#8FA383;margin:8px 0 2px">${t}</div>`+arr.map(row).join("");
+  const om=R.omitted;
+  return head+`<div style="margin-top:7px;padding:9px 10px;border:1px solid rgba(255,255,255,.12);border-radius:11px;background:rgba(255,255,255,.03)">
+    <div style="display:flex;gap:8px;align-items:baseline">
+      <span style="flex:1;font:700 11.5px var(--tkf);color:#EAF0E4">${R.assemblyName}</span>
+      <span style="font:600 10px var(--tkf);color:#8FA383">${R.area.toLocaleString()} SF · ×${R.areaMult.toFixed(2)}</span></div>
+    <div style="font:600 10px var(--tkf);color:#68765B;margin-top:2px">Labour ${R.trade} at ${money2(R.laborRate)}/hr · efficiency applies to hours only</div>
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;margin-top:4px;border-top:1px solid rgba(255,255,255,.09)">
+      <span style="flex:1;font:600 11px var(--tkf);color:#C7D6BB">Material delivered<span style="display:block;font:600 9.5px var(--tkf);color:#68765B">retail + ${Math.round(R.supply.wastePct*100)}% waste + ${Math.round(R.supply.taxPct*100)}% tax + ${money2(R.supply.freight)} freight</span></span>
+      <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(R.deliveredSF)}</b></div>
+    ${sec("Assembly materials", R.lines.filter(L=>L.kind==="m"))}
+    ${sec("Labour", R.lines.filter(L=>L.kind==="l"))}
+    <div style="display:flex;gap:8px;padding:8px 0 0;margin-top:5px;border-top:1px solid rgba(255,255,255,.22)">
+      <span style="flex:1;font:750 12px var(--tkf);color:#EAF0E4">Installed</span>
+      <b style="font:800 13px ui-monospace,Menlo,monospace;color:#8FE07A">${money2(R.installedSF)} / SF</b></div>
+    ${om.n?`<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(242,193,78,.12);font:700 10.5px var(--tkf);color:#F2C14E">
+        ${om.n} line${om.n===1?"":"s"} taken out — saves ${money2(om.savingSF)}/SF, ${fmtN(Math.round(om.savingSF*R.area))} on this trace</div>`:""}
   </div>`;
 }
 // Appearance from the take-off popup. That popup is per layer, so these drive every trace in it —
