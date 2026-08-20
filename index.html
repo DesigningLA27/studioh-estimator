@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1026</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1027</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24405,24 +24405,21 @@ function renderPriceBook(){
       const A=ASM_LIB[R.id];
       ins+='<div class="pb3-nm" style="cursor:default">'+esc(A.name)+'</div>'
         +'<div class="t">'+esc(A.spec.slice(0,2).join(" · "))+'</div>';
-      ins+='<h4>Materials · $ per '+esc(A.unit)+'</h4>';
-      (A.mats||[]).forEach(m=>{
-        ins+='<div class="pb3-f"><span class="k">'+esc(m.n)+'</span>'
-          +'<span style="display:flex;align-items:center;gap:3px"><span style="color:var(--tl);font-size:12px">$</span>'
-          +'<input type="number" class="no-spin" value="'+(+m.v||0).toFixed(2)+'" step="0.05" '
-          +'onchange="asmSetLine(\''+att(A.id)+'\',\'m\',\''+att(m.n)+'\',this.value);renderPriceBook()"></span></div>';
-      });
-      ins+='<div class="pb3-bu tot"><span>Total materials</span><b>'+money(asmMatTotal(A))+' / '+esc(A.unit)+'</b></div>';
-      ins+='<h4>Labour · hours per '+esc(A.unit)+'</h4>';
-      (A.labor||[]).forEach(l=>{
-        ins+='<div class="pb3-f"><span class="k">'+esc(l.n)+'</span>'
-          +'<span style="display:flex;align-items:center;gap:3px">'
-          +'<input type="number" class="no-spin" value="'+(+l.hr||0).toFixed(3)+'" step="0.001" '
-          +'onchange="asmSetLine(\''+att(A.id)+'\',\'l\',\'' +att(l.n)+'\',this.value);renderPriceBook()">'
+      ins+='<h4>Components · $ per '+esc(A.unit)+' and hours per '+esc(A.unit)+'</h4>';
+      (A.items||[]).forEach(x=>{
+        ins+='<div class="pb3-f'+(x.opt?'':' on')+'"><span class="k">'+esc(x.n)
+          +(x.opt?'<span style="color:var(--tl)"> · option</span>':'')
+          +(x.pat?'<span style="color:var(--mg-acc)"> · pattern</span>':'')+'</span>'
+          +'<span style="display:flex;align-items:center;gap:4px">'
+          +'<span style="color:var(--tl);font-size:11px">$</span>'
+          +'<input type="number" class="no-spin" style="width:58px" value="'+(+x.v||0).toFixed(2)+'" step="0.05" '
+          +'onchange="asmSetItem(\''+att(A.id)+'\',\''+att(x.n)+'\',\'v\',this.value);renderPriceBook()">'
+          +'<input type="number" class="no-spin" style="width:62px" value="'+(+x.hr||0).toFixed(3)+'" step="0.001" '
+          +'onchange="asmSetItem(\''+att(A.id)+'\',\''+att(x.n)+'\',\'hr\',this.value);renderPriceBook()">'
           +'<span style="color:var(--tl);font-size:11px">hr</span></span></div>';
       });
-      const bh=asmHrTotal(A);
-      ins+='<div class="pb3-bu tot"><span>Total hours</span><b>'+bh.toFixed(3)+' hr / '+esc(A.unit)+'</b></div>';
+      ins+='<div class="pb3-bu tot"><span>Materials</span><b>'+money(asmMatTotal(A))+' / '+esc(A.unit)+'</b></div>';
+      ins+='<div class="pb3-bu tot"><span>Base labour</span><b>'+asmHrTotal(A).toFixed(3)+' hr / '+esc(A.unit)+'</b></div>';
       ins+='<h4>Labour rate</h4>';
       ins+='<div style="font-size:11.5px;color:var(--tl);line-height:1.45">Hours are costed at the '
         +'<b>'+esc(ASM_LABOR_TRADE)+'</b> rate. '
@@ -30766,100 +30763,137 @@ function asmDelivered(sup){
 // is the productivity table in hours/unit. Both are line-itemised so the book shows the
 // working, not a single opaque rate.
 const ASM_LIB={
+  // One row per component, exactly as the cost sheets are written: material $/unit and labour
+  // hours/unit together. pat:true marks pattern-sensitive labour (setting, cutting, fitting,
+  // layout) — pattern complexity touches only those, never excavation, base or concrete.
+  // opt:true is an optional modifier: attached to the project, out of the price until switched on.
   "pav.mortarset":{
     id:"pav.mortarset", cat:"paving", unit:"SF",
-    name:"Mortar-set over reinforced concrete", short:"Mortar Set",
-    spec:["Tile 5/8″– 3/4″ thick","Mortar / thinset set","Grouted joints","Penetrating sealer",
-          "4″ compacted aggregate road base","4″ reinforced concrete slab","#3 rebar ~18″ OC each way"],
-    mats:[{n:"Aggregate road base",v:2.00},{n:"Concrete material",v:3.50},{n:"Rebar material",v:0.85},
-          {n:"Form materials",v:0.25},{n:"Mortar / thinset",v:1.50},{n:"Grout",v:0.75},
-          {n:"Sealer material",v:0.75,opt:true},{n:"Miscellaneous materials",v:0.50}],
-    labor:[{n:"Excavation / rough grading",hr:0.012},{n:"Subgrade compaction",hr:0.006},
-           {n:"Road base placement",hr:0.012},{n:"Forms",hr:0.006},{n:"Rebar installation",hr:0.010},
-           {n:"Concrete placement",hr:0.020},{n:"Mortar preparation",hr:0.008},{n:"Stone setting",hr:0.055},
-           {n:"Cutting / fitting",hr:0.010},{n:"Grouting",hr:0.015},{n:"Sealer application",hr:0.008,opt:true},
-           {n:"Cleanup",hr:0.006}],
+    name:"Natural stone — mortar-set over reinforced concrete", short:"Mortar Set",
+    spec:["Tile 5/8″–3/4″ thick","Mortar / thinset set","Grouted joints","4″ reinforced slab","#3 rebar ~18″ OC"],
+    items:[
+      {n:"Excavation / rough grading", v:0,    hr:0.012},
+      {n:"Subgrade compaction",        v:0,    hr:0.006},
+      {n:"4″ road base",               v:2.00, hr:0.012},
+      {n:"Forms",                      v:0.25, hr:0.006},
+      {n:"#3 rebar",                   v:0.85, hr:0.010},
+      {n:"4″ concrete",                v:3.50, hr:0.020},
+      {n:"Mortar / thinset",           v:1.50, hr:0.008},
+      {n:"Stone setting",              v:0,    hr:0.055, pat:true},
+      {n:"Cutting / fitting",          v:0,    hr:0.010, pat:true},
+      {n:"Grout",                      v:0.75, hr:0.015},
+      {n:"Sealer",                     v:0.75, hr:0.008, opt:true},
+      {n:"Miscellaneous materials",    v:0.50, hr:0},
+      {n:"Cleanup",                    v:0,    hr:0.006}],
     minThick:0, maxThick:1.0 },
   "pav.sandset":{
     id:"pav.sandset", cat:"paving", unit:"SF",
-    name:"Sand-set full-thickness pavers", short:"Sand Set",
-    spec:["Full-thickness paver ~1.25″–2″","Sand set","~1″ bedding sand","Polymeric joint sand",
-          "4″–6″ compacted aggregate road base","Edge restraint included","Penetrating sealer"],
-    mats:[{n:"Aggregate road base",v:2.50},{n:"Bedding sand",v:0.50},{n:"Edge restraint",v:0.40},
-          {n:"Polymeric joint sand",v:0.50},{n:"Sealer material",v:0.75,opt:true},{n:"Miscellaneous materials",v:0.40}],
-    labor:[{n:"Excavation / rough grading",hr:0.014},{n:"Subgrade compaction",hr:0.006},
-           {n:"Road base placement",hr:0.014},{n:"Bedding sand",hr:0.008},{n:"Stone setting",hr:0.055},
-           {n:"Cutting / fitting",hr:0.010},{n:"Edge restraint",hr:0.006},{n:"Polymeric joint sand",hr:0.006},
-           {n:"Sealer application",hr:0.008,opt:true},{n:"Cleanup",hr:0.006}],
+    name:"Natural stone — sand-set full thickness", short:"Sand Set",
+    spec:["Full-thickness paver ~1.25″–2″","Sand set","~1″ bedding sand","Polymeric joint sand","Edge restraint"],
+    items:[
+      {n:"Excavation / rough grading", v:0,    hr:0.014},
+      {n:"Subgrade compaction",        v:0,    hr:0.006},
+      {n:"4″–6″ road base",            v:2.50, hr:0.014},
+      {n:"Bedding sand",               v:0.50, hr:0.008},
+      {n:"Stone setting",              v:0,    hr:0.055, pat:true},
+      {n:"Cutting / fitting",          v:0,    hr:0.010, pat:true},
+      {n:"Edge restraint",             v:0.40, hr:0.006},
+      {n:"Polymeric joint sand",       v:0.50, hr:0.006},
+      {n:"Sealer",                     v:0.75, hr:0.008, opt:true},
+      {n:"Miscellaneous materials",    v:0.40, hr:0},
+      {n:"Cleanup",                    v:0,    hr:0.006}],
     minThick:1.25, maxThick:99 },
-  // ── Assemblies awaiting Warwick's numbers. The line names are his; the values are null so the
-  //    engine refuses to price them rather than inventing a rate. `opt:true` = optional modifier:
-  //    attached to the project but out of the price until it is switched on.
   "pav.concrete":{
-    id:"pav.concrete", cat:"paving", unit:"SF", needsNumbers:true,
-    name:"Concrete flatwork — reinforced slab", short:"Concrete",
-    spec:["Compacted base","Forms","Rebar","Concrete","Finish","Curing"],
-    mats:[{n:"Aggregate road base",v:null},{n:"Concrete material",v:null},{n:"Rebar material",v:null},
-          {n:"Form materials",v:null},{n:"Curing compound",v:null},{n:"Miscellaneous materials",v:null},
-          {n:"Admixtures",v:null,opt:true},{n:"Expansion joint upgrade",v:null,opt:true}],
-    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
-           {n:"Road base placement",hr:null},{n:"Forms",hr:null},{n:"Rebar installation",hr:null},
-           {n:"Concrete placement",hr:null},{n:"Finishing",hr:null},{n:"Curing",hr:null},{n:"Cleanup",hr:null}],
+    id:"pav.concrete", cat:"paving", unit:"SF", noMaterial:true,
+    name:"Concrete flatwork — 4″ reinforced slab", short:"Concrete",
+    spec:["4″ reinforced slab","4″ Class II road base","#3 rebar ~18″ OC each way","Broom finish","Compacted subgrade"],
+    items:[
+      {n:"Excavation",                 v:0,    hr:0.012},
+      {n:"Subgrade compaction",        v:0,    hr:0.006},
+      {n:"4″ road base",               v:0.70, hr:0.012},
+      {n:"Forms",                      v:0.20, hr:0.008},
+      {n:"#3 rebar",                   v:0.85, hr:0.010},
+      {n:"4″ concrete",                v:2.75, hr:0.018},
+      {n:"Concrete finishing",         v:0,    hr:0.012},
+      {n:"Curing material",            v:0.15, hr:0.002},
+      {n:"Miscellaneous materials",    v:0.25, hr:0},
+      {n:"Cleanup",                    v:0,    hr:0.006}],
     minThick:0, maxThick:99 },
   "pav.stamped":{
-    id:"pav.stamped", cat:"paving", unit:"SF", needsNumbers:true,
+    id:"pav.stamped", cat:"paving", unit:"SF", noMaterial:true,
     name:"Stamped / coloured concrete", short:"Stamped",
-    spec:["Standard concrete assembly","Integral colour","Release","Stamping","Sealer"],
-    mats:[{n:"Aggregate road base",v:null},{n:"Concrete material",v:null},{n:"Rebar material",v:null},
-          {n:"Form materials",v:null},{n:"Miscellaneous materials",v:null},
-          {n:"Integral colour",v:null,opt:true},{n:"Release agent",v:null},{n:"Sealer material",v:null,opt:true}],
-    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
-           {n:"Road base placement",hr:null},{n:"Forms",hr:null},{n:"Rebar installation",hr:null},
-           {n:"Concrete placement",hr:null},{n:"Stamping",hr:null},{n:"Colour / release application",hr:null},
-           {n:"Sealer application",hr:null,opt:true},{n:"Cleanup",hr:null}],
+    spec:["Concrete flatwork assembly","Integral colour","Release agent","Stamped finish","Sealer"],
+    items:[
+      {n:"Excavation",                 v:0,    hr:0.012},
+      {n:"Subgrade compaction",        v:0,    hr:0.006},
+      {n:"4″ road base",               v:0.70, hr:0.012},
+      {n:"Forms",                      v:0.20, hr:0.008},
+      {n:"#3 rebar",                   v:0.85, hr:0.010},
+      {n:"4″ concrete",                v:2.75, hr:0.018},
+      {n:"Integral colour",            v:0.80, hr:0.003},
+      {n:"Release agent",              v:0.35, hr:0.002},
+      {n:"Stamping",                   v:0.10, hr:0.020, pat:true},
+      {n:"Wash / detail cleanup",      v:0,    hr:0.004},
+      {n:"Sealer material",            v:0.65, hr:0.006},
+      {n:"Curing / miscellaneous",     v:0.30, hr:0.002},
+      {n:"Final cleanup",              v:0,    hr:0.006}],
     minThick:0, maxThick:99 },
   "pav.dg":{
-    id:"pav.dg", cat:"paving", unit:"SF", needsNumbers:true,
+    id:"pav.dg", cat:"paving", unit:"SF", noMaterial:true,
     name:"Gravel / decomposed granite", short:"Gravel / DG",
-    spec:["Compacted subgrade","Aggregate base where required","DG","Stabiliser optional","Compaction","Edging"],
-    mats:[{n:"Aggregate base",v:null},{n:"Decomposed granite",v:null},{n:"Edging",v:null},
-          {n:"Miscellaneous materials",v:null},{n:"Stabiliser",v:null,opt:true}],
-    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
-           {n:"Aggregate base placement",hr:null},{n:"DG placement",hr:null},
-           {n:"Stabiliser mixing",hr:null,opt:true},{n:"Compaction",hr:null},
-           {n:"Edging installation",hr:null},{n:"Cleanup",hr:null}],
+    spec:["Compacted subgrade","4″ Class II road base","2″–3″ DG or gravel","Stabiliser","Edging"],
+    items:[
+      {n:"Excavation",                 v:0,    hr:0.012},
+      {n:"Subgrade compaction",        v:0,    hr:0.006},
+      {n:"4″ road base",               v:0.70, hr:0.012},
+      {n:"DG / gravel material",       v:0.90, hr:0.014},
+      {n:"Stabiliser",                 v:0.35, hr:0.004, opt:true},
+      {n:"Edging",                     v:0.50, hr:0.008},
+      {n:"Finish compaction",          v:0,    hr:0.008},
+      {n:"Miscellaneous materials",    v:0.20, hr:0},
+      {n:"Cleanup",                    v:0,    hr:0.004}],
     minThick:0, maxThick:99 },
   "pav.cpaver":{
-    id:"pav.cpaver", cat:"paving", unit:"SF", needsNumbers:true,
+    id:"pav.cpaver", cat:"paving", unit:"SF",
     name:"Concrete pavers — sand set", short:"Concrete Paver",
-    spec:["Concrete paver","Sand set","Bedding sand","Polymeric joint sand","Edge restraint","Aggregate base"],
-    mats:[{n:"Aggregate road base",v:null},{n:"Bedding sand",v:null},{n:"Edge restraint",v:null},
-          {n:"Polymeric joint sand",v:null},{n:"Miscellaneous materials",v:null},
-          {n:"Sealer material",v:null,opt:true},{n:"Decorative band",v:null,opt:true}],
-    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
-           {n:"Road base placement",hr:null},{n:"Bedding sand",hr:null},{n:"Paver setting",hr:null},
-           {n:"Cutting / fitting",hr:null},{n:"Edge restraint",hr:null},{n:"Polymeric joint sand",hr:null},
-           {n:"Sealer application",hr:null,opt:true},{n:"Cleanup",hr:null}],
+    spec:["Concrete paving units","Running bond","4″–6″ Class II road base","~1″ bedding sand","Polymeric joint sand","Edge restraint"],
+    waste:0.05,
+    items:[
+      {n:"Excavation",                 v:0,    hr:0.014},
+      {n:"Subgrade compaction",        v:0,    hr:0.006},
+      {n:"Road base",                  v:0.85, hr:0.014},
+      {n:"Bedding sand",               v:0.30, hr:0.006},
+      {n:"Paver installation",         v:0,    hr:0.042, pat:true},
+      {n:"Cutting / fitting",          v:0,    hr:0.007, pat:true},
+      {n:"Polymeric joint sand",       v:0.35, hr:0.006},
+      {n:"Edge restraint",             v:0.45, hr:0.006},
+      {n:"Miscellaneous materials",    v:0.25, hr:0},
+      {n:"Cleanup",                    v:0,    hr:0.005}],
     minThick:1.25, maxThick:99 },
   "pav.brick":{
-    id:"pav.brick", cat:"paving", unit:"SF", needsNumbers:true,
-    name:"Brick paving", short:"Brick",
-    spec:["Clay brick paver","Sand or mortar set","Jointing","Edge restraint","Aggregate base"],
-    mats:[{n:"Aggregate road base",v:null},{n:"Bedding sand",v:null},{n:"Edge restraint",v:null},
-          {n:"Joint material",v:null},{n:"Miscellaneous materials",v:null},
-          {n:"Sealer material",v:null,opt:true},{n:"Decorative border",v:null,opt:true}],
-    labor:[{n:"Excavation / rough grading",hr:null},{n:"Subgrade compaction",hr:null},
-           {n:"Road base placement",hr:null},{n:"Bedding sand",hr:null},{n:"Brick setting",hr:null},
-           {n:"Cutting / fitting",hr:null},{n:"Edge restraint",hr:null},{n:"Jointing",hr:null},
-           {n:"Sealer application",hr:null,opt:true},{n:"Cleanup",hr:null}],
+    id:"pav.brick", cat:"paving", unit:"SF",
+    name:"Brick pavers — sand set", short:"Brick",
+    spec:["Clay paving brick","Running bond","4″–6″ Class II road base","~1″ bedding sand","Joint sand","Edge restraint"],
+    waste:0.07,
+    items:[
+      {n:"Excavation",                 v:0,    hr:0.014},
+      {n:"Subgrade compaction",        v:0,    hr:0.006},
+      {n:"Road base",                  v:0.85, hr:0.014},
+      {n:"Bedding sand",               v:0.30, hr:0.006},
+      {n:"Brick installation",         v:0,    hr:0.050, pat:true},
+      {n:"Cutting / fitting",          v:0,    hr:0.009, pat:true},
+      {n:"Joint sand",                 v:0.35, hr:0.006},
+      {n:"Edge restraint",             v:0.45, hr:0.006},
+      {n:"Miscellaneous materials",    v:0.25, hr:0},
+      {n:"Cleanup",                    v:0,    hr:0.005}],
     minThick:1.25, maxThick:99 }
 };
-// An assembly cannot price until every non-optional line has a number.
+// An assembly that supplies its own material (concrete, DG) needs no separate material price.
+function asmNeedsMaterial(A){ A=asmGet(A); return !!A && !A.noMaterial; }
 function asmIncomplete(A){ A=asmGet(A); if(!A) return true;
-  const bad=x=>!x.opt && (x.v==null && x.hr==null);
-  return (A.mats||[]).some(m=>!m.opt&&m.v==null) || (A.labor||[]).some(l=>!l.opt&&l.hr==null); }
-function asmMatTotal(a){ return (a&&a.mats||[]).reduce((s,m)=>s+(+m.v||0),0); }
-function asmHrTotal(a){ return (a&&a.labor||[]).reduce((s,l)=>s+(+l.hr||0),0); }
+  return (A.items||[]).some(x=>!x.opt && (x.v==null || x.hr==null)); }
+function asmMatTotal(a){ a=asmGet(a); return (a&&a.items||[]).filter(x=>!x.opt).reduce((s,x)=>s+(+x.v||0),0); }
+function asmHrTotal(a){ a=asmGet(a); return (a&&a.items||[]).filter(x=>!x.opt).reduce((s,x)=>s+(+x.hr||0),0); }
 function asmGet(a){ return (typeof a==="string")?ASM_LIB[a]:a; }
 function asmFor(cat){ return Object.keys(ASM_LIB).map(k=>ASM_LIB[k]).filter(a=>a.cat===cat); }
 
@@ -30890,10 +30924,9 @@ function asmSave(){ try{ localStorage.setItem("studioh_assemblies_v1",
   JSON.stringify({lib:ASM_LIB, mats:ASM_MATS, patterns:ASM_PATTERNS})); }catch(e){} }
 (function(){ try{ const s=localStorage.getItem("studioh_assemblies_v1"); if(!s) return;
   const j=JSON.parse(s); if(j&&j.lib) Object.keys(j.lib).forEach(k=>{ if(ASM_LIB[k]) ASM_LIB[k]=j.lib[k]; }); }catch(e){} })();
-function asmSetLine(asmId,kind,name,val){ const A=ASM_LIB[asmId]; if(!A) return;
-  const arr=(kind==="m")?A.mats:A.labor; const L=arr&&arr.find(x=>x.n===name); if(!L) return;
-  if(kind==="m") L.v=Math.max(0,+val||0); else L.hr=Math.max(0,+val||0);
-  asmSave(); }
+function asmSetItem(asmId,name,field,val){ const A=ASM_LIB[asmId]; if(!A) return;
+  const L=(A.items||[]).find(x=>x.n===name); if(!L) return;
+  L[field]=Math.max(0,+val||0); asmSave(); }
 function asmSetSupply(matName,key,val){ const m=asmMat(matName); if(!m) return;
   m.supply=m.supply||{}; m.supply[key]=Math.max(0,+val||0); asmSave(); }
 function asmSetCx(matName,val){ /* complexity moved to the installation pattern */ }
@@ -30935,65 +30968,72 @@ function _asm2(n){ return Math.round((+n||0)*100)/100; }
 // Every line of an assembly can be switched off or pushed to a later phase. That is the value
 // engineering surface: drop the sealer, defer the sealer, and the price moves by exactly its
 // material plus its hours — no guesswork about what a saving is worth.
-function asmLineKey(kind,n){ return kind+":"+n; }
-// Per-trace line state: "on" switches an optional modifier in, "off" takes a standard line out,
-// "defer" keeps it on the job but out of this price.
-function asmLineState(lines,L){
-  const st=lines&&lines[L.key];
-  if(st) return st;
-  return L.opt ? "off" : "on";
-}
+function asmLineKey(kind,n){ return "n:"+n; }
+function asmLineState(st,x){ const v=st&&st["n:"+x.n]; if(v) return v; return x.opt?"off":"on"; }
 function asmCost(o){
   o=o||{}; const A=asmGet(o.asm); if(!A) return null;
   const mat=(typeof o.material==="string")?asmMat(o.material):o.material;
   const area=Math.max(0,+o.areaSF||0);
   if(asmIncomplete(A)) return {needsNumbers:true, assembly:A.id, assemblyName:A.name};
-  const retail=asmRetailOf(o);
-  if(retail==null) return {needsRetail:true, assembly:A.id, assemblyName:A.name, material:(mat&&mat.n)||o.material||""};
-  const sup=asmDelivered(Object.assign({}, (mat&&mat.supply)||{}, o.supply||{}, {retail:retail}));
+
+  // Assemblies that supply their own material (concrete, DG) carry no separate purchase price.
+  let sup=null, delivered=0;
+  if(asmNeedsMaterial(A)){
+    const retail=asmRetailOf(o);
+    if(retail==null) return {needsRetail:true, assembly:A.id, assemblyName:A.name, material:(mat&&mat.n)||o.material||""};
+    const dflt=(A.waste!=null)?{waste:A.waste}:{};
+    sup=asmDelivered(Object.assign({}, dflt, (mat&&mat.supply)||{}, o.supply||{}, {retail:retail}));
+    delivered=sup.delivered;
+  }
 
   const st=o.lines||{};
-  const pat=o.pattern||"running";
-  const patCx=asmPatternCx(pat);
+  const pat=o.pattern||"running", patCx=asmPatternCx(pat);
   const mult=asmAreaMult(area);
   const tierId=o.tier||asmTierId();
   const T=asmTier(tierId), rate=asmTierRate(tierId), prod=+T.prod||1;
+  // Pattern complexity applies to laying, cutting and fitting only — never to excavation,
+  // base preparation or concrete.
+  const HR=(hr,isPat,pr)=>hr*mult*pr*(isPat?patCx:1);
 
-  // Base Labour Hours × Pattern Complexity × Area Efficiency × Contractor Productivity × Rate
-  const HRF=(hr,pr)=>hr*patCx*mult*pr;
-
-  let nonMat=0, baseHr=0, offMat=0, offHr=0, defMat=0, defHr=0;
+  let matIn=0, hrIn=0, offMat=0, offHr=0, offHrPat=0, defMat=0, defHr=0, defHrPat=0;
   const lines=[];
-  (A.mats||[]).forEach(m=>{ const state=asmLineState(st,{key:asmLineKey("m",m.n),opt:m.opt}); const v=+m.v||0;
-    if(state==="on") nonMat+=v; else if(state==="defer") defMat+=v; else offMat+=v;
-    lines.push({kind:"m", key:asmLineKey("m",m.n), n:m.n, opt:!!m.opt, state, matSF:_asm2(v), hr:0}); });
-  (A.labor||[]).forEach(l=>{ const state=asmLineState(st,{key:asmLineKey("l",l.n),opt:l.opt}); const h=+l.hr||0;
-    if(state==="on") baseHr+=h; else if(state==="defer") defHr+=h; else offHr+=h;
-    lines.push({kind:"l", key:asmLineKey("l",l.n), n:l.n, opt:!!l.opt, state, matSF:0, hr:h}); });
-
-  const adjHr=HRF(baseHr,prod);
-  lines.forEach(L=>{ L.laborSF=L.hr?_asm2(HRF(L.hr,prod)*rate):0; L.costSF=_asm2(L.matSF+L.laborSF); });
+  (A.items||[]).forEach(x=>{
+    const state=asmLineState(st,x), v=+x.v||0, h=+x.hr||0, isP=!!x.pat;
+    if(state==="on"){ matIn+=v; hrIn+=h; }
+    else if(state==="defer"){ defMat+=v; if(isP) defHrPat+=h; else defHr+=h; }
+    else { offMat+=v; if(isP) offHrPat+=h; else offHr+=h; }
+    lines.push({key:"n:"+x.n, n:x.n, opt:!!x.opt, pat:isP, state,
+                matSF:_asm2(v), hr:h, kind:(v>0&&h>0)?"b":(h>0?"l":"m")});
+  });
+  const hoursAt=pr=>(A.items||[]).reduce((s,x)=>{
+    const state=asmLineState(st,x); if(state!=="on") return s;
+    return s+HR(+x.hr||0, !!x.pat, pr); },0);
+  const adjHr=hoursAt(prod);
+  lines.forEach(L=>{ L.laborSF=L.hr?_asm2(HR(L.hr,L.pat,prod)*rate):0; L.costSF=_asm2(L.matSF+L.laborSF); });
 
   const out={assembly:A.id, assemblyName:A.name, unit:A.unit, area, areaMult:mult,
              pattern:pat, patternName:asmPattern(pat).n, patternCx:patCx,
              tier:tierId, productivity:prod, laborRate:rate, trade:ASM_LABOR_TRADE,
-             baseHours:baseHr, adjHours:adjHr,
-             supply:sup, deliveredSF:_asm2(sup.delivered), nonMatSF:_asm2(nonMat), lines,
-             omitted:{matSF:_asm2(offMat), hours:offHr, savingSF:_asm2(offMat+HRF(offHr,prod)*rate),
+             baseHours:_asmR(hrIn,6), adjHours:adjHr, needsMaterial:asmNeedsMaterial(A),
+             supply:sup, deliveredSF:_asm2(delivered), nonMatSF:_asm2(matIn), lines,
+             omitted:{matSF:_asm2(offMat), hours:offHr+offHrPat,
+                      savingSF:_asm2(offMat+(HR(offHr,false,prod)+HR(offHrPat,true,prod))*rate),
                       n:lines.filter(L=>L.state==="off"&&!L.opt).length},
-             deferred:{matSF:_asm2(defMat), hours:defHr, valueSF:_asm2(defMat+HRF(defHr,prod)*rate),
+             deferred:{matSF:_asm2(defMat), hours:defHr+defHrPat,
+                       valueSF:_asm2(defMat+(HR(defHr,false,prod)+HR(defHrPat,true,prod))*rate),
                        n:lines.filter(L=>L.state==="defer").length},
              tiers:{}};
   CONTRACTOR_TIERS.forEach(t=>{
-    const r=asmTierRate(t.id), pr=+t.prod||1;
-    const laborSF=_asm2(HRF(baseHr,pr)*r);
-    const instSF=_asm2(sup.delivered+nonMat+laborSF);
-    out.tiers[t.id]={label:t.label, laborRate:r, prod:pr, hours:HRF(baseHr,pr), laborSF,
-                     installedSF:instSF, total:_asm2(instSF*area)};
+    const r=asmTierRate(t.id), pr=+t.prod||1, h=hoursAt(pr);
+    const laborSF=_asm2(h*r);
+    const instSF=_asm2(delivered+matIn+laborSF);
+    out.tiers[t.id]={label:t.label, laborRate:r, prod:pr, hours:h, laborSF, installedSF:instSF, total:_asm2(instSF*area)};
   });
   out.installedSF=out.tiers[tierId].installedSF;
   return out;
 }
+function _asmR(n,d){ const m=Math.pow(10,d||2); return Math.round((+n||0)*m)/m; }
+
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
 const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
@@ -32403,7 +32443,7 @@ function _ptAsmBlock(e){
         style="flex:none;width:17px;height:17px;border-radius:5px;cursor:pointer;padding:0;
         border:1.5px solid ${M.bd};background:${M.bg};color:#0c2007;font:800 10px var(--tkf);line-height:1">${M.g}</button>
       <span style="flex:1;min-width:0;font:600 11px var(--tkf);color:#C7D6BB;${L.state==="off"?"text-decoration:line-through":""}">${L.n}${L.opt?'<span style="color:#68765B;font-weight:600"> · option</span>':''}</span>
-      <span style="width:58px;flex:none;text-align:right;font:600 10px ui-monospace,Menlo,monospace;color:#68765B">${L.kind==="m"?money2(L.matSF):(+L.hr).toFixed(3)+" hr"}</span>
+      <span style="width:88px;flex:none;text-align:right;font:600 9.5px ui-monospace,Menlo,monospace;color:#68765B">${L.matSF>0?money2(L.matSF):""}${(L.matSF>0&&L.hr>0)?" · ":""}${L.hr>0?(+L.hr).toFixed(3)+"h":""}</span>
       <b style="font:700 11px ui-monospace,Menlo,monospace;color:${L.state==="on"?"#EAF0E4":"#68765B"};width:52px;text-align:right">${money2(L.costSF)}</b>
     </div>`; };
   const sec=(t,arr)=>`<div style="font:800 8.5px var(--tkf);letter-spacing:.13em;text-transform:uppercase;color:#8FA383;margin:8px 0 2px">${t}</div>`+arr.map(row).join("");
@@ -32419,12 +32459,11 @@ function _ptAsmBlock(e){
       </select></div>
     <div style="font:600 9.5px var(--tkf);color:#68765B;margin-top:5px;line-height:1.5">
       ${R.baseHours.toFixed(3)} hr × ${R.patternCx.toFixed(2)} pattern × ${R.areaMult.toFixed(2)} size × ${R.productivity.toFixed(2)} crew × ${money2(R.laborRate)}/hr</div>
-    ${retIn}
-    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,.09)">
+    ${R.needsMaterial?retIn:""}
+    ${R.needsMaterial?`<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,.09)">
       <span style="flex:1;font:600 11px var(--tkf);color:#C7D6BB">Material delivered<span style="display:block;font:600 9.5px var(--tkf);color:#68765B">retail + ${Math.round(R.supply.wastePct*100)}% waste + ${Math.round(R.supply.taxPct*100)}% tax + ${money2(R.supply.freight)} freight</span></span>
-      <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(R.deliveredSF)}</b></div>
-    ${sec("Assembly materials", R.lines.filter(L=>L.kind==="m"))}
-    ${sec("Labour", R.lines.filter(L=>L.kind==="l"))}
+      <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(R.deliveredSF)}</b></div>`:""}
+    ${sec("Build-up", R.lines)}
     <div style="display:flex;gap:8px;padding:8px 0 0;margin-top:5px;border-top:1px solid rgba(255,255,255,.22)">
       <span style="flex:1;font:750 12px var(--tkf);color:#EAF0E4">Installed</span>
       <b style="font:800 13px ui-monospace,Menlo,monospace;color:#8FE07A">${money2(R.installedSF)} / SF</b></div>
