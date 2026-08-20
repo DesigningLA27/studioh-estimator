@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1022</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1023</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16892,7 +16892,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -30610,8 +30610,14 @@ function asmAreaMult(sf){ const a=Math.max(0,+sf||0);
 
 // Delivered cost of the material itself. Waste, tax and freight ride on the retail price.
 const ASM_SUPPLY_DEF={retail:25.00, waste:0.10, tax:0.10, freight:2.50};
+function asmRetailOf(o){
+  if(o&&o.supply&&o.supply.retail!=null&&o.supply.retail!=="") return +o.supply.retail;
+  const m=(o&&typeof o.material==="string")?asmMat(o.material):(o&&o.material);
+  if(m&&m.supply&&m.supply.retail!=null&&m.supply.retail!=="") return +m.supply.retail;
+  return null; }
 function asmDelivered(sup){
   const s=Object.assign({},ASM_SUPPLY_DEF,sup||{});
+  if(s.retail==null||s.retail==="") s.retail=ASM_SUPPLY_DEF.retail;
   const purchase=(+s.retail||0)*(1+(+s.waste||0));
   const tax=purchase*(+s.tax||0);
   const freight=+s.freight||0;
@@ -30657,13 +30663,36 @@ function asmFor(cat){ return Object.keys(ASM_LIB).map(k=>ASM_LIB[k]).filter(a=>a
 // Materials declare which assemblies they support. Starter entries only — the catalogue is
 // Warwick's to fill; `cx` is the pattern/material complexity factor on LABOUR HOURS, 1.00
 // until he sets it, never guessed.
-const ASM_MATS=[
-  {n:"3/4″ Calibrated Limestone", cat:"paving", thick:0.75, asm:["pav.mortarset"],
-   supply:{retail:25.00}, cx:1},
-  {n:"2″ Bluestone", cat:"paving", thick:2.0, asm:["pav.mortarset","pav.sandset"],
-   supply:{retail:25.00}, cx:1}
+let ASM_MATS=(function(){ try{ const s=localStorage.getItem("studioh_assemblies_v1");
+  if(s){ const j=JSON.parse(s); if(j&&j.mats) return j.mats; } }catch(e){} return null; })() || [
+  // Install method is domain knowledge, so it is mapped here. Retail $/SF is NOT — it stays null
+  // until entered, and an assembly will not price a trace without it.
+  {n:"3/4″ Calibrated Limestone", cat:"paving", thick:0.75, asm:["pav.mortarset"], supply:{retail:null}, cx:1},
+  {n:"2″ Bluestone",              cat:"paving", thick:2.0,  asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
+  {n:"Natural Stone Paving",      cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
+  {n:"Porcelain Pavers",          cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:null}, cx:1},
+  {n:"Concrete Pavers",           cat:"paving", thick:2.375,asm:["pav.sandset","pav.mortarset"], supply:{retail:null}, cx:1},
+  {n:"Brick Paving",              cat:"paving", thick:2.25, asm:["pav.sandset","pav.mortarset"], supply:{retail:null}, cx:1},
+  {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.sandset"], supply:{retail:null}, cx:1},
+  {n:"Pebble / Baja Stone Paving",cat:"paving", thick:null, asm:["pav.mortarset"], supply:{retail:null}, cx:1},
+  // Poured and loose surfaces are not a set material over a sub-base — they need their own
+  // assemblies, so they declare none and keep pricing off the flat book band.
+  {n:"Concrete Flatwork",         cat:"paving", thick:null, asm:[], supply:{retail:null}, cx:1},
+  {n:"Stamped / Colored Concrete",cat:"paving", thick:null, asm:[], supply:{retail:null}, cx:1},
+  {n:"Gravel / Decomposed Granite",cat:"paving",thick:null, asm:[], supply:{retail:null}, cx:1}
 ];
 function asmMat(name){ return ASM_MATS.find(m=>m.n===name)||null; }
+// Assemblies and the material catalogue persist and publish with the rest of the price book.
+function asmSave(){ try{ localStorage.setItem("studioh_assemblies_v1",
+  JSON.stringify({lib:ASM_LIB, mats:ASM_MATS})); }catch(e){} }
+(function(){ try{ const s=localStorage.getItem("studioh_assemblies_v1"); if(!s) return;
+  const j=JSON.parse(s); if(j&&j.lib) Object.keys(j.lib).forEach(k=>{ if(ASM_LIB[k]) ASM_LIB[k]=j.lib[k]; }); }catch(e){} })();
+function asmSetLine(asmId,kind,name,val){ const A=ASM_LIB[asmId]; if(!A) return;
+  const arr=(kind==="m")?A.mats:A.labor; const L=arr&&arr.find(x=>x.n===name); if(!L) return;
+  if(kind==="m") L.v=Math.max(0,+val||0); else L.hr=Math.max(0,+val||0);
+  asmSave(); }
+function asmSetRetail(matName,val){ const m=asmMat(matName); if(!m) return;
+  m.supply=m.supply||{}; m.supply.retail=(val===""||val==null)?null:Math.max(0,+val||0); asmSave(); }
 
 // ── Assembly Selection Engine ────────────────────────────────────────────────
 // Picks the assembly and says why. Only rules with a stated basis are scored; every other
@@ -30703,7 +30732,9 @@ function asmCost(o){
   o=o||{}; const A=asmGet(o.asm); if(!A) return null;
   const mat=(typeof o.material==="string")?asmMat(o.material):o.material;
   const area=Math.max(0,+o.areaSF||0);
-  const sup=asmDelivered(o.supply||(mat&&mat.supply));
+  const retail=asmRetailOf(o);
+  if(retail==null) return {needsRetail:true, assembly:A.id, assemblyName:A.name, material:(mat&&mat.n)||o.material||""};
+  const sup=asmDelivered(Object.assign({}, (mat&&mat.supply)||{}, o.supply||{}, {retail:retail}));
   const off=o.off||[];
   const mult=asmAreaMult(area);
   const cx=(o.complexity!=null?+o.complexity:(mat&&mat.cx!=null?+mat.cx:1))||1;
@@ -30755,15 +30786,22 @@ function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const ti
 function _pavAsmCost(p){ if(!p||!p.asm||!ASM_LIB[p.asm]) return null;
   try{ return asmCost({asm:p.asm, material:p.type, supply:p.asmSupply, off:p.asmOff,
                        complexity:p.asmCx, areaSF:_ptTraceNet(p)}); }catch(e){ return null; } }
-function _pavAsmRate(p){ const r=_pavAsmCost(p); return r?r.installedSF:null; }
+function _pavAsmRate(p){ const r=_pavAsmCost(p); return (r&&!r.needsRetail)?r.installedSF:null; }
 function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate;
   const a=_pavAsmRate(p); if(a!=null&&a>0) return a;
   return _pavMatRate(p); }
 // Assemblies a material can be built with. Falls back to every assembly in the category when the
 // material is not in the catalogue yet, so nothing is unreachable while the library is filled in.
 function ptAsmOptions(matName){ const m=asmMat(matName);
-  if(m&&m.asm&&m.asm.length) return m.asm.map(k=>ASM_LIB[k]).filter(Boolean);
-  return asmFor("paving"); }
+  if(m) return (m.asm||[]).map(k=>ASM_LIB[k]).filter(Boolean);   // [] = poured/loose, no assembly
+  return matName?[]:asmFor("paving");                            // unknown material: pick one first
+}
+function ptSetAsmRetail(idx,v){ const p=PT.polys[idx]; if(!p) return;
+  p.asmSupply=p.asmSupply||{}; p.asmSupply.retail=(v===""?null:Math.max(0,+v||0));
+  if(p.type) asmSetRetail(p.type, v);            // remember it for that material, book-wide
+  try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
+function ptSetAsmLine(asmId,kind,name,v){ asmSetLine(asmId,kind,name,v);
+  try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
 function ptSetPolyAsm(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
   if(!v){ delete p.asm; } else { p.asm=v; }
   try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
@@ -32074,13 +32112,34 @@ function _ptAsmBlock(e){
   if(!cur||!open) return head;
   const R=_pavAsmCost(p); if(!R) return head;
   const money2=v=>"$"+(+v||0).toFixed(2);
-  const row=L=>`<div style="display:flex;gap:8px;align-items:center;padding:4px 0;${L.off?"opacity:.45":""}">
+  const RET=(()=>{ const m=asmMat(p.type); const v=(p.asmSupply&&p.asmSupply.retail!=null)?p.asmSupply.retail
+      :((m&&m.supply&&m.supply.retail!=null)?m.supply.retail:null); return v; })();
+  const retIn=`<div style="display:flex;gap:8px;align-items:center;padding:7px 0">
+      <span style="flex:1;font:600 11px var(--tkf);color:#C7D6BB">Material price
+        <span style="display:block;font:600 9.5px var(--tkf);color:#68765B">what you pay per SF, before waste</span></span>
+      <span style="display:flex;align-items:center;gap:3px"><span style="color:#8FA383;font:600 11px var(--tkf)">$</span>
+      <input value="${RET==null?"":(+RET).toFixed(2)}" placeholder="—" inputmode="decimal"
+        onchange="ptSetAsmRetail(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+        style="width:64px;box-sizing:border-box;text-align:right;font:700 12px ui-monospace,Menlo,monospace;
+        color:${RET==null?"#F2C14E":"#EAF0E4"};background:rgba(255,255,255,.06);
+        border:1px solid ${RET==null?"#F2C14E":"rgba(255,255,255,.14)"};border-radius:7px;padding:4px 6px"></span></div>`;
+  if(R.needsRetail) return head+`<div style="margin-top:7px;padding:9px 10px;border:1px solid #F2C14E;border-radius:11px;background:rgba(242,193,78,.10)">
+      <div style="font:700 11.5px var(--tkf);color:#F2C14E">${R.assemblyName} needs a material price</div>
+      <div style="font:600 10.5px var(--tkf);color:#C7D6BB;margin-top:3px;line-height:1.45">Until you set one, this trace keeps pricing off the flat book rate.</div>
+      ${retIn}</div>`;
+  const q=v=>(""+v).replace(/"/g,"&quot;");
+  const row=L=>`<div style="display:flex;gap:7px;align-items:center;padding:4px 0;${L.off?"opacity:.45":""}">
       <button onclick="ptAsmLineToggle(${e.idx},'${L.key.replace(/'/g,"\\'")}')" title="${L.off?"Put this back":"Take this out"}"
         style="flex:none;width:17px;height:17px;border-radius:5px;cursor:pointer;padding:0;
         border:1.5px solid ${L.off?"rgba(255,255,255,.25)":"#6FBF5C"};background:${L.off?"transparent":"#6FBF5C"};
         color:#0c2007;font:800 10px var(--tkf);line-height:1">${L.off?"":"✓"}</button>
       <span style="flex:1;min-width:0;font:600 11px var(--tkf);color:#C7D6BB;${L.off?"text-decoration:line-through":""}">${L.n}</span>
-      <span style="font:600 9.5px ui-monospace,Menlo,monospace;color:#68765B;white-space:nowrap">${L.hr?L.hr.toFixed(3)+" hr":""}</span>
+      <input value="${L.kind==="m"?(+L.matSF).toFixed(2):(+L.hr).toFixed(3)}" inputmode="decimal"
+        title="${L.kind==="m"?"$ per SF":"hours per SF"} — saved to the assembly library"
+        onchange="ptSetAsmLine('${R.assembly}','${L.kind}','${q(L.n)}',this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+        style="width:54px;flex:none;box-sizing:border-box;text-align:right;font:700 10.5px ui-monospace,Menlo,monospace;
+        color:#EAF0E4;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:3px 5px">
+      <span style="font:600 9px var(--tkf);color:#68765B;width:16px">${L.kind==="m"?"$":"hr"}</span>
       <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(L.costSF)}</b>
     </div>`;
   const sec=(t,arr)=>`<div style="font:800 8.5px var(--tkf);letter-spacing:.13em;text-transform:uppercase;color:#8FA383;margin:8px 0 2px">${t}</div>`+arr.map(row).join("");
@@ -32090,7 +32149,8 @@ function _ptAsmBlock(e){
       <span style="flex:1;font:700 11.5px var(--tkf);color:#EAF0E4">${R.assemblyName}</span>
       <span style="font:600 10px var(--tkf);color:#8FA383">${R.area.toLocaleString()} SF · ×${R.areaMult.toFixed(2)}</span></div>
     <div style="font:600 10px var(--tkf);color:#68765B;margin-top:2px">Labour ${R.trade} at ${money2(R.laborRate)}/hr · efficiency applies to hours only</div>
-    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;margin-top:4px;border-top:1px solid rgba(255,255,255,.09)">
+    ${retIn}
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,.09)">
       <span style="flex:1;font:600 11px var(--tkf);color:#C7D6BB">Material delivered<span style="display:block;font:600 9.5px var(--tkf);color:#68765B">retail + ${Math.round(R.supply.wastePct*100)}% waste + ${Math.round(R.supply.taxPct*100)}% tax + ${money2(R.supply.freight)} freight</span></span>
       <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(R.deliveredSF)}</b></div>
     ${sec("Assembly materials", R.lines.filter(L=>L.kind==="m"))}
