@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1034</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1035</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16892,7 +16892,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -30685,6 +30685,105 @@ const TK_MARK_EACH={
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 // ── Paving materials: each trace priced by its own material's installed $/SF from the price book ──
 // (only engages once a material is chosen; a paving trace with no material prices exactly as before)
+// ══ PROJECT MODIFIERS ════════════════════════════════════════════════════════
+// Assemblies describe WHAT is being built. Modifiers describe HOW DIFFICULT it is to build.
+// They are project-level conditions and never touch the price book.
+//
+// A modifier is deliberately NOT a percentage on the total. It declares which channels it affects
+// and by how much, so a crane requirement moves equipment and labour without inflating materials.
+//
+// Channels:
+//   labor            multiplier on labour hours
+//   matHandling      multiplier on delivered material cost (handling, double-handling, haul)
+//   equipment        $ per job or per unit of the driver quantity
+//   temporary        temporary works carried as their own cost, not hidden in a rate
+//   schedule         calendar impact — recorded now, costed later
+//   assembly         forces or discourages an assembly choice
+//
+// Every magnitude ships null. The channels a modifier touches are domain knowledge; the numbers
+// are Warwick's, and a modifier with no numbers is reported rather than silently doing nothing.
+const MOD_CHANNELS=["labor","matHandling","equipment","temporary","schedule","assembly"];
+const MOD_GROUPS=["Access & logistics","Site conditions","Earthwork","Constraints","Location"];
+const _m=(id,n,group,channels,detect,note)=>({id,n,group,channels,detect:detect||[],note:note||"",
+  labor:null, matHandling:null, equipmentJob:null, equipmentUnit:null, temporary:[], scheduleDays:null});
+let PROJECT_MODIFIERS=(function(){ try{ const s=localStorage.getItem("studioh_mods_v1");
+  if(s){ const j=JSON.parse(s); if(Array.isArray(j)&&j.length) return j; } }catch(e){} return null; })() || [
+  _m("access.difficult","Difficult site access","Access & logistics",["labor","matHandling"],
+     ["sideYardWidthFt","gateWidthFt","streetFrontage"],"Everything is carried in by hand or barrow."),
+  _m("access.crane","Crane required","Access & logistics",["equipment","labor","schedule"],
+     ["dropHeightFt","overheadObstruction"],"Set by crane rather than machine or by hand."),
+  _m("access.staging","Limited staging area","Access & logistics",["labor","matHandling","schedule"],
+     ["stagingAreaSF","streetStaging"],"Deliveries staged off site or in small loads."),
+  _m("access.haul","Long haul distance","Access & logistics",["matHandling","equipment"],
+     ["haulMiles"],"Distance to the dump or the supplier."),
+  _m("access.urban","Tight urban lot","Access & logistics",["labor","matHandling","schedule"],
+     ["lotSF","setbackFt"],"No room to work around the house."),
+  _m("site.slope","Steep slope","Site conditions",["labor","equipment"],
+     ["avgSlopePct"],"Hand work and machine limits on grade."),
+  _m("site.trees","Existing tree protection","Site conditions",["labor","temporary"],
+     ["protectedTrees"],"Fencing, hand digging inside driplines, arborist oversight."),
+  _m("site.utilities","Utility conflicts","Site conditions",["labor","schedule"],
+     ["knownUtilities"],"Potholing, relocation, working around live services."),
+  _m("site.occupied","Occupied residence","Site conditions",["labor","schedule"],
+     ["occupied"],"Daily clean, protection, restricted areas."),
+  _m("earth.shoring","Shoring required","Earthwork",["temporary","labor","equipment"],
+     ["cutDepthFt","adjacentStructure"],"Temporary support of excavation."),
+  _m("earth.export","Soil export","Earthwork",["equipment","matHandling"],
+     ["cutYards"],"Haul off and tipping."),
+  _m("earth.import","Soil import","Earthwork",["equipment","matHandling"],
+     ["fillYards"],"Purchase and haul in."),
+  _m("con.hoa","HOA / DRC restrictions","Constraints",["schedule","labor"],
+     ["hoa"],"Submittals, inspections, approved hours and materials."),
+  _m("con.hours","Restricted work hours","Constraints",["labor","schedule"],
+     ["workHours"],"Shorter productive day."),
+  _m("con.phased","Phased construction","Constraints",["labor","schedule","matHandling"],
+     ["phases"],"Remobilisation between phases."),
+  _m("loc.premium","Premium neighbourhood","Location",["labor"],
+     ["city"],"Higher prevailing rates and finish expectations."),
+  _m("loc.remote","Remote location","Location",["labor","matHandling","equipment"],
+     ["driveMinutes"],"Travel time and thin supplier coverage.")
+];
+function modsSave(){ try{ localStorage.setItem("studioh_mods_v1", JSON.stringify(PROJECT_MODIFIERS)); }catch(e){} }
+function modDef(id){ return PROJECT_MODIFIERS.find(m=>m.id===id)||null; }
+function modSet(id,field,v){ const m=modDef(id); if(!m) return; m[field]=(v===""||v==null)?null:+v; modsSave(); }
+// Which modifiers this project has turned on. Project state, never the book.
+function modSel(){ try{ if(!S._mods) S._mods={}; return S._mods; }catch(e){ return {}; } }
+function modToggle(id,on){ const sel=modSel(); if(on==null) on=!sel[id]; if(on) sel[id]={on:true}; else delete sel[id]; return sel; }
+function modIsOn(id){ return !!modSel()[id]; }
+// Fold the active modifiers into one bundle of typed effects, and say what came from where.
+function modResolve(sel){
+  sel=sel||modSel();
+  const out={labor:1, matHandling:1, equipmentJob:0, equipmentUnit:0, temporary:[], scheduleDays:0,
+             active:[], unpriced:[], channels:{}};
+  Object.keys(sel).forEach(id=>{
+    const m=modDef(id); if(!m||!sel[id]) return;
+    const has=(m.labor!=null)||(m.matHandling!=null)||(m.equipmentJob!=null)||
+              (m.equipmentUnit!=null)||(m.scheduleDays!=null)||((m.temporary||[]).length>0);
+    out.active.push({id:m.id, n:m.n, group:m.group, channels:m.channels, priced:has});
+    if(!has){ out.unpriced.push(m.n); return; }
+    if(m.labor!=null){ out.labor*=+m.labor; (out.channels.labor=out.channels.labor||[]).push({n:m.n,x:+m.labor}); }
+    if(m.matHandling!=null){ out.matHandling*=+m.matHandling; (out.channels.matHandling=out.channels.matHandling||[]).push({n:m.n,x:+m.matHandling}); }
+    if(m.equipmentJob!=null){ out.equipmentJob+=+m.equipmentJob; (out.channels.equipment=out.channels.equipment||[]).push({n:m.n,v:+m.equipmentJob,basis:"job"}); }
+    if(m.equipmentUnit!=null){ out.equipmentUnit+=+m.equipmentUnit; (out.channels.equipment=out.channels.equipment||[]).push({n:m.n,v:+m.equipmentUnit,basis:"unit"}); }
+    if(m.scheduleDays!=null){ out.scheduleDays+=+m.scheduleDays; }
+    (m.temporary||[]).forEach(t=>out.temporary.push(Object.assign({from:m.n},t)));
+  });
+  out.any=out.active.length>0;
+  return out;
+}
+// Recommendations come later. The signals each modifier reads are declared above so the advisor
+// can be built without touching this layer; no thresholds are invented here.
+function modRecommend(site){
+  site=site||{};
+  const suggested=[], why=[];
+  PROJECT_MODIFIERS.forEach(m=>{
+    const seen=(m.detect||[]).filter(k=>site[k]!=null&&site[k]!=="");
+    if(seen.length) why.push({id:m.id, n:m.n, signals:seen});
+  });
+  return {suggested, considered:why, scored:false,
+          note:"Signals are declared but not yet scored — thresholds are Warwick's to set."};
+}
+
 // ══ TRACKED VALUES ═══════════════════════════════════════════════════════════
 // Every cost component in the platform can be edited without losing where it came from.
 // A value is never overwritten in place: the database default stays, an override is recorded at a
@@ -30837,6 +30936,7 @@ function asmQty(A, measure, params){
 // Irrigation is LF of pipe plus EA of heads plus EA of valves plus one controller — no special case.
 function asmSystemCost(components, opts){
   opts=opts||{}; const rows=[]; let cost=0;
+  const MD=(opts.mods===false)?null:(opts.mods||modResolve());
   (components||[]).forEach(c=>{
     const q=asmQty(c.asm, c.measure, c.params);
     const r=asmCost(Object.assign({}, opts, c, {areaSF:q.qty}));
@@ -30845,7 +30945,17 @@ function asmSystemCost(components, opts){
     rows.push({asm:c.asm, label:c.label||(asmGet(c.asm)||{}).name, qty:q, result:r, ok:!!ok,
                extended:ok?_asm2(r.directCostSF*q.qty):null});
   });
-  return {rows, directCost:_asm2(cost), incomplete:rows.filter(r=>!r.ok).length};
+  // Once per job, not per square foot: crane mobilisation, shoring, tree fencing, haul.
+  const jobLines=[];
+  if(MD){
+    if(MD.equipmentJob) jobLines.push({n:"Equipment / mobilisation", v:_asm2(MD.equipmentJob), from:"project conditions"});
+    (MD.temporary||[]).forEach(t=>{ if(t.v!=null) jobLines.push({n:t.n, v:_asm2(+t.v), from:t.from}); });
+  }
+  const jobCost=jobLines.reduce((a,l)=>a+l.v,0);
+  return {rows, directCost:_asm2(cost+jobCost), assemblyCost:_asm2(cost),
+          jobLines, jobCost:_asm2(jobCost),
+          mods:MD?{active:MD.active, unpriced:MD.unpriced, scheduleDays:MD.scheduleDays}:null,
+          incomplete:rows.filter(r=>!r.ok).length};
 }
 function asmEffAssumed(unit){ return !QTY_EFF[unit||"SF"]; }
 function asmAreaMult(qty, unit){ const c=QTY_EFF[unit||"SF"]||AREA_EFF; const a=Math.max(0,+qty||0);
@@ -31257,6 +31367,10 @@ function asmCost(o){
   const prov=(A.items||[]).map(x=>({n:x.n,
       v:asmItemInfo(A,x,"v"), hr:asmItemInfo(A,x,"hr")}));
 
+  // Project conditions: how hard this job is, applied to the channels each condition actually
+  // touches. Never a blanket percentage on the total.
+  const MD=(o.mods===false)?null:(o.mods||((typeof modResolve==="function")?modResolve():null));
+  const mLab=(MD&&MD.labor)||1, mMat=(MD&&MD.matHandling)||1;
   // Assemblies that supply their own material (concrete, DG) carry no separate purchase price.
   let sup=null, delivered=0;
   if(asmNeedsMaterial(A)){
@@ -31264,7 +31378,7 @@ function asmCost(o){
     if(retail==null) return {needsRetail:true, assembly:A.id, assemblyName:A.name, material:(mat&&mat.n)||o.material||""};
     const dflt=(A.waste!=null)?{waste:A.waste}:{};
     sup=asmDelivered(Object.assign({}, dflt, (mat&&mat.supply)||{}, o.supply||{}, {retail:retail}));
-    delivered=sup.delivered;
+    delivered=sup.delivered*mMat;
   }
 
   const st=o.lines||{};
@@ -31274,7 +31388,7 @@ function asmCost(o){
   const T=asmTier(tierId), rate=asmTierRate(tierId), prod=+T.prod||1;
   // Pattern complexity applies to laying, cutting and fitting only — never to excavation,
   // base preparation or concrete.
-  const HR=(hr,isPat,pr)=>hr*mult*pr*(isPat?patCx:1);
+  const HR=(hr,isPat,pr)=>hr*mult*pr*(isPat?patCx:1)*mLab;
 
   let matIn=0, hrIn=0, offMat=0, offHr=0, offHrPat=0, defMat=0, defHr=0, defHrPat=0;
   const lines=[];
@@ -31296,6 +31410,8 @@ function asmCost(o){
              pattern:pat, patternName:asmPattern(pat).n, patternCx:patCx,
              tier:tierId, productivity:prod, laborRate:rate, trade:ASM_LABOR_TRADE,
              effAssumed:asmEffAssumed(A.unit),
+             mods:MD?{labor:mLab, matHandling:mMat, active:MD.active, unpriced:MD.unpriced,
+                      channels:MD.channels, equipmentUnit:MD.equipmentUnit||0}:null,
              baseHours:_asmR(hrIn,6), adjHours:adjHr, needsMaterial:asmNeedsMaterial(A),
              supply:sup, deliveredSF:_asm2(delivered), nonMatSF:_asm2(matIn), lines, prov,
              omitted:{matSF:_asm2(offMat), hours:offHr+offHrPat,
@@ -31308,8 +31424,10 @@ function asmCost(o){
   CONTRACTOR_TIERS.forEach(t=>{
     const r=asmTierRate(t.id), pr=+t.prod||1, h=hoursAt(pr);
     const laborSF=_asm2(h*r);
-    const instSF=_asm2(delivered+matIn+laborSF);
-    out.tiers[t.id]={label:t.label, laborRate:r, prod:pr, hours:h, laborSF, installedSF:instSF, total:_asm2(instSF*area)};
+    const eqSF=_asm2((MD&&MD.equipmentUnit)||0);
+    const instSF=_asm2(delivered+matIn+laborSF+eqSF);
+    out.tiers[t.id]={label:t.label, laborRate:r, prod:pr, hours:h, laborSF, equipmentSF:eqSF,
+                     installedSF:instSF, total:_asm2(instSF*area)};
   });
   out.installedSF=out.tiers[tierId].installedSF;
   out.directCostSF=out.installedSF;      // DIRECT CONSTRUCTION COST — no O&P, no margin, no markup

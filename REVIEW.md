@@ -9,6 +9,39 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Project Modifiers — how hard, kept separate from what
+**v1035 · 2026-08-20 · estimating engine**
+
+17 conditions from Warwick's list, grouped as Access & logistics / Site conditions / Earthwork /
+Constraints / Location. Project state only — a modifier never touches the price book.
+
+**Not percentages on the total.** Each modifier declares which channels it affects and the engine
+applies them where they belong:
+
+| Channel | Where it lands |
+|---|---|
+| `labor` | multiplier on labour hours |
+| `matHandling` | multiplier on delivered material |
+| `equipmentUnit` | $ per unit of driver quantity, inside the rate |
+| `equipmentJob` | $ once per job, as its own named line |
+| `temporary` | temporary works as their own cost, never hidden in a rate |
+| `schedule` | days, recorded not costed |
+
+So steep slope moves labour and leaves materials alone; difficult access moves handling and leaves
+laying alone; a crane is carried once for the job, not per square foot.
+
+**Every magnitude ships null — they are your numbers.** A modifier that is switched on but has no
+values is reported in `unpriced[]` rather than silently doing nothing.
+
+**Needed from you:** the magnitudes. For each of the 17, what it does to labour, material handling,
+equipment (per job or per unit), any temporary works, and schedule days.
+
+**Not built:** the advisor. `modRecommend()` declares the signals each modifier reads
+(`avgSlopePct`, `sideYardWidthFt`, `haulMiles`, `cutDepthFt`…) so scoring can be added without
+touching this layer, but no thresholds are invented — it returns `scored:false`.
+
+---
+
 ### 0 · Tracked values — editable costs with provenance, scope and history
 **v1034 · 2026-08-20 · estimating engine**
 
