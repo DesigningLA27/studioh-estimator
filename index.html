@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1023</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1024</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24367,6 +24367,110 @@ function renderPriceBook(){
     _mount.appendChild(card);
   };
 
+  // ── INSTALLATION ASSEMBLIES: the only place assembly numbers are authored ──
+  // The trace reads these. Nothing on a trace writes a price.
+  const _renderAsm3=(_mount)=>{
+    const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const att=v=>esc(v).replace(/"/g,"&quot;");
+    const ids=Object.keys(ASM_LIB);
+    const rows=ids.map(id=>({t:"a",id})).concat(ASM_MATS.map(m=>({t:"m",id:m.n})));
+    let sel=Math.max(0,Math.min(pb3Sel("__asm"), rows.length-1));
+    const R=rows[sel];
+
+    let list="", run=null;
+    rows.forEach((r,i)=>{
+      const grp=(r.t==="a")?"Assemblies":"Materials";
+      if(grp!==run){ run=grp; list+='<div class="pb3-sec">'+grp+'</div>'; }
+      if(r.t==="a"){ const A=ASM_LIB[r.id];
+        list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__asm\','+i+')">'
+          +'<span class="cv"></span><span class="nm">'+esc(A.name)+'</span>'
+          +'<span class="u">'+esc(A.unit)+'</span>'
+          +'<span class="v">'+asmHrTotal(A).toFixed(3)+' hr</span></button>';
+      } else { const M=asmMat(r.id); const rt=M&&M.supply?M.supply.retail:null;
+        const n=(M&&M.asm||[]).length;
+        list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__asm\','+i+')">'
+          +'<span class="cv"></span><span class="nm">'+esc(r.id)+'</span>'
+          +'<span class="u">'+(n?n+"×":"—")+'</span>'
+          +'<span class="v">'+(rt==null?"set price":"$"+(+rt).toFixed(2))+'</span></button>';
+      }
+    });
+
+    let ins="";
+    if(R&&R.t==="a"){
+      const A=ASM_LIB[R.id];
+      ins+='<div class="pb3-nm" style="cursor:default">'+esc(A.name)+'</div>'
+        +'<div class="t">'+esc(A.spec.slice(0,2).join(" · "))+'</div>';
+      ins+='<h4>Materials · $ per '+esc(A.unit)+'</h4>';
+      (A.mats||[]).forEach(m=>{
+        ins+='<div class="pb3-f"><span class="k">'+esc(m.n)+'</span>'
+          +'<span style="display:flex;align-items:center;gap:3px"><span style="color:var(--tl);font-size:12px">$</span>'
+          +'<input type="number" class="no-spin" value="'+(+m.v||0).toFixed(2)+'" step="0.05" '
+          +'onchange="asmSetLine(\''+att(A.id)+'\',\'m\',\''+att(m.n)+'\',this.value);renderPriceBook()"></span></div>';
+      });
+      ins+='<div class="pb3-bu tot"><span>Total materials</span><b>'+money(asmMatTotal(A))+' / '+esc(A.unit)+'</b></div>';
+      ins+='<h4>Labour · hours per '+esc(A.unit)+'</h4>';
+      (A.labor||[]).forEach(l=>{
+        ins+='<div class="pb3-f"><span class="k">'+esc(l.n)+'</span>'
+          +'<span style="display:flex;align-items:center;gap:3px">'
+          +'<input type="number" class="no-spin" value="'+(+l.hr||0).toFixed(3)+'" step="0.001" '
+          +'onchange="asmSetLine(\''+att(A.id)+'\',\'l\',\'' +att(l.n)+'\',this.value);renderPriceBook()">'
+          +'<span style="color:var(--tl);font-size:11px">hr</span></span></div>';
+      });
+      const bh=asmHrTotal(A);
+      ins+='<div class="pb3-bu tot"><span>Total hours</span><b>'+bh.toFixed(3)+' hr / '+esc(A.unit)+'</b></div>';
+      ins+='<h4>Labour rate</h4>';
+      ins+='<div style="font-size:11.5px;color:var(--tl);line-height:1.45">Hours are costed at the '
+        +'<b>'+esc(ASM_LABOR_TRADE)+'</b> rate. '
+        +'<button class="pb3-link" onclick="pbGotoRate(\''+att(ASM_LABOR_TRADE)+'\')">Change that rate</button></div>';
+      ["value","standard","premium"].forEach(t=>{
+        const r=asmTierRate(t);
+        ins+='<div class="pb3-f"><span class="k">'+asmTier(t).label+' · $'+r+'/hr</span>'
+          +'<span>'+money(bh*r)+' / '+esc(A.unit)+'</span></div>';
+      });
+      ins+='<h4>Used by</h4>';
+      const uses=ASM_MATS.filter(m=>(m.asm||[]).indexOf(A.id)>=0).map(m=>m.n);
+      ins+=uses.length
+        ? '<div class="pb3-used">'+uses.map(n=>'<span>'+esc(n)+'</span>').join('')+'</div>'
+        : '<div style="font-size:11.5px;color:var(--tl)">No material declares this assembly yet.</div>';
+    } else if(R){
+      const M=asmMat(R.id);
+      ins+='<div class="pb3-nm" style="cursor:default">'+esc(R.id)+'</div>'
+        +'<div class="t">'+((M.asm||[]).length?"Built with an assembly":"Priced from the flat book band")+'</div>';
+      ins+='<h4>Material price</h4>';
+      const sup=M.supply||{};
+      const F=(lbl,key,step,unit,dflt)=>'<div class="pb3-f"><span class="k">'+lbl+'</span>'
+        +'<span style="display:flex;align-items:center;gap:3px">'+(unit==="$"?'<span style="color:var(--tl);font-size:12px">$</span>':'')
+        +'<input type="number" class="no-spin" value="'+(sup[key]!=null?sup[key]:dflt)+'" step="'+step+'" '
+        +'onchange="asmSetSupply(\''+att(R.id)+'\',\''+key+'\',this.value);renderPriceBook()">'
+        +(unit&&unit!=="$"?'<span style="color:var(--tl);font-size:11px">'+unit+'</span>':'')+'</span></div>';
+      ins+='<div class="pb3-f'+(sup.retail==null?'':' on')+'"><span class="k">Retail / '+esc(ASM_LIB[(M.asm||[])[0]]?ASM_LIB[(M.asm||[])[0]].unit:"SF")+'</span>'
+        +'<span style="display:flex;align-items:center;gap:3px"><span style="color:var(--tl);font-size:12px">$</span>'
+        +'<input type="number" class="no-spin" placeholder="not set" value="'+(sup.retail==null?"":sup.retail)+'" step="0.5" '
+        +'onchange="asmSetRetail(\''+att(R.id)+'\',this.value);renderPriceBook()"></span></div>';
+      ins+=F("Waste","waste",0.01,"×",0.10)+F("Sales tax","tax",0.01,"×",0.10)+F("Freight / delivery","freight",0.25,"$",2.50);
+      const d=(sup.retail==null)?null:asmDelivered(sup);
+      ins+='<div class="pb3-bu tot"><span>Delivered</span><b>'+(d?money(d.delivered):"—")+'</b></div>';
+      if(sup.retail==null) ins+='<div style="font-size:11.5px;color:var(--gold,#8A6D1F);line-height:1.45">No price set, so any assembly on this material stays on the flat book band.</div>';
+      ins+='<h4>Labour complexity</h4>';
+      ins+='<div class="pb3-f"><span class="k">Multiplier on hours</span>'
+        +'<span><input type="number" class="no-spin" value="'+(M.cx!=null?M.cx:1)+'" step="0.05" '
+        +'onchange="asmSetCx(\''+att(R.id)+'\',this.value);renderPriceBook()"></span></div>';
+      ins+='<div style="font-size:11.5px;color:var(--tl);line-height:1.45">1.00 = the assembly\'s base hours. Raise it for a harder pattern or an irregular material.</div>';
+      ins+='<h4>Assemblies it supports</h4>';
+      asmFor("paving").forEach(A=>{
+        const on=(M.asm||[]).indexOf(A.id)>=0;
+        ins+='<div class="pb3-f'+(on?' on':'')+'"><span class="k">'+esc(A.short)+'</span>'
+          +'<button class="pb3-link" onclick="asmToggleMatAsm(\''+att(R.id)+'\',\''+att(A.id)+'\');renderPriceBook()">'+(on?"Supported":"Off")+'</button></div>';
+      });
+    }
+
+    const card=document.createElement("div");
+    card.className="pbx-card pb3";
+    const head='<div class="pb3-lh"><span class="cr">Feeds every section <i>›</i> <b>Installation assemblies</b></span></div>';
+    card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__asm">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+    _mount.appendChild(card);
+  };
+
   // ── ASSUMPTIONS: the rules, in the same shape as a section ─────────────────
   const _renderAssume3=(_mount)=>{
     const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -24463,7 +24567,7 @@ function renderPriceBook(){
   _groups.forEach(({g,idxs})=>{ idxs.forEach(ci=>_flat.push({g, ci, id:PB[ci].id})); });
   if(!_flat.length){ return; }
   let _sel=pbSel();
-  if(_sel!=="__rates" && _sel!=="__assume" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
+  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
   let _th="";
   _groups.forEach(({g,idxs})=>{
     if(!idxs.length) return;
@@ -24484,14 +24588,18 @@ function renderPriceBook(){
     <button class="pbz-t feed${_sel==="__rates"?" on":""}" onclick="pbSelSet('__rates')">
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Labor &amp; markup</span></button>
     <button class="pbz-t feed${_sel==="__assume"?" on":""}" onclick="pbSelSet('__assume')">
-      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Assumptions</span><span class="n">${ASSUME_DEFS.length}</span></button>`;
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Assumptions</span><span class="n">${ASSUME_DEFS.length}</span></button>
+    <button class="pbz-t feed${_sel==="__asm"?" on":""}" onclick="pbSelSet('__asm')">
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Installation assemblies</span><span class="n">${Object.keys(ASM_LIB).length}</span></button>`;
   _tree.innerHTML=_th;
   // a long list scrolls, so keep the current section where it can be seen
   const _on=_tree.querySelector(".pbz-t.on");
   if(_on) requestAnimationFrame(()=>{ const tr=_tree.getBoundingClientRect(), br=_on.getBoundingClientRect();
     if(br.top<tr.top+8 || br.bottom>tr.bottom-8) _tree.scrollTop += (br.top-tr.top) - tr.height/2 + br.height/2; });
   // the right pane: the settings cards, or one section
-  if(_sel==="__assume"){
+  if(_sel==="__asm"){
+    _renderAsm3(_main);
+  } else if(_sel==="__assume"){
     _renderAssume3(_main);
   } else if(_sel==="__rates"){
     _renderRates3(_main);
@@ -30691,6 +30799,13 @@ function asmSetLine(asmId,kind,name,val){ const A=ASM_LIB[asmId]; if(!A) return;
   const arr=(kind==="m")?A.mats:A.labor; const L=arr&&arr.find(x=>x.n===name); if(!L) return;
   if(kind==="m") L.v=Math.max(0,+val||0); else L.hr=Math.max(0,+val||0);
   asmSave(); }
+function asmSetSupply(matName,key,val){ const m=asmMat(matName); if(!m) return;
+  m.supply=m.supply||{}; m.supply[key]=Math.max(0,+val||0); asmSave(); }
+function asmSetCx(matName,val){ const m=asmMat(matName); if(!m) return;
+  m.cx=Math.max(0.1,+val||1); asmSave(); }
+function asmToggleMatAsm(matName,asmId){ const m=asmMat(matName); if(!m) return;
+  m.asm=m.asm||[]; const i=m.asm.indexOf(asmId);
+  if(i>=0) m.asm.splice(i,1); else m.asm.push(asmId); asmSave(); }
 function asmSetRetail(matName,val){ const m=asmMat(matName); if(!m) return;
   m.supply=m.supply||{}; m.supply.retail=(val===""||val==null)?null:Math.max(0,+val||0); asmSave(); }
 
@@ -30784,8 +30899,7 @@ function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const ti
 // Price for one paving trace, most specific first:
 //   1. a rate you typed for this trace   2. its installation assembly   3. the flat book band
 function _pavAsmCost(p){ if(!p||!p.asm||!ASM_LIB[p.asm]) return null;
-  try{ return asmCost({asm:p.asm, material:p.type, supply:p.asmSupply, off:p.asmOff,
-                       complexity:p.asmCx, areaSF:_ptTraceNet(p)}); }catch(e){ return null; } }
+  try{ return asmCost({asm:p.asm, material:p.type, off:p.asmOff, areaSF:_ptTraceNet(p)}); }catch(e){ return null; } }
 function _pavAsmRate(p){ const r=_pavAsmCost(p); return (r&&!r.needsRetail)?r.installedSF:null; }
 function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate;
   const a=_pavAsmRate(p); if(a!=null&&a>0) return a;
@@ -30796,12 +30910,13 @@ function ptAsmOptions(matName){ const m=asmMat(matName);
   if(m) return (m.asm||[]).map(k=>ASM_LIB[k]).filter(Boolean);   // [] = poured/loose, no assembly
   return matName?[]:asmFor("paving");                            // unknown material: pick one first
 }
-function ptSetAsmRetail(idx,v){ const p=PT.polys[idx]; if(!p) return;
-  p.asmSupply=p.asmSupply||{}; p.asmSupply.retail=(v===""?null:Math.max(0,+v||0));
-  if(p.type) asmSetRetail(p.type, v);            // remember it for that material, book-wide
-  try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
-function ptSetAsmLine(asmId,kind,name,v){ asmSetLine(asmId,kind,name,v);
-  try{ ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
+// Jump from a trace to where its numbers actually live.
+function pbOpenAsm(matName){
+  try{ const ids=Object.keys(ASM_LIB); const i=ASM_MATS.findIndex(m=>m.n===matName);
+       PB3SEL["__asm"]=(i>=0)?(ids.length+i):0; }catch(e){}
+  try{ pbSelSet("__asm"); }catch(e){}
+  try{ ptClose(); }catch(e){}
+  try{ document.querySelector('.tab[data-view="pricebook"]').click(); }catch(e){} }
 function ptSetPolyAsm(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
   if(!v){ delete p.asm; } else { p.asm=v; }
   try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
@@ -32112,21 +32227,16 @@ function _ptAsmBlock(e){
   if(!cur||!open) return head;
   const R=_pavAsmCost(p); if(!R) return head;
   const money2=v=>"$"+(+v||0).toFixed(2);
-  const RET=(()=>{ const m=asmMat(p.type); const v=(p.asmSupply&&p.asmSupply.retail!=null)?p.asmSupply.retail
-      :((m&&m.supply&&m.supply.retail!=null)?m.supply.retail:null); return v; })();
+  const RET=(()=>{ const m=asmMat(p.type); return (m&&m.supply&&m.supply.retail!=null)?m.supply.retail:null; })();
   const retIn=`<div style="display:flex;gap:8px;align-items:center;padding:7px 0">
       <span style="flex:1;font:600 11px var(--tkf);color:#C7D6BB">Material price
-        <span style="display:block;font:600 9.5px var(--tkf);color:#68765B">what you pay per SF, before waste</span></span>
-      <span style="display:flex;align-items:center;gap:3px"><span style="color:#8FA383;font:600 11px var(--tkf)">$</span>
-      <input value="${RET==null?"":(+RET).toFixed(2)}" placeholder="—" inputmode="decimal"
-        onchange="ptSetAsmRetail(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
-        style="width:64px;box-sizing:border-box;text-align:right;font:700 12px ui-monospace,Menlo,monospace;
-        color:${RET==null?"#F2C14E":"#EAF0E4"};background:rgba(255,255,255,.06);
-        border:1px solid ${RET==null?"#F2C14E":"rgba(255,255,255,.14)"};border-radius:7px;padding:4px 6px"></span></div>`;
+        <span style="display:block;font:600 9.5px var(--tkf);color:#68765B">from the price book</span></span>
+      <b style="font:700 12px ui-monospace,Menlo,monospace;color:${RET==null?"#F2C14E":"#EAF0E4"}">${RET==null?"not set":money2(RET)}</b></div>`;
+  const bookLink=`<button onclick="pbOpenAsm('${q(p.type||"")}')" style="margin-top:7px;border:0;background:none;padding:0;cursor:pointer;font:700 10.5px var(--tkf);color:#7CE05E">Edit in Price Book →</button>`;
   if(R.needsRetail) return head+`<div style="margin-top:7px;padding:9px 10px;border:1px solid #F2C14E;border-radius:11px;background:rgba(242,193,78,.10)">
       <div style="font:700 11.5px var(--tkf);color:#F2C14E">${R.assemblyName} needs a material price</div>
-      <div style="font:600 10.5px var(--tkf);color:#C7D6BB;margin-top:3px;line-height:1.45">Until you set one, this trace keeps pricing off the flat book rate.</div>
-      ${retIn}</div>`;
+      <div style="font:600 10.5px var(--tkf);color:#C7D6BB;margin-top:3px;line-height:1.45">Set it in the price book. Until then this trace prices off the flat book rate.</div>
+      ${bookLink}</div>`;
   const q=v=>(""+v).replace(/"/g,"&quot;");
   const row=L=>`<div style="display:flex;gap:7px;align-items:center;padding:4px 0;${L.off?"opacity:.45":""}">
       <button onclick="ptAsmLineToggle(${e.idx},'${L.key.replace(/'/g,"\\'")}')" title="${L.off?"Put this back":"Take this out"}"
@@ -32134,12 +32244,7 @@ function _ptAsmBlock(e){
         border:1.5px solid ${L.off?"rgba(255,255,255,.25)":"#6FBF5C"};background:${L.off?"transparent":"#6FBF5C"};
         color:#0c2007;font:800 10px var(--tkf);line-height:1">${L.off?"":"✓"}</button>
       <span style="flex:1;min-width:0;font:600 11px var(--tkf);color:#C7D6BB;${L.off?"text-decoration:line-through":""}">${L.n}</span>
-      <input value="${L.kind==="m"?(+L.matSF).toFixed(2):(+L.hr).toFixed(3)}" inputmode="decimal"
-        title="${L.kind==="m"?"$ per SF":"hours per SF"} — saved to the assembly library"
-        onchange="ptSetAsmLine('${R.assembly}','${L.kind}','${q(L.n)}',this.value)" onkeydown="if(event.key==='Enter')this.blur()"
-        style="width:54px;flex:none;box-sizing:border-box;text-align:right;font:700 10.5px ui-monospace,Menlo,monospace;
-        color:#EAF0E4;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:3px 5px">
-      <span style="font:600 9px var(--tkf);color:#68765B;width:16px">${L.kind==="m"?"$":"hr"}</span>
+      <span style="width:58px;flex:none;text-align:right;font:600 10px ui-monospace,Menlo,monospace;color:#68765B">${L.kind==="m"?money2(L.matSF):(+L.hr).toFixed(3)+" hr"}</span>
       <b style="font:700 11px ui-monospace,Menlo,monospace;color:#EAF0E4;width:52px;text-align:right">${money2(L.costSF)}</b>
     </div>`;
   const sec=(t,arr)=>`<div style="font:800 8.5px var(--tkf);letter-spacing:.13em;text-transform:uppercase;color:#8FA383;margin:8px 0 2px">${t}</div>`+arr.map(row).join("");
@@ -32160,6 +32265,8 @@ function _ptAsmBlock(e){
       <b style="font:800 13px ui-monospace,Menlo,monospace;color:#8FE07A">${money2(R.installedSF)} / SF</b></div>
     ${om.n?`<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(242,193,78,.12);font:700 10.5px var(--tkf);color:#F2C14E">
         ${om.n} line${om.n===1?"":"s"} taken out — saves ${money2(om.savingSF)}/SF, ${fmtN(Math.round(om.savingSF*R.area))} on this trace</div>`:""}
+    <div style="font:600 9.5px var(--tkf);color:#68765B;margin-top:8px;line-height:1.45">Every number here is read from the price book. Ticking a line changes what is in this project's scope, not the price of it.</div>
+    ${bookLink}
   </div>`;
 }
 // Appearance from the take-off popup. That popup is per layer, so these drive every trace in it —
