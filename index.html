@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1038</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1039</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24246,6 +24246,7 @@ function renderPriceBook(){
         ins+='<div class="pb3-bu"><span>Plant / install split</span><b>'+money(shown*it.matf)+' · '+money(shown*(1-it.matf))+'</b></div>';
       }
 
+      ins+=_pbAsmBlock(it, ci, sel);
       ins+='<div class="pb3-acts">';
       if(MODE==="contractor"){
         const isItem=(it.cmode==="itemized")&&(it.comp||[]).length>0;
@@ -24365,6 +24366,60 @@ function renderPriceBook(){
       +'<span class="pbx-seg tiny">'+TIERS.map(([t,lbl])=>'<button class="'+(t===GSET.laborTier?'on':'')+'" onclick="setLaborTier(\''+t+'\')">'+lbl+'</button>').join('')+'</span></div>';
     card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__rates">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
     _mount.appendChild(card);
+  };
+
+  // ── Assembly details + cost breakdown, on the line item itself ─────────────
+  // Click a price book line and see how it is actually built, not just what it costs.
+  const _pbAsmBlock=(it, ci, sel)=>{
+    const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const att=v=>esc(v).replace(/"/g,"&quot;");
+    const M=(typeof asmMat==="function")?asmMat(it.n):null;
+    const opts=(M&&(M.asm||[]).map(id=>ASM_LIB[id]).filter(Boolean))||[];
+    if(!opts.length) return "";
+    const pick=(it.asm&&ASM_LIB[it.asm])?it.asm:opts[0].id;
+    const qty=(+it.asmQty>0)?+it.asmQty:500;
+    const R=(function(){ try{ return asmCost({asm:pick, material:it.n, areaSF:qty, mods:false}); }catch(e){ return null; } })();
+    let h='<h4>Assembly details</h4>';
+    h+='<div class="pb3-bu"><span>Built as</span><select onchange="pbSetItemAsm('+ci+','+sel+',this.value)">'
+      +opts.map(a=>'<option value="'+att(a.id)+'"'+(pick===a.id?' selected':'')+'>'+esc(a.name)+'</option>').join('')
+      +'</select></div>';
+    const A=ASM_LIB[pick];
+    if(A&&A.attrs){ const T=[["setting","Set"],["jointType","Joints"],["baseType","Base"],
+        ["slab","Slab"],["reinforcement","Rebar"],["permeable","Permeable"],["structural","Behaviour"]];
+      const bits=T.map(([k,l])=>{ const v=A.attrs[k]; if(v==null) return "";
+        return '<span class="pb3-chip" style="margin:0 4px 4px 0">'+l+': '+esc(String(v))+'</span>'; }).join('');
+      if(bits) h+='<div style="padding:2px 0 6px">'+bits+'</div>'; }
+    h+='<div class="pb3-bu"><span>Priced at</span><span style="display:flex;align-items:center;gap:4px">'
+      +'<input type="number" class="no-spin" value="'+qty+'" step="50" onchange="pbSetItemAsmQty('+ci+','+sel+',this.value)">'
+      +'<span style="color:var(--tl);font-size:11px">'+esc(A?A.unit:"SF")+'</span></span></div>';
+    h+='<h4>Cost breakdown</h4>';
+    if(!R) return h+'<div style="font-size:11.5px;color:var(--tl)">Could not price this assembly.</div>';
+    if(R.needsNumbers) return h+'<div style="font-size:11.5px;color:var(--gold,#8A6D1F);line-height:1.45">'
+      +esc(R.assemblyName)+' has no costs yet. Fill it in under <b>Installation assemblies</b>.</div>';
+    if(R.needsRetail) return h+'<div style="font-size:11.5px;color:var(--gold,#8A6D1F);line-height:1.45">'
+      +'Set a material price for '+esc(it.n)+' under <b>Installation assemblies → Materials</b> and the build-up appears here.</div>';
+    const m2=v=>'$'+(+v||0).toFixed(2);
+    const rowsHtml=(R.lines||[]).map(L=>{
+      const dim=(L.state!=="on");
+      return '<div class="pb3-f'+(dim?'':' on')+'" style="'+(dim?'opacity:.5;':'')+'">'
+        +'<span class="k">'+esc(L.n)+(L.opt?'<span style="color:var(--tl)"> · option</span>':'')
+        +(L.pat?'<span style="color:var(--mg-acc)"> · pattern</span>':'')+'</span>'
+        +'<span style="font-variant-numeric:tabular-nums">'
+        +(L.matSF>0?m2(L.matSF):'')+(L.matSF>0&&L.hr>0?' + ':'')
+        +(L.hr>0?(+L.hr).toFixed(3)+' hr':'')
+        +' &nbsp;<b>'+m2(L.costSF)+'</b></span></div>'; }).join('');
+    if(R.needsMaterial) h+='<div class="pb3-f on"><span class="k">Material delivered'
+      +'<span style="display:block;color:var(--tl);font-size:11px">retail '+m2(R.supply.retail)
+      +' + '+Math.round(R.supply.wastePct*100)+'% waste + '+Math.round(R.supply.taxPct*100)+'% tax + '+m2(R.supply.freight)+' freight</span></span>'
+      +'<b>'+m2(R.deliveredSF)+'</b></div>';
+    h+=rowsHtml;
+    h+='<div class="pb3-bu tot"><span>Direct cost</span><b>'+m2(R.installedSF)+' / '+esc(R.unit)+'</b></div>';
+    h+='<div style="font-size:11px;color:var(--tl);line-height:1.5;padding:2px 0 4px">'
+      +R.baseHours.toFixed(3)+' hr × '+R.patternCx.toFixed(2)+' pattern × '+R.areaMult.toFixed(2)+' size × '
+      +R.productivity.toFixed(2)+' crew × '+m2(R.laborRate)+'/hr &nbsp;·&nbsp; before O&amp;P</div>';
+    h+='<div class="pb3-bu"><span>Book price at Standard</span><b>'+money(tierUC(it,(SEC_TIERS[PB[ci].id]||["Low","Standard","High"]),1))+' / '+esc(R.unit)+'</b></div>';
+    h+='<button class="pb3-link" onclick="pbSelSet(\'__asm\')">Edit this assembly →</button>';
+    return h;
   };
 
   // ── INSTALLATION ASSEMBLIES: the only place assembly numbers are authored ──
@@ -24673,6 +24728,8 @@ function pbSetMode(mode){ GSET.pbMode=(mode==="contractor")?"contractor":"concep
 function pbSetCprice(ci,idx,val){ const it=PB[ci].items[idx]; it.cprice=(val===""||val==null)?null:(+val||0); pbSave(); }
 function pbStepCprice(ci,idx,d){ const it=PB[ci].items[idx]; it.cprice=Math.max(0,(contractorPrice(it))+d); pbSave(); renderPriceBook(); }
 function pbToggleItemized(ci,idx){ const it=PB[ci].items[idx]; if(it.cmode==="itemized"){ it.cmode="single"; } else { it.cmode="itemized"; if(!it.comp||!it.comp.length){ it.comp=[{n:"Material",qty:1,u:it.u,uc:0},{n:"Labor",qty:1,u:"HR",uc:GSET.laborRate||95}]; } } pbSave(); renderPriceBook(); }
+function pbSetItemAsm(ci,idx,v){ const it=PB[ci].items[idx]; if(!it) return; it.asm=v||undefined; pbSave(); renderPriceBook(); }
+function pbSetItemAsmQty(ci,idx,v){ const it=PB[ci].items[idx]; if(!it) return; it.asmQty=Math.max(1,+v||500); pbSave(); renderPriceBook(); }
 function pbAddComp(ci,idx){ const it=PB[ci].items[idx]; (it.comp=it.comp||[]).push({n:"",qty:1,u:it.u,uc:0}); it.cmode="itemized"; pbSave(); renderPriceBook(); }
 function pbEditComp(ci,idx,k,key,val){ const it=PB[ci].items[idx]; if(!it.comp||!it.comp[k])return; it.comp[k][key]=(key==="n"||key==="u")?val:(+val||0); pbSave(); if(key==="n"||key==="u")return; renderPriceBook(); }
 function pbStepComp(ci,idx,k,key,d){ const it=PB[ci].items[idx]; if(!it.comp||!it.comp[k])return; it.comp[k][key]=Math.max(0,(+it.comp[k][key]||0)+d); pbSave(); renderPriceBook(); }
