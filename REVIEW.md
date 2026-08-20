@@ -9,6 +9,46 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Assembly architecture is now the standard shape — catalogue and tier profiles are yours to fill
+**v1021 · 2026-08-19 · estimating engine**
+
+Locked in, per your call:
+
+    Material  →  Installation Assembly  →  Assembly Selection Engine  →  Cost Engine
+
+Assemblies are reusable and each material declares which it supports, so one material at two
+install methods is one material, not two. Labour is always hours x rate, never dollars per unit.
+Contractor tiers are quality tiers, not points in a lo-hi band.
+
+**Shipped and verified** (39 assertions against your worked examples, all green):
+Option A mortar-set $10.10 non-stone / 0.168 hr/SF; Option B sand-set $5.05 / 0.133 hr/SF;
+delivered stone $32.75; the eight-step area-efficiency curve; Value/Standard/Premium at
+$55/$85/$120 per hour; and the rule that the area multiplier touches labour hours ONLY.
+Option A @ 500 SF standard = $57.13/SF = $28,565. Option B = $49.11/SF = $24,555.
+
+**What I did not fill in, because they are your numbers:**
+
+1. **Complexity factor (`cx`)** — you named pattern and material complexity as a variable but gave
+   no values. Every material ships at `cx: 1.00`, multiplying labour hours only. Herringbone vs
+   running bond, calibrated vs irregular, small format vs large — set these and they take effect
+   with no code change.
+2. **Tier profiles beyond the rate** — `CONTRACTOR_TIERS` carries `prod`, `waste`, `oh`, `profit`
+   fields, all sitting neutral (1, 1, 0, 0). A Premium contractor costing more per hour but working
+   faster needs `prod` set. Until then a Premium tier is purely more expensive, which is not what
+   you described.
+3. **The material catalogue** — seeded with exactly the two you named (3/4" Calibrated Limestone,
+   mortar-set only; 2" Bluestone, both). The existing nine `PAV_MATS` are NOT yet mapped to
+   assemblies and still price off their old lo-hi bands. Nothing regressed; nothing migrated either.
+4. **Assembly Selection Engine scores thickness only.** Your other twelve factors — manufacturer
+   requirements, structural conditions, vehicular use, slope, drainage, soil movement, tree roots,
+   utility access, design intent — are listed as `ASM_FACTORS_PENDING` and shown to the user as not
+   yet considered, rather than being silently ignored so the pick looks smarter than it is.
+
+**Not yet wired to anything.** The engine is additive — no existing price reads it. Take-off,
+the paving detail card and the Price Book UI still use the old path. That is the next build.
+
+---
+
 ### 1 · Manual louvers are priced at ×0.72 — confirm or replace the rule
 **v883 · 2026-08-17 · pergola**
 

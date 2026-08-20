@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1020</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1021</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30568,6 +30568,142 @@ const TK_MARK_EACH={
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 // ── Paving materials: each trace priced by its own material's installed $/SF from the price book ──
 // (only engages once a material is chosen; a paving trace with no material prices exactly as before)
+// ══ ASSEMBLY ENGINE ═══════════════════════════════════════════════════════════
+// The standard shape for every construction item in the estimator:
+//
+//     Material  →  Installation Assembly  →  Assembly Selection Engine  →  Cost Engine
+//
+// A material never carries an install method. Assemblies are reusable and each
+// material declares which ones it supports, so "2″ Bluestone, sand-set" and
+// "2″ Bluestone, mortar-set" are one material at two assemblies, not two materials.
+// Paving is the first category on it; walls, decking, concrete and planting follow.
+//
+// Labour is ALWAYS hours × rate. It is never stored as dollars per unit.
+
+// Contractor quality tiers. Today they set the labour rate. They are shaped to carry
+// productivity, waste, overhead, profit and quality later — those sit neutral until
+// Warwick sets them, so nothing here is a guessed number.
+const CONTRACTOR_TIERS=[
+  {id:"value",    label:"Value",    labor:55,  prod:1, waste:1, oh:0, profit:0},
+  {id:"standard", label:"Standard", labor:85,  prod:1, waste:1, oh:0, profit:0},
+  {id:"premium",  label:"Premium",  labor:120, prod:1, waste:1, oh:0, profit:0}
+];
+function asmTier(id){ return CONTRACTOR_TIERS.find(t=>t.id===id)||CONTRACTOR_TIERS[1]; }
+
+// Production efficiency by job size. Small jobs carry proportionally more setup, layout,
+// cutting, mobilisation and cleanup. APPLIES TO LABOUR HOURS ONLY — never to materials.
+const AREA_EFF=[[25,1.40],[50,1.30],[100,1.20],[250,1.10],[750,1.00],[1500,0.95],[3000,0.90],[Infinity,0.88]];
+function asmAreaMult(sf){ const a=Math.max(0,+sf||0);
+  for(let i=0;i<AREA_EFF.length;i++){ if(a<=AREA_EFF[i][0]) return AREA_EFF[i][1]; }
+  return AREA_EFF[AREA_EFF.length-1][1]; }
+
+// Delivered cost of the material itself. Waste, tax and freight ride on the retail price.
+const ASM_SUPPLY_DEF={retail:25.00, waste:0.10, tax:0.10, freight:2.50};
+function asmDelivered(sup){
+  const s=Object.assign({},ASM_SUPPLY_DEF,sup||{});
+  const purchase=(+s.retail||0)*(1+(+s.waste||0));
+  const tax=purchase*(+s.tax||0);
+  const freight=+s.freight||0;
+  return {retail:+s.retail||0, wastePct:+s.waste||0, taxPct:+s.tax||0,
+          purchase, tax, freight, delivered:purchase+tax+freight}; }
+
+// The assembly library. `mats` are the non-material-of-record costs in $/unit; `labor`
+// is the productivity table in hours/unit. Both are line-itemised so the book shows the
+// working, not a single opaque rate.
+const ASM_LIB={
+  "pav.mortarset":{
+    id:"pav.mortarset", cat:"paving", unit:"SF",
+    name:"Mortar-set over reinforced concrete", short:"Mortar Set",
+    spec:["Tile 5/8″– 3/4″ thick","Mortar / thinset set","Grouted joints","Penetrating sealer",
+          "4″ compacted aggregate road base","4″ reinforced concrete slab","#3 rebar ~18″ OC each way"],
+    mats:[{n:"Aggregate road base",v:2.00},{n:"Concrete material",v:3.50},{n:"Rebar material",v:0.85},
+          {n:"Form materials",v:0.25},{n:"Mortar / thinset",v:1.50},{n:"Grout",v:0.75},
+          {n:"Sealer material",v:0.75},{n:"Miscellaneous materials",v:0.50}],
+    labor:[{n:"Excavation / rough grading",hr:0.012},{n:"Subgrade compaction",hr:0.006},
+           {n:"Road base placement",hr:0.012},{n:"Forms",hr:0.006},{n:"Rebar installation",hr:0.010},
+           {n:"Concrete placement",hr:0.020},{n:"Mortar preparation",hr:0.008},{n:"Stone setting",hr:0.055},
+           {n:"Cutting / fitting",hr:0.010},{n:"Grouting",hr:0.015},{n:"Sealer application",hr:0.008},
+           {n:"Cleanup",hr:0.006}],
+    minThick:0, maxThick:1.0 },
+  "pav.sandset":{
+    id:"pav.sandset", cat:"paving", unit:"SF",
+    name:"Sand-set full-thickness pavers", short:"Sand Set",
+    spec:["Full-thickness paver ~1.25″–2″","Sand set","~1″ bedding sand","Polymeric joint sand",
+          "4″–6″ compacted aggregate road base","Edge restraint included","Penetrating sealer"],
+    mats:[{n:"Aggregate road base",v:2.50},{n:"Bedding sand",v:0.50},{n:"Edge restraint",v:0.40},
+          {n:"Polymeric joint sand",v:0.50},{n:"Sealer material",v:0.75},{n:"Miscellaneous materials",v:0.40}],
+    labor:[{n:"Excavation / rough grading",hr:0.014},{n:"Subgrade compaction",hr:0.006},
+           {n:"Road base placement",hr:0.014},{n:"Bedding sand",hr:0.008},{n:"Stone setting",hr:0.055},
+           {n:"Cutting / fitting",hr:0.010},{n:"Edge restraint",hr:0.006},{n:"Polymeric joint sand",hr:0.006},
+           {n:"Sealer application",hr:0.008},{n:"Cleanup",hr:0.006}],
+    minThick:1.25, maxThick:99 }
+};
+function asmMatTotal(a){ return (a&&a.mats||[]).reduce((s,m)=>s+(+m.v||0),0); }
+function asmHrTotal(a){ return (a&&a.labor||[]).reduce((s,l)=>s+(+l.hr||0),0); }
+function asmGet(a){ return (typeof a==="string")?ASM_LIB[a]:a; }
+function asmFor(cat){ return Object.keys(ASM_LIB).map(k=>ASM_LIB[k]).filter(a=>a.cat===cat); }
+
+// Materials declare which assemblies they support. Starter entries only — the catalogue is
+// Warwick's to fill; `cx` is the pattern/material complexity factor on LABOUR HOURS, 1.00
+// until he sets it, never guessed.
+const ASM_MATS=[
+  {n:"3/4″ Calibrated Limestone", cat:"paving", thick:0.75, asm:["pav.mortarset"],
+   supply:{retail:25.00}, cx:1},
+  {n:"2″ Bluestone", cat:"paving", thick:2.0, asm:["pav.mortarset","pav.sandset"],
+   supply:{retail:25.00}, cx:1}
+];
+function asmMat(name){ return ASM_MATS.find(m=>m.n===name)||null; }
+
+// ── Assembly Selection Engine ────────────────────────────────────────────────
+// Picks the assembly and says why. Only rules with a stated basis are scored; every other
+// factor is listed as pending so the UI can show what is NOT yet being considered rather
+// than implying the pick is smarter than it is.
+const ASM_FACTORS_PENDING=["Manufacturer installation requirements","Structural conditions",
+  "Vehicular vs pedestrian use","Site slope","Drainage","Soil movement","Tree roots",
+  "Future utility access","Architectural design intent"];
+function asmRecommend(o){
+  o=o||{}; const mat=(typeof o.material==="string")?asmMat(o.material):o.material;
+  const allowed=(mat&&mat.asm&&mat.asm.length)?mat.asm.slice():Object.keys(ASM_LIB).filter(k=>ASM_LIB[k].cat===(o.cat||"paving"));
+  const why=[];
+  if(mat&&mat.asm&&mat.asm.length===1){
+    why.push(mat.n+" only supports "+ASM_LIB[allowed[0]].short+".");
+    return {asm:allowed[0], why, pending:ASM_FACTORS_PENDING, decided:true}; }
+  const th=(o.thickness!=null)?+o.thickness:(mat?+mat.thick:null);
+  let pick=null;
+  if(th!=null&&isFinite(th)){
+    const fits=allowed.filter(k=>{ const A=ASM_LIB[k]; return th>=(A.minThick||0) && th<=(A.maxThick||99); });
+    if(fits.length===1){ pick=fits[0]; why.push("At "+th+"″ thick, only "+ASM_LIB[pick].short+" suits this material."); }
+    else if(fits.length>1){ pick=fits[fits.length-1];
+      why.push("At "+th+"″ thick the material is full-thickness, so "+ASM_LIB[pick].short+" is viable and avoids the concrete slab."); }
+  }
+  if(!pick&&allowed.length){ pick=allowed[0]; why.push("Defaulted to "+ASM_LIB[pick].short+" — no thickness given."); }
+  return {asm:pick, why, pending:ASM_FACTORS_PENDING, decided:false, options:allowed};
+}
+
+// ── Cost Engine ──────────────────────────────────────────────────────────────
+// Never multiplies the installed rate by the area multiplier. Only labour hours are scaled.
+function _asm2(n){ return Math.round((+n||0)*100)/100; }
+function asmCost(o){
+  o=o||{}; const A=asmGet(o.asm); if(!A) return null;
+  const mat=(typeof o.material==="string")?asmMat(o.material):o.material;
+  const area=Math.max(0,+o.areaSF||0);
+  const sup=asmDelivered(o.supply||(mat&&mat.supply));
+  const nonMat=asmMatTotal(A);
+  const baseHr=asmHrTotal(A);
+  const mult=asmAreaMult(area);
+  const cx=(o.complexity!=null?+o.complexity:(mat&&mat.cx!=null?+mat.cx:1))||1;
+  const adjHr=baseHr*mult*cx;
+  const out={assembly:A.id, assemblyName:A.name, unit:A.unit, area, areaMult:mult,
+             baseHours:baseHr, complexity:cx, adjHours:adjHr,
+             supply:sup, deliveredSF:_asm2(sup.delivered), nonMatSF:_asm2(nonMat), tiers:{}};
+  CONTRACTOR_TIERS.forEach(t=>{
+    const laborSF=_asm2(adjHr*t.labor);
+    const instSF=_asm2(sup.delivered+nonMat+laborSF);
+    out.tiers[t.id]={label:t.label, laborRate:t.labor, laborSF, installedSF:instSF, total:_asm2(instSF*area)};
+  });
+  return out;
+}
+
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
 const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
