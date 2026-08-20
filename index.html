@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1033</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1034</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16892,7 +16892,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
@@ -30685,6 +30685,74 @@ const TK_MARK_EACH={
 function _tkMarkRate(re){ return _tkRate("amenities", re) || _tkRate("firepit", re); }
 // ── Paving materials: each trace priced by its own material's installed $/SF from the price book ──
 // (only engages once a material is chosen; a paving trace with no material prices exactly as before)
+// ══ TRACKED VALUES ═══════════════════════════════════════════════════════════
+// Every cost component in the platform can be edited without losing where it came from.
+// A value is never overwritten in place: the database default stays, an override is recorded at a
+// scope, and the change is appended to history. One layer, reusable for any cost anywhere.
+//
+//   resolution order, most specific first:  project → book/region → global → database default
+//
+const VAL_SCOPES=["project","book","global"];
+const VAL_SOURCES=["Studio H default","User entered","Contractor bid","Supplier quote",
+                   "Manufacturer","AI web research","Historical project","Regional price book"];
+let VAL_OV=(function(){ try{ const s=localStorage.getItem("studioh_valov_v1"); if(s) return JSON.parse(s); }catch(e){}
+  return null; })() || {book:{}, global:{}, hist:{}};
+function valSave(){ try{ localStorage.setItem("studioh_valov_v1", JSON.stringify(VAL_OV)); }catch(e){} }
+function valKey(){ return Array.prototype.slice.call(arguments).join("|"); }
+function _valProject(){ try{ if(!S._valov) S._valov={}; return S._valov; }catch(e){ return {}; } }
+// What is this number, and where did it come from?
+function valGet(key, dflt){
+  const pj=_valProject()[key];
+  if(pj && pj.v!=null) return {value:pj.v, scope:"project", source:pj.src||"User entered",
+                               at:pj.at, reason:pj.reason, overridden:true, dflt:dflt};
+  const bk=VAL_OV.book[key];
+  if(bk && bk.v!=null) return {value:bk.v, scope:"book", source:bk.src||"Regional price book",
+                               at:bk.at, reason:bk.reason, overridden:true, dflt:dflt};
+  const gl=VAL_OV.global[key];
+  if(gl && gl.v!=null) return {value:gl.v, scope:"global", source:gl.src||"Studio H default",
+                               at:gl.at, reason:gl.reason, overridden:true, dflt:dflt};
+  return {value:dflt, scope:"database", source:"Studio H default", overridden:false, dflt:dflt};
+}
+function valOf(key, dflt){ return valGet(key, dflt).value; }
+// Edits land on THIS PROJECT unless a broader scope is chosen deliberately.
+function valSet(key, v, o){
+  o=o||{}; const scope=(VAL_SCOPES.indexOf(o.scope)>=0)?o.scope:"project";
+  const rec={v:(v===""||v==null)?null:v, src:o.source||"User entered", at:o.at||_valNow(),
+             reason:o.reason||"", by:o.by||"user"};
+  if(scope==="project"){ const P=_valProject(); if(rec.v==null) delete P[key]; else P[key]=rec; }
+  else { if(rec.v==null) delete VAL_OV[scope][key]; else VAL_OV[scope][key]=rec; valSave(); }
+  (VAL_OV.hist[key]=VAL_OV.hist[key]||[]).push({at:rec.at, v:rec.v, src:rec.src, scope:scope,
+                                                by:rec.by, reason:rec.reason,
+                                                region:(o.region||null)});
+  valSave();
+  return valGet(key, o.dflt);
+}
+function valClear(key, scope){ return valSet(key, null, {scope:scope||"project"}); }
+function valHistory(key){ return (VAL_OV.hist[key]||[]).slice(); }
+function _valNow(){ try{ return new Date().toISOString().slice(0,10); }catch(e){ return ""; } }
+
+// ── AI price research ────────────────────────────────────────────────────────
+// The AI proposes, it never writes. A proposal is a record the user acts on.
+function valProposal(key, o){
+  o=o||{};
+  const cur=valGet(key, o.dflt);
+  const rec={key, current:cur.value, currentSource:cur.source,
+             recommended:o.recommended, range:o.range||null, sources:o.sources||[],
+             confidence:o.confidence||"Low", reason:o.reason||"", researchedAt:o.at||_valNow(),
+             basis:o.basis||{}};
+  if(cur.value!=null && o.recommended!=null && +cur.value!==0){
+    rec.deltaAbs=_asm2(+o.recommended-+cur.value);
+    rec.deltaPct=Math.round(((+o.recommended-+cur.value)/+cur.value)*1000)/10;
+  }
+  return rec;
+}
+// Only ever called from an explicit user choice: Accept / Use for this project / Update regional.
+function valAcceptProposal(pr, scope){
+  return valSet(pr.key, pr.recommended, {scope:scope||"project", source:"AI web research",
+    reason:(pr.reason||"")+(pr.sources&&pr.sources.length?" · "+pr.sources.length+" sources":""),
+    by:"ai"});
+}
+
 // ══ ASSEMBLY ENGINE ═══════════════════════════════════════════════════════════
 // The standard shape for every construction item in the estimator:
 //
@@ -30786,11 +30854,14 @@ function asmAreaMult(qty, unit){ const c=QTY_EFF[unit||"SF"]||AREA_EFF; const a=
 
 // Delivered cost of the material itself. Waste, tax and freight ride on the retail price.
 const ASM_SUPPLY_DEF={retail:25.00, waste:0.10, tax:0.10, freight:2.50};
+function asmMatKey(name,field){ return valKey("mat",name,field); }
+function asmMatVal(name,field,dflt){ return valOf(asmMatKey(name,field), dflt); }
 function asmRetailOf(o){
   if(o&&o.supply&&o.supply.retail!=null&&o.supply.retail!=="") return +o.supply.retail;
   const m=(o&&typeof o.material==="string")?asmMat(o.material):(o&&o.material);
-  if(m&&m.supply&&m.supply.retail!=null&&m.supply.retail!=="") return +m.supply.retail;
-  return null; }
+  if(!m) return null;
+  const tracked=asmMatVal(m.n,"retail",(m.supply&&m.supply.retail!=null)?m.supply.retail:null);
+  return (tracked==null||tracked==="")?null:+tracked; }
 function asmDelivered(sup){
   const s=Object.assign({},ASM_SUPPLY_DEF,sup||{});
   if(s.retail==null||s.retail==="") s.retail=ASM_SUPPLY_DEF.retail;
@@ -31086,9 +31157,17 @@ const ASM_LIB={
 // An assembly that supplies its own material (concrete, DG) needs no separate material price.
 function asmNeedsMaterial(A){ A=asmGet(A); return !!A && !A.noMaterial; }
 function asmIncomplete(A){ A=asmGet(A); if(!A) return true;
-  return (A.items||[]).some(x=>!x.opt && (x.v==null || x.hr==null)); }
-function asmMatTotal(a){ a=asmGet(a); return (a&&a.items||[]).filter(x=>!x.opt||x.def==="on").reduce((s,x)=>s+(+x.v||0),0); }
-function asmHrTotal(a){ a=asmGet(a); return (a&&a.items||[]).filter(x=>!x.opt||x.def==="on").reduce((s,x)=>s+(+x.hr||0),0); }
+  return (A.items||[]).some(x=>!x.opt && (asmItem(A,x,"v")==null || asmItem(A,x,"hr")==null)); }
+// Every component value is a tracked value: database default, overridable per project, book or
+// global, with provenance and history. asmItem() is the only way the engine should read one.
+function asmItemKey(asmId,name,field){ return valKey("asm",asmId,name,field); }
+function asmItem(A,x,field){ A=asmGet(A);
+  return valOf(asmItemKey(A.id, x.n, field), x[field]); }
+function asmItemInfo(A,x,field){ A=asmGet(A);
+  return valGet(asmItemKey(A.id, x.n, field), x[field]); }
+function asmSetItemVal(asmId,name,field,v,o){ return valSet(asmItemKey(asmId,name,field), (v===""?null:+v), o); }
+function asmMatTotal(a){ a=asmGet(a); return (a&&a.items||[]).filter(x=>!x.opt||x.def==="on").reduce((s,x)=>s+(+asmItem(a,x,"v")||0),0); }
+function asmHrTotal(a){ a=asmGet(a); return (a&&a.items||[]).filter(x=>!x.opt||x.def==="on").reduce((s,x)=>s+(+asmItem(a,x,"hr")||0),0); }
 function asmGet(a){ return (typeof a==="string")?ASM_LIB[a]:a; }
 function asmFor(cat){ return Object.keys(ASM_LIB).map(k=>ASM_LIB[k]).filter(a=>a.cat===cat); }
 
@@ -31174,6 +31253,9 @@ function asmCost(o){
   const mat=(typeof o.material==="string")?asmMat(o.material):o.material;
   const area=Math.max(0,+o.areaSF||0);
   if(asmIncomplete(A)) return {needsNumbers:true, assembly:A.id, assemblyName:A.name};
+  // provenance for the whole build-up, so any figure can answer "where did this come from?"
+  const prov=(A.items||[]).map(x=>({n:x.n,
+      v:asmItemInfo(A,x,"v"), hr:asmItemInfo(A,x,"hr")}));
 
   // Assemblies that supply their own material (concrete, DG) carry no separate purchase price.
   let sup=null, delivered=0;
@@ -31197,7 +31279,7 @@ function asmCost(o){
   let matIn=0, hrIn=0, offMat=0, offHr=0, offHrPat=0, defMat=0, defHr=0, defHrPat=0;
   const lines=[];
   (A.items||[]).forEach(x=>{
-    const state=asmLineState(st,x), v=+x.v||0, h=+x.hr||0, isP=!!x.pat;
+    const state=asmLineState(st,x), v=+asmItem(A,x,"v")||0, h=+asmItem(A,x,"hr")||0, isP=!!x.pat;
     if(state==="on"){ matIn+=v; hrIn+=h; }
     else if(state==="defer"){ defMat+=v; if(isP) defHrPat+=h; else defHr+=h; }
     else { offMat+=v; if(isP) offHrPat+=h; else offHr+=h; }
@@ -31206,7 +31288,7 @@ function asmCost(o){
   });
   const hoursAt=pr=>(A.items||[]).reduce((s,x)=>{
     const state=asmLineState(st,x); if(state!=="on") return s;
-    return s+HR(+x.hr||0, !!x.pat, pr); },0);
+    return s+HR(+asmItem(A,x,"hr")||0, !!x.pat, pr); },0);
   const adjHr=hoursAt(prod);
   lines.forEach(L=>{ L.laborSF=L.hr?_asm2(HR(L.hr,L.pat,prod)*rate):0; L.costSF=_asm2(L.matSF+L.laborSF); });
 
@@ -31215,7 +31297,7 @@ function asmCost(o){
              tier:tierId, productivity:prod, laborRate:rate, trade:ASM_LABOR_TRADE,
              effAssumed:asmEffAssumed(A.unit),
              baseHours:_asmR(hrIn,6), adjHours:adjHr, needsMaterial:asmNeedsMaterial(A),
-             supply:sup, deliveredSF:_asm2(delivered), nonMatSF:_asm2(matIn), lines,
+             supply:sup, deliveredSF:_asm2(delivered), nonMatSF:_asm2(matIn), lines, prov,
              omitted:{matSF:_asm2(offMat), hours:offHr+offHrPat,
                       savingSF:_asm2(offMat+(HR(offHr,false,prod)+HR(offHrPat,true,prod))*rate),
                       n:lines.filter(L=>L.state==="off"&&!L.opt).length},

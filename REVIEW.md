@@ -9,6 +9,38 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Tracked values — editable costs with provenance, scope and history
+**v1034 · 2026-08-20 · estimating engine**
+
+Built as a reusable layer for every cost component in the platform, not just paving.
+
+- **Nothing is overwritten.** The database default survives; an override is recorded at a scope.
+- **Resolution:** project → book/region → global → database default.
+- **Edits default to THIS PROJECT ONLY** unless a broader scope is chosen deliberately.
+- **Every value answers "where did this come from?"** — source, date, scope, reason, and the
+  original default. Source types: Studio H default, User entered, Contractor bid, Supplier quote,
+  Manufacturer, AI web research, Historical project, Regional price book.
+- **History is append-only.** Nothing discarded, so escalation and trend reporting are possible later.
+- **AI proposes, never writes.** `valProposal()` builds the comparison — current, recommended,
+  range, delta, sources, confidence, reason. `valAcceptProposal()` only runs from an explicit user
+  choice, and the change is attributed to the AI in history.
+
+Every assembly component and every material input now resolves through it, so the values are already
+editable and tracked before any UI exists.
+
+**Not built yet:**
+
+1. **The UI.** Progressive disclosure — L1 price, L2 summary, L3 full breakdown, L4 edit / source /
+   research / calculation. Today the trace build-up is read-only display and the price book edits
+   the raw defaults rather than going through the tracked layer.
+2. **The live AI research call.** `valProposal()` is the shape; nothing calls the worker yet. Needs
+   the research prompt and the multi-source methodology — geographic relevance, recency, retail vs
+   contractor, quantity assumptions, unit conversions, freight, tax, material vs installed.
+3. **Region identity.** Book-scope overrides are stored but there is no region concept yet, so
+   "this price book / region" is really "this book".
+
+---
+
 ### 0 · Driver-based assemblies — the universal quantity architecture
 **v1032 · 2026-08-20 · estimating engine**
 
