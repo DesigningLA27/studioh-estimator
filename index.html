@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1031</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1032</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30743,6 +30743,42 @@ const AREA_EFF=[[25,1.40],[50,1.30],[100,1.20],[250,1.10],[750,1.00],[1500,0.95]
 // differently from SF — 30 plants is not the same job shape as 30 SF — so each unit gets its own
 // curve. Only the SF curve is Warwick's; the others fall back to it and say so via asmEffAssumed().
 const QTY_EFF={SF:AREA_EFF, LF:null, EA:null};
+// ── Quantity drivers ─────────────────────────────────────────────────────────
+// Every assembly declares the quantity its costs are written against. Where that differs from what
+// is convenient to measure on site, the driver says how to derive it — a wall is measured in linear
+// feet but costed per square foot of wall face. One rule for every category; no special cases.
+const ASM_DRIVERS={
+  SF:     {id:"SF",     label:"Square feet",   unit:"SF", measure:"SF"},
+  LF:     {id:"LF",     label:"Linear feet",   unit:"LF", measure:"LF"},
+  EA:     {id:"EA",     label:"Each",          unit:"EA", measure:"EA"},
+  wallSF: {id:"wallSF", label:"Wall face SF",  unit:"SF", measure:"LF",
+           needs:["heightFt"], calc:(m,pm)=>m*(+pm.heightFt||0),
+           how:"linear feet × height"}
+};
+function asmDriver(A){ A=asmGet(A); return ASM_DRIVERS[(A&&A.driver)||(A&&A.unit)||"SF"]||ASM_DRIVERS.SF; }
+// Turn what the user measured into the quantity the cost engine works in.
+function asmQty(A, measure, params){
+  const D=asmDriver(A); params=params||{};
+  if(!D.calc) return {qty:Math.max(0,+measure||0), unit:D.unit, driver:D.id, ok:true};
+  const missing=(D.needs||[]).filter(k=>params[k]==null||params[k]===""||!(+params[k]>0));
+  if(missing.length) return {qty:0, unit:D.unit, driver:D.id, ok:false, missing};
+  return {qty:Math.max(0,D.calc(+measure||0, params)), unit:D.unit, driver:D.id, ok:true,
+          how:D.how, measure:+measure||0};
+}
+// A system is several components, each on its own driver, aggregated into one estimate.
+// Irrigation is LF of pipe plus EA of heads plus EA of valves plus one controller — no special case.
+function asmSystemCost(components, opts){
+  opts=opts||{}; const rows=[]; let cost=0;
+  (components||[]).forEach(c=>{
+    const q=asmQty(c.asm, c.measure, c.params);
+    const r=asmCost(Object.assign({}, opts, c, {areaSF:q.qty}));
+    const ok=r && !r.needsNumbers && !r.needsRetail && q.ok;
+    if(ok) cost+=r.directCostSF*q.qty;
+    rows.push({asm:c.asm, label:c.label||(asmGet(c.asm)||{}).name, qty:q, result:r, ok:!!ok,
+               extended:ok?_asm2(r.directCostSF*q.qty):null});
+  });
+  return {rows, directCost:_asm2(cost), incomplete:rows.filter(r=>!r.ok).length};
+}
 function asmEffAssumed(unit){ return !QTY_EFF[unit||"SF"]; }
 function asmAreaMult(qty, unit){ const c=QTY_EFF[unit||"SF"]||AREA_EFF; const a=Math.max(0,+qty||0);
   for(let i=0;i<c.length;i++){ if(a<=c[i][0]) return c[i][1]; }
@@ -30809,7 +30845,10 @@ const ASM_LIB={
       {n:"Cleanup",                    v:0,    hr:0.006}],
     minThick:1.25, maxThick:99 },
   "pav.concrete":{
-    id:"pav.concrete", cat:"paving", unit:"SF", noMaterial:true,
+    id:"pav.concrete", cat:"paving", unit:"SF", driver:"SF", noMaterial:true,
+    params:[{id:"thickIn", n:"Concrete thickness", u:"in", def:4, baked:true},
+            {id:"baseIn", n:"Base thickness", u:"in", def:4, baked:true},
+            {id:"rebar", n:"Rebar", u:"", def:"#3 @ 18\u2033 OC", baked:true}],
     name:"Concrete flatwork — 4″ reinforced slab", short:"Concrete",
     spec:["4″ reinforced slab","4″ Class II road base","#3 rebar ~18″ OC each way","Broom finish","Compacted subgrade"],
     items:[
@@ -30894,7 +30933,8 @@ const ASM_LIB={
     minThick:1.25, maxThick:99 },
   // ── WALLS · unit LF, with height as a second driver the engine cannot yet carry ──────────
   "wall.cmu":{
-    id:"wall.cmu", cat:"wall", unit:"LF", driver:"heightFt",
+    id:"wall.cmu", cat:"wall", unit:"SF", driver:"wallSF",
+    params:[{id:"heightFt", n:"Height", u:"ft", def:null}],
     name:"Retaining wall — CMU on concrete footing", short:"CMU",
     spec:["Reinforced CMU stem","Concrete spread footing","Vertical + horizontal rebar","Solid grouted cells","Drainage behind wall"],
     items:[
@@ -30912,7 +30952,8 @@ const ASM_LIB={
       {n:"Cap units",               v:null, hr:null, opt:true},
       {n:"Cleanup",                 v:null, hr:null}] },
   "wall.cip":{
-    id:"wall.cip", cat:"wall", unit:"LF", driver:"heightFt",
+    id:"wall.cip", cat:"wall", unit:"SF", driver:"wallSF",
+    params:[{id:"heightFt", n:"Height", u:"ft", def:null}],
     name:"Retaining wall — cast-in-place concrete", short:"Cast-in-place",
     spec:["Formed both faces","Reinforced stem and footing","Drainage behind wall"],
     items:[
@@ -30930,7 +30971,8 @@ const ASM_LIB={
       {n:"Backfill / compaction",   v:null, hr:null},
       {n:"Cleanup",                 v:null, hr:null}] },
   "wall.segmental":{
-    id:"wall.segmental", cat:"wall", unit:"LF", driver:"heightFt",
+    id:"wall.segmental", cat:"wall", unit:"SF", driver:"wallSF",
+    params:[{id:"heightFt", n:"Height", u:"ft", def:null}],
     name:"Retaining wall — segmental block", short:"Segmental",
     spec:["Dry-stacked segmental units","Compacted levelling pad","Geogrid where required","Drainage behind wall"],
     items:[
@@ -30998,7 +31040,8 @@ const ASM_LIB={
       {n:"Tackifier",               v:null, hr:null},
       {n:"Cleanup",                 v:null, hr:null}] },
   "plant.1gal":{
-    id:"plant.1gal", cat:"planting", unit:"EA",
+    id:"plant.1gal", cat:"planting", unit:"EA", driver:"EA",
+    params:[{id:"container", n:"Container size", u:"", def:"1 gal", baked:true}],
     name:"Container planting — 1 gallon", short:"1 gal",
     spec:["1 gallon container","Amended backfill","Mulch","Water in"],
     items:[
@@ -31010,7 +31053,8 @@ const ASM_LIB={
       {n:"Water in",                v:null, hr:null},
       {n:"Cleanup",                 v:null, hr:null}] },
   "plant.5gal":{
-    id:"plant.5gal", cat:"planting", unit:"EA",
+    id:"plant.5gal", cat:"planting", unit:"EA", driver:"EA",
+    params:[{id:"container", n:"Container size", u:"", def:"5 gal", baked:true}],
     name:"Container planting — 5 gallon", short:"5 gal",
     spec:["5 gallon container","Amended backfill","Mulch","Water in"],
     items:[
@@ -31023,7 +31067,8 @@ const ASM_LIB={
       {n:"Water in",                v:null, hr:null},
       {n:"Cleanup",                 v:null, hr:null}] },
   "plant.box24":{
-    id:"plant.box24", cat:"planting", unit:"EA",
+    id:"plant.box24", cat:"planting", unit:"EA", driver:"EA",
+    params:[{id:"container", n:"Container size", u:"", def:"24\u2033 box", baked:true}],
     name:"Container planting — 24″ box", short:"24″ box",
     spec:["24″ box tree","Machine or crane set","Amended backfill","Staked","Water basin"],
     items:[

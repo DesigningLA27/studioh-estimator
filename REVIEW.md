@@ -9,6 +9,39 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Driver-based assemblies — the universal quantity architecture
+**v1032 · 2026-08-20 · estimating engine**
+
+Every assembly declares the quantity its costs are written against, and how to derive it from what
+is convenient to measure. No special cases, no height bands, no per-height assemblies.
+
+| Category | Driver | Measured as | Derived |
+|---|---|---|---|
+| Paving, decking | SF | SF | — |
+| Wall | Wall face SF | LF | LF × height |
+| Planting, lighting | EA | EA | — |
+| Pipe, fence | LF | LF | — |
+
+`asmSystemCost()` aggregates components on different drivers into one estimate — irrigation is LF of
+pipe plus EA of heads plus EA of valves plus one controller, each on its own driver, no composite
+special case.
+
+**Still needed from you:**
+
+1. **LF and EA efficiency curves.** Only the SF curve is yours; the others fall back to it and
+   report `effAssumed:true`.
+2. **Costs for the 10 scaffolded assemblies** (3 wall, 3 decking, 4 planting). They refuse to price
+   until filled in.
+3. **Parameter defaults.** `heightFt` has no default, so a wall will not price without one. Paving
+   thickness/base/rebar and planting container size are marked `baked:true` — captured as knowledge
+   but already inside the costs.
+
+**Next architectural step, not built:** parameters that *scale line items* — concrete thickness
+moving the concrete line, pipe diameter moving the pipe line. Today a parameter either derives the
+driver quantity (wall height) or is descriptive (`baked:true`). Nothing in between yet.
+
+---
+
 ### 0 · Architecture validated across 4 categories — three changes it needs
 **v1031 · 2026-08-20 · estimating engine**
 
