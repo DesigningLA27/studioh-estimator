@@ -4522,7 +4522,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1051</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1052</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31815,7 +31815,20 @@ let ASM_MATS=(function(){ try{ const s=localStorage.getItem("studioh_assemblies_
   {n:"Stamped / Colored Concrete",cat:"paving", thick:null, asm:["pav.stamped"], supply:{retail:null}},
   {n:"Gravel / Decomposed Granite",cat:"paving",thick:null, asm:["pav.dg"], supply:{retail:null}}
 ];
-function asmMat(name){ return ASM_MATS.find(m=>m.n===name)||null; }
+// The trace has carried its own shorter material names since before the assembly catalogue existed.
+// Map them across rather than leaving old projects unable to find an assembly.
+const ASM_ALIAS={
+  "Natural stone":"Natural Stone Paving",
+  "Concrete pavers":"Concrete Pavers",
+  "Poured-in-place concrete":"Concrete Flatwork",
+  "Brick":"Brick Paving",
+  "Decomposed granite":"Gravel / Decomposed Granite",
+  "Gravel":"Gravel / Decomposed Granite",
+  "Rolled pebble":"Rolled 3/8\u2033 Pebble",
+  "Porcelain pavers":"Porcelain Pavers"
+};
+function asmMatName(name){ return ASM_ALIAS[name]||name; }
+function asmMat(name){ name=asmMatName(name); return ASM_MATS.find(m=>m.n===name)||null; }
 // Assemblies and the material catalogue persist and publish with the rest of the price book.
 function asmSave(){ try{ localStorage.setItem("studioh_assemblies_v1",
   JSON.stringify({lib:ASM_LIB, mats:ASM_MATS, patterns:ASM_PATTERNS})); }catch(e){} }
@@ -31984,7 +31997,7 @@ function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const ti
 // Price for one paving trace, most specific first:
 //   1. a rate you typed for this trace   2. its installation assembly   3. the flat book band
 function _pavAsmCost(p){ if(!p||!p.asm||!ASM_LIB[p.asm]) return null;
-  try{ return asmCost({asm:p.asm, material:p.type, lines:p.asmLines, pattern:p.asmPat,
+  try{ return asmCost({asm:p.asm, material:asmMatName(p.type), lines:p.asmLines, pattern:p.asmPat,
                        areaSF:_ptTraceNet(p),
                        supply:(p.matOv!=null&&p.matOv!=="")?{retail:+p.matOv}:null}); }catch(e){ return null; } }
 function ptSetAsmPattern(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
@@ -34490,14 +34503,23 @@ function _ptDockPanel(g){
       +'<div class="fld"><span class="k">Name</span><input value="'+escAttr(pp.name||"")+'" placeholder="optional" onchange="ptPropSet(&#39;name&#39;,this.value)"></div>'
       +FS("zone","Area",pp.zone,[""].concat(areaOptions()))
       +FS("phase","Phase",pp.phase,["","Phase 1","Phase 2","Phase 3","Phase 4","Future"]);
-    if(md.types&&md.types.length) h+=FS("type",(md.kind==="linear"?"Label":"Material"),pp.type,md.types);
+    const _mtypes=(pp.mode==="paving"&&typeof PAV_MATS!=="undefined")
+      ? PAV_MATS.slice().concat((md.types||[]).filter(t=>PAV_MATS.indexOf(t)<0&&t===pp.type))
+      : (md.types||[]);
+    if(_mtypes.length) h+=FS("type",(md.kind==="linear"?"Label":"Material"),pp.type,_mtypes);
     h+='<div class="fld"><span class="k">Tags</span><input value="'+escAttr(pp.tags||"")+'" placeholder="comma-separated" onchange="ptPropSet(&#39;tags&#39;,this.value)"></div>';
     // Cost, for a zone that an assembly builds. Summary only — the build-up opens over the plan.
-    (function(){
+    if(pp.kind==="area") (function(){
       const opts=(typeof ptAsmOptions==="function")?ptAsmOptions(pp.type):[];
-      if(!opts.length) return;
-      const cur=(pp.asm&&ASM_LIB[pp.asm])?pp.asm:"";
       h+=S("Assembly");
+      if(!opts.length){
+        h+='<div class="fld"><span class="k">Built as</span><span class="v" style="color:#F2C14E">'
+          +(pp.type?"no assembly":"pick a material")+'</span></div>'
+          +'<div style="font:600 10px var(--tkf);color:#68765B;line-height:1.5;padding:2px 2px 4px">'
+          +(pp.type?(escAttr(pp.type)+" is not built by an installation assembly yet, so this zone prices off the flat book rate.")
+                   :"Choose a material above and its assemblies appear here.")+'</div>';
+        return; }
+      const cur=(pp.asm&&ASM_LIB[pp.asm])?pp.asm:"";
       h+='<div class="fld"><span class="k">Built as</span><select onchange="ptSetPolyAsm('+_ptPropIdx()+',this.value)">'
         +'<option value=""'+(cur?"":" selected")+'>— flat book rate</option>'
         +opts.map(a=>'<option value="'+escAttr(a.id)+'"'+(cur===a.id?" selected":"")+'>'+escAttr(a.short)+'</option>').join("")
