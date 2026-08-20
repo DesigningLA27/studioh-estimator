@@ -38,13 +38,19 @@ $0.70–$8.00/SF, hence $1.50 / $4.50 / $8.00.
 **Settled:** pebble does not carry a price band — one product, one price. Both pebbles are now single
 values that apply at every price point. *Rolled 3/8" pebble* is its own material.
 
-**New assembly, needs your eye:** `pav.pebble` — *Loose decorative pebble over base*, because the
-existing gravel/DG assembly has its material baked in and would have double-counted. Its line items
-and hours are **your DG numbers with the DG material line removed** (base $0.70/0.012, placement
-0.014, edging $0.50/0.008, compaction 0.008, misc $0.20, cleanup 0.004 = $1.40 and 0.064 hr).
-Nothing invented, but placing 3/8" pebble may not take the same hours as placing DG.
+**Corrected:** I had 2"–3" beach pebble set in mortar. It is not — both pebbles go loose over weed
+barrier. `pav.pebble` is now *Decorative pebble over weed barrier*: excavate/grade, commercial weed
+barrier fabric, place pebble, edging, cleanup. No road base, no compaction, marked non-vehicular and
+ground cover in its attributes.
 
-Rolled 3/8" pebble prices at **$10.43/SF** installed at Standard; 2"–3" set in mortar at **$32.33/SF**.
+| | Stone | Assembly | Hours | Installed @ Standard |
+|---|---|---|---|---|
+| 2"–3" beach pebble | $7.95 | $0.83 | 0.044 | **$12.52 / SF** |
+| Rolled 3/8" pebble | $3.59 | $0.83 | 0.044 | **$8.16 / SF** |
+
+**Two numbers in it are mine, not yours:** weed barrier fabric at **$0.18/SF** (commercial woven runs
+$0.12–0.15/SF, pro-grade to $0.45+) and its **0.006 hr** to lay. Placement hours are your DG figure
+(0.014) — placing pebble may not match placing DG.
 
 Sources: [homeguide flagstone](https://homeguide.com/costs/flagstone-cost) ·
 [homeguide pavers/SF](https://homeguide.com/costs/pavers-cost-per-square-foot) ·
