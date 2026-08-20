@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1049</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1050</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -33233,12 +33233,87 @@ function _ptWhyRowPaving(e, unit){
 }
 // The material cost for this trace: what the book says, and a box for the one you have in mind.
 // This is the only number a trace is allowed to carry, and it overrides for this project only.
+// ── Build-up card, wide, over the plan ───────────────────────────────────────
+// The dock keeps a summary; the whole cost build-up opens here where hours and full component
+// names actually fit. Everything is read from the price book — the only number this card owns is
+// the material cost, and that applies to this project only.
+function ptBuildupPop(idx){
+  const p=PT.polys[idx]; if(!p) return;
+  let d=document.getElementById("pt-buildup"); if(d) d.remove();
+  d=document.createElement("div"); d.id="pt-buildup";
+  d.style.cssText="position:fixed;inset:0;z-index:10004;background:rgba(10,16,8,.55);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto";
+  d.addEventListener("mousedown",e=>{ if(e.target===d) ptBuildupClose(); });
+  d.innerHTML=_ptBuildupHtml(idx);
+  (document.getElementById("pt-modal")||document.body).appendChild(d);
+}
+function ptBuildupClose(){ const d=document.getElementById("pt-buildup"); if(d) d.remove(); }
+function ptBuildupRefresh(){ const d=document.getElementById("pt-buildup"); if(!d) return;
+  const i=+d.getAttribute("data-idx"); if(isFinite(i)) d.innerHTML=_ptBuildupHtml(i); }
+function _ptBuildupHtml(idx){
+  const p=PT.polys[idx]; if(!p) return "";
+  const F="var(--tkf)", MN="ui-monospace,Menlo,monospace";
+  const nm=escAttr((p.name||"").trim()||_ptMode(p.mode).label);
+  const net=_ptTraceNet(p);
+  const R=_pavAsmCost(p);
+  const m2=v=>"$"+(+v||0).toFixed(2);
+  let h='<div data-idx="'+idx+'" style="width:min(420px,96vw);background:#14200c;border-radius:20px;padding:16px 18px;color:#EAF0E4;font-family:'+F+';box-shadow:0 26px 60px -22px rgba(0,0,0,.85)">'
+    +'<div style="display:flex;align-items:baseline;gap:9px">'
+      +'<b style="font:800 16px '+F+';flex:1;min-width:0">'+nm+'</b>'
+      +'<button onclick="ptBuildupClose()" style="border:0;background:rgba(255,255,255,.08);color:#9FBF95;border-radius:9px;width:28px;height:28px;cursor:pointer;font:700 13px '+F+'">\u2715</button></div>';
+  if(!R||R.needsNumbers||R.needsRetail){
+    h+='<div style="font:600 12px '+F+';color:#C7D6BB;margin-top:8px;line-height:1.5">'
+      +(!R?'This zone has no installation assembly yet. Pick one in Props.'
+        :(R.needsNumbers?(escAttr(R.assemblyName)+' has no costs in the price book yet.')
+                        :('No material price for '+escAttr(p.type||"this material")+' in the price book yet.')))
+      +'</div></div>';
+    return h;
+  }
+  const A=ASM_LIB[p.asm];
+  h+='<div style="font:600 10.5px '+F+';color:#8FA383;margin-top:2px">'+escAttr(A.name)+' \u00b7 '+_tkFmt(net)+' '+escAttr(R.unit)+'</div>';
+  // the three price points for this zone
+  h+='<div style="display:flex;gap:6px;margin:10px 0 2px">';
+  [["value","Entry"],["standard","Standard"],["premium","Luxury"]].forEach(function(pt){
+    const t=R.tiers[pt[0]], on=(R.tier===pt[0]);
+    h+='<div style="flex:1;border-radius:10px;padding:7px 3px;text-align:center;background:'+(on?"#5BA34A":"rgba(255,255,255,.06)")+';color:'+(on?"#0c2007":"#EAF0E4")+'">'
+      +'<b style="display:block;font:750 10.5px '+F+'">'+pt[1]+'</b>'
+      +'<span style="display:block;font:800 11.5px '+MN+';margin-top:1px">'+m2(t.installedSF)+'</span></div>';
+  });
+  h+='</div>';
+  h+=_ptMatCostRow({idx:idx, matRate:0, wide:1});
+  h+='<div style="margin-top:8px;padding:10px 11px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03)">';
+  if(R.needsMaterial) h+='<div style="display:flex;gap:7px;align-items:center;padding:3px 0">'
+    +'<span style="width:15px;flex:none"></span>'
+    +'<span style="flex:1;min-width:0;font:600 11px '+F+';color:#C7D6BB">Material delivered</span>'
+    +'<span style="font:600 9px '+MN+';color:#68765B;white-space:nowrap">retail '+m2(R.supply.retail)+'</span>'
+    +'<b style="font:700 11px '+MN+';width:52px;text-align:right">'+m2(R.deliveredSF)+'</b></div>';
+  (R.lines||[]).forEach(function(L){
+    const st=L.state, dim=(st!=="on");
+    const box=(st==="on")?'background:#6FBF5C;border:0;color:#0c2007':((st==="defer")?'background:#D9A441;border:0;color:#1A1206':'background:transparent;border:1.5px solid rgba(255,255,255,.25);color:transparent');
+    h+='<div style="display:flex;gap:7px;align-items:center;padding:3px 0;'+(dim?"opacity:.6;":"")+'">'
+      +'<button onclick="ptAsmCycle('+idx+',\''+L.key.replace(/'/g,"\\'")+'\','+(L.opt?1:0)+');ptBuildupRefresh()" title="in \u2192 deferred \u2192 out" '
+        +'style="width:15px;height:15px;flex:none;border-radius:4px;cursor:pointer;padding:0;font:800 9px '+F+';line-height:1;'+box+'">'+(st==="on"?"\u2713":(st==="defer"?"\u00bb":""))+'</button>'
+      +'<span style="flex:1;min-width:0;font:600 11px '+F+';color:#C7D6BB;'+(st==="off"?"text-decoration:line-through;":"")+'">'+escAttr(L.n)+(L.opt?' \u00b7 option':'')+'</span>'
+      +'<span style="font:600 9px '+MN+';color:#68765B;white-space:nowrap">'+(L.hr>0?(+L.hr).toFixed(3)+' hr':'')+'</span>'
+      +'<b style="font:700 11px '+MN+';width:52px;text-align:right;color:'+(st==="on"?"#EAF0E4":"#68765B")+'">'+m2(L.costSF)+'</b></div>';
+  });
+  h+='<div style="display:flex;gap:8px;padding-top:8px;margin-top:6px;border-top:1px solid rgba(255,255,255,.22)">'
+    +'<span style="flex:1;font:750 12px '+F+'">Direct cost</span><b style="font:800 13.5px '+MN+';color:#8FE07A">'+m2(R.installedSF)+' / '+escAttr(R.unit)+'</b></div>';
+  h+='<div style="display:flex;gap:8px;padding-top:6px">'
+    +'<span style="flex:1;font:750 12px '+F+'">'+_tkFmt(net)+' '+escAttr(R.unit)+' net</span><b style="font:800 13.5px '+MN+';color:#8FE07A">'+fmtN(Math.round(R.installedSF*net))+'</b></div>';
+  if(R.deferred&&R.deferred.n) h+='<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(217,164,65,.14);font:700 10.5px '+F+';color:#D9A441">'
+    +R.deferred.n+' deferred \u2014 '+m2(R.deferred.valueSF)+'/'+escAttr(R.unit)+', '+fmtN(Math.round(R.deferred.valueSF*net))+' still on the job</div>';
+  h+='<div style="font:600 9.5px '+F+';color:#68765B;margin-top:8px;line-height:1.55">'
+    +R.baseHours.toFixed(3)+' hr \u00d7 '+R.patternCx.toFixed(2)+' pattern \u00d7 '+R.areaMult.toFixed(2)+' size \u00d7 '+R.productivity.toFixed(2)+' crew \u00d7 '+m2(R.laborRate)+'/hr \u00b7 before O&amp;P. '
+    +'Every figure is read from the price book. Ticking a line changes this project\u2019s scope, not the price of it.</div>';
+  h+='</div></div>';
+  return h;
+}
 function _ptMatCostRow(e){
   if(e.idx==null) return "";
   const p=PT.polys[e.idx]; if(!p||!p.type) return "";
   const m=asmMat(p.type);
   const hasAsm=!!(m&&(m.asm||[]).length);
-  const book=(m&&m.supply&&m.supply.retail!=null)?+m.supply.retail:null;
+  const book=(typeof asmMatRetail==="function")?asmMatRetail(p.type, asmTierId()):null;
   const ov=(p.matOv!=null&&p.matOv!=="")?+p.matOv:null;
   const money2=v=>"$"+(+v||0).toFixed(2);
   if(!hasAsm){
@@ -33273,10 +33348,12 @@ function _ptAsmBlock(e){
     +`<option value="" ${cur?"":"selected"}>Assembly — flat book rate</option>`
     +opts.map(a=>`<option value="${a.id}" ${cur===a.id?"selected":""}>${a.short}${rec&&rec.asm===a.id?" · suggested":""}</option>`).join("")
     +`</select>`;
-  const open=(PT._asmOpen===e.idx);
   const head=`<div style="display:flex;gap:6px;align-items:center;margin-top:6px">${sel}`
-    +(cur?`<button onclick="ptAsmOpen(${e.idx})" style="flex:none;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:4px 9px;cursor:pointer;font:700 11px var(--tkf);background:transparent;color:#9FBF95">${open?"Hide":"Build-up"}</button>`:"")
+    +(cur?`<button onclick="ptBuildupPop(${e.idx})" style="flex:none;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:4px 9px;cursor:pointer;font:700 11px var(--tkf);background:transparent;color:#9FBF95">Build-up</button>`:"")
     +`</div>`;
+  return head;
+  /* the full build-up lives in ptBuildupPop, one card, one place */
+  const open=false;
   if(!cur||!open) return head;
   const R=_pavAsmCost(p); if(!R) return head;
   const money2=v=>"$"+(+v||0).toFixed(2);
@@ -34357,6 +34434,29 @@ function _ptDockPanel(g){
       +FS("phase","Phase",pp.phase,["","Phase 1","Phase 2","Phase 3","Phase 4","Future"]);
     if(md.types&&md.types.length) h+=FS("type",(md.kind==="linear"?"Label":"Material"),pp.type,md.types);
     h+='<div class="fld"><span class="k">Tags</span><input value="'+escAttr(pp.tags||"")+'" placeholder="comma-separated" onchange="ptPropSet(&#39;tags&#39;,this.value)"></div>';
+    // Cost, for a zone that an assembly builds. Summary only — the build-up opens over the plan.
+    (function(){
+      const opts=(typeof ptAsmOptions==="function")?ptAsmOptions(pp.type):[];
+      if(!opts.length) return;
+      const cur=(pp.asm&&ASM_LIB[pp.asm])?pp.asm:"";
+      h+=S("Assembly");
+      h+='<div class="fld"><span class="k">Built as</span><select onchange="ptSetPolyAsm('+_ptPropIdx()+',this.value)">'
+        +'<option value=""'+(cur?"":" selected")+'>— flat book rate</option>'
+        +opts.map(a=>'<option value="'+escAttr(a.id)+'"'+(cur===a.id?" selected":"")+'>'+escAttr(a.short)+'</option>').join("")
+        +'</select></div>';
+      if(!cur) return;
+      const R=_pavAsmCost(pp);
+      if(!R) return;
+      if(R.needsNumbers||R.needsRetail){
+        h+='<div class="fld"><span class="k">Cost</span><span class="v" style="color:#F2C14E">'
+          +(R.needsNumbers?"assembly not priced":"no material price")+'</span></div>';
+      } else {
+        const net=_ptTraceNet(pp);
+        h+='<div class="fld"><span class="k">Direct</span><span class="v">$'+R.installedSF.toFixed(2)+' / '+escAttr(R.unit)+'</span></div>';
+        h+='<div class="fld"><span class="k">This zone</span><span class="v">'+fmtN(Math.round(R.installedSF*net))+'</span></div>';
+      }
+      h+=T("ptBuildupPop("+_ptPropIdx()+")","See the build-up",_DIC.props,false);
+    })();
     h+=S("Measured")
       +'<div class="fld"><span class="k">'+(pp.kind==="linear"?"Run":"Area")+'</span><span class="v">'+meas+'</span></div>'
       +'<div class="fld"><span class="k">Points</span><span class="v">'+((pp.pts&&pp.pts.length)||0)+'</span></div>';
