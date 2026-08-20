@@ -4489,7 +4489,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1024</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1025</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30899,7 +30899,14 @@ function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const ti
 // Price for one paving trace, most specific first:
 //   1. a rate you typed for this trace   2. its installation assembly   3. the flat book band
 function _pavAsmCost(p){ if(!p||!p.asm||!ASM_LIB[p.asm]) return null;
-  try{ return asmCost({asm:p.asm, material:p.type, off:p.asmOff, areaSF:_ptTraceNet(p)}); }catch(e){ return null; } }
+  try{ return asmCost({asm:p.asm, material:p.type, off:p.asmOff, areaSF:_ptTraceNet(p),
+                       supply:(p.matOv!=null&&p.matOv!=="")?{retail:+p.matOv}:null}); }catch(e){ return null; } }
+// A material cost you have in mind for this job. Overrides the book for this trace only and never
+// writes back to it — the book stays the source of truth for everyone else.
+function ptSetMatOv(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
+  if(v===""||v==null) delete p.matOv; else p.matOv=Math.max(0,+v||0);
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
+function ptClearMatOv(idx){ ptSetMatOv(idx,""); }
 function _pavAsmRate(p){ const r=_pavAsmCost(p); return (r&&!r.needsRetail)?r.installedSF:null; }
 function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate;
   const a=_pavAsmRate(p); if(a!=null&&a>0) return a;
@@ -32192,11 +32199,8 @@ function _ptWhyRowPaving(e, unit){
       <select onchange="ptSetPolyMat(${e.idx},this.value)" style="flex:2;min-width:0;box-sizing:border-box;font:600 11.5px var(--tkf);color:#EAF0E4;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:4px 6px">${mats}</select>
       <select onchange="ptSetPolyLoc(${e.idx},this.value)" title="Where AI placed it — editable" style="flex:1.5;min-width:0;box-sizing:border-box;font:600 11px var(--tkf);color:#9FBF95;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);border-radius:7px;padding:4px 5px">${locSel}</select>
     </div>
+    ${_ptMatCostRow(e)}
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-      <span style="font:600 11px var(--tkf);color:#8FA383">$/SF</span>
-      <input value="${rateStr}" placeholder="${e.matRate>0?(+e.matRate).toFixed(2):(e.mat?"—":"pick a material")}" inputmode="decimal" onchange="ptSetPolyRate(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
-        style="width:70px;box-sizing:border-box;font:700 12px ui-monospace,Menlo,monospace;text-align:right;color:${OV?"#F2C14E":"#EAF0E4"};background:rgba(255,255,255,.06);border:1px solid ${OV?"#F2C14E":"rgba(255,255,255,.12)"};border-radius:7px;padding:4px 6px">
-      ${OV?`<span style="font:700 10px var(--tkf);color:#F2C14E">edited</span>`:(e.mat?`<span style="font:600 10px var(--tkf);color:#8FA383">material + install</span>`:"")}
       <span style="flex:1"></span>
       <span style="text-align:right;white-space:nowrap">
         <b style="display:block;font:700 12.5px ui-monospace,Menlo,monospace;color:#EAF0E4">${_tkFmt(e.net)} ${unit}</b>
@@ -32205,6 +32209,35 @@ function _ptWhyRowPaving(e, unit){
     ${_ptAsmBlock(e)}
     ${e.taken?`<div style="font:600 10.5px var(--tkf);color:#8FA383;margin-top:4px">less ${_tkFmt(e.taken)} taken out</div>`:""}
     ${e.demo&&e.demoCost>0?`<div style="font:700 10.5px ui-monospace,Menlo,monospace;color:#D9A441;margin-top:2px">+ ${fmtN(e.demoCost)} tear-out</div>`:""}
+  </div>`;
+}
+// The material cost for this trace: what the book says, and a box for the one you have in mind.
+// This is the only number a trace is allowed to carry, and it overrides for this project only.
+function _ptMatCostRow(e){
+  if(e.idx==null) return "";
+  const p=PT.polys[e.idx]; if(!p||!p.type) return "";
+  const m=asmMat(p.type);
+  const hasAsm=!!(m&&(m.asm||[]).length);
+  const book=(m&&m.supply&&m.supply.retail!=null)?+m.supply.retail:null;
+  const ov=(p.matOv!=null&&p.matOv!=="")?+p.matOv:null;
+  const money2=v=>"$"+(+v||0).toFixed(2);
+  if(!hasAsm){
+    return `<div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+      <span style="flex:1;font:600 10.5px var(--tkf);color:#8FA383">Priced from the book band — no material cost to set</span>
+      <b style="font:700 12px ui-monospace,Menlo,monospace;color:#EAF0E4">${e.matRate>0?money2(e.matRate)+" / SF":"—"}</b></div>`;
+  }
+  return `<div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+    <span style="flex:1;min-width:0;font:600 11px var(--tkf);color:#8FA383">Material cost
+      <span style="display:block;font:600 9.5px ui-monospace,Menlo,monospace;color:#68765B">book ${book==null?"not set":money2(book)+" / SF"}</span></span>
+    <input value="${ov==null?"":ov.toFixed(2)}" placeholder="${book==null?"set one":book.toFixed(2)}" inputmode="decimal"
+      onchange="ptSetMatOv(${e.idx},this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+      title="A material cost for this job only. The price book is not changed."
+      style="width:74px;box-sizing:border-box;font:700 12px ui-monospace,Menlo,monospace;text-align:right;
+      color:${ov!=null?"#F2C14E":"#EAF0E4"};background:rgba(255,255,255,.06);
+      border:1px solid ${ov!=null?"#F2C14E":"rgba(255,255,255,.12)"};border-radius:7px;padding:4px 6px">
+    ${ov!=null
+      ? `<button onclick="ptClearMatOv(${e.idx})" title="Back to the book price" style="flex:none;border:0;background:none;cursor:pointer;font:700 10px var(--tkf);color:#F2C14E">this job ✕</button>`
+      : `<span style="flex:none;font:600 10px var(--tkf);color:#68765B;width:52px">this job</span>`}
   </div>`;
 }
 // The assembly picker and its line-by-line build-up. Every line can be switched off, and the panel
@@ -32227,10 +32260,11 @@ function _ptAsmBlock(e){
   if(!cur||!open) return head;
   const R=_pavAsmCost(p); if(!R) return head;
   const money2=v=>"$"+(+v||0).toFixed(2);
-  const RET=(()=>{ const m=asmMat(p.type); return (m&&m.supply&&m.supply.retail!=null)?m.supply.retail:null; })();
+  const RET=(()=>{ if(p.matOv!=null&&p.matOv!=="") return +p.matOv;
+    const m=asmMat(p.type); return (m&&m.supply&&m.supply.retail!=null)?m.supply.retail:null; })();
   const retIn=`<div style="display:flex;gap:8px;align-items:center;padding:7px 0">
       <span style="flex:1;font:600 11px var(--tkf);color:#C7D6BB">Material price
-        <span style="display:block;font:600 9.5px var(--tkf);color:#68765B">from the price book</span></span>
+        <span style="display:block;font:600 9.5px var(--tkf);color:#68765B">${(p.matOv!=null&&p.matOv!=="")?"set for this job":"from the price book"}</span></span>
       <b style="font:700 12px ui-monospace,Menlo,monospace;color:${RET==null?"#F2C14E":"#EAF0E4"}">${RET==null?"not set":money2(RET)}</b></div>`;
   const bookLink=`<button onclick="pbOpenAsm('${q(p.type||"")}')" style="margin-top:7px;border:0;background:none;padding:0;cursor:pointer;font:700 10.5px var(--tkf);color:#7CE05E">Edit in Price Book →</button>`;
   if(R.needsRetail) return head+`<div style="margin-top:7px;padding:9px 10px;border:1px solid #F2C14E;border-radius:11px;background:rgba(242,193,78,.10)">
