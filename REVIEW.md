@@ -9,6 +9,37 @@ Newest first. Move an item to **Settled** when it's decided, with the answer.
 
 ## Open
 
+### 0 · Assembly engine — two things deliberately deferred
+**v1028 · 2026-08-19 · estimating engine**
+
+Both agreed with Warwick, neither blocking:
+
+**1. Edging is a $0.50/SF allowance.** It should be priced from linear feet once takeoff geometry
+can supply the perimeter of a paved area. Applies to `pav.dg` today; concrete pavers and brick
+carry edge restraint on the same basis. Not solved now, by agreement.
+
+**2. Construction parameters are baked into the defaults.** The assemblies assume 4" concrete,
+4" road base, #3 rebar at ~18" OC, ~1" bedding sand. These must become editable variables before
+the engine is considered complete:
+
+- Concrete thickness
+- Aggregate base thickness
+- Rebar size
+- Rebar spacing
+- Bedding sand thickness
+- Mortar bed thickness
+- Joint width
+- Paver / stone thickness
+
+The Assembly Selection Engine should recommend defaults from the assembly and the intended use
+(pedestrian, pool deck, driveway), with the user able to override. Today it scores thickness only —
+its other twelve factors are listed in `ASM_FACTORS_PENDING` and surfaced as not yet considered.
+
+**Defaults settled:** natural stone sealer defaults ON (most high-end SoCal stone is sealed);
+DG stabiliser defaults OFF (a deliberate choice per project).
+
+---
+
 ### 0 · Assembly architecture is now the standard shape — catalogue and tier profiles are yours to fill
 **v1021 · 2026-08-19 · estimating engine**
 
