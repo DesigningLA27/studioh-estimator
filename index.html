@@ -2577,6 +2577,27 @@ body:not(.sp-on) #sp-open{display:grid}
 .pbk-f .k small{display:block;font-size:10.5px;color:var(--tl)}
 .pbk-f b{font:700 13px ui-monospace,Menlo,monospace}
 .pbk-hint{font-size:11.5px;color:var(--tm);padding:2px 5px;line-height:1.45}
+/* ── Price rows ──────────────────────────────────────────────────────────────
+   Every size is typeable, because a nursery in LA prices nothing in Chicago. Where
+   the number came from is on the row rather than in a tooltip: a nursery quote reads
+   green, a typed price reads amber and offers a way back. */
+.pbk-pf{gap:6px}
+.pbk-pf .cur{font:700 12px ui-monospace,Menlo,monospace;color:var(--tl);flex:none}
+.pbk-pf input{border:0;background:var(--surface2);border-radius:8px;width:66px;flex:none;
+  font:700 13px ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;
+  padding:5px 8px;text-align:right;color:var(--tx)}
+.pbk-pf input:focus{outline:2px solid var(--gm);outline-offset:0}
+.pbk-pf.nur input{color:var(--gm)}
+.pbk-pf.man input{color:#9A6B1E;background:#FBF3E0}
+:root[data-theme="dark"] .pbk-pf.man input{color:#E3B341;background:#332911}
+.pbk-pf.man .k small{color:#9A6B1E}
+:root[data-theme="dark"] .pbk-pf.man .k small{color:#E3B341}
+.pbk-rev{flex:none;border:0;background:none;cursor:pointer;color:#9A6B1E;font-size:14px;
+  line-height:1;padding:4px 2px;border-radius:7px}
+.pbk-rev:hover{background:#F6EAD2}
+:root[data-theme="dark"] .pbk-rev{color:#E3B341}
+:root[data-theme="dark"] .pbk-rev:hover{background:#332911}
+.pbk-eb .tag.nur{background:var(--gm)}
 .pbk-empty{font-size:12.5px;color:var(--tl);padding:22px 12px;text-align:center;line-height:1.5}
 /* how many plants a filter value leaves — quiet, so it never competes with the label */
 .pbf-n{margin-left:6px;font:700 10.5px ui-monospace,Menlo,monospace;color:var(--tl);
@@ -4793,7 +4814,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1077</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1078</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19746,41 +19767,116 @@ function pbkToggleInJob(){ PB_BOOK.injob=!PB_BOOK.injob; try{ renderPlantBook();
 function _pbkInsRender(){ const el=document.getElementById("pbk-ins"); if(!el) return;
   try{ el.innerHTML=_pbkInspector(); }
   catch(e){ el.innerHTML='<div class="pbk-empty">Could not read this plant: '+String(e&&e.message||e)+'</div>'; } }
+/* Nursery prices for a plant, cheapest per size, plus who quoted it. */
+function _pbNurseryPrices(p){
+  const out={};
+  try{ (NURSERY_DB.nurseries||[]).forEach(n=>{
+    const st=NURSERY_DB.stock[n.id]; if(!st||!st[p.id]) return;
+    Object.keys(st[p.id]).forEach(sz=>{ const c=st[p.id][sz];
+      const v=+(c&&(c.p!=null?c.p:c.price)); if(!isFinite(v)||v<=0) return;
+      if(!out[sz] || v<out[sz].p) out[sz]={p:v, n:n.name}; }); });
+  }catch(e){}
+  return out;
+}
+/* The sizes worth showing: whatever a nursery quotes, whatever has been typed, and
+   failing both a sensible ladder for the kind — a plant nobody local stocks still has
+   to be priceable, which is the whole point once this is used outside LA. */
+const PB_SIZE_LADDER={shrub:["1G","5G","15G"], gc:["4IN","1G"], tree:["15G",'24"BOX','36"BOX'], palm:["15G",'24"BOX','36"BOX']};
+function _pbSizeRows(p,kind){
+  const nur=_pbNurseryPrices(p), man=p.mp||{}, seen={}, out=[];
+  const push=sz=>{ if(!sz||seen[sz]) return; seen[sz]=1;
+    const n=nur[sz], m=man[sz];
+    out.push({sz, price:(m!=null?+m:(n?n.p:null)), src:(m!=null?"manual":(n?"nursery":"none")), from:(n?n.n:"")}); };
+  Object.keys(nur).forEach(push);
+  // With no quotes at all the ladder is always offered — otherwise typing one price
+  // would collapse the list to that single size and hide the others.
+  if(!Object.keys(nur).length) (PB_SIZE_LADDER[kind]||PB_SIZE_LADDER.shrub).forEach(push);
+  Object.keys(man).forEach(push);
+  return out;
+}
+function pbPriceSet(pid,sz,v){
+  const p=_pbkPlant(pid); if(!p) return;
+  const n=parseFloat(String(v==null?"":v).replace(/[^0-9.]/g,""));
+  p.mp=p.mp||{};
+  if(!isFinite(n)||n<=0) delete p.mp[sz]; else p.mp[sz]=Math.round(n*100)/100;
+  if(!Object.keys(p.mp).length) delete p.mp;
+  try{ plantBookSave(); }catch(e){}
+  try{ _pbkInsRender(); }catch(e){}
+}
+/* Back to what the nursery quotes. Only offered when a nursery actually quotes it. */
+function pbPriceRevert(pid,sz){
+  const p=_pbkPlant(pid); if(!p||!p.mp) return;
+  delete p.mp[sz]; if(!Object.keys(p.mp).length) delete p.mp;
+  try{ plantBookSave(); }catch(e){}
+  try{ _pbkInsRender(); }catch(e){}
+}
 function _pbkInspector(){
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const p=PB_BOOK.sel?_pbkPlant(PB_BOOK.sel):null;
   if(!p) return '<div class="pbk-empty">Pick a plant to see its sizes, prices and conditions.</div>';
+  const kind=PB_BOOK.kind;
   let h='';
   h+= p.img ? '<div class="pbk-ph" style="background-image:url('+JSON.stringify(p.img)+')" onclick="pbkOpenLightbox()"></div>'
             : '<div class="pbk-ph none" onclick="pbkOpenLightbox()">no photo</div>';
-  const fav=(function(){ try{ return isFav(p,PB_BOOK.kind); }catch(e){ return false; } })();
+  const fav=(function(){ try{ return isFav(p,kind); }catch(e){ return false; } })();
   h+='<div class="pbk-hd">'+esc(p.c||"")+(fav?' <span style="color:#D99A00">★</span>':'')
     +'<i>'+esc(p.b||"")+'</i></div>';
-  // Sizes and what they cost, from the nurseries — the Price Book's price points, one book across.
-  let sizes=[];
-  try{ (NURSERY_DB.nurseries||[]).forEach(n=>{ const st=NURSERY_DB.stock[n.id]; if(!st||!st[p.id]) return;
-      Object.keys(st[p.id]).forEach(sz=>{ const c=st[p.id][sz]; if(c&&c.p!=null) sizes.push({sz, p:+c.p, n:n.name}); }); });
-  }catch(e){}
-  const bySize={}; sizes.forEach(x=>{ if(!bySize[x.sz]||x.p<bySize[x.sz].p) bySize[x.sz]=x; });
-  const keys=Object.keys(bySize);
-  h+='<div class="pbk-eb">Size points'+(keys.length?' <span class="tag">FROM NURSERIES</span>':'')+'</div>';
-  if(keys.length){
-    keys.forEach(sz=>{ const x=bySize[sz];
-      h+='<div class="pbk-f"><span class="k">'+esc(sz)+'<small>'+esc(x.n)+'</small></span><b>'+fmtN(x.p)+'</b></div>'; });
-  } else {
-    h+='<div class="pbk-hint">No nursery has priced this plant yet. Add stock under Nurseries and the sizes appear here.</div>';
-  }
+
   const F=(k,v)=>v?('<div class="pbk-f"><span class="k">'+k+'</span><b>'+esc(v)+'</b></div>'):'';
-  h+='<div class="pbk-eb">Conditions</div>';
-  h+=F("Water", ({VL:"Very low",L:"Low",M:"Moderate",H:"High"}[p.wu]||p.wu||p.cls||""));
+  const EB=t=>'<div class="pbk-eb">'+t+'</div>';
+
+  h+=EB("Conditions");
+  h+=F("Water", ({VL:"Very low",L:"Low",M:"Moderate",H:"High"}[p.wu]||p.wu||""));
+  const SUN={sun:"Full sun",sunpart:"Sun–part",part:"Part shade",shade:"Full shade"};
+  const ls=(function(){ try{ return lightSetOf(p)||[]; }catch(e){ return []; } })();
+  h+=F("Sun", ls.map(x=>SUN[x]||x).join(" · "));
   h+=F("Mature", (p.w&&p.h)?((p.w)+"′ × "+(p.h)+"′"):"");
-  h+=F("Bloom", [p.bloom,p.color].filter(Boolean).join(" · "));
+  h+=F("Growth", p.growthRate);
+
+  h+=EB("Climate");
   h+=F("Sunset zones", p.sunset);
   h+=F("USDA", p.usda);
-  if((p.tags||[]).length) h+='<div class="pbk-eb">Tags</div><div class="pbk-tags">'
+  const fz=(function(){ try{ return dsZoneOf(p); }catch(e){ return null; } })();
+  h+=F("Fire", fz?({safe:"Fire-safe","0":"Zone 0","1":"Zone 1","2":"Zone 2",avoid:"Avoid"}[fz]||fz):"");
+
+  // ── Sizes & prices ──────────────────────────────────────────────────────────
+  // A nursery in LA is no use on a job in Chicago, so every price is typeable. Where a
+  // number came from is on the row: quoted prices read green, typed ones amber with a
+  // way back. Nothing here is invented — an unpriced size stays empty.
+  const rows=_pbSizeRows(p,kind);
+  const anyNur=rows.some(r=>r.src==="nursery"||r.from);
+  h+='<div class="pbk-eb">Sizes &amp; prices'+(anyNur?' <span class="tag nur">NURSERY</span>':'')+'</div>';
+  rows.forEach(r=>{
+    const val=r.price==null?"":fmtN(r.price).replace(/^\$/,"");
+    const sub=r.src==="manual"?("typed"+(r.from?" · over "+esc(r.from):"")):(r.from?esc(r.from):"no quote");
+    h+='<div class="pbk-f pbk-pf'+(r.src==="manual"?" man":(r.src==="nursery"?" nur":""))+'">'
+      +'<span class="k">'+esc(r.sz)+'<small>'+sub+'</small></span>'
+      +'<span class="cur">$</span>'
+      +'<input inputmode="decimal" value="'+esc(val)+'" placeholder="—" '
+      +'onclick="event.stopPropagation()" '
+      +'onchange="pbPriceSet(\''+p.id+'\',\''+esc(r.sz).replace(/'/g,"&#39;")+'\',this.value)">'
+      +(r.src==="manual"&&r.from
+        ? '<button class="pbk-rev" title="Back to the nursery quote" onclick="event.stopPropagation();pbPriceRevert(\''+p.id+'\',\''+esc(r.sz).replace(/'/g,"&#39;")+'\')">↺</button>'
+        : '')
+      +'</div>';
+  });
+
+  if((p.tags||[]).length) h+=EB("Tags")+'<div class="pbk-tags">'
     +p.tags.slice(0,10).map(t=>'<span>'+esc(String(t).replace(/-/g," "))+'</span>').join('')+'</div>';
-  h+='<div class="pbk-eb">Actions</div>'
-    +'<button class="pbk-btn" onclick="pbkOpenLightbox()">Open full record</button>';
+
+  // What the plan already does with it — read from the job, never authored here.
+  const inJob=(function(){ let n=0, areas={};
+    try{ const zs=(S.planting&&Array.isArray(S.planting.zones))?S.planting.zones:[];
+      zs.forEach(z=>{ const nm=(z&&(z.name||z.label||z.area))||"";
+        ["shrubRows","gcRows","treeRows","palmRows"].forEach(rk=>((z&&z[rk])||[]).forEach(r=>{
+          if(r&&r.pid===p.id){ const q=(+r.qty||1); n+=q; if(nm) areas[nm]=(areas[nm]||0)+q; } })); });
+    }catch(e){}
+    return {n, areas}; })();
+  if(inJob.n){ h+=EB("In this job");
+    Object.keys(inJob.areas).forEach(a=>{ h+=F(a, String(inJob.areas[a])); });
+    if(!Object.keys(inJob.areas).length) h+=F("Placed", String(inJob.n)); }
+
+  h+=EB("Actions")+'<button class="pbk-btn" onclick="pbkOpenLightbox()">Open full record</button>';
   return h;
 }
 function renderPlantBook(){
@@ -20050,8 +20146,7 @@ function _pbRow(p,kind){
                     : `<span class="pb-thumb"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`;
   return thumb
     +`<div class="pb-nm"><b>${escAttr(p.c||'Unnamed')}</b><i>${escAttr(botName(p))}</i></div>`
-    +_pbChips(p,kind)
-    +`<button class="pb-exp" onclick="event.stopPropagation();togglePlantRow('${p.id}')"><svg viewBox="0 0 24 24">${PB_ICO.chev}</svg></button>`;
+    +_pbChips(p,kind);
 }
 function togglePlantRow(id){
   if(!PB_BOOK.open) PB_BOOK.open=new Set();
@@ -20285,7 +20380,9 @@ function renderPlantBookList(){
   }
   const more = total>CAP ? `<div style="font-size:.78rem;color:var(--tm);background:#FBF8F2;border:1px solid var(--br);border-radius:7px;padding:.5rem .7rem;margin-top:.6rem">Showing the first ${CAP} of ${total}. Use the search box or category filters above to narrow the list.</div>` : '';
   // Row opens the lightbox (study); the chevron keeps the inline drawer (glance).
-  const item = p=>{ const op=PB_BOOK.open.has(p.id); return `<div class="pb-item" data-pid="${p.id}"><div class="pb-row${op?' open':''}${PB_BOOK.sel===p.id?' sel':''}" onclick="pbkSelect('${p.id}')">${_pbRow(p,kind)}</div><div class="pb-body" id="pbbody-${p.id}" style="display:${op?'block':'none'}">${card(p)}</div></div>`; };
+  // Selecting a row fills the right panel. There is no inline drawer any more — a plant
+  // record is far bigger than a row and belongs beside the list, not inside it.
+  const item = p=>`<div class="pb-item" data-pid="${p.id}"><div class="pb-row${PB_BOOK.sel===p.id?' sel':''}" onclick="pbkSelect('${p.id}')">${_pbRow(p,kind)}</div></div>`;
   // Say what was filtered out, not just what is left — "3,051 shrubs" reads as the
   // whole book when it is actually a filtered subset, and the climate filter is on
   // by default, so the count has to show it is working.

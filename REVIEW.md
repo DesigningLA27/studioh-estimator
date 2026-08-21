@@ -805,3 +805,21 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - **Open:** `Phormium 'Jack Spratt'` keys to `Phormium` while `Phormium tenax` keys to
   `Phormium tenax`, so a cultivar with no epithet does not group with the species. Correct
   botanically, but worth revisiting if it reads oddly on the full book.
+
+## v1078 — plant detail moves to the right panel, prices become editable
+- **Inline drawer deleted.** Tapping a row selects it and fills the inspector; the chevron
+  went with it. Verified: 0 `.pb-body`, 0 `.pb-exp` in the view.
+- Inspector is option A: Conditions · Climate · Sizes & prices · Tags · In this job · Actions,
+  all in the Price Book's field rows.
+- **Every size is priceable.** A nursery in LA prices nothing on a job in Chicago, so each size
+  takes a typed number. Provenance is on the row: a quote reads green with the nursery named,
+  a typed price reads amber, labelled "typed · over <nursery>", with a ↺ back to the quote.
+  Revert only appears where a quote exists to go back to.
+- Sizes shown = every size a nursery quotes, plus any typed; with no quotes at all, a ladder by
+  kind (shrub 1G/5G/15G, tree 15G/24"/36", gc 4IN/1G) so an unstocked plant is still priceable.
+- Verified end to end headlessly: quote $38 → type 55 → row turns manual, ↺ appears → click ↺ →
+  back to $38, manual count 0.
+- **DECISION NEEDED — where a typed price lives.** It is stored on the plant record (`p.mp`),
+  which is the *shared master book*, so one user's Chicago price would follow the plant for
+  everyone. Fine while Warwick is the only author. Before selling seats this has to become
+  per-subscriber or per-region, like [[image-framing-roadmap]].
