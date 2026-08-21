@@ -702,3 +702,13 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   paving, accessory buildings, retaining/property walls, planting areas.
 - AI Learning Mode: corrections become per-project training context for later
   detections.
+
+## v1065 — Plant Book adopts the Price Book palette
+- The two books now share one palette block, transcribed by hex: `--pbg #FFFFFF`, `--pbcard #FBFAF6`,
+  `--pbpill #FFFFFF`, `--brand-soft #EAF1E5`, toolbar `#C8DABE`. Selected row carries the same
+  `inset 3px 0 0 var(--gm)` rail and green name as `.pb3-li.on`.
+- Plant rows no longer toggle off; the list lands on its first row so the inspector is never empty.
+- **Not done:** the plant row has no right-hand value the way a Price Book line ends in its price.
+  A mature-size column was built and reverted — at ~370px the list cannot hold star + thumb + name +
+  icons + a value without clipping. Open question: drop the icon groups from the row (they are
+  already unreadable at that width), or widen the list.
