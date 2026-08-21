@@ -4562,7 +4562,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1058</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1059</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -33436,8 +33436,13 @@ function _ptWhyRowPaving(e, unit){
     <td class="t">${cost>0?_tkFmt(Math.round(cost)):"\u2014"}</td>
     <td class="cv">\u203a</td></tr>`;
 }
-function ptTraceOpen(idx){ PT._traceSel=idx; try{ ptBuildupPop(idx,1); }catch(e){}
-  try{ ptWhy(PT.polys[idx]?PT.polys[idx].mode:"paving"); }catch(e){} }
+function ptTraceOpen(idx){
+  const openNow=document.getElementById("pt-buildup");
+  if(openNow && PT._traceSel===idx){            // same row again — put both away
+    PT._traceSel=null; try{ ptBuildupClose(); }catch(e){} try{ ptPopClose(); }catch(e){} return; }
+  PT._traceSel=idx;
+  try{ ptWhy(PT.polys[idx]?PT.polys[idx].mode:"paving"); }catch(e){}
+  try{ ptBuildupPop(idx,1); }catch(e){} }
 // The material cost for this trace: what the book says, and a box for the one you have in mind.
 // This is the only number a trace is allowed to carry, and it overrides for this project only.
 // ── Build-up card, wide, over the plan ───────────────────────────────────────
@@ -33454,8 +33459,9 @@ function ptBuildupPop(idx,side){
   const off=(function(){ try{ return (ptTkDock()==="right")?(ptTkShut()?132:432):24; }catch(e){ return 24; } })();
   const roomy=(window.innerWidth>=820);
   if(side&&roomy){
-    d.className="tkpop";
-    d.style.cssText+=";top:20px;right:"+(off+394)+"px;width:min(404px,44vw);max-height:80vh;overflow:auto;padding:0;background:none;border:0;box-shadow:none;backdrop-filter:none";
+    d.className="tkpop";                      // identical background, border and blur to the take-off card
+    d.style.cssText+=";top:20px;right:"+(off+394)+"px;width:min(460px,46vw);max-height:80vh;"
+      +"overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch";
   } else {
     d.style.cssText="position:fixed;inset:0;z-index:10004;background:rgba(10,16,8,.55);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto";
     d.addEventListener("mousedown",e=>{ if(e.target===d) ptBuildupClose(); });
@@ -33466,14 +33472,19 @@ function ptBuildupPop(idx,side){
 function ptBuildupClose(){ const d=document.getElementById("pt-buildup"); if(d) d.remove(); }
 function ptBuildupRefresh(){ const d=document.getElementById("pt-buildup"); if(!d) return;
   const i=+d.getAttribute("data-idx"); if(isFinite(i)) d.innerHTML=_ptBuildupHtml(i, d.getAttribute("data-side")==="1"); }
-function _ptBuildupHtml(idx, edit){
+function _ptBuildupHtml(idx, side){
+  const edit=!!side;
   const p=PT.polys[idx]; if(!p) return "";
   const F="var(--tkf)", MN="ui-monospace,Menlo,monospace";
   const nm=escAttr((p.name||"").trim()||_ptMode(p.mode).label);
   const net=_ptTraceNet(p);
   const R=_pavAsmCost(p);
   const m2=v=>"$"+(+v||0).toFixed(2);
-  let h='<div data-idx="'+idx+'" style="width:min(420px,96vw);background:#14200c;border-radius:20px;padding:16px 18px;color:#EAF0E4;font-family:'+F+';box-shadow:0 26px 60px -22px rgba(0,0,0,.85)">'
+  const boxed=!side;                          // standalone overlay draws its own card; docked inherits the popup's
+  let h='<div data-idx="'+idx+'" style="'+(boxed
+      ? 'width:min(420px,96vw);background:#14200c;border-radius:20px;padding:16px 18px;box-shadow:0 26px 60px -22px rgba(0,0,0,.85);'
+      : 'width:100%;max-width:100%;')
+    +'color:#EAF0E4;font-family:'+F+'">'
     +'<div style="display:flex;align-items:baseline;gap:9px">'
       +'<b style="font:800 16px '+F+';flex:1;min-width:0">'+nm+'</b>'
       +'<button onclick="ptBuildupClose()" style="border:0;background:rgba(255,255,255,.08);color:#9FBF95;border-radius:9px;width:28px;height:28px;cursor:pointer;font:700 13px '+F+'">\u2715</button></div>';
@@ -34079,7 +34090,11 @@ function _ptPopOutside(id){
     const off=(e)=>{ const d=document.getElementById(id);
       if(!d){ document.removeEventListener("pointerdown",off,true); return; }
       if(d.contains(e.target)) return;
+      // The build-up card belongs to this popup — a tap in it is not a tap outside.
+      const bu=document.getElementById("pt-buildup");
+      if(bu&&bu.contains(e.target)) return;
       document.removeEventListener("pointerdown",off,true);
+      try{ ptBuildupClose(); }catch(_){}          // outside closes the pair
       d.remove();
     };
     document.addEventListener("pointerdown",off,true);
