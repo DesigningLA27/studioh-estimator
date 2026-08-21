@@ -789,3 +789,19 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   Now 32px, 13px radius, 12.5px type.
 - Buttons: radius 11 → 13px, type 12 → 12.5px, so Filters / Tools / Add match Ask /
   Conceptual / Publish.
+
+## v1076 — Plant Book rows: chips + species grouping
+- Row is now flex, not a twelve-column grid: thumbnail (38px) → name/botanical → chip set →
+  chevron. Chips in priority order: favourite, water, spread × height, sun, growth rate.
+- Width is shed from the right by container query on `.pbk-list`: growth below 560px, sun
+  below 470, size below 390, water below 320. The star never goes.
+- Chips have fixed widths, so all 23 rows end at the same x (measured: 1 distinct right edge).
+- Species grouping mirrors the Price Book's family rows. `_pbSpecies()` strips the cultivar
+  and any var./ssp. from the botanical, then takes genus + epithet. A species with one entry
+  gets no heading. Headings show the count and fold; state in `PB_SPOPEN`.
+- Children indent by `padding-left` on the row, not margin on the wrapper — a wrapper margin
+  pulls the right-hand chips in and breaks the flush edge.
+- **Dropped from the mockup:** the gallon-size and price chips, at Warwick's call.
+- **Open:** `Phormium 'Jack Spratt'` keys to `Phormium` while `Phormium tenax` keys to
+  `Phormium tenax`, so a cultivar with no epithet does not group with the species. Correct
+  botanically, but worth revisiting if it reads oddly on the full book.
