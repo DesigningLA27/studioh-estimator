@@ -780,3 +780,12 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   and a shadow. The Price Book's `.pbz-tree` / `.pb3-list` / `.pb3-ins` carry neither —
   measured `box-shadow: none` on all three — so both are now cleared, on the columns and
   on the toolbar.
+
+## v1074 — Plant Book bar controls match the Price Book's
+- The search field was a 999px pill with a 1px border sitting beside 11px-radius buttons,
+  so it read as a different shape from everything next to it. Now 13px radius, no border —
+  every control on the Price Book bar is a 13px rect.
+- AI Search was a 25px pill inside the field against the Price Book's 39px Ask button.
+  Now 32px, 13px radius, 12.5px type.
+- Buttons: radius 11 → 13px, type 12 → 12.5px, so Filters / Tools / Add match Ask /
+  Conceptual / Publish.
