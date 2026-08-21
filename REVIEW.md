@@ -761,3 +761,16 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   to the length of the book.
 - Remaining difference is content height only (tree 832 vs 750 in the sample) — every edge
   that determines placement is identical, so switching tabs moves nothing.
+
+## v1072 — Plant Book type and rules matched to the Price Book
+- No lines anywhere: the row divider (`.pb-item+.pb-item`), the green left rail on the
+  selected row, and the 1px hairlines between icon groups inside a row. The hairlines are
+  grid columns, so their fill is cleared rather than the column collapsed — `display:none`
+  shifts every icon one place left and eats the water droplet.
+- Rows now match `.pb3-li` exactly: `border:0; border-radius:13px; padding:10px 13px;
+  margin-bottom:3px`, selected state a plain `--brand-soft` fill with no shadow.
+- Type transcribed from the Price Book and verified equal by computed style:
+  list name 13.5px/600, tree row 12.5px/700 radius 12px, section heading 14px/700 at
+  -.014em, sub-heading 10.5px/600 at .02em.
+- Note: `font: <weight> <size> inherit` is invalid shorthand — the declaration is dropped
+  and the size silently falls back. Set font-size and font-weight separately.
