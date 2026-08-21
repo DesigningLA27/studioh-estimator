@@ -2472,6 +2472,29 @@ body:not(.sp-on) #sp-open{display:grid}
 .bkd.dk ~ .bkdh .s.on,.bkdh .s.on{color:inherit}
 .bkdsub{font:600 10.5px var(--tkf);letter-spacing:0;text-transform:none;opacity:.6;
   margin:0 0 7px;line-height:1.4}
+/* ── Receipt skin for the read-only Price Book breakdown ────────────────────
+   Paper stays paper in both themes — a receipt that inverts stops being one. */
+.rcpt{background:#fbfaf4;color:#241f16;border-radius:6px;padding:16px 15px 20px;margin:2px 0 4px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.55;
+  font-variant-numeric:tabular-nums;box-shadow:0 10px 26px -18px rgba(0,0,0,.45);position:relative}
+.rcpt .ctr{text-align:center}
+.rcpt .big{font-size:13px;font-weight:700;letter-spacing:.08em}
+.rcpt .dim{color:#7b7365}
+.rcpt hr{border:0;border-top:1px dashed #b9b3a4;margin:8px 0}
+.rcpt .li{display:flex;gap:8px;align-items:baseline}
+.rcpt .li .n{flex:1;min-width:0}
+.rcpt .li .n small{display:block;color:#7b7365;font-size:10px;line-height:1.35}
+.rcpt .li .v{text-align:right;white-space:nowrap}
+.rcpt .li.off{color:#a49c8c;text-decoration:line-through}
+.rcpt .li.defer .v{color:#8a6410}
+.rcpt .tot{display:flex;gap:8px;font-weight:700;font-size:13px}
+.rcpt .tot .v{margin-left:auto}
+.rcpt .zig{height:8px;margin:12px -15px -20px;
+  background:linear-gradient(-45deg,transparent 33.3%,#fbfaf4 33.3%,#fbfaf4 66.6%,transparent 66.6%),
+             linear-gradient(45deg,transparent 33.3%,#fbfaf4 33.3%,#fbfaf4 66.6%,transparent 66.6%);
+  background-size:10px 10px}
+.rcpt .bar{margin-top:10px;height:22px;opacity:.85;
+  background:repeating-linear-gradient(90deg,#241f16 0 2px,transparent 2px 4px,#241f16 4px 5px,transparent 5px 9px,#241f16 9px 11px,transparent 11px 13px)}
 .bkdf{font:600 10.5px ui-monospace,Menlo,monospace;opacity:.5;margin-top:7px;line-height:1.5}
 /* dark skin, over the plan */
 .bkd.dk td{border-bottom-color:rgba(255,255,255,.10)}
@@ -4539,7 +4562,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1057</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1058</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24466,7 +24489,11 @@ function renderPriceBook(){
         +'<span style="color:var(--tl);font-size:12px;margin-left:6px;display:inline-block;transform:rotate('+(open?90:0)+'deg)">›</span></div>';
       if(open){
         h+='<div style="background:var(--pbpill,rgba(0,0,0,.03));border-radius:10px;padding:10px 12px;margin:-2px 0 7px">';
-        h+=asmBreakdownTable(r,{label:pt[1], title:r.assemblyName+" \u00b7 "+qty+" "+r.unit});
+        h+='<div class="bkdh"><span class="t">Cost breakdown</span><span class="sp"></span>'
+          +'<button class="s'+(ASM_BKD_SORT==="build"?" on":"")+'" onclick="asmBkdSort(\'build\')">Build order</button>'
+          +'<span style="opacity:.3">·</span>'
+          +'<button class="s'+(ASM_BKD_SORT==="cost"?" on":"")+'" onclick="asmBkdSort(\'cost\')">By cost</button></div>';
+        h+=asmReceipt(r,{title:pt[1]+" \u00b7 "+esc(it.n), sub:r.assemblyName, qty:qty});
         h+='<div class="pb3-bu" style="margin-top:6px"><span>Override for the book</span>'
           +'<span style="display:flex;align-items:center;gap:4px">'
           +'<input type="number" class="no-spin" placeholder="'+r.installedSF.toFixed(2)+'" value="'+(ov!=null?ov:"")+'" step="1" onclick="event.stopPropagation()" onchange="pbPPOverride('+ci+','+sel+',\''+pt[0]+'\',this.value)">'
@@ -31374,6 +31401,57 @@ let ASM_BKD_SORT=(function(){ try{ return localStorage.getItem("studioh_bkdsort"
 function asmBkdSort(v){ ASM_BKD_SORT=v; try{ localStorage.setItem("studioh_bkdsort",v); }catch(e){}
   try{ if(typeof renderPriceBook==="function" && (S&&S.view==="pricebook")) renderPriceBook(); }catch(e){}
   try{ ptBuildupRefresh&&ptBuildupRefresh(); }catch(e){} }
+// The same build-up as a printed receipt. Read-only surfaces only — every row here is static,
+// which is exactly why it suits the Price Book and not the plan card, where each line has a tick.
+function asmReceipt(R,o){
+  o=o||{}; if(!R||R.needsNumbers||R.needsRetail) return "";
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const up=v=>esc(v).toUpperCase();
+  const m2=v=>(+v||0).toFixed(2);
+  const n0=v=>Math.round(+v||0).toLocaleString();
+  let rows=(R.lines||[]).slice();
+  if(ASM_BKD_SORT==="cost") rows=rows.slice().sort((a,b)=>(b.costSF||0)-(a.costSF||0));
+  let matSum=0, hrSum=0;
+  (R.lines||[]).forEach(L=>{ if(L.state==="on"){ matSum+=L.matSF||0; hrSum+=L.hr||0; } });
+  if(R.needsMaterial) matSum+=R.deliveredSF;
+  const laborSF=_asm2(R.installedSF-matSum);
+
+  let h='<div class="rcpt">';
+  h+='<div class="ctr big">STUDIO H</div>';
+  if(o.title) h+='<div class="ctr dim">'+up(o.title)+'</div>';
+  if(o.sub)   h+='<div class="ctr dim">'+up(o.sub)+'</div>';
+  h+='<hr>';
+  if(R.needsMaterial) h+='<div class="li"><span class="n">MATERIAL, DELIVERED'
+    +'<small>'+m2(R.supply.retail)+' +'+Math.round(R.supply.wastePct*100)+'% WASTE +'
+    +Math.round(R.supply.taxPct*100)+'% TAX +'+m2(R.supply.freight)+' FRT</small></span>'
+    +'<span class="v">'+m2(R.deliveredSF)+'</span></div>';
+  rows.forEach(function(L){
+    const st=L.state||"on";
+    const det=[];
+    if(L.matSF>0) det.push(m2(L.matSF));
+    if(L.hr>0) det.push((+L.hr).toFixed(3)+' HR @ '+m2(R.laborRate));
+    h+='<div class="li'+(st==="off"?" off":(st==="defer"?" defer":""))+'">'
+      +'<span class="n">'+up(L.n)+(L.opt?(st==="on"?' <span class="dim">· INCL</span>':' <span class="dim">· OPT</span>'):'')
+      +(det.length?'<small>'+det.join(' + ')+'</small>':'')+'</span>'
+      +'<span class="v">'+m2(L.costSF)+'</span></div>';
+  });
+  h+='<hr>';
+  h+='<div class="li"><span class="n">MATERIALS</span><span class="v">'+m2(matSum)+'</span></div>';
+  h+='<div class="li"><span class="n">LABOUR &nbsp;'+hrSum.toFixed(3)+' HR</span><span class="v">'+m2(laborSF)+'</span></div>';
+  h+='<hr>';
+  h+='<div class="tot"><span class="n">PER '+up(R.unit)+'</span><span class="v">'+m2(R.installedSF)+'</span></div>';
+  if(o.qty>0) h+='<div class="li"><span class="n">× '+n0(o.qty)+' '+up(R.unit)+'</span><span class="v">'+n0(R.installedSF*o.qty)+'</span></div>';
+  if(R.deferred&&R.deferred.n) h+='<div class="li defer"><span class="n">DEFERRED '+R.deferred.n+' LINE'+(R.deferred.n===1?'':'S')+'</span><span class="v">'+m2(R.deferred.valueSF)+'</span></div>';
+  h+='<hr>';
+  h+='<div class="dim" style="font-size:10px;line-height:1.5">'
+    +'SIZE '+R.areaMult.toFixed(2)+' &nbsp;·&nbsp; CREW '+R.productivity.toFixed(2)
+    +' &nbsp;·&nbsp; PATTERN '+R.patternCx.toFixed(2)+'<br>'
+    +'BASE '+R.baseHours.toFixed(3)+' HR &nbsp;·&nbsp; RATE '+m2(R.laborRate)+'/HR<br>'
+    +'DIRECT COST — BEFORE O&amp;P</div>';
+  h+='<div class="ctr dim" style="margin-top:9px;font-size:10px">** PRICES FROM THE STUDIO H PRICE BOOK **</div>';
+  h+='<div class="bar"></div><div class="zig"></div></div>';
+  return h;
+}
 function asmBreakdownTable(R,o){
   o=o||{}; if(!R||R.needsNumbers||R.needsRetail) return "";
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
