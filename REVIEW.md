@@ -712,3 +712,14 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   A mature-size column was built and reverted — at ~370px the list cannot hold star + thumb + name +
   icons + a value without clipping. Open question: drop the icon groups from the row (they are
   already unreadable at that width), or widen the list.
+
+## v1067 — Plant Book top bar, option C
+- One row at rest (70px, was 226px across four rows). A second row appears only when a
+  filter is on, listing only what is on, each chip removing that filter where you read it.
+- All ten facets moved behind one `Filters` button carrying the active count. `_pbkActive()`
+  is the single source for both the chips and the badge, so they cannot disagree.
+- Kind tabs removed from the bar — the Type list in the tree already calls `pbBookKind()`.
+- **Decision:** the project's Sunset zone counts as an active filter and is named in the row
+  ("Zone 18"), because it narrows the book. `sunset:"all"` names nothing. "Clear all" now
+  clears climate too, so the bar always returns to one row.
+- Removed the old "✕ Clear N" quick button — it cleared a different set than "Clear all".
