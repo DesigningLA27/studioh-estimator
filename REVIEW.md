@@ -846,3 +846,19 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - Verified headlessly on all four control types: water L→H, sun 1→2 values, spread→7,
   sunset→"8-9, 14-24"; thin record opens on edit (18 pills, 6 inputs), full record opens on
   read with 10 tappable rows and 0 popovers until tapped.
+
+## v1081 — inspector polish, and the popover that never appeared
+- **Nothing dropped down when a row was tapped.** `.pbk-ins` scrolls, so a popover positioned
+  outside its box was clipped away — the row lit up and nothing else happened. The control now
+  drops in flow under the row, which is what the mockup showed anyway.
+- **A tapped row fills solid green**, like every other selected thing in the app, instead of
+  growing a border. The `.hot` rule had to be id-scoped: `#view-plantbook .pbk-f` already paints
+  those rows, so a class-only rule lost and the row stayed white while its text went white —
+  an invisible row.
+- **Every option is a pill.** Unselected pills had `--surface2`, near-invisible on the cream
+  card, so the form read as loose text. White fill, 999px, green when live. Same for tags,
+  text inputs and the Read/Edit track.
+- **Section headings match the sidebar** — 14px/700 at -.014em, normal case, `--tx` — instead
+  of the small grey uppercase they were.
+- **Scroll stopped dead at the end of a column.** `overscroll-behavior:contain` on the list and
+  inspector blocked chaining to the page. Removed; the panel's bottom padding went 18 → 22px.
