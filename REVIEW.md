@@ -723,3 +723,10 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   ("Zone 18"), because it narrows the book. `sunset:"all"` names nothing. "Clear all" now
   clears climate too, so the bar always returns to one row.
 - Removed the old "✕ Clear N" quick button — it cleared a different set than "Clear all".
+
+## v1068 — top bar is one row, always
+- A project with an address always has a Sunset zone filtering the book, so C's
+  "second row only while filtering" was in practice permanent. Reverted to a single row;
+  the active-filter list and its removes moved inside the Filters panel, so nothing is lost.
+- Borders removed from every control in the bar. Fill against the green band carries the
+  weight; hover is a background change rather than an outline.
