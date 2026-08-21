@@ -749,3 +749,15 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   lives in `S.planting.zones[].{shrub,gc,tree,palm}Rows`. Now reports real counts by area.
 - **Open:** "Recently added" uses position in the book (everything that adds a plant pushes).
   A real added-on stamp would survive a re-sort.
+
+## v1070–1071 — Plant Book chrome made identical to the Price Book
+- Count pills copied from `#view-pricebook .pbz-t .n` — `--brand-soft` fill, `--gm` text,
+  weight 800, radius 6px, and white on the selected row. Verified equal on every computed
+  property in both states.
+- Geometry matched by measurement, not by eye. Bar: x117 y94 w1214 h72 r16px, no border,
+  16px/18px padding, 40px controls. Columns: y181, tree 248px, list 642px, inspector 300px,
+  radius 20px, `--pbcard` fill, same scroll caps (88vh / 78vh / 84vh).
+- The list now scrolls inside itself at 78vh like `.pb3-list`, instead of growing the page
+  to the length of the book.
+- Remaining difference is content height only (tree 832 vs 750 in the sample) — every edge
+  that determines placement is identical, so switching tabs moves nothing.
