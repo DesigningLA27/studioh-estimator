@@ -730,3 +730,22 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   the active-filter list and its removes moved inside the Filters panel, so nothing is lost.
 - Borders removed from every control in the bar. Fill against the green band carries the
   weight; hover is a background change rather than an outline.
+
+## v1069 — Plant Book sidebar, all sixteen sections
+- Runs the full height of the screen (`calc(100vh - 168px)`, min 420px) and scrolls inside
+  itself, so it never stops short with dead white beneath it. Width 206 → 236px.
+- Sections: Type, Water, Sun, Fire, Climate zone, Mature size, Foliage, Bloom season,
+  Availability (+ per nursery), Priced by nursery, Toxic/thorny, Top tags, Saved,
+  In this job (+ by area), Recently added, Book upkeep.
+- Every header folds and the fold is remembered in `PB_BOOK.secs`. Open by default: Type,
+  Water, Sun, Fire, Saved, In this job. A folded section is skipped when counting.
+- `_pbkTally(skip, keyfn)` walks the book once per section rather than once per row —
+  16 passes instead of ~60 — and neutralises that section's own facet so its counts are
+  what you would get by choosing it.
+- **New filters:** mature size band (on `p.w`), priced/unpriced (`NURSERY_DB.stock`),
+  toxic/thorny (`p.toxic`), recently added (last 30 in the book). All four clear with
+  "Clear all" and appear in the active-filter list.
+- **Fixed:** "Specified" was always 0 — it read `S.plants`, which is an object. Planting
+  lives in `S.planting.zones[].{shrub,gc,tree,palm}Rows`. Now reports real counts by area.
+- **Open:** "Recently added" uses position in the book (everything that adds a plant pushes).
+  A real added-on stamp would survive a re-sort.
