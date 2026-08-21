@@ -829,3 +829,20 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   raw double quotes, which close the `style` attribute the moment they are written. The photo
   had never rendered. Now an `<img class="pbk-ph">` with `escAttr` and `onerror="pbImgErr"`,
   which also gives the broken-image fallback the background version could not have.
+
+## v1080 — the inspector becomes editable (B + C)
+- `PB_FIELDS` is one registry of ten editable fields — water, sun, mature size, growth,
+  foliage, sunset, USDA, fire zone, bloom season, bloom colour — with a type each
+  (one / many / num2 / text). Both faces render from it, so they cannot drift apart.
+- **B — popover.** A field row is a target; its control opens beside the panel, over the
+  list, where there is width. Panel height never changes. One popover at a time; closes on
+  the same row again. Below 1180px the inspector is the only column, so the control drops
+  under the row instead of floating off the edge.
+- **C — form.** The same fields as one scrolling form. A record that is new or fails
+  `hasDetails()` opens here; anything filled opens on the reading face. Read/Edit switch is
+  always present, so either is one tap away.
+- Editing a field clears `p.detFlag` — reviewing a value IS editing it, which is what the
+  sidebar's "AI, unreviewed" count is watching.
+- Verified headlessly on all four control types: water L→H, sun 1→2 values, spread→7,
+  sunset→"8-9, 14-24"; thin record opens on edit (18 pills, 6 inputs), full record opens on
+  read with 10 tappable rows and 0 popovers until tapped.

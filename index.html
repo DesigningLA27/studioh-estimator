@@ -2578,6 +2578,46 @@ body:not(.sp-on) #sp-open{display:grid}
 .pbk-f .k small{display:block;font-size:10.5px;color:var(--tl)}
 .pbk-f b{font:700 13px ui-monospace,Menlo,monospace}
 .pbk-hint{font-size:11.5px;color:var(--tm);padding:2px 5px;line-height:1.45}
+/* ── Editing ─────────────────────────────────────────────────────────────────
+   B: a field row is a target; its control opens beside the panel, over the list,
+   where there is width. The panel never changes height, so what you were reading
+   does not move. C: the same fields as one form, which is what a new or thin
+   record opens on. */
+.pbe-seg{display:flex;gap:3px;background:var(--surface2);border-radius:12px;padding:3px;margin:0 0 10px}
+.pbe-seg button{flex:1;border:0;background:none;border-radius:10px;padding:7px 4px;cursor:pointer;
+  font:650 12px inherit;color:var(--tm)}
+.pbe-seg button.on{background:var(--gm);color:#fff}
+.pbk-fw{position:relative}
+.pbk-tap{cursor:pointer}
+.pbk-tap .pen{color:transparent;font-size:12px;flex:none}
+.pbk-tap:hover .pen{color:var(--gm)}
+.pbk-tap:hover{background:var(--brand-soft)}
+.pbk-tap.hot{background:var(--brand-soft);box-shadow:0 0 0 2px color-mix(in srgb,var(--gm) 45%,transparent)}
+.pbk-tap.hot .pen{color:var(--gm)}
+.pbk-none{color:var(--tl);font-weight:400;font-family:inherit;font-size:12px}
+.pbk-pop{position:absolute;right:calc(100% + 10px);top:0;width:252px;z-index:60;
+  background:var(--card);border-radius:16px;padding:13px;
+  box-shadow:0 3px 10px rgba(28,43,22,.10),0 22px 50px -24px rgba(28,43,22,.45)}
+.pbk-pop:after{content:"";position:absolute;right:-6px;top:15px;width:12px;height:12px;
+  background:var(--card);transform:rotate(45deg);border-radius:2px}
+.pbk-pop h4{margin:0 0 9px;font:700 9.5px ui-monospace,Menlo,monospace;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--tl)}
+/* Under 980px the inspector is the only column, so there is nothing to open over —
+   the control drops under the row instead of floating off the edge. */
+@media (max-width:1180px){
+  .pbk-pop{position:static;width:auto;padding:9px 2px 4px;box-shadow:none;background:none}
+  .pbk-pop:after{display:none}
+}
+.pbe-pills{display:flex;flex-wrap:wrap;gap:4px;padding:1px 1px 5px}
+.pbe-p{border:0;background:var(--surface2);color:var(--tm);border-radius:9px;padding:6px 11px;
+  font:650 12px inherit;cursor:pointer}
+.pbe-p:hover{background:var(--brand-soft);color:var(--gm)}
+.pbe-p.on{background:var(--gm);color:#fff}
+.pbe-in{border:0;background:var(--surface2);border-radius:8px;padding:5px 8px;width:72px;
+  text-align:right;font:700 13px ui-monospace,Menlo,monospace;color:var(--tx)}
+.pbe-in.wide{width:100%;text-align:left;font:600 13px inherit;padding:8px 11px}
+.pbe-in:focus{outline:2px solid var(--gm);outline-offset:0}
+.pbe-lab{font-size:11.5px;color:var(--tm);margin:7px 5px 4px}
 /* ── Price rows ──────────────────────────────────────────────────────────────
    Every size is typeable, because a nursery in LA prices nothing in Chicago. Where
    the number came from is on the row rather than in a tooltip: a nursery quote reads
@@ -4815,7 +4855,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1079</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1080</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19613,7 +19653,7 @@ function renderNurseryManager(){
 // same green value pill. The band above keeps the filters, now carrying match counts.
 /* No toggle-off: like the Price Book, a row is always selected, so the
    inspector is never a panel of dead white space. */
-function pbkSelect(pid){ PB_BOOK.sel=pid;
+function pbkSelect(pid){ PB_BOOK.sel=pid; PB_FPOP=null; PB_BOOK._editFor=null;
   try{ renderPlantBookList(); }catch(e){}
   try{ _pbkInsRender(); }catch(e){} }
 function pbkOpenLightbox(){ if(PB_BOOK.sel) try{ openPlantLightbox(PB_BOOK.kind, PB_BOOK.sel); }catch(e){} }
@@ -19811,6 +19851,93 @@ function pbPriceRevert(pid,sz){
   try{ plantBookSave(); }catch(e){}
   try{ _pbkInsRender(); }catch(e){}
 }
+/* ── Editable fields ──────────────────────────────────────────────────────────
+   One registry, two presentations: a popover for fixing a single value, and the
+   whole set as a form when the record is new or thin. Defining them twice is how
+   the two faces drift apart, so they are defined once. */
+const PB_FIELDS=[
+  {k:"wu",   sec:"Conditions", lab:"Water",  type:"one",
+   opts:[["VL","Very low"],["L","Low"],["M","Moderate"],["H","High"]],
+   read:p=>({VL:"Very low",L:"Low",M:"Moderate",H:"High"}[p.wu]||p.wu||"")},
+  {k:"light",sec:"Conditions", lab:"Sun",    type:"many",
+   opts:[["sun","Full sun"],["sunpart","Sun–part"],["part","Part shade"],["shade","Full shade"]],
+   read:p=>{ const S={sun:"Full sun",sunpart:"Sun–part",part:"Part shade",shade:"Full shade"};
+     try{ return (lightSetOf(p)||[]).map(x=>S[x]||x).join(" · "); }catch(e){ return ""; } },
+   has:p=>{ try{ return (lightSetOf(p)||[]).length>0; }catch(e){ return false; } }},
+  {k:"size", sec:"Conditions", lab:"Mature", type:"num2", a:"w", b:"h",
+   aLab:"Spread ft", bLab:"Height ft",
+   read:p=>(p.w&&p.h)?(p.w+"′ × "+p.h+"′"):"", has:p=>!!(p.w&&p.h)},
+  {k:"growthRate",sec:"Conditions", lab:"Growth", type:"one",
+   opts:[["Slow","Slow"],["Moderate","Moderate"],["Fast","Fast"]], read:p=>p.growthRate||""},
+  {k:"dormancy",sec:"Conditions", lab:"Foliage", type:"one",
+   opts:[["Evergreen","Evergreen"],["Deciduous","Deciduous"],["Semi-deciduous","Semi"]],
+   read:p=>p.dormancy||""},
+  {k:"sunset",sec:"Climate", lab:"Sunset zones", type:"text", ph:"e.g. 8–9, 14–24", read:p=>p.sunset||""},
+  {k:"usda",  sec:"Climate", lab:"USDA",  type:"text", ph:"e.g. 9–11", read:p=>p.usda||""},
+  {k:"dsZone",sec:"Climate", lab:"Fire",  type:"one",
+   opts:[["0","Zone 0 · 0–5ft"],["1","Zone 1 · 5–30ft"],["2","Zone 2 · 30–100ft"],["avoid","Avoid"]],
+   read:p=>{ let z=null; try{ z=dsZoneOf(p); }catch(e){}
+     return z?({"0":"Zone 0","1":"Zone 1","2":"Zone 2",avoid:"Avoid"}[z]||z):""; }},
+  {k:"bloomSeason",sec:"Bloom", lab:"Season", type:"text", ph:"e.g. Spring–Summer", read:p=>p.bloomSeason||""},
+  {k:"color", sec:"Bloom", lab:"Colour", type:"text", ph:"e.g. Purple", read:p=>p.color||""}
+];
+function _pbFieldHas(f,p){ return f.has?f.has(p):!!String(f.read(p)||"").trim(); }
+/* Writing a value is the same call whichever face you are on, and it is what clears the
+   AI-unreviewed flag — reviewing a field IS editing it, which is what Book upkeep counts. */
+function pbFieldSet(pid,k,v,b){
+  const p=_pbkPlant(pid); if(!p) return;
+  const f=PB_FIELDS.filter(x=>x.k===k)[0]; if(!f) return;
+  if(f.type==="num2"){
+    const n=parseFloat(String(v==null?"":v).replace(/[^0-9.]/g,""));
+    const key=(b==="b")?f.b:f.a;
+    if(isFinite(n)&&n>0) p[key]=n; else delete p[key];
+  } else if(f.type==="many"){
+    try{ let set=(lightSetOf(p)||[]).slice(); const i=set.indexOf(v);
+      if(i>=0) set.splice(i,1); else set.push(v);
+      set.sort((x,y)=>LIGHT_ORDER.indexOf(x)-LIGHT_ORDER.indexOf(y));
+      p.light=set; }catch(e){}
+  } else if(f.type==="one"){
+    p[k]=(String(p[k]||"")===String(v))?"":v;          // tapping the live one clears it
+  } else {
+    const t=String(v==null?"":v).trim(); if(t) p[k]=t; else delete p[k];
+  }
+  if(p.detFlag) delete p.detFlag;                       // you have now reviewed it
+  try{ plantBookSave(); }catch(e){}
+  try{ _pbkInsRender(); }catch(e){}
+}
+/* B — the popover. One field open at a time, anchored to its own row. */
+let PB_FPOP=null;
+function pbFieldPop(k){ PB_FPOP=(PB_FPOP===k)?null:k; try{ _pbkInsRender(); }catch(e){} }
+function pbFieldPopClose(){ if(PB_FPOP){ PB_FPOP=null; try{ _pbkInsRender(); }catch(e){} } }
+/* C — the whole panel as a form. A record that is new or thin opens here; anything
+   already filled in opens on the reading face. */
+function pbEditMode(on){ PB_BOOK.edit=!!on; PB_FPOP=null; try{ _pbkInsRender(); }catch(e){} }
+function _pbEditDefault(p){ try{ return !hasDetails(p); }catch(e){ return false; } }
+
+function _pbFieldControl(p,f,pop){
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const q=v=>String(v==null?"":v).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+  const call=(v,b)=>"pbFieldSet('"+p.id+"','"+q(f.k)+"','"+q(v)+"'"+(b?",'"+b+"'":"")+")";
+  if(f.type==="one"||f.type==="many"){
+    let cur=[];
+    if(f.type==="many"){ try{ cur=lightSetOf(p)||[]; }catch(e){} }
+    else cur=[String(p[f.k]||"")];
+    return '<div class="pbe-pills">'+f.opts.map(o=>
+      '<button class="pbe-p'+(cur.indexOf(o[0])>=0?" on":"")+'" onclick="event.stopPropagation();'
+      +call(o[0])+'">'+esc(o[1])+'</button>').join('')+'</div>';
+  }
+  if(f.type==="num2"){
+    return '<div class="pbk-f"><span class="k">'+esc(f.aLab)+'</span>'
+      +'<input class="pbe-in" inputmode="decimal" value="'+esc(p[f.a]==null?"":p[f.a])+'" placeholder="—"'
+      +' onclick="event.stopPropagation()" onchange="pbFieldSet(\''+p.id+'\',\''+q(f.k)+'\',this.value,\'a\')"></div>'
+      +'<div class="pbk-f"><span class="k">'+esc(f.bLab)+'</span>'
+      +'<input class="pbe-in" inputmode="decimal" value="'+esc(p[f.b]==null?"":p[f.b])+'" placeholder="—"'
+      +' onclick="event.stopPropagation()" onchange="pbFieldSet(\''+p.id+'\',\''+q(f.k)+'\',this.value,\'b\')"></div>';
+  }
+  return '<input class="pbe-in wide" value="'+esc(p[f.k]==null?"":p[f.k])+'" placeholder="'+esc(f.ph||"")+'"'
+    +' onclick="event.stopPropagation()" onchange="pbFieldSet(\''+p.id+'\',\''+q(f.k)+'\',this.value)">';
+}
+
 function _pbkInspector(){
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const p=PB_BOOK.sel?_pbkPlant(PB_BOOK.sel):null;
@@ -19828,19 +19955,34 @@ function _pbkInspector(){
   const F=(k,v)=>v?('<div class="pbk-f"><span class="k">'+k+'</span><b>'+esc(v)+'</b></div>'):'';
   const EB=t=>'<div class="pbk-eb">'+t+'</div>';
 
-  h+=EB("Conditions");
-  h+=F("Water", ({VL:"Very low",L:"Low",M:"Moderate",H:"High"}[p.wu]||p.wu||""));
-  const SUN={sun:"Full sun",sunpart:"Sun–part",part:"Part shade",shade:"Full shade"};
-  const ls=(function(){ try{ return lightSetOf(p)||[]; }catch(e){ return []; } })();
-  h+=F("Sun", ls.map(x=>SUN[x]||x).join(" · "));
-  h+=F("Mature", (p.w&&p.h)?((p.w)+"′ × "+(p.h)+"′"):"");
-  h+=F("Growth", p.growthRate);
+  // A record that is new or thin opens as a form; one already filled in opens reading.
+  if(PB_BOOK.edit==null || PB_BOOK._editFor!==p.id){ PB_BOOK.edit=_pbEditDefault(p); PB_BOOK._editFor=p.id; }
+  const editing=!!PB_BOOK.edit;
+  h+='<div class="pbe-seg">'
+    +'<button class="'+(editing?'':'on')+'" onclick="pbEditMode(false)">Read</button>'
+    +'<button class="'+(editing?'on':'')+'" onclick="pbEditMode(true)">Edit</button></div>';
 
-  h+=EB("Climate");
-  h+=F("Sunset zones", p.sunset);
-  h+=F("USDA", p.usda);
-  const fz=(function(){ try{ return dsZoneOf(p); }catch(e){ return null; } })();
-  h+=F("Fire", fz?({safe:"Fire-safe","0":"Zone 0","1":"Zone 1","2":"Zone 2",avoid:"Avoid"}[fz]||fz):"");
+  if(editing){
+    // ── C: every field at once, grouped as it reads ──────────────────────────
+    let sec="";
+    PB_FIELDS.forEach(f=>{ if(f.sec!==sec){ sec=f.sec; h+=EB(sec); }
+      h+='<div class="pbe-lab">'+esc(f.lab)+'</div>'+_pbFieldControl(p,f,false); });
+  } else {
+    // ── B: read, and tap any row for its own control beside the panel ────────
+    let sec="";
+    PB_FIELDS.forEach(f=>{
+      if(f.sec!==sec){ sec=f.sec; h+=EB(sec); }
+      const val=f.read(p), open=(PB_FPOP===f.k);
+      h+='<div class="pbk-fw'+(open?' open':'')+'">'
+        +'<div class="pbk-f pbk-tap'+(open?' hot':'')+(_pbFieldHas(f,p)?'':' empty')+'"'
+        +' onclick="event.stopPropagation();pbFieldPop(\''+f.k+'\')">'
+        +'<span class="k">'+esc(f.lab)+'</span>'
+        +'<b>'+(val?esc(val):'<span class="pbk-none">not set</span>')+'</b>'
+        +'<span class="pen">✎</span></div>'
+        +(open?('<div class="pbk-pop"><h4>'+esc(f.lab)+'</h4>'+_pbFieldControl(p,f,true)+'</div>'):'')
+        +'</div>';
+    });
+  }
 
   // ── Sizes & prices ──────────────────────────────────────────────────────────
   // A nursery in LA is no use on a job in Chicago, so every price is typeable. Where a
