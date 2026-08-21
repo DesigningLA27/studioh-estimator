@@ -774,3 +774,9 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   -.014em, sub-heading 10.5px/600 at .02em.
 - Note: `font: <weight> <size> inherit` is invalid shorthand — the declaration is dropped
   and the size silently falls back. Set font-size and font-weight separately.
+
+## v1073 — Plant Book cards lose their border
+- The three columns were using the global `.card`, which carries `border:1px solid var(--brl)`
+  and a shadow. The Price Book's `.pbz-tree` / `.pb3-list` / `.pb3-ins` carry neither —
+  measured `box-shadow: none` on all three — so both are now cleared, on the columns and
+  on the toolbar.
