@@ -823,3 +823,9 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   which is the *shared master book*, so one user's Chicago price would follow the plant for
   everyone. Fine while Warwick is the only author. Before selling seats this has to become
   per-subscriber or per-region, like [[image-framing-roadmap]].
+
+## v1079 — inspector photo never loaded
+- `style="background-image:url("+JSON.stringify(p.img)+")"` — JSON.stringify wraps the URL in
+  raw double quotes, which close the `style` attribute the moment they are written. The photo
+  had never rendered. Now an `<img class="pbk-ph">` with `escAttr` and `onerror="pbImgErr"`,
+  which also gives the broken-image fallback the background version could not have.
