@@ -940,3 +940,21 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   dropdown menus, the rail, and the tag search.
 - **Open:** one bordered element reappears in Materials on some renders (a native select). The
   card copy is tighter than the mockup — the existing card body was kept rather than rebuilt.
+
+## v1088 — the three books share one rule set
+- **Root cause of the mismatch was mine:** the Plant Book's type, spacing and pill styling were
+  written as `#view-plantbook`-scoped rules, so Materials and Furnishings fell through to the
+  unscoped defaults — bigger text, wrong spacing, no pills. All three views now carry
+  `class="view lib"` and **104 selectors were rescoped from `#view-plantbook` to `.lib`**, so
+  one rule set serves all three. Nothing is re-declared per book.
+- **The filter rail is never a column.** `matRailOpen()` returns false; category, supplier and
+  finish are the tree, everything else opens from Filters.
+- **Cards are the Plant Book's card** — 132px grid, 92px photo, 15px radius — carrying only
+  name and supplier · price. The old body (tags, colour, availability, commission) moved to the
+  panel, which is why the panel exists.
+- **Top bar is one row at 72px.** The second row of chips is hidden, not deleted — all of it
+  still opens from Tools. The bar title is gone; the left nav already names the book.
+- Measured across all three: bar 72/71/71px on `rgb(200,218,190)`, cards 132/133/133,
+  tree 248, inspector 300, headings 14px, tree rows 12.5px, **0 borders**.
+- **Still off:** Filters sits above the grid rather than inside the green bar; the inspector's
+  long spec values wrap awkwardly at 300px.
