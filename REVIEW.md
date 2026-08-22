@@ -910,3 +910,12 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   `pbf-pill` 37, `pbf-tag` 26, `pbf-sw` 12, `pbfp` 9, plus `hmenu`, `pbf-tagsearch`, `pbk-btn`
   and my own `pb-fpanel` separator. All cleared; the panel now separates with a gap.
   **Verified: 0 bordered elements in the whole view with the filter panel open.**
+
+## v1086 — defaults
+- The view switch track takes the same fill as the sort beside it (`--pbpill`, white) instead of
+  `--surface2`, which was invisible on the surface.
+- Cards is the default view; the switch reads **Cards · Photos · List**.
+- Default sort is **Has photo first** — a book you judge by picture should lead with the ones
+  that have one, and it puts the gaps at the end where they read as a to-do.
+- Verified: switch `[Cards*, Photos, List]`, both controls `rgb(255,255,255)`, sort value
+  `photo`, first 12 cards all photographed.
