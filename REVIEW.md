@@ -919,3 +919,24 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   that have one, and it puts the gaps at the end where they read as a to-do.
 - Verified: switch `[Cards*, Photos, List]`, both controls `rgb(255,255,255)`, sort value
   `photo`, first 12 cards all photographed.
+
+## v1087 — Materials & Furnishings take the Price Book frame
+- Both books now render as green bar spanning the full width, then three cream columns:
+  tree 248 · grid · inspector 300, radius 20, no borders.
+- `_goodsTree(kind)` — Category, Supplier/Brand, Finish/Material, Book upkeep. Counts come off
+  MATERIALS / FURNISHINGS directly, so a row cannot promise items the grid does not have.
+- `_goodsIns(kind)` — photo, colour swatches, Price (cost green with the supplier and the quote
+  date), Spec, Install (materials only), Tags, and Open full record.
+- **Card tap now selects** and fills the inspector; the full record moved to a button in the
+  panel. `MAT_PICK` / `FUR_PICK` are separate from `MAT_SEL`, which is bulk-edit selection.
+- Two new sorts driven by the Book upkeep rows: **no photo first** and **price over 90 days
+  first**. `_goodsStale()` treats a missing or unparseable `priced:` date as stale.
+- The filter rail now starts closed — the tree carries category, supplier and finish; the rail
+  keeps what it does not (colour, size, price band, on sale).
+- **Nothing was removed**: rail, bulk bar, URL import, web search, AI search, card-size and the
+  cards/photos/list switch all still run inside the middle column.
+- Border sweep: 89 in Materials and 26 in Furnishings → **0 in both**, measured with a card
+  selected. Offenders were card tag chips, the card footer rule, the "+N" chip, photo popovers,
+  dropdown menus, the rail, and the tag search.
+- **Open:** one bordered element reappears in Materials on some renders (a native select). The
+  card copy is tighter than the mockup — the existing card body was kept rather than rebuilt.
