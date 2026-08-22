@@ -895,3 +895,18 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - **Not done, offered:** a species could instead occupy a single cell — one card showing the
   cultivar count, tapping it filters to that species — which would keep grouping without ever
   breaking the grid. Warwick has not asked for this yet.
+
+## v1085 — one surface, tinted cards, round photos, zero borders
+- **The white box is gone.** `.pb-list` was `background:var(--card)` plus a 1px border — a second
+  surface inside the column, and the last line in the view. The count bar and the field now share
+  one background.
+- **Cards** take `--pbtile #F2F0E7` (dark #232B37), selected `--pbsel #DCEAD3`. Corners nest:
+  photo 12 → card 15 → column 20, each tighter than what holds it.
+- **The square photos were a class collision.** A generic `.ph` already exists as a button style
+  with `padding:6px 10px 7px`; padding on an `<img>` insets the picture inside its own rounded
+  box, so the well was round and the photo was not. Renamed to `.pb-cdph` with `padding:0`.
+- Chips removed from cards; cards are ~120px instead of 190.
+- **Border sweep, as asked.** First pass found 77, then 88 with the filter panel open —
+  `pbf-pill` 37, `pbf-tag` 26, `pbf-sw` 12, `pbfp` 9, plus `hmenu`, `pbf-tagsearch`, `pbk-btn`
+  and my own `pb-fpanel` separator. All cleared; the panel now separates with a gap.
+  **Verified: 0 bordered elements in the whole view with the filter panel open.**
