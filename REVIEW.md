@@ -886,3 +886,12 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - Verified headlessly: 18 rows / 18 cards / 18 tiles from the same set; "has photo" put 10 of
   10 photographed tiles first; "missing photo" put 8 of 8 blanks first; name sort alphabetical;
   view remembered across a kind switch and back.
+
+## v1084 — no species bars in cards or photos
+- Collapsed species bars sat between cells in book order, cutting the grid into runs of one
+  and two cards with a full-width bar between them. Cards and photos are now one continuous
+  grid; the list still groups.
+- Measured: 1 grid, 0 species bars, 23 cells, 3 across at 624px (more at full width).
+- **Not done, offered:** a species could instead occupy a single cell — one card showing the
+  cultivar count, tapping it filters to that species — which would keep grouping without ever
+  breaking the grid. Warwick has not asked for this yet.
