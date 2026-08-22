@@ -862,3 +862,9 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   of the small grey uppercase they were.
 - **Scroll stopped dead at the end of a column.** `overscroll-behavior:contain` on the list and
   inspector blocked chaining to the page. Removed; the panel's bottom padding went 18 → 22px.
+
+## v1082 — long field values painted over their label
+- `.pbk-f b` was not a sized flex item, so "Full sun · Sun–part · Part shade" overflowed its
+  box and drew across the "Sun" label. Now `flex:0 1 auto; min-width:0; text-align:right;
+  overflow-wrap:anywhere` — it wraps inside its own column and the row grows to two lines.
+- Measured: label 1056–1094, value 1102–1287, no overlap, row 46px.
