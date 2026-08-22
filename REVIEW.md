@@ -868,3 +868,21 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   box and drew across the "Sun" label. Now `flex:0 1 auto; min-width:0; text-align:right;
   overflow-wrap:anywhere` — it wraps inside its own column and the row grows to two lines.
 - Measured: label 1056–1094, value 1102–1287, no overlap, row 46px.
+
+## v1083 — list / cards / photos, and sorting
+- Checked first: no card or photo view survived in the file, so this is a rebuild. The only
+  `pbMode` left is the Price Book's Conceptual/Contractor lens.
+- Three faces of the same filtered set, switched top-right of the list header. The choice is
+  remembered **per kind** (`PB_BOOK.vm`), so shrubs can sit in cards while trees stay a list.
+- **Cards** — 150px min, photo 96px, name, botanical, water + spread chips. **Photos** — square
+  tiles, name on a scrim; selected puts the name on a solid green bar rather than a ring.
+  A plant with no photo still gets a card or tile: a gap you can see is a gap you fix.
+- **Sorting** did not exist at all — the list was book order. Eight options, including
+  **Has photo first** and **Missing photo first**, plus name, botanical, water, size and
+  recently added. AI search still wins: when the model has ranked, its order is kept.
+- Species grouping works identically in all three; cards and tiles sit in a grid under the
+  heading. Consecutive ungrouped plants share one grid — wrapping each on its own put a single
+  card per row, which is what the first build did.
+- Verified headlessly: 18 rows / 18 cards / 18 tiles from the same set; "has photo" put 10 of
+  10 photographed tiles first; "missing photo" put 8 of 8 blanks first; name sort alphabetical;
+  view remembered across a kind switch and back.
