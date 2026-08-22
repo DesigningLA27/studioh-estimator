@@ -958,3 +958,21 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   tree 248, inspector 300, headings 14px, tree rows 12.5px, **0 borders**.
 - **Still off:** Filters sits above the grid rather than inside the green bar; the inspector's
   long spec values wrap awkwardly at 300px.
+
+## v1089 — sort, views, auto-select, and the bar actually matching
+- **Why the bar was still wrong:** the Plant Book passes `cls:"pb-gsearch"` into
+  `goodsSearchBarHTML`; Materials and Furnishings pass none. Every rule I had written for
+  `.pb-gsearch` therefore never reached them, so they kept the bare `.gsearch` — a 999px pill
+  with `min-width:320px` that never flexed. Now `.lib .pb-gsearch, .lib .mat-h .gsearch` share
+  one rule, and `.sp` is a flex row so the field fills it.
+- Bar controls matched to the Plant Book: field 40px at 13px radius, chips 40px at 13px radius
+  and 12.5px type, the book/web switch shaped like the AI Search button.
+- **Sort like the Plant Book** — the same `<select class="pb-sort">` in the count row, eight
+  options: has photo, missing photo, price over 90 days, name, supplier, category, price low→high,
+  price high→low. Furnishings had **no sorting at all**; `furSortList()` gives it the same
+  comparators.
+- **Cards · Photos · List** in all three. Furnishings had no view modes; `FUR_VIEW` plus shared
+  `_goodsTileCell` / `_goodsRowCell` draw photos and list with the Plant Book's own cells, and
+  Materials now routes through them too, so the three libraries are one object in three places.
+- **The first item is selected on render**, so the panel is never an empty column.
+- Measured, all three: bar 72px, field 40px/13px radius, buttons 40px/13px/12.5px.

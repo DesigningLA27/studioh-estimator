@@ -2697,7 +2697,26 @@ body:not(.sp-on) #sp-open{display:grid}
 /* Every control on the Price Book bar is a 13px-radius rect at 12.5px type — the search
    field included. Ours was a 999px pill with a 1px border beside 11px buttons, which is
    why the field read as a different shape from the things next to it. */
-.lib .pb-gsearch{border:0;border-radius:13px;padding:5px 6px 5px 12px}
+/* The search field is the same object in all three books. The Plant Book passes
+   cls:"pb-gsearch"; Materials and Furnishings pass none, so a rule written for
+   .pb-gsearch alone never reached them — that is the 999px pill with a fixed
+   min-width you are looking at. Style the bare .gsearch too. */
+.lib .pb-gsearch,.lib .mat-h .gsearch{border:0;border-radius:13px;padding:5px 6px 5px 12px;
+  flex:1 1 auto;min-width:0;height:40px!important}
+/* …and the row it sits in has to let it grow. The wrapper was a plain inline span, so
+   the field only ever took its own min-width. */
+.lib .mat-h .sp{display:flex!important;align-items:center;gap:10px;flex:1 1 100%;min-width:0}
+.lib .mat-h .sp-grp{display:flex;align-items:center;gap:10px;flex:none}
+/* Every control on the bar is 40px at 13px radius, as in the Plant Book — the chips
+   were 11.5px type in a 999px pill. */
+.lib .mat-h .mchip{height:40px!important;border-radius:13px!important;font-size:12.5px!important;
+  padding:0 15px!important;background:var(--pbpill,#fff)!important;color:var(--tm)!important}
+.lib .mat-h .mchip.pri,.lib .mat-h .mchip.on{background:var(--gm)!important;color:#fff!important}
+.lib .mat-h .mchip svg{width:15px;height:15px}
+/* The book/web switch inside the field takes the AI Search button's shape. */
+.lib .mat-h .sseg{border-radius:13px;padding:2px;background:var(--surface2)}
+.lib .mat-h .sseg button{height:32px;border-radius:11px;font-size:12.5px;font-weight:650;padding:0 14px}
+.lib .mat-h .sseg button.on{background:var(--gm);color:#fff}
 .lib .gsearch input{font-size:13px}
 .lib .gsearch .go{height:32px;border-radius:13px;font-size:12.5px;padding:0 16px}
 .lib .pb-fbtn,.lib .pb-tools,.lib .pb-add,
@@ -5007,7 +5026,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1088</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1089</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15214,6 +15233,86 @@ function _goodsIns(kind){
   return h;
 }
 /* Wraps whatever the existing grid produced in the three-column frame. */
+/* ── Sort and view, the Plant Book's controls ─────────────────────────────────
+   Same select, same three-way switch, same place: the count row at the top of the
+   middle column. Materials already had view modes and a sort of its own — those keys
+   still work, this just puts them where the other book keeps them. */
+let FUR_VIEW="cards", FUR_SORT="photo";
+let _GOODS_SHOWN=0,_GOODS_TOTAL=0,_GOODS_FIRST={mat:null,fur:null};
+function _goodsFirstShown(kind){ return _GOODS_FIRST[kind]; }
+const GOODS_SORTS=[["photo","Has photo first"],["nophoto","Missing photo first"],
+  ["stale","Price over 90 days first"],["name","Name A–Z"],["brand","Supplier A–Z"],
+  ["cat","Category A–Z"],["plo","Price: low → high"],["phi","Price: high → low"]];
+function _goodsView(kind){ return kind==="mat"?MAT_VIEW:FUR_VIEW; }
+function goodsSetView(kind,v){
+  if(kind==="mat") matSetView(v);
+  else { FUR_VIEW=(v==="list"||v==="photos")?v:"cards"; renderFurnishings(); }
+}
+function _goodsSort(kind){ return kind==="mat"?MAT_SORT:FUR_SORT; }
+function goodsSetSort(kind,v){
+  if(kind==="mat"){ MAT_SORT=v; try{ PREFS.matSort=v; prefsSave(); }catch(e){} renderMaterials(); }
+  else { FUR_SORT=v; renderFurnishings(); }
+}
+/* Furnishings had no sorting at all — the same comparators the materials list uses. */
+function furSortList(list){
+  const arr=list.slice();
+  const nm=x=>String(x.nm||"").toLowerCase();
+  const byName=(a,b)=>nm(a).localeCompare(nm(b));
+  const img=x=>{ try{ return goodsImg(x)?1:0; }catch(e){ return 0; } };
+  const price=x=>{ try{ return +furPrice(x)||0; }catch(e){ return 0; } };
+  switch(FUR_SORT){
+    case "photo":   return arr.sort((a,b)=>(img(b)-img(a))||byName(a,b));
+    case "nophoto": return arr.sort((a,b)=>(img(a)-img(b))||byName(a,b));
+    case "stale":   return arr.sort((a,b)=>((_goodsStale(b)?1:0)-(_goodsStale(a)?1:0))||byName(a,b));
+    case "brand":   return arr.sort((a,b)=>String(a.brand||a.sup||"").localeCompare(String(b.brand||b.sup||""))||byName(a,b));
+    case "cat":     return arr.sort((a,b)=>String(a.cat||"").localeCompare(String(b.cat||""))||byName(a,b));
+    case "plo":     return arr.sort((a,b)=>(price(a)-price(b))||byName(a,b));
+    case "phi":     return arr.sort((a,b)=>(price(b)-price(a))||byName(a,b));
+    default:        return arr.sort(byName);
+  }
+}
+/* Photos and List for both books, drawn with the Plant Book's own cells so the three
+   libraries are the same object in three places. */
+function _goodsTileCell(kind,x){
+  const shot=(function(){ try{ return goodsImg(x); }catch(e){ return ""; } })();
+  const on=(kind==="mat"?MAT_PICK:FUR_PICK)===x.id;
+  return '<button class="pb-tl'+(shot?"":" nophoto")+(on?" on":"")+'" onclick="goodsPick(\''+kind+'\',\''+x.id+'\')">'
+    +(shot?'<img src="'+escAttr(shot)+'" alt="" onerror="pbImgErr(this)">'
+          :'<span class="none"><svg viewBox="0 0 24 24">'+PB_ICO.leaf+'</svg></span>')
+    +'<span class="cap">'+escAttr(x.nm||"")+'</span></button>';
+}
+function _goodsRowCell(kind,x){
+  const shot=(function(){ try{ return goodsImg(x); }catch(e){ return ""; } })();
+  const on=(kind==="mat"?MAT_PICK:FUR_PICK)===x.id;
+  const price=(function(){ try{ return kind==="mat"?(matModel()==="resale"?x.bill:x.msrp):furPrice(x); }catch(e){ return 0; } })();
+  return '<div class="pb-item"><div class="pb-row'+(on?" sel":"")+'" onclick="goodsPick(\''+kind+'\',\''+x.id+'\')">'
+    +(shot?'<img class="pb-thumb" src="'+escAttr(shot)+'" alt="" onerror="pbImgErr(this)">'
+          :'<span class="pb-thumb"><svg viewBox="0 0 24 24">'+PB_ICO.leaf+'</svg></span>')
+    +'<div class="pb-nm"><b>'+escAttr(x.nm||"")+'</b><i>'+escAttr(x.sup||x.brand||"")+'</i></div>'
+    +'<span class="pb-cset">'
+    +(x.cat?'<span class="pbc">'+escAttr(x.cat)+'</span>':'')
+    +(price?'<span class="pbc pbc-sz">'+escAttr("$"+(+price).toFixed(2))+'</span>':'')
+    +'</span></div></div>';
+}
+function _goodsCells(kind,list){
+  const vm=_goodsView(kind);
+  if(vm==="photos") return '<div class="pb-tiles">'+list.map(x=>_goodsTileCell(kind,x)).join('')+'</div>';
+  if(vm==="list")   return '<div class="pb-list">'+list.map(x=>_goodsRowCell(kind,x)).join('')+'</div>';
+  return null;   // cards are drawn by each book's own card
+}
+function _goodsHeader(kind,shown,total){
+  const lbl=kind==="mat"?"materials":"furnishings";
+  const vm=_goodsView(kind), sv=_goodsSort(kind);
+  const sw='<div class="pb-vsw">'+[["cards","Cards"],["photos","Photos"],["list","List"]]
+    .map(v=>'<button class="'+(vm===v[0]?"on":"")+'" onclick="goodsSetView(\''+kind+'\',\''+v[0]+'\')">'+v[1]+'</button>').join('')+'</div>';
+  const so='<select class="pb-sort" onchange="goodsSetSort(\''+kind+'\',this.value)" title="Sort">'
+    +GOODS_SORTS.map(o=>'<option value="'+o[0]+'"'+(sv===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')
+    +'</select>';
+  const count=(shown<total)
+    ? '<b style="color:var(--tx)">'+shown+'</b> of '+total+' '+lbl
+    : total+' '+lbl;
+  return '<div class="pb-lh">'+count+so+sw+'</div>';
+}
 function _goodsFrame(kind,bodyHtml){
   // The green bar spans all three columns, as it does in the other two books, so it
   // is lifted out of the body before the body becomes the middle column.
@@ -15222,9 +15321,17 @@ function _goodsFrame(kind,bodyHtml){
     const h=t.querySelector('.mat-h');
     if(h){ bar=h.outerHTML; h.parentNode.removeChild(h); bodyHtml=t.innerHTML; }
   }catch(e){}
+  // Land on the first item so the panel is never an empty column.
+  try{
+    const all=_goodsAll(kind), cur=kind==="mat"?MAT_PICK:FUR_PICK;
+    if(all.length && (!cur || !all.some(x=>x.id===cur))){
+      if(kind==="mat") MAT_PICK=_goodsFirstShown("mat")||all[0].id;
+      else FUR_PICK=_goodsFirstShown("fur")||all[0].id;
+    }
+  }catch(e){}
   return bar+'<div class="pbk-wrap gd-wrap">'
     +'<aside class="pbk-tree card">'+_goodsTree(kind)+'</aside>'
-    +'<div class="pbk-list card gd-mid">'+bodyHtml+'</div>'
+    +'<div class="pbk-list card gd-mid">'+_goodsHeader(kind,_GOODS_SHOWN,_GOODS_TOTAL)+bodyHtml+'</div>'
     +'<aside class="pbk-ins card">'+_goodsIns(kind)+'</aside></div>';
 }
 function _matGrid(host){
@@ -15239,6 +15346,8 @@ function _matGrid(host){
   if(MAT_AI){ const rank={}; MAT_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(m=>rank[m.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
   else list=matSortList(list);
+  _GOODS_SHOWN=list.length; _GOODS_TOTAL=MATERIALS.length;
+  _GOODS_FIRST.mat=list.length?list[0].id:null;
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   host.innerHTML=`
    <div class="mat-h"><span><b>Materials</b>
@@ -15290,7 +15399,7 @@ function _matGrid(host){
      <button onclick="matClearTags()">Clear</button></div>`:""}
    ${list.length?"":`<div class="gempty">${mi("box")}<b>Nothing matches</b>
      <span>${MAT_AI?"Try describing it differently, or clear the search.":nT?"No material carries every tag you picked.":"No material in this category yet."}</span></div>`}
-   ${MAT_VIEW==="list" ? matListHTML(list) : MAT_VIEW==="photos" ? matPhotosHTML(list) : `<div class="mgrid" style="grid-template-columns:repeat(auto-fill,minmax(${matCardMin()}px,1fr))">${list.map(m=>{
+   ${_goodsCells("mat",list) || `<div class="mgrid" style="grid-template-columns:repeat(auto-fill,minmax(${matCardMin()}px,1fr))">${list.map(m=>{
      const seeded=!goodsPriced(m), earn=_matEarn(m), r=[];
      if(F.colour) r.push(`<span class="fr">${mi("swatch")}Colour<b style="display:flex;gap:4px">${m.cols.map(c=>`<i class="msw" style="background:${c}"></i>`).join("")}</b></span>`);
      if(F.stock)  r.push(row("box","Available", seeded?"—":m.stock.toLocaleString()+" sf"));
@@ -15678,7 +15787,9 @@ function _furGrid(host){
     .filter(f=>!ql||!!FUR_AI||((f.nm+" "+f.cat+" "+f.sup+" "+f.frame+" "+(f.tags||[]).join(" ")+" "+goodsAliasText(f)).toLowerCase().indexOf(ql)>=0));
   if(FUR_AI){ const rank={}; FUR_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(f=>rank[f.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
-  else list=list.slice().sort((a,b)=>((goodsPriced(b)?1:0)-(goodsPriced(a)?1:0)) || (_furEarn(b)-_furEarn(a)));
+  else list=furSortList(list);
+  _GOODS_SHOWN=list.length; _GOODS_TOTAL=FURNISHINGS.length;
+  _GOODS_FIRST.fur=list.length?list[0].id:null;
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   const catCount=c=>FURNISHINGS.filter(f=>c==="All"||f.cat===c).length;
   host.innerHTML=`
@@ -15742,7 +15853,7 @@ function _furGrid(host){
      <button onclick="furClearTags()">Clear</button></div>`:""}
    ${list.length?"":`<div class="gempty">${mi("box")}<b>Nothing matches</b>
      <span>${FUR_AI?"Try describing it differently, or clear the search.":nT?"Nothing carries every tag you picked.":"Nothing in this type yet — add one from a supplier URL."}</span></div>`}
-   <div class="mgrid c${cols}">${list.map(f=>{
+   ${_goodsCells("fur",list) || `<div class="mgrid c${cols}">${list.map(f=>{
      const seeded=!goodsPriced(f), earn=_furEarn(f), sale=furOnSale(f), r=[];
      if(F.colour) r.push(`<span class="fr">${mi("swatch")}Colour<b style="display:flex;gap:4px">${f.cols.map(c=>`<i class="msw" style="background:${c}"></i>`).join("")}</b></span>`);
      if(F.dims)   r.push(row("ruler","Size",escAttr(f.dims)));
@@ -15764,7 +15875,7 @@ function _furGrid(host){
       ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" onerror="pbImgErr(this)">`
             :`<span class="pb-cdph none"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`}
       <b>${escAttr(f.nm)}</b><i>${escAttr(f.brand||f.sup||"")}${furPrice(f)?" · "+fmtN(furPrice(f)):""}</i>
-    </button>`;}).join("")}</div>`;
+    </button>`;}).join("")}</div>`}`;
   host.innerHTML=_goodsFrame("fur", host.innerHTML);
 }
 function _furDetail(host){
