@@ -976,3 +976,15 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   Materials now routes through them too, so the three libraries are one object in three places.
 - **The first item is selected on render**, so the panel is never an empty column.
 - Measured, all three: bar 72px, field 40px/13px radius, buttons 40px/13px/12.5px.
+
+## v1090 — Filters moves into the bar and works
+- **It could not open.** v1088 hard-wired `matRailOpen()` to `return false` to kill the rail
+  column, which also killed the toggle — the button was live but had nothing to flip.
+- Filters is now a `.pb-fbtn` in the top bar with its count, exactly as in the Plant Book, and it
+  drops a `.pb-fpanel` inside the bar carrying the rail's own contents laid out as a wrapping
+  row rather than a column. The old tab above the grid is hidden, which is the space it was
+  taking.
+- Verified by driving it: bar 72px closed → 220px open with 7 filter groups → 72px closed again,
+  no errors.
+- **Open:** Furnishings has no rail to put in the panel (`furRailHTML` does not exist), so its
+  Filters button is present but empty until that is built. Its Tags menu still works.
