@@ -988,3 +988,21 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   no errors.
 - **Open:** Furnishings has no rail to put in the panel (`furRailHTML` does not exist), so its
   Filters button is present but empty until that is built. Its Tags menu still works.
+
+## v1091 — product lightbox for Materials & Furnishings
+- Tapping "Photos & financials" in the panel (replacing "Open full record") opens a sheet in the
+  plant lightbox's language: prev/next, position, photo at size with a thumbnail strip from
+  `goodsImgs()`, and three headline stats — your cost, client pays, what you make — read through
+  `goodsModel()` so a resale book shows margin and a commission book shows commission.
+- **Six cards, carrying every field the old detail view had.** The seven that were missing from
+  the mockup are in: Heat, Edge restraint, CSI, and the five companion fields (Wall, Steps,
+  Coping, Planting, Lighting) as a "Goes with this" card, plus the `m.ai` write-ups as Notes and
+  `m.src` as a Source link.
+- Quantity stepper drives the Earnings line live; "Add to project" writes through
+  `specSheetSet()`, the same store the tree's Specified count reads.
+- **iPad guards, measured at 1376×945:** sheet 1100×789, fits the viewport, body scrolls inside
+  itself, cards wrap 4→2→1. Keyboard: ← → step, Esc closes.
+- Panel gains one row — **You make · % · $/unit** — under Price. Anything more belongs in the
+  lightbox; the panel is 300px.
+- Verified by driving it: panel button label, 6 cards, 31 rows, 3 stats, quantity changes the
+  earnings figure, next moves to the next product, Esc closes, no errors.
