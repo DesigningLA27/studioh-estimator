@@ -2822,6 +2822,26 @@ body:not(.sp-on) #sp-open{display:grid}
 #view-furnishings .msw{border:0!important}
 /* The footer used its border to separate; a little space does the same job. */
 #view-materials .mcard .foot,#view-furnishings .mcard .foot{margin-top:5px;padding-top:5px}
+/* ── Select mode ─────────────────────────────────────────────────────────────
+   Filter to a brand in the tree, turn Select on, tap what you want, delete the lot. */
+.pb-selbtn{border:0;background:var(--pbpill,#fff);color:var(--tm);border-radius:999px;
+  padding:6px 13px;font:650 11.5px inherit;cursor:pointer;flex:none}
+.pb-selbtn:hover{color:var(--gm)}
+.pb-selbtn.on{background:var(--gm);color:#fff}
+.pb-selbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  background:var(--brand-soft);border-radius:13px;padding:8px 12px;margin:0 2px 9px;
+  font-size:12.5px;color:var(--gm)}
+.pb-selbar b{font:700 13px ui-monospace,Menlo,monospace}
+.pb-selbar button{border:0;background:var(--card);color:var(--gm);border-radius:9px;
+  padding:6px 11px;font:650 12px inherit;cursor:pointer}
+.pb-selbar button.del{background:#B23F3C;color:#fff;margin-left:auto}
+.pb-selbar button.del[disabled]{opacity:.45}
+/* What you have picked, in every view. */
+.lib .pb-cd.picked,.lib .pb-row.picked{outline:3px solid var(--gm);outline-offset:-3px}
+.lib .pb-tl.picked{outline:4px solid var(--gm);outline-offset:-4px}
+.lib .pbk-btn.gd-del{color:#B23F3C}
+.lib .pbk-btn.gd-del:hover{background:#FBEDEA}
+.gl-btn.del{color:#B23F3C}
 /* ── Product lightbox ─────────────────────────────────────────────────────────
    Gallery on the larger half, one tabbed column of facts on the other. Sized for
    the smallest screen it must work on: Safari on a 13" iPad leaves 1376x945, so the
@@ -5117,7 +5137,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1101</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1102</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15293,7 +15313,10 @@ function matDDToggle(ev,gid){
   // redrawing Materials left the Furnishings menu open in state but never painted.
   const onFur=(function(){ try{ return document.getElementById("view-furnishings").classList.contains("active"); }catch(e){ return false; } })();
   if(onFur){ try{ renderFurnishings(); }catch(e){} } else { renderMaterials(); }
-  try{ _ddFit(true); }catch(e){}
+  // No _ddFit() here. The render already schedules one on the next frame, and running
+  // both is a race: the first portals the menu out to <body>, the second strips every
+  // portal and then looks only for ".mddm.open:not([data-portal])" — which the menu it
+  // just removed no longer matches. The menu vanished, intermittently.
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} try{ _ddFit(true); }catch(e){} } });
 let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_SPEC=false;
@@ -15535,6 +15558,8 @@ function _goodsIns(kind){
     +'Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>';
   h+='<button class="pbk-btn" onclick="'
     +(kind==="mat"?"matOpen('":"furOpen('")+x.id+'\')">Documents · Where used</button>';
+  h+='<button class="pbk-btn gd-del" onclick="goodsDeleteOne(\''+kind+'\',\''+x.id+'\')">Delete this '
+    +(kind==="mat"?"material":"furnishing")+'</button>';
   return h;
 }
 /* Wraps whatever the existing grid produced in the three-column frame. */
@@ -15586,7 +15611,7 @@ function furSortList(list){
 function _goodsTileCell(kind,x){
   const shot=(function(){ try{ return goodsImg(x); }catch(e){ return ""; } })();
   const on=(kind==="mat"?MAT_PICK:FUR_PICK)===x.id;
-  return '<button class="pb-tl'+(shot?"":" nophoto")+(on?" on":"")+'" onclick="goodsPick(\''+kind+'\',\''+x.id+'\')">'
+  return '<button class="pb-tl'+(shot?"":" nophoto")+(on?" on":"")+((GOODS_SEL[kind]||{})[x.id]?" picked":"")+'" onclick="goodsCardTap(\''+kind+'\',\''+x.id+'\')">'
     +(shot?'<img src="'+escAttr(shot)+'" alt="" width="112" height="112" loading="lazy" decoding="async" onerror="pbImgErr(this)">'
           :'<span class="none"><svg viewBox="0 0 24 24">'+PB_ICO.leaf+'</svg></span>')
     +'<span class="cap">'+escAttr(x.nm||"")+'</span></button>';
@@ -15595,7 +15620,7 @@ function _goodsRowCell(kind,x){
   const shot=(function(){ try{ return goodsImg(x); }catch(e){ return ""; } })();
   const on=(kind==="mat"?MAT_PICK:FUR_PICK)===x.id;
   const price=(function(){ try{ return kind==="mat"?(matModel()==="resale"?x.bill:x.msrp):furPrice(x); }catch(e){ return 0; } })();
-  return '<div class="pb-item"><div class="pb-row'+(on?" sel":"")+'" onclick="goodsPick(\''+kind+'\',\''+x.id+'\')">'
+  return '<div class="pb-item"><div class="pb-row'+(on?" sel":"")+((GOODS_SEL[kind]||{})[x.id]?" picked":"")+'" onclick="goodsCardTap(\''+kind+'\',\''+x.id+'\')">'
     +(shot?'<img class="pb-thumb" src="'+escAttr(shot)+'" alt="" width="38" height="38" loading="lazy" decoding="async" onerror="pbImgErr(this)">'
           :'<span class="pb-thumb"><svg viewBox="0 0 24 24">'+PB_ICO.leaf+'</svg></span>')
     +'<div class="pb-nm"><b>'+escAttr(x.nm||"")+'</b><i>'+escAttr(x.sup||x.brand||"")+'</i></div>'
@@ -15610,6 +15635,63 @@ function _goodsCells(kind,list){
   if(vm==="list")   return '<div class="pb-list">'+list.map(x=>_goodsRowCell(kind,x)).join('')+'</div>';
   return null;   // cards are drawn by each book's own card
 }
+/* Select mode: filter to a brand in the tree, turn Select on, tap what you want, delete
+   the lot. Selection is per book and clears when you leave the mode. */
+let GOODS_SELMODE={mat:false,fur:false}, GOODS_SEL={mat:{},fur:{}};
+function goodsSelMode(kind,on){
+  GOODS_SELMODE[kind]=(on==null)?!GOODS_SELMODE[kind]:!!on;
+  if(!GOODS_SELMODE[kind]) GOODS_SEL[kind]={};
+  try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+}
+function goodsSelToggle(kind,id){
+  const m=GOODS_SEL[kind]||(GOODS_SEL[kind]={});
+  if(m[id]) delete m[id]; else m[id]=1;
+  try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+}
+function _goodsSelIds(kind){ return Object.keys(GOODS_SEL[kind]||{}).filter(k=>GOODS_SEL[kind][k]); }
+/* Tapping a card means "select" while the mode is on, and "show me" the rest of the time. */
+function goodsCardTap(kind,id){
+  if(GOODS_SELMODE[kind]) goodsSelToggle(kind,id); else goodsPick(kind,id);
+}
+function goodsSelAllShown(kind){
+  const ids=(kind==="mat")?_GOODS_SHOWNIDS.mat:_GOODS_SHOWNIDS.fur;
+  const m=GOODS_SEL[kind]||(GOODS_SEL[kind]={});
+  const every=ids.length && ids.every(i=>m[i]);
+  ids.forEach(i=>{ if(every) delete m[i]; else m[i]=1; });
+  try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+}
+function goodsSelDelete(kind){
+  const ids=_goodsSelIds(kind); if(!ids.length) return;
+  const book=(kind==="mat")?"materials":"furnishings";
+  const lib=(kind==="mat")?MATERIALS:FURNISHINGS;
+  const rows=lib.filter(x=>ids.indexOf(x.id)>=0);
+  const spec=rows.filter(x=>{ try{ return specIsOn(x.id); }catch(e){ return false; } }).length;
+  if(!confirm("Delete "+ids.length+" "+(ids.length===1?"item":"items")+" from "+book+"?"
+    +(spec?("\n\n"+spec+" of them "+(spec===1?"is":"are")+" specified on this project — those specifications go too."):"")
+    +"\n\nThis cannot be undone.")) return;
+  if(kind==="mat") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
+  else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
+  if(ids.indexOf(kind==="mat"?MAT_PICK:FUR_PICK)>=0){ if(kind==="mat") MAT_PICK=null; else FUR_PICK=null; }
+  GOODS_SEL[kind]={}; GOODS_SELMODE[kind]=false;
+  try{ goodsSaveBook(book,true); }catch(e){}
+  try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+  try{ _toast(ids.length+" deleted","#B23F3C"); }catch(e){}
+}
+/* One product, from the panel or the sheet. */
+function goodsDeleteOne(kind,id){
+  const book=(kind==="mat")?"materials":"furnishings";
+  const lib=(kind==="mat")?MATERIALS:FURNISHINGS;
+  const x=lib.filter(r=>r&&r.id===id)[0]; if(!x) return;
+  if(!confirm("Delete “"+(x.nm||"this item")+"” from "+book+"?\n\nThis cannot be undone.")) return;
+  try{ goodsLbxClose(); }catch(e){}
+  try{ goodsDelete(book,id); }catch(e){
+    if(kind==="mat") MATERIALS=MATERIALS.filter(r=>r.id!==id); else FURNISHINGS=FURNISHINGS.filter(r=>r.id!==id);
+    try{ goodsSaveBook(book,true); }catch(e2){}
+  }
+  if((kind==="mat"?MAT_PICK:FUR_PICK)===id){ if(kind==="mat") MAT_PICK=null; else FUR_PICK=null; }
+  try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+}
+let _GOODS_SHOWNIDS={mat:[],fur:[]};
 function _goodsHeader(kind,shown,total){
   const lbl=kind==="mat"?"materials":"furnishings";
   const vm=_goodsView(kind), sv=_goodsSort(kind);
@@ -15621,7 +15703,16 @@ function _goodsHeader(kind,shown,total){
   const count=(shown<total)
     ? '<b style="color:var(--tx)">'+shown+'</b> of '+total+' '+lbl
     : total+' '+lbl;
-  return '<div class="pb-lh">'+count+so+sw+'</div>';
+  const on=GOODS_SELMODE[kind], n=_goodsSelIds(kind).length;
+  const selBtn='<button class="pb-selbtn'+(on?' on':'')+'" onclick="goodsSelMode(\''+kind+'\')">'
+    +(on?'Done':'Select')+'</button>';
+  const bar=on?('<div class="pb-selbar">'
+    +'<b>'+n+'</b> selected'
+    +'<button onclick="goodsSelAllShown(\''+kind+'\')">All shown</button>'
+    +'<button onclick="GOODS_SEL[\''+kind+'\']={};'+(kind==="mat"?"renderMaterials":"renderFurnishings")+'()">Clear</button>'
+    +'<button class="del"'+(n?'':' disabled')+' onclick="goodsSelDelete(\''+kind+'\')">Delete '+(n||'')+'</button>'
+    +'</div>'):'';
+  return '<div class="pb-lh">'+count+so+selBtn+sw+'</div>'+bar;
 }
 /* ── Product lightbox ─────────────────────────────────────────────────────────
    The plant lightbox, for a product: photos at size, the three numbers that decide
@@ -15786,6 +15877,7 @@ function _goodsLbxHTML(kind,x){
      +(_gSrc(x)?'<button class="gl-btn" onclick="goodsFetchImages(\''+(kind==="mat"?"materials":"furnishings")+'\',\''+x.id+'\')">Find images</button>':'')
      +(_gSrc(x)?'<a class="gl-btn" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener">Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>':'')
      +'<button class="gl-btn" onclick="goodsLbxClose();'+(kind==="mat"?"matOpen":"furOpen")+'(\''+x.id+'\')">Documents · Where used</button>'
+     +'<button class="gl-btn del" onclick="goodsDeleteOne(\''+kind+'\',\''+x.id+'\')">Delete</button>'
      +'<button class="gl-btn solid" onclick="goodsSpecAdd()">Add to project</button>'
      +'</span></div>'
    +'</div>';
@@ -15847,6 +15939,7 @@ function _matGrid(host){
   else list=matSortList(list);
   _GOODS_SHOWN=list.length; _GOODS_TOTAL=MATERIALS.length;
   _GOODS_FIRST.mat=list.length?list[0].id:null;
+  _GOODS_SHOWNIDS.mat=list.map(x=>x.id);
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   host.innerHTML=`
    <div class="mat-h"><span><b>Materials</b>
@@ -15914,7 +16007,7 @@ function _matGrid(host){
        : `<span class="fr">${mi("tag")}${m.msrpAI?"Est. price":(matModel()==="resale"?"You bill":"Client pays")}<b${m.msrpAI?' class="est"':''}>$${(matModel()==="resale"?m.bill:m.msrp).toFixed(2)}/sf</b></span>`);
       const shot=goodsImg(m);
     const price=(matModel()==="resale"?m.bill:m.msrp);
-    return `<button class="pb-cd${MAT_PICK===m.id?" on":""}" onclick="goodsPick('mat','${m.id}')">
+    return `<button class="pb-cd${MAT_PICK===m.id?" on":""}${(GOODS_SEL.mat||{})[m.id]?" picked":""}" onclick="goodsCardTap('mat','${m.id}')">
       ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`
             :`<span class="pb-cdph none"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`}
       <b>${escAttr(m.nm)}</b><i>${escAttr(m.sup||"")}${price?" · $"+(+price).toFixed(2):""}</i>
@@ -16289,6 +16382,7 @@ function _furGrid(host){
   else list=furSortList(list);
   _GOODS_SHOWN=list.length; _GOODS_TOTAL=FURNISHINGS.length;
   _GOODS_FIRST.fur=list.length?list[0].id:null;
+  _GOODS_SHOWNIDS.fur=list.map(x=>x.id);
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   const catCount=c=>FURNISHINGS.filter(f=>c==="All"||f.cat===c).length;
   host.innerHTML=`
@@ -16360,7 +16454,7 @@ function _furGrid(host){
          ? `<span class="fr">${mi("tag")}MSRP<b class="was">${fmtN(f.msrp)}</b><span class="sale">${fmtN(f.sale)}</span></span>`
          : row("tag","MSRP",fmtN(f.msrp)));
      const shot=goodsImg(f);
-     return `<button class="pb-cd${FUR_PICK===f.id?" on":""}" onclick="goodsPick('fur','${f.id}')">
+     return `<button class="pb-cd${FUR_PICK===f.id?" on":""}${(GOODS_SEL.fur||{})[f.id]?" picked":""}" onclick="goodsCardTap('fur','${f.id}')">
       ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`
             :`<span class="pb-cdph none"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`}
       <b>${escAttr(f.nm)}</b><i>${escAttr(f.brand||f.sup||"")}${furPrice(f)?" · "+fmtN(furPrice(f)):""}</i>

@@ -1159,3 +1159,18 @@ Diagnosed against the live site rather than guessed:
   already there it selects it and says so rather than adding a second copy.
 - Verified: four spellings of one URL all match, a different URL does not, and name matching
   works on both plant name fields.
+
+## v1102 — delete, bulk select, and the Tools race
+- **Tools intermittently did nothing.** `matDDToggle` called `_ddFit()` itself, and the render
+  schedules another on the next frame. `_ddFit` strips every `body > .mddm[data-portal]` and
+  then re-portals only `.mddm.open:not([data-portal])` — so the second run removed the menu the
+  first had just portalled and could not re-find it. Whether it survived was a timing race.
+  The explicit call is gone; the render's own is enough. Six runs out of six now open, both books.
+- **Delete existed but was barely reachable** — `goodsDelete()` only from the full-record view,
+  and the bulk bar only in List. Now:
+  - **Delete** at the foot of the right panel and in the More info sheet, both confirming by name.
+  - **Select mode**: a Select button in the count row. Tapping a card picks it instead of opening
+    it; picked cards, tiles and rows carry a green ring. The bar shows the count with **All shown**,
+    **Clear** and a red **Delete n** — and warns when any of them are specified on the project.
+  - Filter to a brand in the tree first and "All shown" means that brand.
+- Selection is per book and clears when the mode is turned off.
