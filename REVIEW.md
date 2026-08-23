@@ -1006,3 +1006,15 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   lightbox; the panel is 300px.
 - Verified by driving it: panel button label, 6 cards, 31 rows, 3 stats, quantity changes the
   earnings figure, next moves to the next product, Esc closes, no errors.
+
+## v1092 — the lightbox was unreachable
+- **Two real misses in v1091.** The panel photo had no `onclick` — the Plant Book's does, and I
+  copied the markup without it. And the button sat under Actions at the foot of a scrolling
+  panel, so it was never on screen.
+- The photo now opens the lightbox, and the button moved directly under the name: solid green,
+  full width, labelled **More info** (with a photo count when there is more than one). Its rule
+  needed `.lib .pbk-btn.gd-more` — a plain `.gd-more` tied with the generic `.pbk-btn` fill on
+  specificity and lost, which is why it first rendered white.
+- Documents / Where used stays at the foot as a secondary action.
+- Verified in both books: label "More info", fill `rgb(76,123,61)`, visible without scrolling,
+  photo carries the handler, and both entry points open the sheet.
