@@ -1049,3 +1049,21 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - **Still open (the real cure):** imported products keep the supplier's own image URL and are
   only upgraded to R2 if the rehost succeeds — so some images still come from a supplier's web
   server at full resolution. Serving resized copies from R2 is a worker change.
+
+## v1095 — imported images that were never there, and the supplier link
+- **"2 photos" over a placeholder.** Nothing checked that a scraped URL was a photo.
+  Bedrosians hands back links that 404 or refuse a hotlink, so the count reported stored
+  strings while the tile rendered the leaf.
+  - Import now **verifies every image in the browser** (`goodsVerifyImgs`) and keeps only
+    what actually renders — a URL that fails is never stored.
+  - `pbImgErr` **forgets** a dead link instead of re-requesting it every render. The order
+    mattered: my first attempt overwrote `src` before reading it and captured the placeholder.
+  - Opening a record **verifies its whole set once** (`goodsVerifyRecord`), so products
+    imported before this fix repair themselves without a re-import. Measured: a record
+    claiming 2 photos with two dead links ends at 0 and the button drops "2 photos".
+- **After a batch import, the count of products with no usable image is offered for deletion**,
+  in the same shape as the existing thin-spec prompt, staggered so the two never stack.
+- **The supplier link never rendered.** The importer writes `srcUrl`; the lightbox read
+  `x.src`. `_gSrc()` now reads `srcUrl || src || url`, and the link appears in three places:
+  the panel's Actions, the Supply tab, and the lightbox footer — labelled with the host,
+  e.g. "Open on bedrosians.com ↗".

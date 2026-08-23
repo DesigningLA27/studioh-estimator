@@ -2870,6 +2870,9 @@ body:not(.sp-on) #sp-open{display:grid}
 .gl-notes p{font-size:13.5px;color:var(--tm);margin:0 0 11px;line-height:1.55}
 .gl-notes b{color:var(--tx)}
 .gl-src{display:inline-block;margin-top:4px;font-size:12.5px;font-weight:650;color:var(--gm);text-decoration:none}
+.gl-link{color:var(--gm);text-decoration:none;font-weight:650}
+.gl-link:hover{text-decoration:underline}
+.lib .gd-link{display:block;text-decoration:none;text-align:center}
 .gl-sw{display:flex;gap:7px;margin-top:22px}
 .gl-sw span{width:28px;height:28px;border-radius:9px}
 .gl-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
@@ -5104,7 +5107,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1094</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1095</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10169,6 +10172,20 @@ async function _gpickRun(){
       try{ _toast(ids.length+" removed","#B23F3C"); }catch(e){}
     }
   },700);
+  // A product with no photo is a product you cannot choose by eye. Same offer as the
+  // thin-spec one above, and it waits its turn so the two never stack.
+  const noimg=made.filter(id=>{ const x=_lib.find(r=>r&&r.id===id);
+    return x && !(goodsImgs(x)||[]).length; });
+  if(noimg.length) setTimeout(()=>{
+    if(confirm(ok+" imported, but "+noimg.length+" of them have no usable image — the page either had none, or its links would not load.\n\nDelete those "+noimg.length+" now?")){
+      const ids=noimg.slice();
+      if(_bk==="materials") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
+      else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
+      goodsSaveBook(_bk,true);
+      try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+      try{ _toast(ids.length+" removed","#B23F3C"); }catch(e){}
+    }
+  }, thin.length?1600:700);
   // Pricing runs on afterwards against the progress bar, so it never holds the dialog
   // open — you can carry on looking at what just landed.
   const book=kind==="mat"?"materials":"furnishings";
@@ -10179,6 +10196,40 @@ async function _gpickRun(){
 // A page offers the same photo at half a dozen widths and pads the list with badges,
 // icons and lifestyle shots. Keep the widest copy of each distinct picture, since a
 // 320px thumbnail is useless on a 168px-tall card at 2× density.
+/* A URL in the record is not a photo. Bedrosians hands back links that 404 or refuse
+   a hotlink, so the card said "2 photos" over a placeholder. Anything imported is
+   loaded once, in the browser, and only what actually renders is kept. */
+function _imgLoads(url,ms){
+  return new Promise(res=>{
+    if(!url||!/^https?:/i.test(url)) return res(false);
+    const im=new Image(); let done=false;
+    const fin=v=>{ if(done) return; done=true; im.onload=im.onerror=null; res(v); };
+    im.onload=()=>fin(im.naturalWidth>1&&im.naturalHeight>1);
+    im.onerror=()=>fin(false);
+    setTimeout(()=>fin(false), ms||7000);
+    im.src=url;
+  });
+}
+/* Records imported before the check existed still carry dead links, so the first time
+   you open one every URL on it is loaded once and the failures are forgotten. Runs
+   once per record per session, in the background, and only redraws if something went. */
+const _gVerified={};
+async function goodsVerifyRecord(kind,x){
+  if(!x||_gVerified[x.id]) return; _gVerified[x.id]=1;
+  const urls=goodsImgs(x); if(!urls.length) return;
+  const ok=await Promise.all(urls.map(u=>_imgLoads(u,7000)));
+  const dead=urls.filter((u,i)=>!ok[i]);
+  if(!dead.length) return;
+  x.imgs=(Array.isArray(x.imgs)?x.imgs:[]).filter(u=>dead.indexOf(u)<0);
+  if(dead.indexOf(x.img)>=0) x.img=x.imgs[0]||"";
+  try{ (kind==="mat")?matSave():furSave(); }catch(e){}
+  try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+}
+async function goodsVerifyImgs(urls){
+  const list=(urls||[]).slice(0,8);
+  const ok=await Promise.all(list.map(u=>_imgLoads(u)));
+  return list.filter((u,i)=>ok[i]);
+}
 function goodsBestImages(urls,max){
   const seen={}, order=[];
   (urls||[]).forEach(u=>{
@@ -13725,7 +13776,8 @@ async function _goodsImportOne(kind,url,host,quiet){
   // Store the supplier's own links now so the row lands with a picture on it, and
   // copy them into R2 afterwards. Waiting on three uploads per product is what made
   // importing a hundred of them take so long, and it lost the picture when it failed.
-  const imgs=goodsBestImages(res.images||[],8);
+  // Verified, not merely scraped — a dead link must never be counted as a photo.
+  const imgs=await goodsVerifyImgs(goodsBestImages(res.images||[],8));
   const src=res.src||url;
   const note=(extra)=>[["alert","<b>Imported from "+escAttr(host||"the supplier")+".</b>"
       +(res.ld?" Name, brand and price came from the page's own product data.":" Read from the page text.")
@@ -15281,6 +15333,8 @@ function _goodsIns(kind){
   const imgs=(function(){ try{ return goodsImgs(x)||[]; }catch(e){ return []; } })();
   // The photo opens the lightbox, exactly as it does in the Plant Book.
   const _lbx="goodsLbxOpen('"+kind+"','"+x.id+"')";
+  // Check this record's photos once, quietly, so the count cannot claim a dead link.
+  try{ setTimeout(()=>goodsVerifyRecord(kind,x),50); }catch(e){}
   let h='';
   h+= shot ? '<img class="pbk-ph" src="'+escAttr(shot)+'" alt="" onerror="pbImgErr(this)" onclick="'+_lbx+'" title="Photos and financials">'
            : '<div class="pbk-ph none" onclick="'+_lbx+'">no photo</div>';
@@ -15317,7 +15371,10 @@ function _goodsIns(kind){
     h+=F("Method",x.method); h+=F("Labour",x.labour); h+=F("Bed",x.bed); h+=F("Joint",x.joint); }
   if(x.tags&&x.tags.length) h+=EB("Tags")+'<div class="pbk-tags">'
     +x.tags.slice(0,10).map(t=>'<span>'+esc(String(t).replace(/-/g," "))+'</span>').join('')+'</div>';
-  h+=EB("Actions")+'<button class="pbk-btn" onclick="'
+  h+=EB("Actions");
+  if(_gSrc(x)) h+='<a class="pbk-btn gd-link" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener">'
+    +'Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>';
+  h+='<button class="pbk-btn" onclick="'
     +(kind==="mat"?"matOpen('":"furOpen('")+x.id+'\')">Documents · Where used</button>';
   return h;
 }
@@ -15442,6 +15499,10 @@ try{ document.addEventListener("keydown",e=>{ if(!GL_OPEN) return;
 
 /* A blank is a blank however it was stored: your records use "—" for an empty field,
    and "—" is a truthy string, which is why fourteen empty rows rendered before. */
+/* The importer stores srcUrl; older rows and other paths use src. Read both, once,
+   so a link is never lost to a field name. */
+function _gSrc(x){ return (x&&(x.srcUrl||x.src||x.url))||""; }
+function _gHost(u){ try{ return new URL(u).hostname.replace(/^www\./,""); }catch(e){ return "supplier"; } }
 function _gBlank(v){
   if(v==null) return true;
   const t=String(v).trim().toLowerCase();
@@ -15452,7 +15513,9 @@ function _gDL(rows){
   const live=rows.filter(r=>!_gBlank(r[1]));
   if(!live.length) return "";
   return '<dl class="gl-dl">'+live.map(r=>'<dt>'+esc(r[0])+'</dt><dd>'
-    +(r[3]?'<span class="n">'+esc(r[1])+'</span>':esc(r[1]))
+    +(r[4]
+      ? '<a class="gl-link" href="'+escAttr(r[4])+'" target="_blank" rel="noopener">'+esc(r[1])+' ↗</a>'
+      : (r[3]?'<span class="n">'+esc(r[1])+'</span>':esc(r[1])))
     +(!_gBlank(r[2])?'<small>'+esc(r[2])+'</small>':'')+'</dd>').join('')+'</dl>';
 }
 /* Named once at the foot of a tab, rather than as a row of nothing each. */
@@ -15496,6 +15559,7 @@ function _goodsLbxHTML(kind,x){
     ["Joint",x.joint,"",0],["Labour",x.labour,"",1],["Installed",x.inst,"",1]];
   const SUPPLY=[
     ["Supplier",x.sup,"",0],["Brand",(x.brand&&x.brand!==x.sup)?x.brand:"","",0],
+    ["Product page",_gSrc(x)?_gHost(_gSrc(x)):"","",0,_gSrc(x)],
     ["Location",x.loc,x.dist!=null?(x.dist+" mi away"):"",0],
     ["In stock",x.stock!=null?(x.stock+(kind==="mat"?" sf":"")):"","",1],
     ["Lead time",x.lead,"",0],["Shipping",x.ship,"",0],["Region",x.region,"",0]];
@@ -15515,7 +15579,7 @@ function _goodsLbxHTML(kind,x){
   if(cur && cur[0]==="notes"){
     panel='<div class="gl-notes">'+notes.slice(0,6)
       .map(n=>'<p>'+(Array.isArray(n)?n[1]:String(n))+'</p>').join('')
-      +(x.src?'<a class="gl-src" href="'+escAttr(x.src)+'" target="_blank" rel="noopener">Supplier page ↗</a>':'')
+      +(_gSrc(x)?'<a class="gl-src" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener">Open on '+escAttr(_gHost(_gSrc(x)))+' ↗</a>':'')
       +'</div>';
   } else if(cur){
     panel=_gDL(cur[2])+_gMissing(cur[2]);
@@ -15560,6 +15624,7 @@ function _goodsLbxHTML(kind,x){
      +'<span class="sp">'
      +'<span class="gl-qty"><button onclick="goodsLbxQty(-1)">−</button><span>'
         +qty+(kind==="mat"?" sf":"")+'</span><button onclick="goodsLbxQty(1)">+</button></span>'
+     +(_gSrc(x)?'<a class="gl-btn" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener">Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>':'')
      +'<button class="gl-btn" onclick="goodsLbxClose();'+(kind==="mat"?"matOpen":"furOpen")+'(\''+x.id+'\')">Documents · Where used</button>'
      +'<button class="gl-btn solid" onclick="goodsSpecAdd()">Add to project</button>'
      +'</span></div>'
@@ -19888,7 +19953,32 @@ function pbBookFav(){ PB_BOOK.fav=!PB_BOOK.fav; renderPlantBook(); }
 function pbBookAvail(m){ PB_BOOK.avail=m; renderPlantBook(); }
 // ── Plant List Book view ─────────────────────────────────────────
 const PLANT_IMG_PH = "data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#EEF3EA"/><path d="M41 60c0-18 9-33 24-37-2 20-11 33-24 37z" fill="#9DB389"/><path d="M41 60c0-13-7-24-18-27 1 15 8 24 18 27z" fill="#C2D0B2"/><line x1="41" y1="62" x2="41" y2="42" stroke="#7E9468" stroke-width="2.5" stroke-linecap="round"/></svg>');
-function pbImgErr(el){ el.onerror=null; el.src=PLANT_IMG_PH; }
+function pbImgErr(el){
+  // Read the failing URL BEFORE replacing it — overwriting src first captures the
+  // placeholder and the dead link survives.
+  let bad=""; try{ bad=el.getAttribute("data-img")||el.getAttribute("src")||""; }catch(e){}
+  el.onerror=null; el.src=PLANT_IMG_PH;
+  // Forget it rather than re-request it every render and keep counting it as a photo.
+  try{ _goodsDropImg(bad); }catch(e){} }
+let _gDropQ=null;
+function _goodsDropImg(url){
+  if(!url||url===PLANT_IMG_PH) return;
+  let hit=false;
+  [["materials",typeof MATERIALS!=="undefined"?MATERIALS:null],
+   ["furnishings",typeof FURNISHINGS!=="undefined"?FURNISHINGS:null]].forEach(([book,lib])=>{
+    if(!lib) return;
+    lib.forEach(x=>{
+      if(!x) return;
+      if(Array.isArray(x.imgs) && x.imgs.indexOf(url)>=0){ x.imgs=x.imgs.filter(u=>u!==url); hit=true; }
+      if(x.img===url){ x.img=(x.imgs&&x.imgs[0])||""; hit=true; }
+    });
+  });
+  if(!hit) return;
+  if(_gDropQ) clearTimeout(_gDropQ);
+  _gDropQ=setTimeout(()=>{ _gDropQ=null;
+    try{ matSave(); }catch(e){} try{ furSave(); }catch(e){}
+  },1200);
+}
 // Image resolver: a plant's own photo, or — if it has none — a same-name copy's photo
 // (handles duplicate records where only one copy carries the image).
 let _imgNameIdx=null;
