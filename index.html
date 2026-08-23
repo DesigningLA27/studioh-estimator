@@ -5222,7 +5222,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1105</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1106</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15517,8 +15517,26 @@ function _renderMaterials_inner(){
    bulk edit, URL import and web search all still run inside the middle column. */
 let MAT_PICK=null, FUR_PICK=null;
 function goodsPick(kind,id){
-  if(kind==="mat"){ MAT_PICK=(MAT_PICK===id)?null:id; renderMaterials(); }
-  else { FUR_PICK=(FUR_PICK===id)?null:id; renderFurnishings(); }
+  const prev=(kind==="mat")?MAT_PICK:FUR_PICK;
+  const next=(prev===id)?null:id;
+  if(kind==="mat") MAT_PICK=next; else FUR_PICK=next;
+  // Repaint the two cards that changed and the panel — not the grid. A full render
+  // discards every <img> and requests it again, which is the blank-and-return flash.
+  try{ _goodsPickPaint(kind,prev,next); }
+  catch(e){ (kind==="mat")?renderMaterials():renderFurnishings(); }
+}
+function _goodsPickPaint(kind,prev,next){
+  const view=document.getElementById(kind==="mat"?"view-materials":"view-furnishings");
+  if(!view) throw new Error("no view");
+  const mark=(id,on)=>{ if(!id) return;
+    view.querySelectorAll('[data-gid="'+id+'"]').forEach(el=>{
+      el.classList.toggle("on", !!on);          // cards and tiles
+      el.classList.toggle("sel", !!on && el.classList.contains("pb-row"));
+    }); };
+  mark(prev,false); mark(next,true);
+  const ins=view.querySelector(".pbk-ins");
+  if(!ins) throw new Error("no panel");
+  ins.innerHTML=_goodsIns(kind);
 }
 function _goodsAll(kind){ try{ return kind==="mat"?MATERIALS:FURNISHINGS; }catch(e){ return []; } }
 function _goodsPicked(kind){
@@ -21066,8 +21084,23 @@ function renderNurseryManager(){
 // same green value pill. The band above keeps the filters, now carrying match counts.
 /* No toggle-off: like the Price Book, a row is always selected, so the
    inspector is never a panel of dead white space. */
-function pbkSelect(pid){ PB_BOOK.sel=pid; PB_FPOP=null; PB_BOOK._editFor=null;
-  try{ renderPlantBookList(); }catch(e){}
+function pbkSelect(pid){
+  const prev=PB_BOOK.sel;
+  PB_BOOK.sel=pid; PB_FPOP=null; PB_BOOK._editFor=null;
+  // Move the highlight and refill the panel; rebuilding the list would discard and
+  // re-request every photo in it.
+  let done=false;
+  try{
+    const v=document.getElementById("view-plantbook");
+    if(v){
+      const mark=(id,on)=>{ if(!id) return;
+        v.querySelectorAll('.pb-item[data-pid="'+id+'"] .pb-row,[data-pid="'+id+'"],[data-gid="'+id+'"]')
+          .forEach(el=>{ el.classList.toggle("sel",!!on); el.classList.toggle("on",!!on); }); };
+      mark(prev,false); mark(pid,true);
+      done=true;
+    }
+  }catch(e){}
+  if(!done){ try{ renderPlantBookList(); }catch(e){} }
   try{ _pbkInsRender(); }catch(e){} }
 function pbkOpenLightbox(){ if(PB_BOOK.sel) try{ openPlantLightbox(PB_BOOK.kind, PB_BOOK.sel); }catch(e){} }
 function _pbkPlant(pid){ return (PLANT_DB[PB_BOOK.kind]||[]).find(p=>p.id===pid)||null; }
@@ -21691,7 +21724,7 @@ function _pbCard(p,kind){
   const fav=(function(){ try{ return isFav(p,kind); }catch(e){ return false; } })();
   const ph=p.img ? '<img class="pb-cdph" src="'+escAttr(p.img)+'" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">'
                  : '<span class="pb-cdph none"><svg viewBox="0 0 24 24">'+PB_ICO.leaf+'</svg></span>';
-  return '<button class="pb-cd'+(PB_BOOK.sel===p.id?" on":"")+'" onclick="pbkSelect(\''+p.id+'\')">'
+  return '<button data-pid="'+p.id+'" class="pb-cd'+(PB_BOOK.sel===p.id?" on":"")+'" onclick="pbkSelect(\''+p.id+'\')">'
     +(fav?'<span class="star">★</span>':'')+ph
     +'<b>'+escAttr(p.c||"Unnamed")+'</b><i>'+escAttr(botName(p))+'</i></button>';
 }
@@ -21700,7 +21733,7 @@ function _pbTile(p,kind){
   const fav=(function(){ try{ return isFav(p,kind); }catch(e){ return false; } })();
   const ph=p.img ? '<img src="'+escAttr(p.img)+'" alt="" width="112" height="112" loading="lazy" decoding="async" onerror="pbImgErr(this)">'
                  : '<span class="none"><svg viewBox="0 0 24 24">'+PB_ICO.leaf+'</svg></span>';
-  return '<button class="pb-tl'+(p.img?"":" nophoto")+(PB_BOOK.sel===p.id?" on":"")
+  return '<button data-pid="'+p.id+'" class="pb-tl'+(p.img?"":" nophoto")+(PB_BOOK.sel===p.id?" on":"")
     +'" onclick="pbkSelect(\''+p.id+'\')">'+ph
     +(fav?'<span class="star">★</span>':'')
     +'<span class="cap">'+escAttr(p.c||"Unnamed")+'</span></button>';

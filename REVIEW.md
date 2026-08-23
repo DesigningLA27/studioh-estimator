@@ -1209,3 +1209,16 @@ Diagnosed against the live site rather than guessed:
   that actually decides it, and it means nothing without a number set before the sheet opens.
 - **Not done:** printing. The same table is what you would send a client, so it belongs in
   Reports as well as here.
+
+## v1106 — the blanking, properly this time
+- v1104 fixed the wrong path. Select mode was one route into it; the ordinary one is
+  **clicking a card**, which called `goodsPick` → `renderMaterials()` → the whole grid rebuilt
+  and every `<img>` discarded and re-requested. The Plant Book did the same through
+  `pbkSelect` → `renderPlantBookList()`.
+- Both now repaint only what changed: the two cards whose highlight moved, and the panel.
+  `_goodsPickPaint()` falls back to a full render if the panel is missing, so nothing can
+  get stuck.
+- Plant cards and tiles carry `data-pid` — without it the highlight had nothing to find in
+  card or photo view.
+- Verified by node identity in both books: the same `<img>` elements are still there after a
+  click, all still loaded, highlight moved, panel refilled.
