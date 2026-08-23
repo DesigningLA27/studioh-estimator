@@ -5117,7 +5117,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1099</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1100</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9816,6 +9816,31 @@ async function goodsScrape(url){ return _scrapeCall({type:"scrape",url}); }
 // The limit was 120 while glasstile alone publishes 423 products — so a third of the
 // catalogue was never offered, and which third depended on sitemap order. Ask for the
 // lot; the picker is what narrows it down, not the fetch.
+/* Follow ?page=2,3,… merging unique product links, until two pages in a row bring
+   nothing new. Capped so a bad site cannot spin forever. */
+async function _goodsDiscoverPages(url,first){
+  if(!_goodsIsListUrl(url)) return first;
+  const seen={}, out=[];
+  const take=list=>{ let added=0;
+    (list||[]).forEach(p=>{ const u=(typeof p==="string")?p:(p&&p.url); if(!u) return;
+      if(!/\/product\/detail\/[^/]/.test(u) && !/\/products?\/[^/]{3}/.test(u)) return;
+      if(seen[u]) return; seen[u]=1; out.push(typeof p==="string"?{url:u,title:""}:p); added++; });
+    return added; };
+  take(first&&first.products);
+  const base=url.split("#")[0].replace(/[?&]page=\d+/,"");
+  const join=(b,n)=>b+(b.indexOf("?")>=0?"&":"?")+"page="+n;
+  let dry=0;
+  for(let p=2; p<=40 && dry<2; p++){
+    let d=null;
+    try{ d=await goodsDiscover(join(base,p),1500); }catch(e){ break; }
+    if(!d || d.err) break;
+    const added=take(d.products);
+    dry = added ? 0 : dry+1;
+    try{ _toast("Reading page "+p+" · "+out.length+" products","#6A4FA3"); }catch(e){}
+  }
+  if(!out.length) return first;
+  return Object.assign({},first||{},{products:out,count:out.length});
+}
 async function goodsDiscover(url,limit){ return _scrapeCall({type:"discover",url,limit:limit||1500}); }
 // Pull the fields we can read straight out of schema.org rather than asking the
 // model for them — exact beats inferred whenever the site publishes it.
@@ -9911,7 +9936,12 @@ async function goodsImportFlow(kind,url){
   // A page that publishes Product schema is a product; anything else, go looking.
   if(!sc.err && sc.kind==="product"){ return _goodsImportOne(kind,u,host); }
   try{ _toast("Looking for products…","#6A4FA3"); }catch(e){}
-  const dis=await goodsDiscover(u,1500);
+  let dis=await goodsDiscover(u,1500);
+  // A paginated listing serves a different slice of the catalogue per page, and the
+  // first page is often the thinnest — Bedrosians' page 1 offers 6 products where
+  // page 10 offers 31. Walk the pages and merge rather than stopping at whatever
+  // page one happened to contain.
+  try{ dis=await _goodsDiscoverPages(u,dis); }catch(e){}
   if(dis.err==="needs-worker"){ alert(_SCRAPE_HELP); return; }
   if(dis.err||!dis.products||!dis.products.length){
     if(!sc.err) return _goodsImportOne(kind,u,host);        // no list found — try it as a product anyway

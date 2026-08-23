@@ -1126,3 +1126,20 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - Measured on the Ecal stool/table record: 6 rows, 1 stacked, **0 overlapping**.
 - **Open:** that record is really two products in one row — "Stool: 17×13×17; Table: 28×19×11".
   A variant selector is the honest fix; stacking only makes it legible.
+
+## v1100 — 9 products became 230, and why some had no photo
+Diagnosed against the live site rather than guessed:
+- **Product pages are fine.** `/product/detail/celine-tile/` returns 3 images and an `og:image`
+  on five fetches out of five. The links were never bad.
+- **The listing is paginated and page 1 is the thinnest.** `?page=1` yields 6 product links,
+  `?page=2` 14, `?page=10` 31 — each page a different slice. Discovery only ever read page 1.
+- `_goodsDiscoverPages()` now walks `?page=2…` merging unique `/product/detail/` links until two
+  consecutive pages bring nothing new, capped at 40 pages. **Measured on bedrosians.com:
+  6 → 230 products.**
+- **The photo-less rows point at the listing itself.** Discovery returned
+  `/en/product/list/` and a bare `/product/detail/` among its "products", so rows were created
+  from pages that have no product photo — which is exactly what "Tiles and Slabs" is. The page
+  walker now keeps only URLs with a slug after `/product/detail/`, so those rows stop being
+  created; v1098 already explains the case when you hit Find images on an old one.
+- Note for the record: `bedrosians.com/robots.txt` and `/sitemap.xml` are behind an Azure WAF
+  captcha (403), so a sitemap-based crawl is not available — pagination is the route that works.
