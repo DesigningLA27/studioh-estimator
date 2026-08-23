@@ -1098,3 +1098,20 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - **Import leaves image-less products out by default** and says so, instead of adding them and
   offering a clean-up afterwards.
 - The Plant Book keeps its bulk "Fill missing images" — a plant book is filled in bulk.
+
+## v1098 — why Find images found nothing
+- The code only ever read `sc.images` — the `<img>` tags in the server-side HTML. Bedrosians
+  and most modern catalogues **lazy-load their images**, so that list is empty or near it even
+  though the page is full of pictures.
+- `_goodsAllImages(sc)` now also reads **schema.org `product.image`** and the **Open Graph**
+  tags (`og:image`, `og:image:secure_url`, `twitter:image`), which sites publish precisely so
+  other software can find the photo. Used by the import and both fetch paths.
+- Verified end to end with served PNGs: gathered from og:image + JSON-LD, ranked, 16px swatch
+  rejected, real photo kept.
+- **A category URL now says so.** `_goodsIsListUrl()` recognises `/product/list/`, `/category/`,
+  `/collection/` etc. and explains that a listing has no product photo of its own, instead of
+  reporting "nothing usable" and sending you hunting for a bug.
+- **Still worker-side, not fixed here:** discovery found 9 products on a catalogue with hundreds.
+  `goodsDiscover` already asks for 1500, so the limit is not the client — the worker reads the
+  served HTML, and a JS-rendered listing exposes few product links. The cure is for the worker
+  to read the site's sitemap.xml or follow pagination.

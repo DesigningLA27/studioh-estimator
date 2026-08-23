@@ -5110,7 +5110,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1097</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1098</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10240,6 +10240,28 @@ async function goodsVerifyImgs(urls){
   const ok=await Promise.all(list.map(u=>_goodsImgOk(u)));
   return list.filter((u,i)=>ok[i]);
 }
+/* Bedrosians and most modern catalogues lazy-load their <img> tags, so a server-side
+   read of the HTML finds few or none. The pictures are still declared — in schema.org
+   and in the Open Graph tags — so read those too rather than only sc.images. */
+function _goodsAllImages(sc){
+  const out=[];
+  const add=v=>{ if(!v) return;
+    (Array.isArray(v)?v:[v]).forEach(u=>{
+      const s=(typeof u==="string")?u:(u&&(u.url||u.contentUrl||u["@id"]));
+      if(s && typeof s==="string" && out.indexOf(s)<0) out.push(s); }); };
+  try{ add(sc.images); }catch(e){}
+  try{ add(sc.product&&sc.product.image); }catch(e){}
+  try{ const m=sc.meta||{};
+    add(m["og:image"]); add(m["og:image:secure_url"]); add(m["twitter:image"]); }catch(e){}
+  return out;
+}
+/* A category or listing URL has no single product photo on it — saying "nothing usable"
+   sends you looking for a bug that is not there. */
+function _goodsIsListUrl(u){
+  const p=String(u||"").toLowerCase();
+  return /\/(list|category|categories|collection|collections|shop|products|search)\/?($|\?)/.test(p)
+      || /\/product\/list/.test(p);
+}
 function goodsBestImages(urls,max){
   const seen={}, order=[];
   (urls||[]).forEach(u=>{
@@ -10312,14 +10334,17 @@ async function goodsFetchImages(book,onlyId){
     try{ _toast("Reading "+_gHost(row.srcUrl)+"…","#6A4FA3"); }catch(e){}
     let imgs=[];
     try{ const sc=await goodsScrape(row.srcUrl);
-      imgs = (sc && !sc.err) ? await goodsVerifyImgs(goodsBestImages(sc.images||[],8)) : []; }catch(e){}
+      imgs = (sc && !sc.err) ? await goodsVerifyImgs(goodsBestImages(_goodsAllImages(sc),8)) : []; }catch(e){}
     if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; _gVerified[row.id]=1;
       try{ book==="materials"?matSave():furSave(); }catch(e){}
       try{ (book==="materials")?renderMaterials():renderFurnishings(); }catch(e){}
       try{ _goodsLbxPaint(); }catch(e){}
       try{ _toast(imgs.length+" image"+(imgs.length>1?"s":"")+" found","#4C7B3D"); }catch(e){}
+    } else if(_goodsIsListUrl(row.srcUrl)){
+      alert("That link points at a category listing, not a single product:\n\n"+row.srcUrl
+        +"\n\nA listing has no product photo of its own. Open it, find this product's own page, and paste that URL with Add from URL.");
     } else {
-      try{ _toast("Nothing usable on that page","#B23F3C"); }catch(e){}
+      try{ _toast("No usable image on that page — the site may load its photos with scripts","#B23F3C"); }catch(e){}
     }
     return;
   }
@@ -10354,7 +10379,7 @@ async function goodsFetchImages(book,onlyId){
       try{
         const sc=await goodsScrape(row.srcUrl);
         // Verified here too — a link that 404s or serves a 16px swatch is not a picture.
-        const imgs=(sc && !sc.err) ? await goodsVerifyImgs(goodsBestImages(sc.images||[],8)) : [];
+        const imgs=(sc && !sc.err) ? await goodsVerifyImgs(goodsBestImages(_goodsAllImages(sc),8)) : [];
         if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; got++; } else none++;
       }catch(e){ none++; }
       done++; say();
@@ -13807,7 +13832,7 @@ async function _goodsImportOne(kind,url,host,quiet){
   // copy them into R2 afterwards. Waiting on three uploads per product is what made
   // importing a hundred of them take so long, and it lost the picture when it failed.
   // Verified, not merely scraped — a dead link must never be counted as a photo.
-  const imgs=await goodsVerifyImgs(goodsBestImages(res.images||[],8));
+  const imgs=await goodsVerifyImgs(goodsBestImages(_goodsAllImages(res),8));
   const src=res.src||url;
   const note=(extra)=>[["alert","<b>Imported from "+escAttr(host||"the supplier")+".</b>"
       +(res.ld?" Name, brand and price came from the page's own product data.":" Read from the page text.")
