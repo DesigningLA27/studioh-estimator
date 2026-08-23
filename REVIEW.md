@@ -1035,3 +1035,17 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   Measured: **0 empty rows**.
 - A tab with no content does not render; on a thin record the strip shows four tabs, not six.
 - Measured at 1376×945: sheet 1120×769, fits the viewport, each column scrolls on its own.
+
+## v1094 — images: lazy loading and fixed boxes
+- `loading="lazy"` appeared **zero times in the whole file** — every card, tile and row image
+  in every library fetched immediately, so a full grid fired ~80 full-resolution requests at
+  once. Supplier product photos are often 2–4 MB being drawn into a 92px box; that is the
+  three-second stutter.
+- Every card, tile, row and filmstrip image now carries `loading="lazy"`, `decoding="async"`
+  and intrinsic `width`/`height`. Inspector and lightbox hero images stay eager — they are the
+  thing you opened.
+- **Measured on an 80-card list: 20 load, 60 defer.** On the 23-plant sample, 20 load and 3 defer.
+- Intrinsic sizes plus the already-fixed boxes mean the grid does not reflow as pictures arrive.
+- **Still open (the real cure):** imported products keep the supplier's own image URL and are
+  only upgraded to R2 if the rehost succeeds — so some images still come from a supplier's web
+  server at full resolution. Serving resized copies from R2 is a worker change.
