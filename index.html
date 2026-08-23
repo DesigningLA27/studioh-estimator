@@ -5110,7 +5110,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1096</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1097</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10177,16 +10177,19 @@ async function _gpickRun(){
   },700);
   // A product with no photo is a product you cannot choose by eye. Same offer as the
   // thin-spec one above, and it waits its turn so the two never stack.
+  // Default is to keep them out: a product you cannot see is a product you cannot
+  // choose, and cleaning them out afterwards is work you should not have to do.
   const noimg=made.filter(id=>{ const x=_lib.find(r=>r&&r.id===id);
     return x && !(goodsImgs(x)||[]).length; });
   if(noimg.length) setTimeout(()=>{
-    if(confirm(ok+" imported, but "+noimg.length+" of them have no usable image — the page either had none, or its links would not load.\n\nDelete those "+noimg.length+" now?")){
+    const keep=confirm(noimg.length+" of the "+ok+" had no usable image — the page had none, or its links would not load.\n\nThey have been left out.\n\nOK to add them anyway, or Cancel to leave them out.");
+    if(!keep){
       const ids=noimg.slice();
       if(_bk==="materials") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
       else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
       goodsSaveBook(_bk,true);
       try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
-      try{ _toast(ids.length+" removed","#B23F3C"); }catch(e){}
+      try{ _toast(ids.length+" left out","#B23F3C"); }catch(e){}
     }
   }, thin.length?1600:700);
   // Pricing runs on afterwards against the progress bar, so it never holds the dialog
@@ -10202,12 +10205,16 @@ async function _gpickRun(){
 /* A URL in the record is not a photo. Bedrosians hands back links that 404 or refuse
    a hotlink, so the card said "2 photos" over a placeholder. Anything imported is
    loaded once, in the browser, and only what actually renders is kept. */
-function _imgLoads(url,ms){
+/* Named for this job so it cannot be shadowed: a plain _imgLoads already exists later
+   in the file, and a duplicate function declaration means the last one wins — which is
+   why a 16px swatch was passing as a photo. */
+function _goodsImgOk(url,ms,min){
   return new Promise(res=>{
     if(!url||!/^https?:/i.test(url)) return res(false);
     const im=new Image(); let done=false;
+    const M=min||80;   // below this it is an icon, a swatch or a tracking pixel
     const fin=v=>{ if(done) return; done=true; im.onload=im.onerror=null; res(v); };
-    im.onload=()=>fin(im.naturalWidth>1&&im.naturalHeight>1);
+    im.onload=()=>fin(im.naturalWidth>=M && im.naturalHeight>=M);
     im.onerror=()=>fin(false);
     setTimeout(()=>fin(false), ms||7000);
     im.src=url;
@@ -10220,7 +10227,7 @@ const _gVerified={};
 async function goodsVerifyRecord(kind,x){
   if(!x||_gVerified[x.id]) return; _gVerified[x.id]=1;
   const urls=goodsImgs(x); if(!urls.length) return;
-  const ok=await Promise.all(urls.map(u=>_imgLoads(u,7000)));
+  const ok=await Promise.all(urls.map(u=>_goodsImgOk(u,7000)));
   const dead=urls.filter((u,i)=>!ok[i]);
   if(!dead.length) return;
   x.imgs=(Array.isArray(x.imgs)?x.imgs:[]).filter(u=>dead.indexOf(u)<0);
@@ -10230,7 +10237,7 @@ async function goodsVerifyRecord(kind,x){
 }
 async function goodsVerifyImgs(urls){
   const list=(urls||[]).slice(0,8);
-  const ok=await Promise.all(list.map(u=>_imgLoads(u)));
+  const ok=await Promise.all(list.map(u=>_goodsImgOk(u)));
   return list.filter((u,i)=>ok[i]);
 }
 function goodsBestImages(urls,max){
@@ -10294,9 +10301,28 @@ async function goodsRehostLater(book,id){
 // leave every other field alone.
 let _gimgStop=false;
 function goodsFetchImagesStop(){ _gimgStop=true; }
-async function goodsFetchImages(book){
+async function goodsFetchImages(book,onlyId){
   const arr = book==="materials" ? MATERIALS : FURNISHINGS;
   const fromURL = arr.filter(x=>x && x.srcUrl);
+  // One product at a time, from its own More info sheet — no confirms, no whole-library sweep.
+  if(onlyId){
+    const row=arr.filter(x=>x&&x.id===onlyId)[0];
+    if(!row) return;
+    if(!row.srcUrl){ alert("This one was added by hand, so there is no supplier page to read."); return; }
+    try{ _toast("Reading "+_gHost(row.srcUrl)+"…","#6A4FA3"); }catch(e){}
+    let imgs=[];
+    try{ const sc=await goodsScrape(row.srcUrl);
+      imgs = (sc && !sc.err) ? await goodsVerifyImgs(goodsBestImages(sc.images||[],8)) : []; }catch(e){}
+    if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; _gVerified[row.id]=1;
+      try{ book==="materials"?matSave():furSave(); }catch(e){}
+      try{ (book==="materials")?renderMaterials():renderFurnishings(); }catch(e){}
+      try{ _goodsLbxPaint(); }catch(e){}
+      try{ _toast(imgs.length+" image"+(imgs.length>1?"s":"")+" found","#4C7B3D"); }catch(e){}
+    } else {
+      try{ _toast("Nothing usable on that page","#B23F3C"); }catch(e){}
+    }
+    return;
+  }
   let todo = fromURL.filter(x=>!goodsImg(x));
   if(!todo.length){
     const noSrc = arr.filter(x=>x && !x.srcUrl && !goodsImg(x)).length;
@@ -10327,7 +10353,8 @@ async function goodsFetchImages(book){
       const row=todo[i];
       try{
         const sc=await goodsScrape(row.srcUrl);
-        const imgs=(sc && !sc.err) ? goodsBestImages(sc.images||[],8) : [];
+        // Verified here too — a link that 404s or serves a 16px swatch is not a picture.
+        const imgs=(sc && !sc.err) ? await goodsVerifyImgs(goodsBestImages(sc.images||[],8)) : [];
         if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; got++; } else none++;
       }catch(e){ none++; }
       done++; say();
@@ -15021,7 +15048,6 @@ function furToolsHTML(){
       ${it("openPriceSheet('furnishings')","Price sheet")}
       <div class="hd">Fill in the gaps</div>
       ${it("goodsEstimateUnpriced('furnishings')","Estimate prices",unpriced)}
-      ${it("goodsFetchImages('furnishings')","Get images",noImg)}
       ${it("goodsFillColours('furnishings')","Colours from photos")}
       ${it("goodsFixBrands('furnishings')","Fix brands")}
       ${it("goodsFillMaterial('furnishings')","Material type")}
@@ -15048,7 +15074,6 @@ function matToolsHTML(){
       ${it("openPriceSheet('materials')","Price sheet")}
       <div class="hd">Fill in the gaps</div>
       ${it("goodsEstimateUnpriced('materials')","Estimate prices",unpriced)}
-      ${it("goodsFetchImages('materials')","Get images",noImg)}
       ${it("goodsFillColours('materials')","Colours from photos")}
       ${it("goodsFillMaterial('materials')","Material type",noMat)}
       ${it("goodsFillUse('materials')","Outdoor sort",noUse)}
@@ -15655,6 +15680,7 @@ function _goodsLbxHTML(kind,x){
      +'<span class="sp">'
      +'<span class="gl-qty"><button onclick="goodsLbxQty(-1)">−</button><span>'
         +qty+(kind==="mat"?" sf":"")+'</span><button onclick="goodsLbxQty(1)">+</button></span>'
+     +(_gSrc(x)?'<button class="gl-btn" onclick="goodsFetchImages(\''+(kind==="mat"?"materials":"furnishings")+'\',\''+x.id+'\')">Find images</button>':'')
      +(_gSrc(x)?'<a class="gl-btn" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener">Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>':'')
      +'<button class="gl-btn" onclick="goodsLbxClose();'+(kind==="mat"?"matOpen":"furOpen")+'(\''+x.id+'\')">Documents · Where used</button>'
      +'<button class="gl-btn solid" onclick="goodsSpecAdd()">Add to project</button>'

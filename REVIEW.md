@@ -1082,3 +1082,19 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - Verified with the right selector — `_ddFit` portals an open menu to `<body>`, so querying
   inside the view returns nothing and my first three readings were false negatives.
   Materials 13 items, Furnishings 11, with live counts (Get images 3 / 4).
+
+## v1097 — the Bedrosians bug, found
+- **Root cause: a duplicate function.** A plain `_imgLoads(url)` already existed at line 18252
+  accepting anything with `naturalWidth>0`. Two function declarations in one script means the
+  later one wins, so the strict check I added in v1095 was silently replaced. Every verification
+  since had been running the loose one — which is why a row could claim three images that show
+  nothing: supplier swatches and 1px pixels load perfectly. Renamed to `_goodsImgOk`.
+- **The check now requires a real picture**: http(s) only, and at least 80×80. Proved with served
+  files — 16px rejected, 400px kept, missing rejected, 1 of 3 survives.
+- **The re-read never verified at all.** v1095 added verification to the import path only;
+  `goodsFetchImages` stored whatever it scraped. It verifies now too.
+- **Per-product "Find images"** in the More info sheet, scoped to that one product, no confirms —
+  replacing the whole-library sweep, which is removed from both goods Tools menus.
+- **Import leaves image-less products out by default** and says so, instead of adding them and
+  offering a clean-up afterwards.
+- The Plant Book keeps its bulk "Fill missing images" — a plant book is filled in bulk.
