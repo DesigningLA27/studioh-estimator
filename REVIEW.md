@@ -1115,3 +1115,14 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   `goodsDiscover` already asks for 1500, so the limit is not the client — the worker reads the
   served HTML, and a JS-rendered listing exposes few product links. The cure is for the worker
   to read the site's sitemap.xml or follow pagination.
+
+## v1099 — "DimensioHs": a label overflowing its own box
+- `.pbk-f .k` had `min-width:38px`. With a long value the label shrank to 38px and
+  "Dimensions" — about 75px of text — overflowed its box and printed across the value.
+  The v1082 fix had made the *value* behave; the label was the other half.
+- Label minimum is now 72px, and **a value over 22 characters stacks**: label on its own
+  line, value beneath, left aligned — the same rule the lightbox already uses. The panel's
+  field helper also drops blank values now, so `_gBlank` governs every surface.
+- Measured on the Ecal stool/table record: 6 rows, 1 stacked, **0 overlapping**.
+- **Open:** that record is really two products in one row — "Stool: 17×13×17; Table: 28×19×11".
+  A variant selector is the honest fix; stacking only makes it legible.
