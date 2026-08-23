@@ -1067,3 +1067,18 @@ thin: county building layers (LA County has one), Overpass `building=*`.
   `x.src`. `_gSrc()` now reads `srcUrl || src || url`, and the link appears in three places:
   the panel's Actions, the Supply tab, and the lightbox footer — labelled with the host,
   e.g. "Open on bedrosians.com ↗".
+
+## v1096 — Tools restored (a v1088 regression I caused)
+- v1088 hid every non-primary chip in the library bars, claiming "all of it still opens from
+  Tools". That was true for Materials' *contents* but I hid **the Tools trigger itself**, and
+  Furnishings had no Tools menu at all — so eleven actions vanished, including **Get images**
+  and **Save to server now**.
+- `.mtools` is now exempt from the hide rule, and `furToolsHTML()` gives Furnishings the same
+  menu Materials has: Price sheet · Estimate prices · Get images · Colours from photos ·
+  Fix brands · Material type · Outdoor sort · CSI & location · Find sales · Drop empties ·
+  Save to server now.
+- `matDDToggle()` redrew Materials whichever book you were in, so the Furnishings menu opened
+  in state and never painted. It now redraws whichever view is active.
+- Verified with the right selector — `_ddFit` portals an open menu to `<body>`, so querying
+  inside the view returns nothing and my first three readings were false negatives.
+  Materials 13 items, Furnishings 11, with live counts (Get images 3 / 4).

@@ -2892,7 +2892,10 @@ body:not(.sp-on) #sp-open{display:grid}
    The Plant Book bar is search · Filters · Tools · Add. These two had grown into two
    rows of chips; the secondary ones are hidden rather than deleted — every one of
    them still opens from Tools. */
-.lib .mat-h .sp-grp .mchip:not(.pri),.lib .mat-h .gsp,
+/* Loose action chips are hidden — they all live in Tools now. The Tools trigger and the
+   primary button are never hidden: v1088 hid Tools itself in Materials and all eleven
+   Furnishings actions, taking Get images and Save to server with them. */
+.lib .mat-h .sp-grp .mchip:not(.pri):not(.mtools),.lib .mat-h .gsp,
 .lib .mat-h .gcols,.lib .mat-h .mcardsz{display:none}
 /* The book already names itself in the left nav; the Plant Book bar carries no title,
    so this one does not either — that is the 106px vs 72px difference. */
@@ -5107,7 +5110,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1095</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1096</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15006,6 +15009,30 @@ function matRailHTML(){
   </div>`;
 }
 // Everything you run occasionally, in one menu, grouped by what you are trying to do.
+function furToolsHTML(){
+  const lib=(typeof FURNISHINGS!=="undefined")?FURNISHINGS:[];
+  const n=f=>{ try{ return lib.filter(f).length||""; }catch(e){ return ""; } };
+  const noImg=n(x=>!(goodsImgs(x)||[]).length), unpriced=n(x=>!goodsPriced(x));
+  const it=(fn,label,c)=>`<div class="it" onclick="event.stopPropagation();${fn}">${escAttr(label)}${c?`<small>${c}</small>`:""}</div>`;
+  return `<span class="mdd sortdd">
+    <button class="mchip mtools" onclick="event.stopPropagation();matDDToggle(event,'__ftools')">${mi("sliders")}Tools${mi("chev")}</button>
+    <div class="mddm${_matDD==="__ftools"?" open":""}" style="width:264px">
+      <div class="hd">Bring in</div>
+      ${it("openPriceSheet('furnishings')","Price sheet")}
+      <div class="hd">Fill in the gaps</div>
+      ${it("goodsEstimateUnpriced('furnishings')","Estimate prices",unpriced)}
+      ${it("goodsFetchImages('furnishings')","Get images",noImg)}
+      ${it("goodsFillColours('furnishings')","Colours from photos")}
+      ${it("goodsFixBrands('furnishings')","Fix brands")}
+      ${it("goodsFillMaterial('furnishings')","Material type")}
+      ${it("goodsFillUse('furnishings')","Outdoor sort")}
+      ${it("goodsFillSpecs('furnishings')","CSI & location")}
+      ${it("goodsFindSales('furnishings')","Find sales")}
+      <div class="hd">Housekeeping</div>
+      ${it("goodsDropThin('furnishings')","Drop empties")}
+      ${it("goodsSyncNow()","Save to server now")}
+    </div></span>`;
+}
 function matToolsHTML(){
   const unpriced=MATERIALS.filter(m=>!(m.msrp>0)).length;
   const noImg=MATERIALS.filter(m=>m.srcUrl&&!goodsImg(m)).length;
@@ -15014,7 +15041,7 @@ function matToolsHTML(){
   const noUse=MATERIALS.filter(m=>m.nm&&!goodsUse(m)).length;
   const it=(fn,label,n)=>`<div class="it" onclick="event.stopPropagation();${fn}">${escAttr(label)}${n?`<small>${n}</small>`:""}</div>`;
   return `<span class="mdd sortdd">
-    <button class="mchip" onclick="event.stopPropagation();matDDToggle(event,'__tools')">${mi("sliders")}Tools${mi("chev")}</button>
+    <button class="mchip mtools" onclick="event.stopPropagation();matDDToggle(event,'__tools')">${mi("sliders")}Tools${mi("chev")}</button>
     <div class="mddm${_matDD==="__tools"?" open":""}" style="width:264px">
       <div class="hd">Bring in</div>
       ${it("matImportURL()","Add from URL")}
@@ -15139,7 +15166,11 @@ function matCatList(){ return Object.keys(MAT_CATS).filter(c=>MAT_CATS[c]); }
 function matDDToggle(ev,gid){
   if(ev) ev.stopPropagation();
   _matDD = (_matDD===gid) ? "" : gid;
-  renderMaterials(); try{ _ddFit(true); }catch(e){}
+  // Both books share this toggle, so redraw whichever one is actually on screen —
+  // redrawing Materials left the Furnishings menu open in state but never painted.
+  const onFur=(function(){ try{ return document.getElementById("view-furnishings").classList.contains("active"); }catch(e){ return false; } })();
+  if(onFur){ try{ renderFurnishings(); }catch(e){} } else { renderMaterials(); }
+  try{ _ddFit(true); }catch(e){}
 }
 document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} try{ _ddFit(true); }catch(e){} } });
 let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_SPEC=false;
@@ -16164,17 +16195,7 @@ function _furGrid(host){
          </div></span>
        <span class="sp-grp">
          <button class="mchip pri${GOODS_URLBAR==="fur"?" on":""}" onclick="furImportURL()">${mi("link")}Add from URL</button>
-         <button class="mchip" onclick="openPriceSheet('furnishings')" title="Import a supplier price list">${mi("doc")}Price sheet</button>
-         <button class="mchip" onclick="goodsEstimateUnpriced('furnishings')" title="AI market estimate for anything unpriced">${mi("spark")}Estimate</button>
-         <button class="mchip" onclick="goodsFetchImages('furnishings')" title="Re-read the supplier page for anything with no picture">${mi("zoom")}Get images</button>
-         <button class="mchip" onclick="goodsFixBrands('furnishings')" title="Read each supplier site for its real brand name">${mi("store")}Fix brands</button>
-         <button class="mchip" onclick="goodsFillColours('furnishings')" title="Read the real colours out of each product photo">${mi("swatch")}Colours</button>
-         <button class="mchip" onclick="goodsDropThin('furnishings')" title="Remove imports that carry no specification">${mi("trash")}Drop empties</button>
-         <button class="mchip" onclick="goodsFillUse('furnishings')" title="Work out which items suit outdoor use">${mi("sun")}Outdoor sort</button>
-         <button class="mchip" onclick="goodsFillMaterial('furnishings')" title="Identify what each item is made of">${mi("cube")}Material type</button>
-         <button class="mchip" onclick="goodsFillSpecs('furnishings')" title="Fill in CSI sections and supplier locations">${mi("list")}CSI &amp; location</button>
-         <button class="mchip" onclick="goodsFindSales('furnishings')" title="Check supplier sites for current discounts">${mi("tag")}Find sales</button>
-         <button class="mchip" onclick="goodsSyncNow()" title="Save this library to the server now">${mi("cloud")}Sync</button>
+         ${furToolsHTML()}
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
            <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
