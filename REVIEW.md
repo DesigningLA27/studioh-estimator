@@ -1192,3 +1192,20 @@ Diagnosed against the live site rather than guessed:
   Favourite · Compare · More info · Find images · Open on <supplier> · Delete.
   `-webkit-touch-callout:none` keeps Safari's own callout out of the way.
 - Swiping is off while Select mode is on, so the two cannot fight.
+
+## v1105 — Compare: tray and sheet
+- **Tray** appears only once something is picked, per book, four maximum with the oldest
+  dropping off. Carries thumbnails with a remove ✕, the count, **the quantity**, Clear and
+  Compare. `body.tray-on` adds matching bottom padding to the grid so the last row is never
+  hidden behind it.
+- **Sheet** is a table, not four spec cards: cost · client pays · you make · installed, then the
+  job total and earnings **at the tray's quantity**, then finish, thickness, sizes, slip, heat,
+  and lead · stock · region · supplier. Rows nobody carries are dropped entirely.
+- **Best value marked per row** where "better" is unambiguous — lowest cost, highest earning,
+  best slip, shortest lead, most stock. Heat and finish are judgements and stay unmarked.
+- **Differences only** hides every row where all agree, and says how many. Measured on three
+  Bedrosians tiles: 7 rows → 3, with "4 rows hidden".
+- The quantity is why the tray exists: `At 640 sf` reads $54,170 / $103,091 / $27,507 — the row
+  that actually decides it, and it means nothing without a number set before the sheet opens.
+- **Not done:** printing. The same table is what you would send a client, so it belongs in
+  Reports as well as here.
