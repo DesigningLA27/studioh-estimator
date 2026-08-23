@@ -5117,7 +5117,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1100</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1101</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10176,7 +10176,7 @@ async function _gpickRun(){
   if(picks.length>150 && !confirm(`Import ${picks.length} products?\n\nEach page is fetched and read individually — roughly ${Math.max(1,Math.round(picks.length/60))} minutes. Leave this tab open.`)) return;
   const go=document.getElementById("gpk-go"), pr=document.getElementById("gpk-prog");
   if(go){ go.disabled=true; go.textContent="Importing…"; }
-  let done=0, ok=0, idx=0; const made=[];
+  let done=0, ok=0, idx=0; const made=[]; _goodsDupeCount=0;
   // One product at a time meant 118 round trips end to end. Four at a time keeps well
   // inside what a supplier site and the AI proxy will take, and cuts the wait to a quarter.
   async function worker(){
@@ -10184,15 +10184,20 @@ async function _gpickRun(){
       const i=idx++; if(i>=picks.length) return;
       const r=await _goodsImportOne(_gpick.kind,picks[i].url,_gpick.host,true);
       done++; if(r){ ok++; made.push(r); }
-      if(pr) pr.textContent=`${done} of ${picks.length} · ${ok} imported`;
+      if(pr) pr.textContent=`${done} of ${picks.length} · ${ok} imported`
+        +(_goodsDupeCount?` · ${_goodsDupeCount} already yours`:"");
     }
   }
   await Promise.all([0,0,0,0].map(worker));
-  const host=_gpick.host, kind=_gpick.kind, failed=picks.length-ok;
+  const host=_gpick.host, kind=_gpick.kind;
+  const dupes=_goodsDupeCount;
+  const failed=picks.length-ok-dupes;
   // The job is finished — get out of the way. The dialog only stays up when something
   // actually failed, because that is the only case where there is anything to look at.
-  if(failed){
-    if(pr) pr.textContent=`${ok} imported · ${failed} could not be read`;
+  if(failed||dupes){
+    if(pr) pr.textContent=`${ok} imported`
+      +(dupes?` · ${dupes} already in your library`:"")
+      +(failed?` · ${failed} could not be read`:"");
     if(go){ go.disabled=false; go.textContent="Close"; go.onclick=_goodsPickerClose; }
   } else {
     _goodsPickerClose();
@@ -10298,6 +10303,29 @@ function _goodsIsListUrl(u){
   const p=String(u||"").toLowerCase();
   return /\/(list|category|categories|collection|collections|shop|products|search)\/?($|\?)/.test(p)
       || /\/product\/list/.test(p);
+}
+/* Same product, however the URL was written: drop the query, the hash, the trailing
+   slash, the www and the case. A catalogue re-run must not mint a second copy. */
+function _goodsUrlKey(u){
+  let t=String(u||"").trim().toLowerCase();
+  if(!t) return "";
+  t=t.split("#")[0].split("?")[0].replace(/\/+$/,"");
+  t=t.replace(/^https?:\/\//,"").replace(/^www\./,"");
+  return t;
+}
+function _goodsNameKey(nm,sup){
+  const n=x=>String(x||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  return n(nm)+"|"+n(sup);
+}
+/* The existing row for this product, or null. URL first because it is exact; name and
+   supplier second, for rows added by hand or imported before URLs were kept. */
+function goodsFindExisting(kind,url,nm,sup){
+  const lib=(kind==="mat"||kind==="materials")?MATERIALS:FURNISHINGS;
+  const uk=_goodsUrlKey(url);
+  if(uk){ const hit=lib.filter(x=>x&&_goodsUrlKey(x.srcUrl||x.src)===uk)[0]; if(hit) return hit; }
+  if(nm){ const nk=_goodsNameKey(nm,sup);
+    const hit=lib.filter(x=>x&&_goodsNameKey(x.nm,x.sup)===nk)[0]; if(hit) return hit; }
+  return null;
 }
 function goodsBestImages(urls,max){
   const seen={}, order=[];
@@ -13846,8 +13874,12 @@ function matImportURL(){ return goodsImportFlow("mat"); }
 // One importer for both books. The only real difference is the unit: furnishings are
 // priced each, materials per square foot — and a price scraped in $/ton must never be
 // allowed to masquerade as the $/sf figure the estimate multiplies by area.
+let _goodsDupeCount=0;
 async function _goodsImportOne(kind,url,host,quiet){
   const isMat = kind==="mat";
+  // Already in the library — do not fetch it again and do not add a second copy.
+  const dupe=goodsFindExisting(kind,url,"","");
+  if(dupe){ _goodsDupeCount++; return null; }
   const cats = isMat
     ? Array.from(new Set(MATERIALS.map(m=>m.cat).concat(["Paving","Tile","Flagstone","Gravel","Boulder","Veneer","Decking"])))
     : FUR_CATS;
@@ -13874,6 +13906,10 @@ async function _goodsImportOne(kind,url,host,quiet){
   const note=(extra)=>[["alert","<b>Imported from "+escAttr(host||"the supplier")+".</b>"
       +(res.ld?" Name, brand and price came from the page's own product data.":" Read from the page text.")
       +(extra||"")+" Add a price to use it on a project."]];
+  // A second check now the name is known — the same product is often reachable at
+  // more than one URL.
+  { const d2=goodsFindExisting(kind,"",o.nm,sup);
+    if(d2){ _goodsDupeCount++; return null; } }
   if(isMat){
     const unit=String(o.unit||"").toLowerCase(), perSf=unit==="sf";
     MATERIALS.unshift({id,nm:o.nm,cat:cats.indexOf(o.cat)>=0?o.cat:"Paving",fin:o.fin||"—",sup,supAlt,brand,loc:String(o.loc||"").slice(0,60)||"—",dist:0,
@@ -19931,7 +19967,21 @@ function delPlantBookItem(kind,id){ const p=plantDbFind(kind,id); if(!p) return;
   PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(x=>x.id!==id); plantBookSave();
   if(typeof renderPlantBook==="function") renderPlantBook();
 }
+/* The same guard the goods books use: a book with two of everything is worse than a
+   book missing something, because you cannot tell which copy is the real one. */
+function plantFindExisting(kind,name){
+  const n=x=>String(x||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  const key=n(name); if(!key) return null;
+  return (PLANT_DB[kind]||[]).filter(p=>p && (n(p.c)===key || n(p.b)===key))[0]||null;
+}
 async function addPlantByName(kind){ const name=(prompt("Enter the plant name (common or botanical) — AI will find the rest:")||"").trim(); if(!name) return;
+  // Already here — go to it rather than making a second copy.
+  const have=plantFindExisting(kind,name);
+  if(have){
+    try{ PB_BOOK.kind=kind; pbkSelect(have.id); renderPlantBook(); }catch(e){}
+    try{ _toast('"'+(have.c||name)+'" is already in your book','#B23F3C'); }catch(e){}
+    return;
+  }
   const id="cust_"+kind+"_"+Math.random().toString(36).slice(2,7);
   const base={shrub:{w:3,h:3,wu:"L",basal:0.8},tree:{w:25,h:30,wu:"L"},palm:{perFt:200,h:25,wu:"L"},gc:{oc:12,pf:36,wu:"L",habit:"spreader"}}[kind]||{};
   const p=Object.assign({id,c:name,b:"",cls:"common",sunset:"",usda:"",bloom:"",color:"",tags:[]},base);

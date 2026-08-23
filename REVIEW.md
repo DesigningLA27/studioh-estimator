@@ -1143,3 +1143,19 @@ Diagnosed against the live site rather than guessed:
   created; v1098 already explains the case when you hit Find images on an old one.
 - Note for the record: `bedrosians.com/robots.txt` and `/sitemap.xml` are behind an Azure WAF
   captcha (403), so a sitemap-based crawl is not available — pagination is the route that works.
+
+## v1101 — duplicates, in all three books
+- **There was no guard at all.** Every import minted a fresh random id, so re-running that
+  Bedrosians catalogue would have produced 230 second copies.
+- `_goodsUrlKey()` canonicalises a product URL — drops scheme, `www.`, query, hash, trailing
+  slash, case — so the same product written four ways matches. `goodsFindExisting()` tries the
+  URL first (exact) then supplier + name (for hand-added rows and older imports).
+- The check runs **before the fetch**, so a re-run of a catalogue costs nothing for the products
+  you already have, and again after the name is known, since one product is often reachable at
+  more than one URL.
+- The batch reports it plainly: *"180 imported · 50 already in your library"*, live in the
+  progress line as it goes.
+- **Plant Book:** `addPlantByName` now matches on common *or* botanical name; if the plant is
+  already there it selects it and says so rather than adding a second copy.
+- Verified: four spellings of one URL all match, a different URL does not, and name matching
+  works on both plant name fields.
