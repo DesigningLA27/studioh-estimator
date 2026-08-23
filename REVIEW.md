@@ -1018,3 +1018,20 @@ thin: county building layers (LA County has one), Overpass `building=*`.
 - Documents / Where used stays at the foot as a secondary action.
 - Verified in both books: label "More info", fill `rgb(76,123,61)`, visible without scrolling,
   photo carries the handler, and both entry points open the sheet.
+
+## v1093 — lightbox rebuilt: gallery + tabs
+- The card grid is gone. It was the real fault: four boxes each set their own alignment, so
+  nothing lined up across them however much padding was added.
+- **Gallery is the larger half** — image `object-fit:contain` on a neutral field, so the whole
+  picture shows instead of a centre crop, with a filmstrip under it and real space around both.
+- **Facts are one tabbed column**: Money · Spec · Install · Supply · Goes with · Notes. Every
+  field the record carries is in there — cost, bill, MSRP, sale, commission, earnings at qty,
+  volume offer, quote age; category, finish, thickness, sizes, dimensions, material, cushion,
+  weight, slip, ADA, heat, CSI; method, bedding, edge, joint, labour, installed; supplier, brand,
+  location, distance, stock, lead, shipping, region; the five companions; the AI notes and the
+  supplier link.
+- **`_gBlank()` is one predicate** — `""`, `"—"`, `"-"`, `"–"`, `"n/a"` — used for rows, for
+  hiding a tab that has nothing, and for the "Not recorded — …" line that names the gaps once.
+  Measured: **0 empty rows**.
+- A tab with no content does not render; on a thin record the strip shows four tabs, not six.
+- Measured at 1376×945: sheet 1120×769, fits the viewport, each column scrolls on its own.
