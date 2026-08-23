@@ -1222,3 +1222,13 @@ Diagnosed against the live site rather than guessed:
   card or photo view.
 - Verified by node identity in both books: the same `<img>` elements are still there after a
   click, all still loaded, highlight moved, panel refilled.
+
+## v1107 — the compare tray sits over the work area, not the window
+- It was `left:0;right:0` with a 1240px inner bar, so it ran under the green rail and was the
+  same width whether one thing was picked or four.
+- It now measures the **active view** on every paint and takes that left and width, so it centres
+  on the working area whether the rail is open or closed. A resize listener and a
+  MutationObserver on `body.class` re-measure when the rail toggles.
+- **Width follows content.** One pick shows a thumbnail and "hold another to compare"; the
+  quantity field and Clear only appear once there are two. Measured: **332px → 428px → 550px**
+  at one, two and four picks, centred at 724 every time, and clear of the rail at each size.
