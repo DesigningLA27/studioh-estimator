@@ -1174,3 +1174,21 @@ Diagnosed against the live site rather than guessed:
     **Clear** and a red **Delete n** — and warns when any of them are specified on the project.
   - Filter to a brand in the tree first and "All shown" means that brand.
 - Selection is per book and clears when the mode is turned off.
+
+## v1104 — two site-wide bugs, and the gestures
+- **Cards blanked when selecting.** Every selection re-rendered the whole grid, which discards
+  each `<img>` and re-requests it. Selection now toggles the class on the one element you touched
+  and syncs the count in place. Proved by identity: the same `<img>` node survives a select.
+- **Every click scrolled to the top, on every page.** A render replaces `innerHTML`; for a moment
+  the page has no height and the browser clamps scrollTop to 0. `renderMaterials`,
+  `renderFurnishings`, `renderPlantBook` and `renderPriceBook` are now wrapped in a shim that
+  snapshots the window and every scrolling column and restores them on the next frame — so all
+  their call sites are covered without touching one of them. Snapshot is **by selector and index,
+  never by element**: the render replaces the node, so a stored reference is already detached.
+  Measured: tree at 180px before a click, 180px after.
+- **Gestures.** Swipe a list row — right adds to the project at its existing quantity, left
+  deletes (still confirming). A drag that is mostly vertical is handed back to the page, so
+  scrolling still works. Hold 500ms or right-click any card, tile or row for: Add to project ·
+  Favourite · Compare · More info · Find images · Open on <supplier> · Delete.
+  `-webkit-touch-callout:none` keeps Safari's own callout out of the way.
+- Swiping is off while Select mode is on, so the two cannot fight.
