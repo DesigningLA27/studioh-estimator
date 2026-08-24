@@ -5360,7 +5360,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1113</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1114</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10351,7 +10351,7 @@ async function _gpickAnalyse(){
 let _gpick={kind:"",list:[],sel:{},host:""};
 function _goodsPickerOpen(kind,dis,host){
   _gpick={kind,list:dis.products||[],sel:{},host,q:"",shapes:null,analysing:false,
-          page:0,meta:{},photosOnly:true,peekTok:0,layer:null,only:null,fills:0};
+          page:0,meta:{},photosOnly:true,peekTok:0,layer:null,only:null,fills:0,tries:{},analysed:false};
   // Nothing pre-selected. Selecting the first 24 of 423 by whatever order the sitemap
   // happened to return is how a library ends up full of colour-swatch pages instead of
   // the actual products — which is exactly what happened with glasstile.
@@ -10360,7 +10360,11 @@ function _goodsPickerOpen(kind,dis,host){
     h.addEventListener("click",e=>{ if(e.target===h) _goodsPickerClose(); });
     document.body.appendChild(h); }
   _goodsPickerRender(); document.body.classList.add("lb-open");
-  try{ _gpickAnalyse(); }catch(e){}
+  // The layer analysis is NOT started here any more. It asks the reader for a dozen
+  // pages at once, which is a dozen upstream fetches into the same supplier the cards
+  // are being read from — and its two re-renders abandoned the card reads halfway.
+  // Together that made every card on a slow supplier come back empty. It now runs
+  // once the first page of cards has finished, from _gpickPeekPage.
 }
 function _goodsPickerClose(){ document.body.classList.remove("lb-open");
   const h=document.getElementById("gpick-lb"); if(h) h.classList.remove("on"); }
@@ -10373,6 +10377,11 @@ function _gpickPickLayer(si){
 /* Repaint the one card and the footer, never the grid. Re-rendering the whole
    picker on a tap is what made every other card blank for a frame. */
 function _gpickToggle(i){
+  // A card that could not be read has nothing to choose by, so a tap retries the
+  // read rather than selecting a blank.
+  const x=_gpick.list[i];
+  const m=x&&_gpick.meta[_gpickMetaKey(x.url)];
+  if(m&&m.bad){ _gpickRetry(i); return; }
   _gpick.sel[i]=!_gpick.sel[i];
   const el=document.getElementById("gpk-c"+i);
   if(el){ el.classList.toggle("on",!!_gpick.sel[i]); _gpickPaintCard(i); }
@@ -10382,7 +10391,9 @@ function _gpickToggle(i){
    how "1,447 products" turns into "3 of 3" with nothing on screen to explain it. */
 function _gpickHidden(){
   let n=0;
-  Object.keys(_gpick.meta||{}).forEach(k=>{ const m=_gpick.meta[k]; if(m&&!m.img) n++; });
+  // Only a page that published none. A photo that failed to LOAD keeps m.img, so it
+  // is not counted here and its card stays on screen.
+  Object.keys(_gpick.meta||{}).forEach(k=>{ const m=_gpick.meta[k]; if(m&&!m.bad&&!m.img) n++; });
   return n;
 }
 function _gpickBarPaint(){
@@ -10425,8 +10436,18 @@ function _gpickHave(){
   (arr||[]).forEach(r=>{ if(r&&r.srcUrl) h[String(r.srcUrl).replace(/[?#].*$/,"")]=1; });
   return h;
 }
-function _gpickName(x){ return (x.title||"").trim() ||
-  decodeURIComponent((x.url||"").split("/products/")[1]||"").replace(/[-_]+/g," ").replace(/\/$/,"") || x.url; }
+/* The last path segment, whatever the site calls its product folder. Splitting on
+   "/products/" printed the whole URL on every site that uses /product/ instead —
+   which is most of them, and it is what the card showed until the page was read. */
+function _gpickName(x){
+  const t=(x.title||"").trim(); if(t) return t;
+  let last="";
+  try{ last=new URL(x.url).pathname.replace(/\/+$/,"").split("/").pop()||""; }
+  catch(e){ last=String(x.url||"").split("?")[0].replace(/\/+$/,"").split("/").pop()||""; }
+  try{ last=decodeURIComponent(last); }catch(e){}
+  last=last.replace(/\.(html?|php|aspx)$/i,"").replace(/[-_]+/g," ").trim();
+  return last || x.url || "";
+}
 /* ── The picker, as cards ─────────────────────────────────────────────────────
    24 a page. Only the page you are looking at is read — a peek is one fetch per
    product with no AI behind it, so a page fills in about six seconds. Turning the
@@ -10437,13 +10458,22 @@ function _gpickMetaKey(u){ return String(u||"").replace(/[?#].*$/,""); }
 /* One fetch, no model: the page's own structured data carries name, price and
    photo, which is everything a card needs. */
 async function _gpickPeekOne(url){
-  try{
-    const sc=await goodsScrape(url);
-    if(!sc||sc.err) return {bad:1};
-    const ld=_ldFields(sc);
-    const imgs=goodsBestImages(_goodsAllImages(sc),3);
-    return {nm:ld.nm||"", sup:ld.sup||"", msrp:ld.msrp||0, img:imgs[0]||"", n:imgs.length};
-  }catch(e){ return {bad:1}; }
+  // The reader gives up on a slow supplier at about nine seconds, and a cold page
+  // on a big catalogue routinely takes longer than that — but the same page answers
+  // straight away on a second ask, because it is warm by then. Measured against
+  // qdisurfaces.com: first call timed out, second returned the product in full.
+  for(let attempt=0; attempt<2; attempt++){
+    try{
+      const sc=await goodsScrape(url);
+      if(sc && !sc.err){
+        const ld=_ldFields(sc);
+        const imgs=goodsBestImages(_goodsAllImages(sc),3);
+        return {nm:ld.nm||"", sup:ld.sup||"", msrp:ld.msrp||0, img:imgs[0]||"", n:imgs.length};
+      }
+    }catch(e){}
+    if(attempt===0) await new Promise(r=>setTimeout(r,500));
+  }
+  return {bad:1};
 }
 /* Reads the current page, four at a time, painting each card the moment it lands
    rather than after the slowest one — and never re-rendering the whole grid,
@@ -10451,7 +10481,14 @@ async function _gpickPeekOne(url){
 async function _gpickPeekPage(){
   const tok=++_gpick.peekTok;
   const items=_gpickPageItems();
-  const todo=items.filter(({x})=>!_gpick.meta[_gpickMetaKey(x.url)]);
+  // A failed read is NOT a result. Cached as one, it stuck: a slow supplier timed
+  // out on the first pass and every card stayed dead for good, because nothing ever
+  // asked again. Anything unread, or read and failed fewer than three times, is due
+  // another go.
+  const todo=items.filter(({x})=>{
+    const k=_gpickMetaKey(x.url), m=_gpick.meta[k];
+    return !m || (m.bad && (_gpick.tries[k]||0)<3);
+  });
   if(!todo.length){ _gpick.fills=0; return; }
   let idx=0, dead=0;
   const worker=async()=>{
@@ -10459,12 +10496,16 @@ async function _gpickPeekPage(){
       const j=idx++; if(j>=todo.length) return;
       if(tok!==_gpick.peekTok) return;                  // you turned the page
       const {x,i}=todo[j];
+      const k=_gpickMetaKey(x.url);
+      _gpick.tries[k]=(_gpick.tries[k]||0)+1;
       const m=await _gpickPeekOne(x.url);
-      _gpick.meta[_gpickMetaKey(x.url)]=m;
-      if(!m.img) dead++;
+      _gpick.meta[k]=m;
+      if(!m.img && !m.bad) dead++;
       if(tok===_gpick.peekTok) _gpickPaintCard(i);
     }
   };
+  // Four at a time. Measured against qdisurfaces.com, six put two of every six past
+  // the reader's nine-second limit while four came back clean.
   await Promise.all([0,0,0,0].map(worker));
   if(tok!==_gpick.peekTok) return;
   // With photos on, the ones that came back without one drop out and the page
@@ -10474,13 +10515,32 @@ async function _gpickPeekPage(){
   // the photoless rows filtered out, so asking it afterwards can only ever say no.
   // Three refills, not more. A supplier whose pages carry no photos would otherwise
   // have its whole catalogue read one screen at a time trying to fill one screen.
-  if(dead && _gpick.photosOnly && (_gpick.fills=(_gpick.fills||0)+1)<=3) _goodsPickerRender();
-  else { _gpick.fills=0; _gpickBarPaint(); }
+  if(dead && _gpick.photosOnly && (_gpick.fills=(_gpick.fills||0)+1)<=3){ _goodsPickerRender(); return; }
+  _gpick.fills=0; _gpickBarPaint();
+  // The cards are done, so the reader is free — now work out what this site publishes
+  // and fill the rail. Once per picker.
+  if(!_gpick.analysed){ _gpick.analysed=true; try{ _gpickAnalyse(); }catch(e){} }
 }
+async function _gpickRetry(i){
+  const x=_gpick.list[i]; if(!x) return;
+  const el=document.getElementById("gpk-c"+i);
+  if(el) el.innerHTML=`<div class="sk"></div>`;
+  delete _gpick.meta[_gpickMetaKey(x.url)];
+  const k=_gpickMetaKey(x.url);
+  _gpick.tries[k]=0;
+  const m=await _gpickPeekOne(x.url);
+  _gpick.meta[k]=m;
+  _gpickPaintCard(i); _gpickBarPaint();
+}
+/* The page published a photo and the browser could not fetch it — a supplier CDN
+   refusing a foreign referrer, a corporate network, an image that has since moved.
+   That is NOT the same as a page with no photo: reclassifying it as one hid the
+   card, and on a supplier whose whole CDN is unreachable that emptied the grid.
+   Say what happened and leave it where it is. */
 function _gpickImgDead(i){
   const x=_gpick.list[i]; if(!x) return;
-  const m=_gpick.meta[_gpickMetaKey(x.url)]; if(!m) return;
-  m.img=""; _gpickPaintCard(i);
+  const m=_gpick.meta[_gpickMetaKey(x.url)]; if(!m||m.imgFail) return;
+  m.imgFail=1; _gpickPaintCard(i); _gpickBarPaint();
 }
 function _gpickPaintCard(i){
   const el=document.getElementById("gpk-c"+i); if(!el) return;
@@ -10496,7 +10556,10 @@ function _gpickShownAll(){
     .filter(({x})=>!q || (_gpickName(x)+" "+(x.url||"")).toLowerCase().indexOf(q)>=0)
     .filter(({x})=>{ if(!_gpick.photosOnly) return true;
       const m=_gpick.meta[_gpickMetaKey(x.url)];
-      return !m || m.img;                                // unread stays until it is read
+      // Unread stays until it is read, and a page that could not be READ is not the
+      // same as a page with no photo — hiding those emptied the whole grid the first
+      // time a supplier was slow.
+      return !m || m.bad || m.img;   // imgFail keeps m.img set, so it stays too
     });
 }
 function _gpickPages(){ return Math.max(1,Math.ceil(_gpickShownAll().length/GPK_PER)); }
@@ -10528,8 +10591,11 @@ function _gpickCardInner(x,i,have){
   // A link is not a photo. If the browser cannot load it, the card says so and the
   // record is corrected, so "With photos" stays honest.
   const pic = !m ? `<div class="sk"></div>`
-    : (m.img ? `<img class="im" src="${escAttr(m.img)}" alt="" loading="lazy" onerror="_gpickImgDead(${i})">`
-             : `<div class="noim">no photo on that page</div>`);
+    : (m.img && !m.imgFail
+        ? `<img class="im" src="${escAttr(m.img)}" alt="" loading="lazy" onerror="_gpickImgDead(${i})">`
+        : m.imgFail ? `<div class="noim">the photo would not load</div>`
+        : m.bad ? `<div class="noim">that page would not load in time<br><span style="color:var(--gm);font-weight:700">tap to try again</span></div>`
+        : `<div class="noim">no photo on that page</div>`);
   return pic
     +`<span class="tick">${dup?"✓":(_gpick.sel[i]?"✓":"○")}</span>`
     +(dup?`<span class="flag">IN YOUR LIBRARY</span>`:"")
