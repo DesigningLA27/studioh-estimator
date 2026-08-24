@@ -1232,3 +1232,25 @@ Diagnosed against the live site rather than guessed:
 - **Width follows content.** One pick shows a thumbnail and "hold another to compare"; the
   quantity field and Clear only appear once there are two. Measured: **332px → 428px → 550px**
   at one, two and four picks, centred at 724 every time, and clear of the rail at each size.
+
+## v1108–1109 — Compare rebuilt: $/sf, install, and rows you choose
+- **Money block, four rows, fixed and first**: Material $/sf · Install $/sf · Installed $/sf ·
+  Total at the area. Nothing else unless you add it.
+- **$/sf normalisation.** `_cmpPerSf()` reads the unit and the size string: a stated coverage
+  ("1.06 sf/sheet") wins, else the piece size is parsed — inches with fractions — to give pieces
+  per sf. Verified across three units in one comparison: $0.95/pc → **$8.55**, $35.00/sheet ÷ 1.06
+  → **$33.02**, $14.20/sf → **$14.20**. Where the size cannot be parsed the row says
+  **unit unknown** and stays out rather than guessing.
+- **Area and method in the header.** Install comes from the Price Book assembly's `nonMatSF`.
+  Where there is no rate the install rows read **no rate yet** and the footer says which of the
+  three reasons applies — no assembly, assembly with no rates set, or supply only.
+- **Add a row.** Fourteen fields, each showing how many of your picks carry it; fields nobody
+  carries are listed but disabled. Colour renders as swatches. Choice persists in `PREFS.cmpRows`.
+- **The sheet never grows.** Fixed at `min(1120px, 95vw) × min(720px, 88vh)`; the body scrolls.
+  Measured: adding four rows took labels 6 → 9 with the height unchanged at 720 and the body
+  scrolling.
+- **Each product links to its page** — host-labelled, new tab, absent when there is no URL.
+- **Recovered from my own mistake:** the region replacement that rebuilt the sheet also deleted
+  twelve functions that happened to live inside it (`_gBlank`, `_gSrc`, the whole `goodsLbx*`
+  set). Restored from the last commit and verified by diffing every function name against it —
+  a check worth running after any region replacement.
