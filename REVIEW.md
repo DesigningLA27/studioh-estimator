@@ -1419,3 +1419,30 @@ a hand-added row with no `srcUrl` to a supplier page is a suggestion only.
 
 **Known blockers:** qdisurfaces.com's CDN 403s some addresses, Bedrosians' sitemap is behind a WAF
 captcha. Respect robots.txt, throttle, and record "could not check" as distinct from "unchanged".
+
+## v1125 — Imports lost on reload
+**The fault.** `goodsPull()` was an assignment — `FURNISHINGS = d.data` — and `goodsSyncBoot()`
+calls it on every boot, 2.5s after load. Anything imported but not yet on the server (a refused
+push, no admin key, a reload inside the 4-second push debounce) was overwritten on load and then
+written over localStorage as well. Reproduced against the real function: 20 imports in, boot pull,
+**0 left, local copy destroyed too**.
+
+It hid because the second import said "already in your library" — true for the few seconds before
+the boot pull wiped them.
+
+**Fixed**
+- **A pull unions, it does not assign.** Server rows plus every local row the server has never
+  seen; the difference is pushed straight back so other devices get it. `replace=true` remains for
+  a deliberate "pull master and overwrite" and is used nowhere else.
+- **Imports push immediately and are awaited**, and the picker says "saved to the server ✓" or
+  names the refusal. The debounce alone was the window the loss happened in.
+- **`localStorage.setItem` failures are no longer swallowed** — four `try{}catch(e){}` blocks meant
+  a full quota lost the library in silence. `_goodsWrite()` says so.
+
+**Verified**: same scenario, same functions — 20 imports survive the boot pull, localStorage keeps
+them, and the server is sent all 25 rows. An explicit `replace` still replaces.
+
+**Open**
+- A row deleted on another device will now come back if this device still has it. Losing an import
+  is far worse than a resurrected delete, so that is the right trade for now — proper deletes need
+  tombstones.
