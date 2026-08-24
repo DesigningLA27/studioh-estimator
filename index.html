@@ -5380,6 +5380,23 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   font-weight:650;background:var(--brl);color:var(--tm);cursor:pointer}
 .doff-f button.go{background:var(--gm);color:#fff}
 
+/* the catalogue review list */
+.drev-list{max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  border-radius:12px;background:var(--pbcard,var(--surface2))}
+.drev-r{display:flex;align-items:center;gap:11px;padding:9px 12px;cursor:pointer;
+  border-bottom:1px solid var(--brl)}
+.drev-r:last-child{border-bottom:0}
+.drev-r.on{background:var(--brand-soft)}
+.drev-r.dupe{opacity:.5;cursor:default}
+.drev-r .tick{width:19px;height:19px;border-radius:99px;display:grid;place-items:center;
+  font-size:10px;font-weight:800;background:var(--brl);color:var(--tl);flex:none}
+.drev-r.on .tick{background:var(--gm);color:#fff}
+.drev-r .nm{min-width:0;flex:1;font-size:13px;font-weight:600;color:var(--tx)}
+.drev-r .nm .sub{display:block;font-style:normal;font-size:11px;color:var(--tl);
+  font-weight:400;margin-top:1px}
+.drev-r .pr{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--tx);flex:none}
+.drev-r .pr em{font-style:normal;font-weight:400;color:var(--tl);font-size:11.5px}
+
 /* ══ ASK — the app's own dialog ═══════════════════════════════════════════════
    A browser confirm() cannot be styled, so every message wearing one arrives in a
    grey box with two buttons named OK and Cancel — which forces the text to explain
@@ -5479,7 +5496,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1125</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1126</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10611,29 +10628,185 @@ async function _docImport(i){
 }
 /* The review window opens ONLY when there are rows in it. Opening it first is what
    put "Upload the list your supplier sent" on screen while a 33 MB catalogue was
-   still downloading behind it. */
+   still downloading behind it.
+   A catalogue yields PRODUCTS, priced or not; a price list yields prices for products
+   you already have. Reading everything as a price list is what made a whole catalogue
+   come back as "No prices in that" with nothing to do but cancel. */
 async function _docOfferReview(){
   const o=_DOFF; if(!o||!o.text) return;
   const book=(o.kind==="mat")?"materials":"furnishings";
   const brand=o.brand||o.host;
+  const onlyPriceLists=o.read.every(i=>o.docs[i] && o.docs[i].kind==="price");
   const x=document.getElementById("doff"); if(x) x.style.display="none";
-  gwOpen({title:"Finding the priced lines",sub:"in "+o.read.length+" document"+(o.read.length===1?"":"s"),
-          steps:["Reading the pages","Finding the priced lines","Matching them to your library"],
+  gwOpen({title:"Reading what is in "+(o.read.length===1?"it":"them"),
+          sub:brand,
+          steps:["Finding the products","Matching them to your library"],
           pct:null,cancel:false});
-  gwStep(1);
-  _psBook=book; _psRows=[];
-  _psSrc=brand+" — "+o.read.length+" document"+(o.read.length===1?"":"s");
-  try{ await _psExtract(o.text); }catch(e){}
+
+  if(onlyPriceLists){
+    // A price list is about products you already carry: match and set the number.
+    gwStep(1);
+    _psBook=book; _psRows=[];
+    _psSrc=brand+" — price list";
+    try{ await _psExtract(o.text); }catch(e){}
+    gwClose();
+    if(_psRows.length){ _DOFF=null; if(x) x.remove();
+      openPriceSheet(book,true); _psRender(); return; }
+    // fall through and treat it as a catalogue rather than dead-ending
+  }
+  const rows=await _docExtractProducts(o.text,brand,book);
   gwClose();
-  if(!_psRows.length){
+  if(!rows.length){
     _docOfferPaint(); if(x) x.style.display="";
-    await askTell("No prices in that","Nothing in it reads as a priced product line. A catalogue without prices cannot set any.",{icon:"!"});
+    await askTell("Nothing readable in that",
+      "No product lines could be made out of it. That usually means the pages are "
+      +"scanned images rather than text, or the file is a brochure rather than a catalogue.",{icon:"!"});
     return;
   }
   _DOFF=null; if(x) x.remove();
-  openPriceSheet(book,true);            // keep the rows we just built
-  _psRender();
+  const src=(o.docs[o.read[0]]||{}).url||"";
+  _docReviewOpen(book,brand,rows,src);
 }
+/* ── A CATALOGUE IS NOT A PRICE SHEET ─────────────────────────────────────────
+   The first version ran everything through the price-sheet reader, which only
+   keeps lines that carry a price — so a catalogue full of real products produced
+   nothing and said "No prices in that", with no way forward but Cancel. A product
+   with no price is still worth having: the library already knows what an unpriced
+   row is, flags it, and can estimate one later. */
+async function _docExtractProducts(text,brand,book){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return [];
+  const what=(book==="materials")?"landscape materials — tile, stone, paving, decking"
+                                 :"outdoor furniture, planters, fire and shade";
+  const prompt=`This is text from ${brand}'s own catalogue or price list. Extract every distinct PRODUCT.
+
+Output ONLY a minified JSON array, no prose:
+[{"nm":"product name as written","sku":"code if any","price":0,"unit":"each|sf|lf|","size":"","finish":"","material":"","cat":""}]
+
+Rules:
+- One entry per product. Skip headings, page numbers, contents, legal text and marketing copy.
+- price 0 when the page states none — that is normal in a catalogue and is not a reason to skip the product.
+- Never invent a price, a size or a material. Use "" for anything the text does not state.
+- cat: a short category for ${what}.
+- Up to 300 products.
+
+TEXT:
+${text.slice(0,90000)}`;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:8000,temperature:0,
+        system:"You extract product data from supplier documents. Output only minified JSON. Never invent values that are absent from the text.",
+        messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
+    const a=t.indexOf("["); if(a<0) return [];
+    let arr=null; const b=t.lastIndexOf("]");
+    if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} }
+    if(!arr) arr=_salvageJsonObjects(t.slice(a));
+    return (arr||[]).map(o=>({
+      nm:String(o.nm||"").trim().slice(0,120),
+      sku:String(o.sku||"").trim().slice(0,40),
+      price:Math.round((+String(o.price==null?"":o.price).replace(/[^0-9.]/g,"")||0)*100)/100,
+      unit:String(o.unit||"").toLowerCase().trim(),
+      size:String(o.size||"").trim().slice(0,60),
+      finish:String(o.finish||"").trim().slice(0,40),
+      material:String(o.material||"").trim().slice(0,40),
+      cat:String(o.cat||"").trim().slice(0,40),
+      use:true
+    })).filter(o=>o.nm.length>2);
+  }catch(e){ return []; }
+}
+/* Review before anything is written — the same promise the rest of the importer
+   makes. Rows already in the library are shown as such and cannot be picked twice. */
+let _DREV=null;
+function _docReviewOpen(book,brand,rows,src){
+  const lib=(book==="materials")?MATERIALS:FURNISHINGS;
+  rows.forEach(r=>{
+    r.dupe=lib.some(x=>x && String(x.nm||"").toLowerCase()===r.nm.toLowerCase()
+      && String(x.brand||x.sup||"").toLowerCase()===String(brand||"").toLowerCase());
+    if(r.dupe) r.use=false;
+  });
+  _DREV={book,brand,rows,src};
+  let x=document.getElementById("drev");
+  if(!x){ x=document.createElement("div"); x.id="drev"; x.className="lb-scrim on";
+    x.addEventListener("click",e=>{ if(e.target===x) _docReviewClose(); });
+    document.body.appendChild(x); }
+  _docReviewPaint();
+}
+function _docReviewClose(){ _DREV=null; const x=document.getElementById("drev"); if(x) x.remove(); }
+function _docReviewPick(i){ if(!_DREV) return; const r=_DREV.rows[i];
+  if(r.dupe) return; r.use=!r.use; _docReviewPaint(); }
+function _docReviewAll(v){ if(!_DREV) return;
+  _DREV.rows.forEach(r=>{ if(!r.dupe) r.use=!!v; }); _docReviewPaint(); }
+function _docReviewPaint(){
+  const x=document.getElementById("drev"); if(!x||!_DREV) return;
+  const o=_DREV, n=o.rows.filter(r=>r.use).length, dupes=o.rows.filter(r=>r.dupe).length;
+  const priced=o.rows.filter(r=>r.price>0).length;
+  x.innerHTML=`
+   <div class="lbx" style="width:min(760px,100%)" role="dialog" aria-modal="true">
+    <div class="lb-h"><span style="font-weight:800;font-size:15px">${escAttr(o.brand)} — ${o.rows.length} product${o.rows.length===1?"":"s"} read</span>
+      <span class="lb-pos">${priced} with a price${dupes?" · "+dupes+" already yours":""}</span>
+      <span class="lb-sp"><button class="lb-ico" onclick="_docReviewClose()"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>
+    <div class="st-b">
+      <div class="gpk-bar"><b>${n}</b> selected
+        <span class="sp" style="margin-left:auto;display:flex;gap:7px">
+          <button class="pb-quick" onclick="_docReviewAll(1)">Select all</button>
+          <button class="pb-quick" onclick="_docReviewAll(0)">Clear</button></span></div>
+      <div class="drev-list">${o.rows.map((r,i)=>`
+        <label class="drev-r${r.use?" on":""}${r.dupe?" dupe":""}" onclick="event.preventDefault();_docReviewPick(${i})">
+          <span class="tick">${r.dupe?"✓":(r.use?"✓":"○")}</span>
+          <span class="nm">${escAttr(r.nm)}${r.dupe?'<i class="gpk-dup">in library</i>':""}
+            ${(r.size||r.finish||r.material)?`<i class="sub">${escAttr([r.size,r.finish,r.material].filter(Boolean).join(" · "))}</i>`:""}</span>
+          <span class="pr">${r.price>0?("$"+r.price.toFixed(2)+(r.unit?"/"+escAttr(r.unit):"")):'<em>no price</em>'}</span>
+        </label>`).join("")}</div>
+      <div class="gpk-note">Products with no price come in unpriced and are flagged — the library can
+        estimate one later, or you can type the real one in.</div>
+    </div>
+    <div class="lb-f"><span class="lb-hint"></span>
+      <span class="lb-sp"><button class="btn btn-o" onclick="_docReviewClose()">Cancel</button>
+        <button class="btn" ${n?"":"disabled"} onclick="_docReviewAdd()">Add ${n} product${n===1?"":"s"}</button></span></div>
+   </div>`;
+}
+function _docReviewAdd(){
+  const o=_DREV; if(!o) return;
+  const picks=o.rows.filter(r=>r.use && !r.dupe);
+  if(!picks.length) return;
+  const isMat=(o.book==="materials");
+  const made=[];
+  picks.forEach(r=>{
+    const id=(isMat?"m":"f")+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
+    const common={id,nm:r.nm,sup:o.brand,supAlt:[],brand:o.brand,loc:"—",dist:0,claimed:0,
+      tags:[],cols:[isMat?"#B9AC97":"#8C7F6B"],imgs:[],img:"",
+      msrp:r.price||0,cost:0,comm:0,stock:0,lead:"—",
+      // Dated today because that is when the number was read, and only when there IS
+      // a number — an unpriced row must not claim a fresh quote.
+      priced:r.price>0?_goodsNow():"",
+      srcUrl:o.src||"",sku:r.sku||"",docs:[],
+      ai:"Read from "+o.brand+"'s catalogue"};
+    if(isMat) MATERIALS.unshift(Object.assign(common,{cat:r.cat||"Paving",fin:r.finish||"—",bill:0,
+      listPrice:r.price||0,listUnit:r.unit||"",slip:"—",thick:"—",sizes:r.size||"—",heat:"—",ada:"—",
+      ship:"—",region:"—",offer:"—",method:"—",labour:"—",bed:"—",edge:"—",joint:"—",inst:"—",
+      csi:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",use:"",mat:r.material||"",specSF:0}));
+    else FURNISHINGS.unshift(Object.assign(common,{cat:r.cat||"Accessories",sale:0,
+      dims:r.size||"—",seat:"—",weight:"—",frame:r.material||"—",cushion:"—",assembly:"—",
+      weather:"—",maint:"—",cover:"—",warranty:"—",parts:"—",ship:"—",region:"—",offer:"—",
+      goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",use:"",specQty:0}));
+    made.push(id);
+  });
+  _docReviewClose();
+  goodsSaveBook(o.book,true);
+  // Straight up to the server and awaited — an import that only exists on this
+  // device is the fault that lost the Gloster products.
+  (async()=>{
+    let saved=false;
+    try{ saved=await goodsPushNow(o.book); }catch(e){}
+    try{ _toast(made.length+" added from the catalogue"+(saved?" · saved ✓":" · NOT saved to the server"),
+      saved?"#4C7B3D":"#B23F3C"); }catch(e){}
+    if(!saved) try{ await askTell(made.length+" added, but not saved to the server",
+      "They are on this device only. "+(_goodsLastErr[o.book]||"The server refused the save."),{icon:"!"}); }catch(e){}
+  })();
+}
+
 /* Download and read ONE document, with the wait shown honestly: bytes while it
    downloads because we know the size, pages while it is read. */
 async function _docReadOne(who,d){
