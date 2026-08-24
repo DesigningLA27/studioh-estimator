@@ -5425,7 +5425,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1119</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1120</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10312,10 +10312,15 @@ async function goodsImportFlow(kind,url,related,forTerm){
     // 403 to anything that is not a person's own browser — reporting that as "couldn't
     // find any products" sends you looking for a fault at our end that is not there.
     if(dis.blocked){
+      // Shut door, open window: the same site that refuses a page request will hand
+      // over its own catalogue and price list as files. Look before giving up.
+      const took=await goodsOfferDocs(kind,host,"",
+        host+" refuses automated reading of its pages (it answered "+dis.blocked+"), but it does publish these.");
+      if(took) return;
       await askTell(host+" will not allow automated reading",
         "Their server answered "+dis.blocked+" — it does that to any request that is not a person's own browser, and it does the same to their home page.\n\n"
-        +"Nothing here can get past that. The ways in are a dealer price sheet or catalogue file from "+host
-        +", which imports through Tools → Price sheet, or adding the pieces you need by hand.",
+        +"No catalogue or price list turned up either. The ways in are a price sheet from "
+        +host+", which imports through Tools → Price sheet, or adding the pieces you need by hand.",
         {icon:"⛔"});
       return;
     }
@@ -10326,6 +10331,149 @@ async function goodsImportFlow(kind,url,related,forTerm){
   }
   _goodsPickerOpen(kind,dis,host,related,forTerm);
 }
+/* ── CATALOGUE AND PRICE-SHEET PDFs ───────────────────────────────────────────
+   A supplier that refuses a crawler still publishes its catalogue and its price
+   list as PDFs, and those are a BETTER source than the website: a price sheet is
+   the authoritative number rather than a scraped one. fxl.com answers 403 to any
+   request for a page and 200 to a request for a file — so when the door is shut,
+   go round to the documents.
+   The browser cannot fetch a supplier PDF itself (cross-origin), so the reader
+   streams the bytes back with CORS and pdf.js reads them here. */
+const PDF_PROXY = SCRAPE_URL + "/pdf?url=";
+/* Ask the web for this brand's own documents, then CHECK each one is really a PDF
+   before offering it — a model naming a plausible URL is not the same as a file
+   that exists, and offering a 404 as a catalogue is worse than offering nothing. */
+async function goodsFindDocs(host,brand){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return [];
+  const who=brand||host;
+  let prose="";
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1200,
+        tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}],
+        system:"You find manufacturers' own published PDFs. Give exact direct links to .pdf files, never a page that merely links to one.",
+        messages:[{role:"user",content:
+`Find the current product catalogue and the current price list published by ${who} (${host}) as PDF files.
+
+Prefer files hosted on ${host} itself. Give the direct .pdf URL for each.
+Say for each whether it is a CATALOGUE (products, specifications, photographs) or a PRICE LIST (product codes with prices).
+Up to 6 files. If you cannot find a real .pdf link, say so plainly rather than guessing a URL.`}]})});
+    const d=await r.json();
+    prose=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n")||"");
+  }catch(e){ return []; }
+  // Take the links out of the answer directly — a second model call to structure
+  // them is another thing that can fail for no benefit when the shape is this simple.
+  const urls=[];
+  (prose.match(/https?:\/\/[^\s)"'\]]+\.pdf\b[^\s)"'\]]*/gi)||[]).forEach(u=>{
+    const c=u.replace(/[.,;]+$/,"");
+    if(urls.indexOf(c)<0) urls.push(c);
+  });
+  if(!urls.length) return [];
+  const guessKind=u=>{
+    const s=u.toLowerCase();
+    if(/price|pricelist|price-list|\bpl[_-]|pricing/.test(s)) return "price";
+    return "catalog";
+  };
+  const nameOf=u=>{ try{ return decodeURIComponent(new URL(u).pathname.split("/").pop()||u); }catch(e){ return u; } };
+  // Verify every one. Anything that is not really a PDF is dropped, silently.
+  const checked=await Promise.all(urls.slice(0,6).map(async u=>{
+    try{
+      const r=await _scrapeCall({type:"pdfhead",url:u});
+      if(!r||r.err||!r.ok||!r.isPdf) return null;
+      return {url:r.url||u, name:nameOf(u), bytes:+r.bytes||0, kind:guessKind(u)};
+    }catch(e){ return null; }
+  }));
+  return checked.filter(Boolean);
+}
+function _docSize(b){ return b>=1048576 ? (b/1048576).toFixed(1)+" MB" : b?Math.round(b/1024)+" KB" : ""; }
+/* Offered, not done. These are big files and reading one is a real wait, so the
+   choice is yours and the dialog says what it found rather than just "documents". */
+async function goodsOfferDocs(kind,host,brand,why){
+  let docs=[];
+  try{ _toast("Looking for a catalogue or price list…","#6A4FA3"); }catch(e){}
+  try{ docs=await goodsFindDocs(host,brand); }catch(e){}
+  if(!docs.length) return false;
+  const cat=docs.filter(d=>d.kind==="catalog"), pl=docs.filter(d=>d.kind==="price");
+  const lines=docs.map(d=>"· "+d.name+(d.kind==="price"?"  — price list":"  — catalogue")
+    +(d.bytes?"  ("+_docSize(d.bytes)+")":"")).join("\n");
+  const what=[cat.length?(cat.length+" catalogue"+(cat.length>1?"s":"")):"",
+              pl.length?(pl.length+" price list"+(pl.length>1?"s":"")):""].filter(Boolean).join(" and ");
+  const a=await askDlg({icon:"⎙",
+    title:(brand||host)+" publishes "+what,
+    body:(why?why+"\n\n":"")+"These are their own documents, and a price list is the number they actually charge rather than one read off a web page.",
+    note:lines,
+    actions:["No thanks","Read them"]});
+  if(a!==1) return false;
+  await goodsReadDocs(kind,host,brand,docs);
+  return true;
+}
+/* Read the chosen files here in the page: proxy the bytes, hand them to pdf.js,
+   then let the price-sheet reviewer do what it already does — match rows to the
+   library and show you every one before a single number is written. */
+async function goodsReadDocs(kind,host,brand,docs){
+  const book=(kind==="mat")?"materials":"furnishings";
+  let text="", read=0, failed=[];
+  for(let i=0;i<docs.length;i++){
+    const d=docs[i];
+    try{ _toast("Reading "+d.name+" ("+(i+1)+" of "+docs.length+")…","#6A4FA3"); }catch(e){}
+    try{
+      const t=await _pdfTextFromUrl(d.url);
+      if(t && t.trim().length>200){ text += "\n\n=== "+d.name+" ===\n"+t; read++; }
+      else failed.push(d.name+" — no readable text (it may be scanned images)");
+    }catch(e){ failed.push(d.name+" — "+((e&&e.message)||"could not read")); }
+  }
+  if(!read){
+    await askTell("Nothing readable in those files",
+      failed.join("\n")||"The documents came back empty.",{icon:"!"});
+    return;
+  }
+  // A published PDF is not automatically a CURRENT one — the first price list found
+  // for fxl.com was dated 2012. Say the year the document gives itself, so an old
+  // sheet cannot quietly become this year's number.
+  let yr="";
+  const ym=text.slice(0,4000).match(/\b(19|20)\d{2}\b/g);
+  if(ym){ const years=ym.map(Number).filter(y=>y>=1990&&y<=new Date().getFullYear()+1);
+    if(years.length) yr=String(Math.max.apply(null,years)); }
+  const thisYear=new Date().getFullYear();
+  if(yr && (thisYear-(+yr))>=2){
+    const go=await askDlg({danger:true,icon:"!",
+      title:"That document is dated "+yr,
+      body:"It is "+(thisYear-(+yr))+" years old, so its prices are very unlikely to be what "+(brand||host)+" charges now.",
+      note:"Nothing is written until you review each row — but a stale sheet is a poor place to start.",
+      actions:["Stop","Read it anyway"]});
+    if(go!==1) return;
+  }
+  // Straight into the existing reviewer: it already extracts priced lines, matches
+  // them against the library and writes nothing until you say so.
+  openPriceSheet(book);
+  _psSrc=(brand||host)+" — "+read+" document"+(read===1?"":"s")+(yr?" · dated "+yr:"");
+  await _psExtract(text);
+}
+/* pdf.js on bytes fetched through the reader. Capped at 40 pages: a 300-page
+   catalogue would take minutes and the price pages are near the front. */
+async function _pdfTextFromUrl(url,maxPages){
+  const lib=await _ptLoadLib();
+  const r=await fetch(PDF_PROXY+encodeURIComponent(url));
+  if(!r.ok) throw new Error("could not fetch it ("+r.status+")");
+  const buf=await r.arrayBuffer();
+  const doc=await lib.getDocument({data:new Uint8Array(buf)}).promise;
+  let out="";
+  const n=Math.min(doc.numPages, maxPages||40);
+  for(let i=1;i<=n;i++){
+    const pg=await doc.getPage(i), tc=await pg.getTextContent();
+    // Rebuild lines from item positions — a price list is a table and the row is the
+    // unit of meaning; flattened to a word soup you lose which price is whose.
+    const rows={};
+    tc.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0);
+      (rows[y]=rows[y]||[]).push({x:(it.transform&&it.transform[4])||0,s:it.str}); });
+    Object.keys(rows).sort((a,b)=>b-a).forEach(y=>{
+      out += rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim()+"\n"; });
+    out+="\n";
+  }
+  return out;
+}
+
 const _SCRAPE_HELP="The page reader isn't deployed yet.\n\nIn Terminal:\n  cd studioh-estimator/worker-scrape\n  npx wrangler deploy\n\nUntil then an import could only guess at the details, so it is blocked rather than filled with invented data.";
 
 // ── LAYER DETECTION ───────────────────────────────────────────
@@ -10803,6 +10951,7 @@ function _goodsPickerRender(keepFocus){
           || `<div class="gpk-ra" style="color:var(--tl)"><span class="dot"></span>none yet</div>`}
         ${(_gpick.related&&_gpick.related.length)?"":`
         <div class="gpk-ra add" onclick="_gpickLikeThis()">≈ Suppliers like this one</div>`}
+        <div class="gpk-ra add" onclick="_gpickDocs()">⎙ Catalogue &amp; price list</div>
         <div class="gpk-ra add" onclick="_gpickPasteAnother()">＋ Paste another link</div>
       </div>
 
@@ -10876,6 +11025,13 @@ async function _gpickLikeThis(){
   if(!term) term=(kind==="fur")?"outdoor furniture suppliers":"tile and hardscape material suppliers";
   _goodsPickerClose();
   goodsWebSearch(kind,term,false,true);
+}
+/* Any supplier, not only a blocked one — a published price list beats a scraped
+   price even when the scrape works. */
+async function _gpickDocs(){
+  const kind=_gpick.kind, host=_gpick.host;
+  const found=await goodsOfferDocs(kind,host,"","");
+  if(!found) try{ _toast("No catalogue or price list found for "+host,"#B8860B"); }catch(e){}
 }
 function _gpickPasteAnother(){
   const kind=_gpick.kind;

@@ -32,13 +32,20 @@ const BROWSER_HEADERS = {
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
 export default {
   async fetch(request) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+    // GET /pdf?url= — raw bytes, for pdf.js in the page. Not JSON, so it sits outside
+    // the POST router above.
+    if (request.method === "GET") {
+      const u = new URL(request.url);
+      if (u.pathname === "/pdf") return pdfProxy(u.searchParams.get("url"));
+      return json({ ok: false, error: "POST only" }, 405);
+    }
     if (request.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
 
     let body;
@@ -49,6 +56,13 @@ export default {
       if (body.type === "scrape")   return json(await scrapeOne(body.url));
       if (body.type === "discover") return json(await discover(body.url, Math.min(+body.limit || 60, 3000)));
       if (body.type === "pricelook") return json(await priceLook(body));
+      // A supplier that refuses a crawler will still publish a catalogue and a price
+      // list as PDFs, and those are a BETTER source than the website: a price sheet is
+      // the authoritative number, not a scraped one. The browser cannot fetch them —
+      // a cross-origin PDF is blocked — so proxy the bytes back with CORS and let
+      // pdf.js in the page read it. Streamed straight through: base64 of a 30 MB
+      // catalogue is what kills a Worker.
+      if (body.type === "pdfhead") return json(await pdfHead(body.url));
       // Which pages on this site are the real products? Fetch a couple from each URL
       // shape and report only what it takes to judge richness — never the page text,
       // which would be 14 KB a page for no reason.
@@ -109,6 +123,38 @@ export default {
     }
   },
 };
+
+// ── PDF: is it really one, and how big? ─────────────────────
+async function pdfHead(url) {
+  url = String(url || "").trim();
+  if (!/^https?:\/\//i.test(url)) return { ok: false, error: "bad url" };
+  try {
+    const r = await fetch(url, { headers: BROWSER_HEADERS, redirect: "follow",
+      signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return { ok: false, error: "http " + r.status, url };
+    const ct = (r.headers.get("content-type") || "").toLowerCase();
+    const len = +(r.headers.get("content-length") || 0) || 0;
+    // Some hosts serve a PDF as octet-stream, so trust the magic bytes over the header.
+    let magic = "";
+    try { const b = new Uint8Array(await r.clone().arrayBuffer()); 
+          magic = String.fromCharCode(b[0], b[1], b[2], b[3]); } catch (e) {}
+    const isPdf = /pdf/.test(ct) || magic === "%PDF";
+    return { ok: true, url: r.url || url, isPdf, contentType: ct, bytes: len };
+  } catch (e) { return { ok: false, error: (e && e.message) || "fetch failed", url }; }
+}
+async function pdfProxy(url) {
+  url = String(url || "").trim();
+  if (!/^https?:\/\//i.test(url)) return json({ ok: false, error: "bad url" }, 400);
+  try {
+    const r = await fetch(url, { headers: BROWSER_HEADERS, redirect: "follow",
+      signal: AbortSignal.timeout(25000) });
+    if (!r.ok) return json({ ok: false, error: "http " + r.status }, 502);
+    return new Response(r.body, { headers: Object.assign({}, CORS, {
+      "Content-Type": "application/pdf",
+      "Cache-Control": "public, max-age=86400",
+    }) });
+  } catch (e) { return json({ ok: false, error: (e && e.message) || "fetch failed" }, 502); }
+}
 
 // ── fetch + parse one page ───────────────────────────────────
 async function getHtml(url) {
