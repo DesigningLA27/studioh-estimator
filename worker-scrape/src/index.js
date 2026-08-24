@@ -10,7 +10,25 @@
 //   {type:"batch",    urls[]}         several product pages at once
 
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-           "(KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+           "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+// A bot filter does not read the User-Agent, it reads the SHAPE of the request. Akamai
+// (fxl.com) returns 403 to a UA-plus-two-headers fetch and 200 to the same fetch
+// carrying the header set a real Chrome navigation sends — measured, three for three,
+// and no single one of these headers is the trigger on its own. Sending the full set
+// is the difference between "0 products found" and the 434 that are actually there.
+const BROWSER_HEADERS = {
+  "User-Agent": UA,
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "sec-ch-ua": '"Chromium";v="126", "Not:A-Brand";v="24", "Google Chrome";v="126"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"macOS"',
+  "sec-fetch-dest": "document",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-site": "none",
+  "sec-fetch-user": "?1",
+  "upgrade-insecure-requests": "1",
+};
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -97,7 +115,7 @@ async function getHtml(url) {
   // A slow origin must not hold the whole scan hostage — one site that never answers
   // used to stall a sale sweep across a dozen brands.
   const r = await fetch(url, {
-    headers: { "User-Agent": UA, "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9" },
+    headers: BROWSER_HEADERS,
     redirect: "follow",
     signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(9000) : undefined,
   });
@@ -147,6 +165,11 @@ async function discover(url, limit) {
   try { origin = new URL(url).origin; } catch (e) { return { ok: false, error: "bad url" }; }
 
   const found = [];   // {url, title}
+  // "Nothing found" and "we were not allowed to look" are different answers, and
+  // reporting the second as the first is how fxl.com came back as an empty catalogue
+  // when it has 434 products. Akamai and friends answer 403 to a datacentre fetch
+  // however browser-shaped its headers are, so the block has to be said out loud.
+  let blocked = "";
   const seen = new Set();
   const add = (u, title) => {
     try {
@@ -163,14 +186,17 @@ async function discover(url, limit) {
     const re = /href=["']([^"']*\/products?\/[^"']+)["']/gi;
     let m;
     while ((m = re.exec(html)) && found.length < limit) add(m[1]);
-  } catch (e) { /* not fatal — the sitemap may still work */ }
+  } catch (e) {
+    const msg = String((e && e.message) || "");
+    if (/^http (401|403|429|451)\b/.test(msg)) blocked = msg;   // refused, not empty
+  }
 
   // 2 · sitemap. Shopify/Woo/BigCommerce all publish one, and it is the only way a
   //     bare domain can enumerate a catalogue.
   if (found.length < limit) {
     for (const sm of [origin + "/sitemap.xml", origin + "/sitemap_index.xml"]) {
       try {
-        const r = await fetch(sm, { headers: { "User-Agent": UA } });
+        const r = await fetch(sm, { headers: BROWSER_HEADERS });
         if (!r.ok) continue;
         const xml = (await r.text()).slice(0, 900000);
         const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/gi)].map(x => decodeEntities(x[1]));
@@ -178,7 +204,7 @@ async function discover(url, limit) {
         for (const child of childSitemaps.slice(0, 3)) {
           if (found.length >= limit) break;
           try {
-            const cr = await fetch(child, { headers: { "User-Agent": UA } });
+            const cr = await fetch(child, { headers: BROWSER_HEADERS });
             if (!cr.ok) continue;
             const cx = (await cr.text()).slice(0, 1500000);
             for (const mm of cx.matchAll(/<loc>([^<]+)<\/loc>/gi)) {
@@ -193,7 +219,8 @@ async function discover(url, limit) {
     }
   }
 
-  return { ok: true, origin, source: url, title: pageTitle, count: found.length, products: found.slice(0, limit) };
+  return { ok: true, origin, source: url, title: pageTitle, count: found.length,
+           products: found.slice(0, limit), blocked: found.length ? "" : blocked };
 }
 
 // ── price lookup across YOUR suppliers ───────────────────────

@@ -2776,6 +2776,16 @@ body:not(.sp-on) #sp-open{display:grid}
   --pbg:#12161D; --pbcard:#1B212B; --pbpill:#232B37; --brand-soft:#1C2C1B;
   --pbtile:#232B37; --pbwell:#141A22; --pbsel:#22331F;}
 #view-materials .gd-wrap,#view-furnishings .gd-wrap{align-items:flex-start}
+/* These two books are catalogues, not documents: narrowing IS the activity, so the
+   filters have to still be there at card 60. The rail was sticky already but
+   flex-start shrank it to its own content, so its panel stopped partway down and
+   the page was the only scroller. Stretching it fills the column and caps it at the
+   window, and — because each section now shows five — it usually still fits, so the
+   second scrollbar only appears when it is genuinely needed. */
+#view-materials .pbk-tree,#view-furnishings .pbk-tree{
+  align-self:stretch;
+  max-height:calc(100vh - var(--gd-top, 150px));
+}
 #view-materials .pbk-tree,#view-materials .pbk-list,#view-materials .pbk-ins,
 #view-furnishings .pbk-tree,#view-furnishings .pbk-list,#view-furnishings .pbk-ins{
   background:var(--pbcard);border:0;box-shadow:none;border-radius:20px}
@@ -5415,7 +5425,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1118</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1119</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10298,7 +10308,20 @@ async function goodsImportFlow(kind,url,related,forTerm){
   }
   if(dis.err||!dis.products||!dis.products.length){
     if(!sc.err) return _goodsImportOne(kind,u,host);        // no list found — try it as a product anyway
-    alert("Couldn't find any products at "+host+".");
+    // A refusal is not an empty catalogue. fxl.com publishes 434 products and answers
+    // 403 to anything that is not a person's own browser — reporting that as "couldn't
+    // find any products" sends you looking for a fault at our end that is not there.
+    if(dis.blocked){
+      await askTell(host+" will not allow automated reading",
+        "Their server answered "+dis.blocked+" — it does that to any request that is not a person's own browser, and it does the same to their home page.\n\n"
+        +"Nothing here can get past that. The ways in are a dealer price sheet or catalogue file from "+host
+        +", which imports through Tools → Price sheet, or adding the pieces you need by hand.",
+        {icon:"⛔"});
+      return;
+    }
+    await askTell("Nothing to read at "+host,
+      "The page answered, but had no products on it. A category page or a product page usually works better than the home page.",
+      {icon:"!"});
     return;
   }
   _goodsPickerOpen(kind,dis,host,related,forTerm);
@@ -16181,7 +16204,7 @@ const matSetModel=goodsSetModel;
 
 /* Scroll-preserving shim: the render itself is untouched. */
 function renderMaterials(){ const _s=_scrollKeep(); try{ return _renderMaterials_inner.apply(this,arguments); }
-  finally{ _scrollPut(_s); } }
+  finally{ _scrollPut(_s); try{ requestAnimationFrame(_gdRailFit); }catch(e){} } }
 function _renderMaterials_inner(){
   try{ specResync(); }catch(e){}
   try{ requestAnimationFrame(()=>_ddFit(true)); }catch(e){}
@@ -16479,6 +16502,19 @@ function _gtOrdPromo(name){
 /* An id is a timestamp: (m|f) + Date.now() in base 36 + a couple of random digits.
    That is how a row imported before prices carried a date can still say honestly how
    old it is, rather than being backdated to today or left looking three months stale. */
+/* How much chrome sits above the book's scrollport, measured rather than guessed —
+   it differs between the two books and moves when the window resizes. The rail is
+   capped to exactly the visible height, so once it pins it runs to the bottom of the
+   screen and no further. */
+function _gdRailFit(){
+  try{
+    const v=document.querySelector("#view-materials.active,#view-furnishings.active");
+    if(!v) return;
+    const top=Math.max(0,Math.round(window.innerHeight-v.clientHeight));
+    document.documentElement.style.setProperty("--gd-top",top+"px");
+  }catch(e){}
+}
+try{ window.addEventListener("resize",()=>{ try{ _gdRailFit(); }catch(e){} }); }catch(e){}
 function _goodsBornAt(x){
   const id=String((x&&x.id)||"");
   const body=id.replace(/^[mf]/,"");
@@ -17895,7 +17931,7 @@ async function furClaim(id){
 
 /* Scroll-preserving shim: the render itself is untouched. */
 function renderFurnishings(){ const _s=_scrollKeep(); try{ return _renderFurnishings_inner.apply(this,arguments); }
-  finally{ _scrollPut(_s); } }
+  finally{ _scrollPut(_s); try{ requestAnimationFrame(_gdRailFit); }catch(e){} } }
 function _renderFurnishings_inner(){
   try{ requestAnimationFrame(()=>_ddFit(true)); }catch(e){}
   try{ goodsAutoBrands(); }catch(e){}
