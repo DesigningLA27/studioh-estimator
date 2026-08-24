@@ -5532,7 +5532,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1143</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1144</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16993,6 +16993,7 @@ function furToolsHTML(){
       <div class="hd">Housekeeping</div>
       ${it("goodsDropThin('furnishings')","Drop empties")}
       ${it("goodsDropDupes('furnishings')","Remove duplicates",goodsDupeGroups("furnishings").reduce((s,g)=>s+g.length-1,0)||"")}
+      ${it("goodsEmptyLibrary('fur')","Empty this library")}
       ${it("goodsSyncNow()","Save to server now")}
     </div></span>`;
 }
@@ -17604,6 +17605,33 @@ function goodsDupeGroups(book){
   (arr||[]).forEach(x=>{ if(!x||!x.nm) return; const k=_catNameKey(x.nm); (by[k]=by[k]||[]).push(x); });
   return Object.keys(by).map(k=>by[k]).filter(g=>g.length>1);
 }
+async function goodsEmptyLibrary(kind){
+  const word=goodsBookWord(kind);
+  const rows=(kind==="mat")?MATERIALS.slice():((GOODS_PAGE==="prod")?_prodRows():_furRows());
+  if(!rows.length){ await askTell("Nothing to remove","That library is already empty.",{icon:"✓"}); return; }
+  const a=await askDlg({danger:true,icon:"🗑",
+    title:"Remove all "+rows.length+" "+word+"?",
+    body:"Everything in this library goes, on every device. The other libraries are untouched.",
+    note:"The server keeps the previous copy for 30 days, so this can be undone if it was a mistake.",
+    actions:["Keep them","Remove all "+rows.length]});
+  if(a!==1) return;
+  const kill={}; rows.forEach(x=>{ kill[x.id]=1; });
+  if(kind==="mat") MATERIALS=MATERIALS.filter(x=>!kill[x.id]);
+  else FURNISHINGS=FURNISHINGS.filter(x=>!kill[x.id]);
+  const book=(kind==="mat")?"materials":"furnishings";
+  try{ _goodsWrite(book==="materials"?"studioh_materials_v1":"studioh_furnishings_v1",
+        book==="materials"?MATERIALS:FURNISHINGS, book); }catch(e){}
+  gwOpen({title:"Removing "+rows.length+" "+word,sub:"saving to the server",
+          steps:["Saving"],pct:null,cancel:false});
+  let ok=false;
+  try{ ok=await goodsPushNow(book,true); }catch(e){}
+  gwClose();
+  try{ renderMaterials(); }catch(e){} try{ goodsRepaint(kind); }catch(e){}
+  if(ok) await askTell(rows.length+" removed","They are gone from the server too, so they will not come back on a reload.",{icon:"✓"});
+  else   await askTell("Removed here, but NOT on the server",
+    "The server refused: "+(_goodsLastErr[book]||"no reason given")
+    +"\n\nReloading would bring them back. Sort the save out first.",{icon:"!"});
+}
 async function goodsDropDupes(book){
   const groups=goodsDupeGroups(book);
   const extra=groups.reduce((s,g)=>s+g.length-1,0);
@@ -17919,7 +17947,7 @@ async function goodsSelDelete(kind){
   const rows=lib.filter(x=>ids.indexOf(x.id)>=0);
   const spec=rows.filter(x=>{ try{ return specIsOn(x.id); }catch(e){ return false; } }).length;
   { const a=await askDlg({danger:true,icon:"🗑",
-      title:`Delete ${ids.length} ${ids.length===1?"item":"items"} from ${book}?`,
+      title:`Delete ${ids.length} ${ids.length===1?"item":"items"} from ${goodsBookWord(kind)}?`,
       body:spec?`${spec} of them ${spec===1?"is":"are"} specified on this project — those specifications go too.`:"",
       note:"This cannot be undone.",
       actions:["Keep them",`Delete ${ids.length}`]});
@@ -18449,7 +18477,7 @@ function _goodsLbxHTML(kind,x){
 }
 function _goodsFind(kind,id){ return _goodsAll(kind).filter(v=>v.id===id)[0]||null; }
 function _goodsHeader(kind,shown,total){
-  const lbl=kind==="mat"?"materials":"furnishings";
+  const lbl=goodsBookWord(kind);
   const vm=_goodsView(kind), sv=_goodsSort(kind);
   const sw='<div class="pb-vsw">'+[["cards","Cards"],["photos","Photos"],["list","List"]]
     .map(v=>'<button class="'+(vm===v[0]?"on":"")+'" onclick="goodsSetView(\''+kind+'\',\''+v[0]+'\')">'+v[1]+'</button>').join('')+'</div>';
@@ -19133,6 +19161,10 @@ let GOODS_HOST="fur-body";
    These two are the seam: repaint the page that is open, and find the container that
    is on screen. Calling renderFurnishings() from shared code was why Select all and
    the rail did nothing on Products — they redrew Furnishings instead. */
+function goodsBookWord(kind){
+  if(kind==="mat"||kind==="materials") return "materials";
+  return (GOODS_PAGE==="prod") ? "products" : "furnishings";
+}
 function goodsRepaint(kind){
   if(kind==="mat"){ try{ return renderMaterials(); }catch(e){ return; } }
   try{ return (GOODS_PAGE==="prod") ? renderProducts() : goodsRepaint("fur"); }catch(e){}
