@@ -135,9 +135,15 @@ async function pdfHead(url) {
     const ct = (r.headers.get("content-type") || "").toLowerCase();
     const len = +(r.headers.get("content-length") || 0) || 0;
     // Some hosts serve a PDF as octet-stream, so trust the magic bytes over the header.
+    // Read the first chunk only. arrayBuffer() on the clone pulled the WHOLE file
+    // down to look at four bytes — 33 MB for FX's catalogue, every time it is offered.
     let magic = "";
-    try { const b = new Uint8Array(await r.clone().arrayBuffer()); 
-          magic = String.fromCharCode(b[0], b[1], b[2], b[3]); } catch (e) {}
+    try {
+      const rd = r.body.getReader();
+      const { value } = await rd.read();
+      if (value && value.length >= 4) magic = String.fromCharCode(value[0], value[1], value[2], value[3]);
+      try { await rd.cancel(); } catch (e) {}
+    } catch (e) {}
     const isPdf = /pdf/.test(ct) || magic === "%PDF";
     return { ok: true, url: r.url || url, isPdf, contentType: ct, bytes: len };
   } catch (e) { return { ok: false, error: (e && e.message) || "fetch failed", url }; }
