@@ -5479,7 +5479,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1124</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1125</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -11339,10 +11339,23 @@ async function _gpickRun(){
   const failed=picks.length-ok-dupes;
   // The job is finished — get out of the way. The dialog only stays up when something
   // actually failed, because that is the only case where there is anything to look at.
+  // Straight to the server, now, and WAIT for it. Import wrote to localStorage and
+  // left a four-second timer to do the upload — reload inside that window and the
+  // next boot pulled the server's older copy back down over the lot.
+  if(pr) pr.textContent=`${ok} imported · saving to the server…`;
+  let saved=false;
+  try{ saved=await goodsPushNow(_bk0(kind)); }catch(e){}
   if(pr) pr.textContent=`${ok} imported`
+    +(saved?" · saved to the server ✓":" · NOT saved to the server")
     +(dupes?` · ${dupes} already in your library`:"")
     +(failed?` · ${failed} could not be read`:"");
   if(go){ go.disabled=false; go.textContent="Import 0"; }
+  if(!saved && ok){
+    await askTell(ok+" imported, but not saved to the server",
+      "They are on this device only. "+(_goodsLastErr[_bk0(kind)]||"The server refused the save.")
+      +"\\n\\nOpen Tools \\u2192 Save to server now once that is sorted — until then a reload on "
+      +"another device will not show them.",{icon:"!"});
+  }
   // Ask whether that was the lot. "Import more" leaves the picker where it is with
   // the selection cleared, so a second pass is a tap rather than another paste.
   const more=await askDlg({icon:"✓",
@@ -14927,6 +14940,7 @@ async function goodsSyncNow(){
   try{ renderFurnishings(); }catch(e){}
 }
 // Debounced per book, so importing 120 products is one upload rather than 120.
+function _bk0(kind){ return kind==="mat"?"materials":"furnishings"; }
 function goodsSchedulePush(book){
   if(_goodsTimer[book]) clearTimeout(_goodsTimer[book]);
   _goodsTimer[book]=setTimeout(()=>{ _goodsTimer[book]=null; goodsPush(book); }, 4000);
@@ -15005,8 +15019,8 @@ async function _goodsPushOnce(book,key,force,retry){
     const srv=await _goodsCall({type:"loadgoods",book});
     if(!srv.err){
       const merged=_goodsMerge(book,srv.data||[]);
-      if(book==="materials"){ MATERIALS=merged; try{ localStorage.setItem("studioh_materials_v1",JSON.stringify(MATERIALS)); }catch(e){} }
-      else { FURNISHINGS=merged; try{ localStorage.setItem("studioh_furnishings_v1",JSON.stringify(FURNISHINGS)); }catch(e){} }
+      if(book==="materials"){ MATERIALS=merged; _goodsWrite("studioh_materials_v1",MATERIALS,"materials"); }
+      else { FURNISHINGS=merged; _goodsWrite("studioh_furnishings_v1",FURNISHINGS,"furnishings"); }
       try{ localStorage.setItem("studioh_goods_"+book+"_at", srv.savedAt||""); }catch(e){}
       try{ goodsAgeBackfill(); }catch(e){}   // rows arriving from the server get dated too
       return _goodsPushOnce(book,key,force,true);
@@ -15025,18 +15039,38 @@ async function _goodsPushOnce(book,key,force,retry){
   try{ localStorage.setItem("studioh_goods_"+book+"_at", d.savedAt||""); }catch(e){}
   return true;
 }
-async function goodsPull(book,silent){
+/* A pull used to be an assignment: FURNISHINGS = whatever the server sent. Since
+   goodsSyncBoot pulls on EVERY boot, anything imported but not yet pushed — a failed
+   push, no admin key, a reload four seconds too early — was overwritten on load and
+   then written over localStorage as well. Twenty Gloster products, gone on refresh.
+   A pull now UNIONS: the server's copy plus every local row it has never seen, and
+   those go straight back up so the next device gets them too.
+   Pass replace=true only where losing local rows is the actual intention. */
+async function goodsPull(book,silent,replace){
   const d=await _goodsCall({type:"loadgoods",book});
   if(d.err){ if(!silent) alert("Couldn't load "+book+": "+d.err); return false; }
   if(!d.found||!d.data.length){ return false; }
-  if(book==="materials"){ MATERIALS=d.data; MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
-    try{ localStorage.setItem("studioh_materials_v1", JSON.stringify(MATERIALS)); }catch(e){}
+  const local=_goodsArr(book)||[];
+  let rows=d.data, extra=[];
+  if(!replace){
+    const onServer={};
+    d.data.forEach(r=>{ if(r&&r.id) onServer[r.id]=1; });
+    extra=local.filter(r=>r&&r.id&&!onServer[r.id]);
+    rows=extra.length ? d.data.concat(extra) : d.data;
+  }
+  if(book==="materials"){ MATERIALS=rows; MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
+    _goodsWrite("studioh_materials_v1",MATERIALS,"materials");
     try{ renderMaterials(); }catch(e){} }
-  else { FURNISHINGS=d.data; FURNISHINGS.forEach(f=>{ if(f.specQty==null) f.specQty=0; });
-    try{ localStorage.setItem("studioh_furnishings_v1", JSON.stringify(FURNISHINGS)); }catch(e){}
+  else { FURNISHINGS=rows; FURNISHINGS.forEach(f=>{ if(f.specQty==null) f.specQty=0; });
+    _goodsWrite("studioh_furnishings_v1",FURNISHINGS,"furnishings");
     try{ renderFurnishings(); }catch(e){} }
   try{ localStorage.setItem("studioh_goods_"+book+"_at", d.savedAt||""); }catch(e){}
-  if(!silent) try{ _toast("Loaded "+d.count+" from the server","#4C7B3D"); }catch(e){}
+  // Rows this device had and the server did not are now the newest truth. Send them.
+  if(extra.length){
+    try{ _toast(extra.length+" item"+(extra.length===1?"":"s")+" here were not on the server — saving","#9B7B3A"); }catch(e){}
+    try{ await goodsPushNow(book); }catch(e){}
+  }
+  if(!silent) try{ _toast("Loaded "+rows.length+" from the server","#4C7B3D"); }catch(e){}
   return true;
 }
 // On boot: take the server's copy if it has one, otherwise push whatever this device
@@ -15062,7 +15096,22 @@ async function goodsSyncBoot(){
 }
 try{ window.addEventListener("load",()=>setTimeout(()=>{ try{ goodsSyncBoot(); }catch(e){} }, 2500)); }catch(e){}
 
-function matSave(){ try{ localStorage.setItem("studioh_materials_v1", JSON.stringify(MATERIALS)); }catch(e){}
+/* A write that fails must never look like a write that worked. This was
+   try{...}catch(e){} — so a full localStorage lost the library in silence and the
+   next reload showed the old copy as though nothing had been done. */
+function _goodsWrite(key,arr,label){
+  try{ localStorage.setItem(key, JSON.stringify(arr)); return true; }
+  catch(e){
+    const full=/quota|exceeded|storage/i.test(String((e&&e.name)||"")+String((e&&e.message)||""));
+    try{ askTell("This device could not save your "+label,
+      full ? ("There is no room left in this browser's storage, so the "+arr.length
+              +" items in your "+label+" library are only in memory — a reload would lose them.")
+           : ("The browser refused to write them: "+((e&&e.message)||"unknown")),
+      {icon:"!"} ); }catch(e2){}
+    return false;
+  }
+}
+function matSave(){ _goodsWrite("studioh_materials_v1",MATERIALS,"materials");
   goodsSchedulePush("materials"); }
 MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
 async function matSpecify(id){
@@ -18267,7 +18316,7 @@ let FURNISHINGS=(function(){ try{ const s=localStorage.getItem("studioh_furnishi
   goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:_goodsNow(),
   ai:[["alert","<b>From the supplier's catalogue.</b> Specification and images are theirs. They do not publish a price — add one to use it on a project."]]},
 ];
-function furSave(){ try{ localStorage.setItem("studioh_furnishings_v1", JSON.stringify(FURNISHINGS)); }catch(e){}
+function furSave(){ _goodsWrite("studioh_furnishings_v1",FURNISHINGS,"furnishings");
   goodsSchedulePush("furnishings"); }
 FURNISHINGS.forEach(f=>{ if(f.specQty==null) f.specQty=0; });
 function furFind(id){ return FURNISHINGS.find(f=>f.id===id)||null; }
