@@ -5206,8 +5206,12 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .gpk-rail{background:var(--surface2);border-right:1px solid var(--br);padding:12px 10px;
   overflow-y:auto;-webkit-overflow-scrolling:touch}
 .gpk-rh{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--tl);margin:0 0 6px;padding-left:8px}
+  color:var(--tl);margin:0 0 6px;padding-left:8px;display:flex;align-items:center;gap:8px}
 .gpk-rh.mt{margin-top:16px}
+.gpk-clr{margin-left:auto;color:var(--gm);cursor:pointer;letter-spacing:.06em}
+.gpk-clr:hover{text-decoration:underline}
+.gpk-ra .rk{width:7px;flex:none;text-align:center;font-size:10px;color:var(--tl)}
+.gpk-ra .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gpk-ra{display:flex;align-items:center;gap:7px;border-radius:9px;padding:7px 9px;
   font-size:12.5px;color:var(--tx);cursor:pointer;margin-bottom:1px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -5360,7 +5364,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1115</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1116</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10027,7 +10031,8 @@ function goodsRunSearch(kind,id,q){
   q=(q!=null?q:(el?el.value:"")) || "";
   if(GOODS_SMODE[kind]==="web"){
     const u=_goodsAsUrl(q);
-    if(u) return goodsImportFlow(kind,u);          // a link — straight into the picker
+    if(u){ goodsRecentAdd(kind,{url:u}); return goodsImportFlow(kind,u); }   // a link — straight into the picker
+    goodsRecentAdd(kind,{term:q.trim()});
     // A search term still ends at the picker. Finding eight suppliers and then making
     // you pick one from a list is a step for its own sake: open the best match's
     // catalogue and put the other seven in the rail, where you can switch in one tap.
@@ -10202,6 +10207,7 @@ function goodsUrlBarGo(kind){
   const u=String(el.value||"").trim(); if(!u) return;
   GOODS_URLBAR="";
   try{ kind==="mat"?renderMaterials():renderFurnishings(); }catch(e){}
+  goodsRecentAdd(kind,{url:u});
   goodsImportFlow(kind,u);
 }
 function goodsUrlBarHTML(kind){
@@ -10626,6 +10632,43 @@ function _gpickCardInner(x,i,have){
     +(m&&m.msrp>0?`<span class="pr">$${(+m.msrp).toFixed(2)}</span>`:"")
     +`</div>`;
 }
+/* ── RECENT SEARCHES ──────────────────────────────────────────────────────────
+   What you looked for last, kept per book so a tile hunt and a furniture hunt do
+   not share a list. Held on this device for now; when accounts land this moves to
+   the profile so it follows you between machines — the same move already planned
+   for typed prices and image framing.
+   A term and a link are both searches and both belong here: one re-runs the web
+   search, the other re-opens that supplier's catalogue. */
+const _GRECENT_MAX=8;
+function _grecentKey(kind){ return "studioh_recent_"+(kind==="fur"?"fur":"mat"); }
+function goodsRecent(kind){
+  try{ const a=JSON.parse(localStorage.getItem(_grecentKey(kind))||"[]");
+       return Array.isArray(a)?a.filter(x=>x&&(x.term||x.url)):[]; }catch(e){ return []; }
+}
+function goodsRecentAdd(kind,entry){
+  if(!entry||(!entry.term&&!entry.url)) return;
+  // Searching the same thing again moves it to the top rather than adding a second
+  // copy — a list of eight is only useful if the eight are different.
+  const same=x=> entry.term
+    ? String(x.term||"").toLowerCase()===String(entry.term).toLowerCase()
+    : (!!x.url && _goodsUrlKey(x.url)===_goodsUrlKey(entry.url));
+  const out=[{term:entry.term||"",url:entry.url||"",at:Date.now()}]
+    .concat(goodsRecent(kind).filter(x=>!same(x)));
+  try{ localStorage.setItem(_grecentKey(kind),JSON.stringify(out.slice(0,_GRECENT_MAX))); }catch(e){}
+}
+function goodsRecentClear(kind){
+  try{ localStorage.removeItem(_grecentKey(kind)); }catch(e){}
+  try{ if(document.getElementById("gpick-lb")) _goodsPickerRender(); }catch(e){}
+}
+function _grecentRun(kind,i){
+  const r=goodsRecent(kind)[i]; if(!r) return;
+  _goodsPickerClose();
+  setTimeout(()=>{
+    if(r.url) goodsImportFlow(kind,r.url);
+    else goodsWebSearch(kind,r.term,false,true);
+  },180);
+}
+function _grecentLabel(r){ return r.term ? r.term : _gHost(r.url); }
 /* The suppliers you already buy from, so a second import is a tap. */
 function _gpickSuppliers(){
   const arr=_gpick.kind==="mat"?MATERIALS:FURNISHINGS, c={};
@@ -10666,20 +10709,26 @@ function _goodsPickerRender(keepFocus){
           <span class="dot"></span>All products<span class="c">${total.toLocaleString()}</span></div>
         ${(_gpick.shapes||[]).map((sh,si)=>`
         <div class="gpk-ra${_gpick.layer===si?" on":""}" onclick="_gpickLayer(${si})" title="${escAttr(sh.key)}">
-          <span class="dot"></span>${escAttr(_gpickLayerLabel(sh.key))}<span class="c">${sh.n}</span></div>`).join("")}
+          <span class="dot"></span><span class="lbl">${escAttr(_gpickLayerLabel(sh.key))}</span><span class="c">${sh.n}</span></div>`).join("")}
         ${_gpick.analysing?`<div class="gpk-ra" style="color:var(--tl)"><span class="dot"></span>reading a sample…</div>`:""}
         ${(_gpick.related&&_gpick.related.length)?`
         <div class="gpk-rh mt">${_gpick.term?`Also for “${escAttr(_gpick.term)}”`:"Other suppliers"}</div>
         ${_gpick.related.map(r=>`
         <div class="gpk-ra" onclick="_gpickOtherSite('${escAttr(r.url)}')" title="${escAttr(r.url)}">
-          <span class="dot"></span>${escAttr(r.name||_gHost(r.url))}</div>`).join("")}`:""}
+          <span class="dot"></span><span class="lbl">${escAttr(r.name||_gHost(r.url))}</span></div>`).join("")}`:""}
+        ${(()=>{ const rec=goodsRecent(_gpick.kind); if(!rec.length) return "";
+          return `<div class="gpk-rh mt">Recent searches<span class="gpk-clr"
+              onclick="goodsRecentClear('${_gpick.kind}')">Clear</span></div>`
+            +rec.map((r,i)=>`<div class="gpk-ra" onclick="_grecentRun('${_gpick.kind}',${i})"
+              title="${escAttr(r.term||r.url)}"><span class="rk">${r.term?"⌕":"⌾"}</span><span class="lbl">${escAttr(_grecentLabel(r))}</span></div>`).join("");
+        })()}
         <div class="gpk-rh mt">Your suppliers</div>
         ${_gpickSuppliers().map(s=>`
         <div class="gpk-ra${s.host===_gpick.host?" on":""}" onclick="_gpickOtherSite('https://${escAttr(s.host)}')">
           <span class="dot"></span>${escAttr(s.host)}<span class="c">${s.n}</span></div>`).join("")
           || `<div class="gpk-ra" style="color:var(--tl)"><span class="dot"></span>none yet</div>`}
         ${(_gpick.related&&_gpick.related.length)?"":`
-        <div class="gpk-ra add" onclick="_gpickLikeThis()">⌕ Suppliers like this one</div>`}
+        <div class="gpk-ra add" onclick="_gpickLikeThis()">≈ Suppliers like this one</div>`}
         <div class="gpk-ra add" onclick="_gpickPasteAnother()">＋ Paste another link</div>
       </div>
 
