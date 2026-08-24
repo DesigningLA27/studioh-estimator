@@ -5360,7 +5360,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1114</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1115</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10010,11 +10010,30 @@ function goodsSetMode(kind,mode,id){
   if(q){ goodsRunSearch(kind,id,q); }
   else { setTimeout(()=>{ const e2=document.getElementById(id); if(e2) e2.focus(); },20); }
 }
+/* A link is not a question. Pasting bedrosians.com and then waiting forty seconds
+   for a model to come back and tell you that bedrosians.com exists is the wrong
+   shape — the page is right there, so read it. Anything with a dot and no spaces
+   counts, with or without the https. */
+function _goodsAsUrl(q){
+  const s=String(q||"").trim().replace(/\s+$/,"");
+  if(!s || /\s/.test(s)) return "";
+  if(/^https?:\/\//i.test(s)) return s;
+  if(/^(www\.)?[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.[a-z]{2,}([\/?#].*)?$/i.test(s))
+    return "https://"+s.replace(/^\/+/,"");
+  return "";
+}
 function goodsRunSearch(kind,id,q){
   const el=document.getElementById(id);
   q=(q!=null?q:(el?el.value:"")) || "";
-  if(GOODS_SMODE[kind]==="web") goodsWebSearch(kind,q);
-  else (kind==="fur"?furAIGo:matAIGo)(q);
+  if(GOODS_SMODE[kind]==="web"){
+    const u=_goodsAsUrl(q);
+    if(u) return goodsImportFlow(kind,u);          // a link — straight into the picker
+    // A search term still ends at the picker. Finding eight suppliers and then making
+    // you pick one from a list is a step for its own sake: open the best match's
+    // catalogue and put the other seven in the rail, where you can switch in one tap.
+    return goodsWebSearch(kind,q,false,true);
+  }
+  (kind==="fur"?furAIGo:matAIGo)(q);
 }
 function goodsSearchBarHTML(o){
   const kind=o.kind||"", mode=kind?GOODS_SMODE[kind]:"book";
@@ -10022,7 +10041,7 @@ function goodsSearchBarHTML(o){
   const run=kind?`goodsRunSearch('${kind}','${o.id}')`:`${o.onAI}(document.getElementById('${o.id}').value)`;
   return `<span class="gsearch${o.cls?" "+o.cls:""}">
     <span class="mag">${mi("zoom")}</span>
-    <input id="${o.id}" placeholder="${escAttr(kind?(mode==="web"?"Search the web for suppliers and products…":"Search your library, or describe what you want…"):(o.ph||"Search, or ask AI…"))}" value="${escAttr(o.q||"")}"
+    <input id="${o.id}" placeholder="${escAttr(kind?(mode==="web"?"Paste a supplier link, or name a company — or search for what you want":"Search your library, or describe what you want…"):(o.ph||"Search, or ask AI…"))}" value="${escAttr(o.q||"")}"
       oninput="${o.onInput}(this.value)"
       onkeydown="if(event.key==='Enter'){event.preventDefault();${run}}">
     ${(o.q||o.ai)?`<button class="x" title="Clear" onclick="${o.onClear}()">${mi("x")}</button>`:""}
@@ -10196,7 +10215,7 @@ function goodsUrlBarHTML(kind){
     <button class="x" onclick="goodsUrlBarToggle('${kind}')">Cancel</button>
   </div>`;
 }
-async function goodsImportFlow(kind,url){
+async function goodsImportFlow(kind,url,related,forTerm){
   if(url==null){ goodsUrlBarToggle(kind); return; }
   let u=String(url).trim(); if(!u) return;
   if(!/^https?:\/\//i.test(u)) u="https://"+u.replace(/^\/+/,"");
@@ -10225,7 +10244,7 @@ async function goodsImportFlow(kind,url){
     alert("Couldn't find any products at "+host+".");
     return;
   }
-  _goodsPickerOpen(kind,dis,host);
+  _goodsPickerOpen(kind,dis,host,related,forTerm);
 }
 const _SCRAPE_HELP="The page reader isn't deployed yet.\n\nIn Terminal:\n  cd studioh-estimator/worker-scrape\n  npx wrangler deploy\n\nUntil then an import could only guess at the details, so it is blocked rather than filled with invented data.";
 
@@ -10349,9 +10368,10 @@ async function _gpickAnalyse(){
 }
 // Choose what to bring in. Nothing is imported until you press the button.
 let _gpick={kind:"",list:[],sel:{},host:""};
-function _goodsPickerOpen(kind,dis,host){
+function _goodsPickerOpen(kind,dis,host,related,forTerm){
   _gpick={kind,list:dis.products||[],sel:{},host,q:"",shapes:null,analysing:false,
-          page:0,meta:{},photosOnly:true,peekTok:0,layer:null,only:null,fills:0,tries:{},analysed:false};
+          page:0,meta:{},photosOnly:true,peekTok:0,layer:null,only:null,fills:0,tries:{},analysed:false,
+          related:(related||[]).slice(0,10), term:forTerm||""};
   // Nothing pre-selected. Selecting the first 24 of 423 by whatever order the sitemap
   // happened to return is how a library ends up full of colour-swatch pages instead of
   // the actual products — which is exactly what happened with glasstile.
@@ -10614,9 +10634,14 @@ function _gpickSuppliers(){
     if(h) c[h]=(c[h]||0)+1; });
   return Object.keys(c).sort((a,b)=>c[b]-c[a]).slice(0,8).map(h=>({host:h,n:c[h]}));
 }
-function _gpickOtherSite(host){
+/* Switching supplier keeps the rail: the others are still suppliers of the thing you
+   searched for, and the one you are leaving joins them so you can come back. */
+function _gpickOtherSite(url){
+  const kind=_gpick.kind, here=_gpick.host, term=_gpick.term;
+  const rest=(_gpick.related||[]).filter(r=>_gHost(r.url)!==_gHost(url));
+  if(here && !rest.some(r=>_gHost(r.url)===here)) rest.unshift({name:here,url:"https://"+here});
   _goodsPickerClose();
-  setTimeout(()=>{ goodsImportFlow(_gpick.kind,"https://"+host); },180);
+  setTimeout(()=>{ goodsImportFlow(kind,url,rest,term); },180);
 }
 function _goodsPickerRender(keepFocus){
   const h=document.getElementById("gpick-lb"); if(!h) return;
@@ -10643,11 +10668,18 @@ function _goodsPickerRender(keepFocus){
         <div class="gpk-ra${_gpick.layer===si?" on":""}" onclick="_gpickLayer(${si})" title="${escAttr(sh.key)}">
           <span class="dot"></span>${escAttr(_gpickLayerLabel(sh.key))}<span class="c">${sh.n}</span></div>`).join("")}
         ${_gpick.analysing?`<div class="gpk-ra" style="color:var(--tl)"><span class="dot"></span>reading a sample…</div>`:""}
+        ${(_gpick.related&&_gpick.related.length)?`
+        <div class="gpk-rh mt">${_gpick.term?`Also for “${escAttr(_gpick.term)}”`:"Other suppliers"}</div>
+        ${_gpick.related.map(r=>`
+        <div class="gpk-ra" onclick="_gpickOtherSite('${escAttr(r.url)}')" title="${escAttr(r.url)}">
+          <span class="dot"></span>${escAttr(r.name||_gHost(r.url))}</div>`).join("")}`:""}
         <div class="gpk-rh mt">Your suppliers</div>
         ${_gpickSuppliers().map(s=>`
-        <div class="gpk-ra${s.host===_gpick.host?" on":""}" onclick="_gpickOtherSite('${escAttr(s.host)}')">
+        <div class="gpk-ra${s.host===_gpick.host?" on":""}" onclick="_gpickOtherSite('https://${escAttr(s.host)}')">
           <span class="dot"></span>${escAttr(s.host)}<span class="c">${s.n}</span></div>`).join("")
           || `<div class="gpk-ra" style="color:var(--tl)"><span class="dot"></span>none yet</div>`}
+        ${(_gpick.related&&_gpick.related.length)?"":`
+        <div class="gpk-ra add" onclick="_gpickLikeThis()">⌕ Suppliers like this one</div>`}
         <div class="gpk-ra add" onclick="_gpickPasteAnother()">＋ Paste another link</div>
       </div>
 
@@ -10706,6 +10738,21 @@ function _gpickLayer(si){
     _gpick.only = sh ? sh.idx.reduce((m,i)=>(m[i]=1,m),{}) : null; }
   _gpick.page=0;
   _goodsPickerRender();
+}
+/* Suppliers of the same thing, on request. It is a live web search costing the best
+   part of a minute, so it happens when you ask for it and not on every paste — and
+   what it searches for is what this site actually sells, read off its own pages. */
+async function _gpickLikeThis(){
+  const kind=_gpick.kind, host=_gpick.host;
+  let term="";
+  try{
+    const sc=await goodsScrape("https://"+host);
+    const m=(sc&&sc.meta)||{};
+    term=String(m["og:description"]||m["description"]||sc.title||"").slice(0,140);
+  }catch(e){}
+  if(!term) term=(kind==="fur")?"outdoor furniture suppliers":"tile and hardscape material suppliers";
+  _goodsPickerClose();
+  goodsWebSearch(kind,term,false,true);
 }
 function _gpickPasteAnother(){
   const kind=_gpick.kind;
@@ -15377,7 +15424,7 @@ function goodsWebTier(t){
 try{ if(PREFS.webTier==="all") GOODS_WEBTIER="all"; }catch(e){}
 function goodsWebClear(){ GOODS_WEB=null; GOODS_WEBQ="";
   try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){} }
-async function goodsWebSearch(kind,q,more){
+async function goodsWebSearch(kind,q,more,auto){
   if(GOODS_WEBBUSY) return;
   const prev = more ? (GOODS_WEB||[]).slice() : null;
   if(!more) GOODS_WEBSEEN=[];
@@ -15469,6 +15516,16 @@ ${prose}`}]})});
   try{ _webThumbs(GOODS_WEB,kind); }catch(e){}          // and fill in a picture each
   _stop();
   GOODS_WEBBUSY=false;
+  // Straight into the winner's catalogue, carrying the rest as the rail. They are
+  // suppliers of the thing that was searched for, so a tile search gives tile houses
+  // and a furniture search gives furniture houses — the rail is the search result.
+  if(auto && GOODS_WEB && GOODS_WEB.length){
+    const best=GOODS_WEB[0];
+    const rest=GOODS_WEB.slice(1).map(o=>({name:o.name||"",url:o.url}));
+    GOODS_WEB=null;                       // the list has done its job
+    try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
+    return goodsImportFlow(kind, best.url, rest, q);
+  }
   try{ kind==="fur"?renderFurnishings():renderMaterials(); }catch(e){}
 }
 // Last-resort reader: every distinct site in the answer, with whatever name sits
