@@ -5496,7 +5496,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1131</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1132</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10470,6 +10470,9 @@ function gwCancel(){ _GWCANCEL=true; gwSet({title:"Stopping…",sub:"",cancel:fa
    The browser cannot fetch a supplier PDF itself (cross-origin), so the reader
    streams the bytes back with CORS and pdf.js reads them here. */
 const PDF_PROXY = SCRAPE_URL + "/pdf?url=";
+/* The rendered pages of the document being imported, alive only for the length
+   of that import so the photographs can be cut out of them. */
+let _DOCPAGES=[];
 /* Ask the web for this brand's own documents, then CHECK each one is really a PDF
    before offering it — a model naming a plausible URL is not the same as a file
    that exists, and offering a 404 as a catalogue is worse than offering nothing. */
@@ -10647,6 +10650,91 @@ async function _docImport(i){
   _DOFF=null; if(x) x.remove();
   _docReviewOpen(book,brand,rows,d.url);
 }
+/* ── PICTURES OUT OF A CATALOGUE ──────────────────────────────────────────────
+   A catalogue is mostly photographs, and importing it without them gives you 126
+   grey tiles. The pictures are in the file — pdf.js reports 24 image objects on a
+   single FX page — but decoding each one means handling JPEG, masks, colour spaces
+   and transparency. Rendering the PAGE and cropping the rectangle each image was
+   placed in sidesteps all of that and is what the page actually looks like.
+   Association is by position: in a product grid the label sits under its picture,
+   so each product takes the nearest image directly above its name. */
+function _pdfPlacedImages(ops,lib,viewport){
+  const OPS=lib.OPS||{};
+  const out=[]; let m=[1,0,0,1,0,0]; const stack=[];
+  const mul=(a,b)=>[a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1],
+                    a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3],
+                    a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
+  for(let i=0;i<ops.fnArray.length;i++){
+    const fn=ops.fnArray[i], a=ops.argsArray[i];
+    if(fn===OPS.save) stack.push(m.slice());
+    else if(fn===OPS.restore) m=stack.pop()||[1,0,0,1,0,0];
+    else if(fn===OPS.transform) m=mul(m,a);
+    else if(fn===OPS.paintImageXObject||fn===OPS.paintJpegXObject||fn===OPS.paintImageMaskXObject){
+      // the image fills the unit square under the current matrix
+      const xs=[m[4], m[0]+m[4], m[2]+m[4], m[0]+m[2]+m[4]];
+      const ys=[m[5], m[1]+m[5], m[3]+m[5], m[1]+m[3]+m[5]];
+      const r=viewport.convertToViewportRectangle([Math.min.apply(null,xs),Math.min.apply(null,ys),
+                                                   Math.max.apply(null,xs),Math.max.apply(null,ys)]);
+      const x=Math.min(r[0],r[2]), y=Math.min(r[1],r[3]);
+      const w=Math.abs(r[2]-r[0]), h=Math.abs(r[3]-r[1]);
+      if(w>28 && h>28) out.push({x,y,w,h});     // skip rules, icons and hairlines
+    }
+  }
+  return out;
+}
+/* Go from the PICTURE to its caption, not the other way round. pdf.js reports text
+   as fragments and a grid row comes back concatenated across all its columns —
+   "designer qzdesigner fbdesigner np..." — so no line ever equals one product name.
+   But every fragment carries its own position, so the caption under a picture is
+   simply the fragments sitting below it inside its own column. That reads a grid
+   correctly however the lines happen to be joined up. */
+function _pdfCaption(im,items){
+  const cx=im.x+im.w/2;
+  const near=items.filter(it=>{
+    const c=it.x+it.w/2;
+    if(c < im.x-im.w*0.15 || c > im.x+im.w*1.15) return false;   // its own column
+    const gap=it.y-(im.y+im.h);
+    return gap>-im.h*0.15 && gap < im.h*1.5;                     // just underneath
+  }).sort((a,b)=>(a.y-b.y)||(a.x-b.x));
+  return near.map(o=>o.t).join(" ").replace(/\s+/g," ").trim();
+}
+/* Which caption is this product? Score on shared words, and demand a real overlap so
+   a product with no picture on the page is left without one rather than given
+   somebody else's. */
+function _pdfArtFor(name,items,art){
+  const norm=v=>String(v||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+  const want=norm(name).split(" ").filter(w=>w.length>1);
+  if(!want.length) return null;
+  let best=null, bestScore=0;
+  art.forEach(im=>{
+    if(im._cap==null) im._cap=norm(_pdfCaption(im,items));
+    if(!im._cap) return;
+    const have=im._cap.split(" ").filter(Boolean);
+    if(!have.length) return;
+    let hit=0;
+    want.forEach(w=>{ if(have.indexOf(w)>=0) hit++; });
+    if(!hit) return;
+    // Recall alone picks the wrong picture: a banner spanning a whole row sits over
+    // every caption on it, so its text contains all of them and it wins for all of
+    // them. Precision is what separates "this product's photo" from "a strip with
+    // this product's name somewhere in it".
+    const recall=hit/want.length;
+    const precision=hit/have.length;
+    const score=(2*recall*precision)/(recall+precision);
+    if(score>bestScore){ bestScore=score; best=im; }
+  });
+  return bestScore>=0.55 ? best : null;
+}
+function _cropToDataUrl(canvas,r,max){
+  const s=Math.min(1,(max||420)/Math.max(r.w,r.h));
+  const c=document.createElement("canvas");
+  c.width=Math.max(8,Math.round(r.w*s)); c.height=Math.max(8,Math.round(r.h*s));
+  const g=c.getContext("2d");
+  g.fillStyle="#ffffff"; g.fillRect(0,0,c.width,c.height);
+  g.drawImage(canvas, Math.max(0,r.x), Math.max(0,r.y), r.w, r.h, 0,0,c.width,c.height);
+  return c.toDataURL("image/jpeg",0.82);
+}
+
 /* ── A CATALOGUE IS NOT A PRICE SHEET ─────────────────────────────────────────
    The first version ran everything through the price-sheet reader, which only
    keeps lines that carry a price — so a catalogue full of real products produced
@@ -10713,7 +10801,8 @@ function _docReviewOpen(book,brand,rows,src){
     document.body.appendChild(x); }
   _docReviewPaint();
 }
-function _docReviewClose(){ _DREV=null; const x=document.getElementById("drev"); if(x) x.remove(); }
+function _docReviewClose(){ _DREV=null; _DOCPAGES=[];
+  const x=document.getElementById("drev"); if(x) x.remove(); }
 function _docReviewPick(i){ if(!_DREV) return; const r=_DREV.rows[i];
   if(r.dupe) return; r.use=!r.use; _docReviewPaint(); }
 function _docReviewAll(v){ if(!_DREV) return;
@@ -10747,16 +10836,51 @@ function _docReviewPaint(){
         <button class="btn" ${n?"":"disabled"} onclick="_docReviewAdd()">Add ${n} product${n===1?"":"s"}</button></span></div>
    </div>`;
 }
-function _docReviewAdd(){
+/* Cut each product's photograph out of the page it was on and put it where every
+   other product photo lives — R2 — so the row carries a URL and not a megabyte of
+   base64 in a browser that has already run out of room. */
+async function _docArtwork(rows,idOf){
+  if(!_DOCPAGES.length) return 0;
+  let done=0;
+  const want=rows.filter(r=>r.use&&!r.dupe);
+  for(let i=0;i<want.length;i++){
+    const r=want[i];
+    gwSet({pct:(i+1)/want.length*100, sub:"picture "+(i+1)+" of "+want.length});
+    let hit=null;
+    for(const pg of _DOCPAGES){
+      const box=_pdfArtFor(r.nm,pg.words,pg.art);
+      if(box){ hit={pg,box}; break; }
+    }
+    if(!hit) continue;
+    try{
+      const data=_cropToDataUrl(hit.pg.canvas,hit.box,420);
+      const up=await _uploadImageR2(idOf(r)+"_cat",data);
+      if(up.ok&&up.url){ r.img=up.url; done++; }
+    }catch(e){}
+  }
+  return done;
+}
+async function _docReviewAdd(){
   const o=_DREV; if(!o) return;
   const picks=o.rows.filter(r=>r.use && !r.dupe);
   if(!picks.length) return;
+  // ids first, so a picture can be filed against the row it belongs to
+  const isMat0=(o.book==="materials");
+  picks.forEach(r=>{ r._id=(isMat0?"m":"f")+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36); });
+  const x=document.getElementById("drev"); if(x) x.style.display="none";
+  gwOpen({title:"Cutting out the pictures",sub:o.brand,steps:["Finding each photograph","Saving them"],pct:0,cancel:false});
+  gwStep(1);
+  let pics=0;
+  try{ pics=await _docArtwork(o.rows,r=>r._id); }catch(e){}
+  gwClose();
+  o._pics=pics;
   const isMat=(o.book==="materials");
   const made=[];
   picks.forEach(r=>{
-    const id=(isMat?"m":"f")+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36);
+    const id=r._id||((isMat?"m":"f")+Date.now().toString(36)+Math.floor(Math.random()*1e3).toString(36));
     const common={id,nm:r.nm,sup:o.brand,supAlt:[],brand:o.brand,loc:"—",dist:0,claimed:0,
-      tags:[],cols:[isMat?"#B9AC97":"#8C7F6B"],imgs:[],img:"",
+      tags:[],cols:[isMat?"#B9AC97":"#8C7F6B"],
+      imgs:r.img?[r.img]:[], img:r.img||"",
       msrp:r.price||0,cost:0,comm:0,stock:0,lead:"—",
       // Dated today because that is when the number was read, and only when there IS
       // a number — an unpriced row must not claim a fresh quote.
@@ -10774,13 +10898,16 @@ function _docReviewAdd(){
     made.push(id);
   });
   _docReviewClose();
+  _DOCPAGES=[];                       // release the rendered pages
   goodsSaveBook(o.book,true);
   // Straight up to the server and awaited — an import that only exists on this
   // device is the fault that lost the Gloster products.
   (async()=>{
     let saved=false;
     try{ saved=await goodsPushNow(o.book); }catch(e){}
-    try{ _toast(made.length+" added from the catalogue"+(saved?" · saved ✓":" · NOT saved to the server"),
+    try{ _toast(made.length+" added from the catalogue"
+      +(o._pics?" · "+o._pics+" with a photo":"")
+      +(saved?" · saved ✓":" · NOT saved to the server"),
       saved?"#4C7B3D":"#B23F3C"); }catch(e){}
     if(!saved) try{ await askTell(made.length+" added, but not saved to the server",
       "They are on this device only. "+(_goodsLastErr[o.book]||"The server refused the save."),{icon:"!"}); }catch(e){}
@@ -10812,6 +10939,7 @@ async function _docReadOne(who,d){
     const doc=await lib.getDocument({data:buf}).promise;
     const n=Math.min(doc.numPages,60);
     let out="";
+    _DOCPAGES=[];
     for(let i=1;i<=n;i++){
       if(gwCancelled()){ gwClose(); return null; }
       gwSet({pct:i/n*100,sub:"page "+i+" of "+n});
@@ -10822,6 +10950,21 @@ async function _docReadOne(who,d){
       Object.keys(rows).sort((a,b)=>b-a).forEach(y=>{
         out += rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim()+"\n"; });
       out+="\n";
+      // Keep the page itself so the pictures can be cut out of it afterwards. Held
+      // as a rendered canvas only while the import is running, never stored.
+      try{
+        const vp=pg.getViewport({scale:1.6});
+        const cv=document.createElement("canvas"); cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
+        await pg.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+        const ops=await pg.getOperatorList();
+        const art=_pdfPlacedImages(ops,lib,vp);
+        const words=tc.items.map(it=>{
+          const r=vp.convertToViewportPoint((it.transform&&it.transform[4])||0,(it.transform&&it.transform[5])||0);
+          return {t:String(it.str||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(),
+                  x:r[0], y:r[1], w:(it.width||40)*vp.scale, h:(it.height||10)*vp.scale};
+        }).filter(w=>w.t);
+        if(art.length) _DOCPAGES.push({canvas:cv,art,words});
+      }catch(e){}
     }
     gwClose();
     if(!out || out.trim().length<200){
