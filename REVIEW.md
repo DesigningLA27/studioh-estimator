@@ -1397,3 +1397,25 @@ rail with the badge showing.
 **Open**
 - Furnishings still has no *second* rail (`furRailHTML` does not exist) — the price/size/colour
   filters Materials has under its Filters tab. The tree rail above is shared and now works for both.
+
+## Roadmap — Product watch (raised 24 Aug 2026)
+A monthly automatic re-check of every material and furnishing: price changes, sales, spec changes,
+discontinuations, and new products at each supplier.
+
+**Feasible, with three decisions made up front**
+- **Cron on a Worker, not the browser.** GitHub Pages is static; the app only runs while a tab is
+  open. A `studioh-watch` sibling to `studioh-scrape` on a Cloudflare cron trigger does the reading
+  and writes a findings record; the app displays it on next open.
+- **Nightly shards, not one monthly run.** Workers cap subrequests per invocation, so 400 products
+  cannot be read in one go. 1/30th of the book each night covers everything monthly, keeps each run
+  small, and is politer to suppliers.
+- **Nothing is auto-applied.** Findings queue with old value, new value, source page and date.
+  Pricing accuracy is the first rule of this project; an auto-written price is a bid sent out on a
+  number nobody checked.
+
+**Confidence varies by signal and the UI has to show it:** a 404 and a schema.org `offers.price`
+are reliable; new-product discovery is good; sales and prose-read spec changes are fuzzier; matching
+a hand-added row with no `srcUrl` to a supplier page is a suggestion only.
+
+**Known blockers:** qdisurfaces.com's CDN 403s some addresses, Bedrosians' sitemap is behind a WAF
+captcha. Respect robots.txt, throttle, and record "could not check" as distinct from "unchanged".
