@@ -5532,7 +5532,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1139</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1140</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10961,11 +10961,12 @@ async function _docReviewAdd(){
       priced:r.price>0?_goodsNow():"",
       srcUrl:o.src||"",sku:r.sku||"",docs:[],
       ai:"Read from "+o.brand+"'s catalogue"};
+    const _cc=goodsCanonCat(r.cat);
     if(isMat) MATERIALS.unshift(Object.assign(common,{cat:r.cat||"Paving",fin:r.finish||"—",bill:0,
       listPrice:r.price||0,listUnit:r.unit||"",slip:"—",thick:"—",sizes:r.size||"—",heat:"—",ada:"—",
       ship:"—",region:"—",offer:"—",method:"—",labour:"—",bed:"—",edge:"—",joint:"—",inst:"—",
       csi:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",use:"",mat:r.material||"",specSF:0}));
-    else FURNISHINGS.unshift(Object.assign(common,{cat:r.cat||"Accessories",sale:0,
+    else FURNISHINGS.unshift(Object.assign(common,{cat:(FUR_CATS.indexOf(_cc)>=0||PROD_CATS.indexOf(_cc)>=0)?_cc:(GOODS_PAGE==="prod"?"Lighting":"Accessories"),sale:0,
       dims:r.size||"—",seat:"—",weight:"—",frame:r.material||"—",cushion:"—",assembly:"—",
       weather:"—",maint:"—",cover:"—",warranty:"—",parts:"—",ship:"—",region:"—",offer:"—",
       goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",use:"",specQty:0}));
@@ -15639,8 +15640,10 @@ async function _goodsImportOne(kind,url,host,quiet){
     matSave(); if(!quiet){ MAT_CATS={}; MAT_GRP=""; matOpen(id); }
     else { try{ renderMaterials(); }catch(e){} }
   } else {
-    FURNISHINGS.unshift({id,nm:o.nm,cat:(FUR_CATS.indexOf(o.cat)>=0||PROD_CATS.indexOf(o.cat)>=0)
-        ? o.cat : (GOODS_PAGE==="prod"?"Lighting":"Accessories"),
+    FURNISHINGS.unshift({id,nm:o.nm,cat:(function(){
+        const c=goodsCanonCat(o.cat);
+        if(FUR_CATS.indexOf(c)>=0||PROD_CATS.indexOf(c)>=0) return c;
+        return GOODS_PAGE==="prod"?"Lighting":"Accessories"; })(),
       sup,supAlt,brand,loc:"—",dist:0,claimed:0,tags,
       cols:(o.cols&&o.cols.length?o.cols:["#8C7F6B"]).slice(0,3),imgs,img:imgs[0]||"",
       msrp:+o.msrp||0,sale:+o.sale||0,cost:0,comm:0,stock:0,lead:"—",
@@ -17549,7 +17552,7 @@ function goodsMoveToProducts(){
   const ids={}; move.forEach(x=>{ ids[x.id]=1; });
   move.forEach(x=>{
     const r=JSON.parse(JSON.stringify(x));
-    r.cat = PROD_CATS.indexOf(String(r.cat||""))>=0 ? r.cat : "Lighting";
+    r.cat = goodsLibOf(r)==="prod" ? goodsCanonCat(r.cat) : "Lighting";
     r.specQty=0; delete r.specSF;
     FURNISHINGS.unshift(r);
   });
@@ -18831,7 +18834,18 @@ const PROD_TYPES={
   "Drainage":["Channel","Grate","Basin","Pipe","Fitting"],
   "Power":["Transformer","Outlet","Conduit","Connector"]
 };
-function goodsLibOf(x){ return PROD_CATS.indexOf(String((x&&x.cat)||""))>=0 ? "prod" : "fur"; }
+function _catKey(v){ return String(v==null?"":v).toLowerCase().replace(/[^a-z0-9]+/g,""); }
+/* The extractor writes whatever the document called it — "lighting", not "Lighting" —
+   so matching a category by exact string put 140 fixtures in the wrong library. */
+function goodsCanonCat(v){
+  const k=_catKey(v);
+  const hit=PROD_CATS.concat(FUR_CATS).filter(c=>_catKey(c)===k)[0];
+  return hit || String(v||"");
+}
+function goodsLibOf(x){
+  const k=_catKey((x&&x.cat)||"");
+  return PROD_CATS.some(c=>_catKey(c)===k) ? "prod" : "fur";
+}
 /* Every furnishings-side reader goes through these, so the two pages can never show
    the same row and nothing has to be remembered at each call site. */
 function _furRows(){ return (FURNISHINGS||[]).filter(x=>x&&goodsLibOf(x)==="fur"); }
@@ -20836,6 +20850,13 @@ try{ document.addEventListener("click",()=>closeHMenus()); }catch(e){}
     // Undated prices get their real date from the row's own id. Silent: it corrects
     // data rather than asking you to.
     try{ goodsAgeBackfill(); }catch(e){}
+    // Fixtures imported into Materials before Products existed belong in Products.
+    // Runs once the server copy is in, so it can never move a guess.
+    try{ setTimeout(()=>{ try{
+      if(typeof _goodsSynced!=="undefined" && !_goodsSynced) return;
+      const n=goodsMoveToProducts();
+      if(n) _toast(n+" fixtures moved to Products","#4C7B3D");
+    }catch(e){} }, 4000); }catch(e){}
     // Reclaim the space the old build took for a copy of the master plant book.
     try{ localStorage.removeItem("studioh_plantbook_v1");
          localStorage.removeItem("studioh_plantbook_presync"); }catch(e){}
