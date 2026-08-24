@@ -2805,6 +2805,7 @@ body:not(.sp-on) #sp-open{display:grid}
 #view-materials .gd-src b,#view-furnishings .gd-src b{color:var(--gm)}
 #view-materials .gd-src .k small,#view-furnishings .gd-src .k small{color:var(--gm);opacity:.85}
 #view-materials .gd-stale b,#view-furnishings .gd-stale b{color:#B23F3C}
+#view-materials .gd-fresh b,#view-furnishings .gd-fresh b{color:var(--gm)}
 /* No lines in either book. */
 #view-materials .mcard,#view-materials .mchip,#view-materials .gsearch,#view-materials .mgrid,
 #view-materials .mwrap,#view-materials .mbody,#view-materials .gcols,#view-materials .gcols button,
@@ -5414,7 +5415,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1117</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1118</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -14558,6 +14559,7 @@ async function _goodsPushOnce(book,key,force,retry){
       if(book==="materials"){ MATERIALS=merged; try{ localStorage.setItem("studioh_materials_v1",JSON.stringify(MATERIALS)); }catch(e){} }
       else { FURNISHINGS=merged; try{ localStorage.setItem("studioh_furnishings_v1",JSON.stringify(FURNISHINGS)); }catch(e){} }
       try{ localStorage.setItem("studioh_goods_"+book+"_at", srv.savedAt||""); }catch(e){}
+      try{ goodsAgeBackfill(); }catch(e){}   // rows arriving from the server get dated too
       return _goodsPushOnce(book,key,force,true);
     }
   }
@@ -14675,7 +14677,7 @@ async function _goodsImportOne(kind,url,host,quiet){
       listPrice:+o.msrp||0,listUnit:unit,
       slip:o.slip||"—",thick:o.thick||"—",sizes:o.sizes||"—",heat:o.heat||"—",ada:o.ada||"—",
       ship:"—",region:"—",offer:"—",method:o.method||"—",labour:"—",bed:"—",edge:"—",joint:"—",
-      inst:"—",csi:String(o.csi||"").slice(0,20),priced:"",wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
+      inst:"—",csi:String(o.csi||"").slice(0,20),priced:_goodsNow(),wall:"—",steps:"—",coping:"—",plants:"—",light:"—",
       use:String(o.use||"").toLowerCase().replace(/[^a-z]/g,"")||"",
       mat:String(o.mat||"").trim(),
       srcUrl:src,sku:res.sku||"",docs:(res.docs||[]).slice(0,8),specSF:0,
@@ -14690,7 +14692,7 @@ async function _goodsImportOne(kind,url,host,quiet){
       dims:o.dims||"—",seat:o.seat||"—",weight:o.weight||"—",frame:o.frame||"—",
       cushion:o.cushion||"—",assembly:o.assembly||"—",weather:o.weather||"—",maint:o.maint||"—",
       cover:o.cover||"—",warranty:o.warranty||"—",parts:"—",ship:"—",region:"—",offer:"—",
-      goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
+      goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:_goodsNow(),
       use:String(o.use||"").toLowerCase().replace(/[^a-z]/g,"")||"",
       srcUrl:src,sku:res.sku||"",docs:(res.docs||[]).slice(0,8),specQty:0,ai:note("")});
     furSave(); if(!quiet){ FUR_CATS_SEL={}; furOpen(id); }
@@ -16474,10 +16476,56 @@ function _gtOrdPromo(name){
   _gtOrdPaint(); (kind==="mat")?renderMaterials():renderFurnishings();
 }
 /* A quote nobody has refreshed in 90 days is a number you should not send out. */
+/* An id is a timestamp: (m|f) + Date.now() in base 36 + a couple of random digits.
+   That is how a row imported before prices carried a date can still say honestly how
+   old it is, rather than being backdated to today or left looking three months stale. */
+function _goodsBornAt(x){
+  const id=String((x&&x.id)||"");
+  const body=id.replace(/^[mf]/,"");
+  // Date.now() is 8 base-36 digits today and becomes 9 in 2059; the random tail that
+  // follows is 1-2 more. Try each length and keep whichever lands in a sane range —
+  // a greedy match eats a random digit and puts the row 36,000 years in the future.
+  for(let i=0;i<2;i++){
+    const len=9-i, seg=body.slice(0,len);
+    if(seg.length===len && /^[0-9a-z]+$/.test(seg)){
+      const t=parseInt(seg,36);
+      if(t>1577836800000 && t<Date.now()+864e5) return t;   // after 2020, not future
+    }
+  }
+  const at=x&&(x._at||x.at);
+  if(at){ const t=Date.parse(at); if(!isNaN(t)) return t; }
+  return null;
+}
+/* Days since the price was last confirmed. Null when there is genuinely nothing to
+   go on — which is NOT the same as old, and must not be drawn as if it were. */
+function _goodsAgeDays(x){
+  let t=null;
+  const d=x&&x.priced;
+  if(d){ const p=Date.parse(d); if(!isNaN(p)) t=p; }
+  if(t==null) t=_goodsBornAt(x);
+  if(t==null) return null;
+  return Math.max(0, Math.floor((Date.parse(_goodsNow())-t)/864e5));
+}
 function _goodsStale(x){
-  const d=x&&x.priced; if(!d) return true;
-  const t=Date.parse(d); if(isNaN(t)) return true;
-  return (Date.parse(_goodsNow())-t) > 90*864e5;
+  const n=_goodsAgeDays(x);
+  return n!=null && n>=90;
+}
+/* Anything imported before prices carried a date gets one, taken from when the row
+   was actually created. Runs by itself on load — a data fault should not be a chip
+   you have to find and press. */
+function goodsAgeBackfill(){
+  let n=0;
+  [["materials",MATERIALS],["furnishings",FURNISHINGS]].forEach(([book,arr])=>{
+    let touched=0;
+    (arr||[]).forEach(x=>{
+      if(!x || x.priced) return;
+      const t=_goodsBornAt(x); if(t==null) return;
+      x.priced=new Date(t).toISOString(); touched++; n++;
+    });
+    if(touched){ try{ goodsSaveBook(book,true); }catch(e){
+      try{ book==="materials"?matSave():furSave(); }catch(e2){} } }
+  });
+  return n;
 }
 function _goodsNow(){ try{ return new Date().toISOString(); }catch(e){ return "1970-01-01"; } }
 function goodsSupPick(kind,nm){ if(kind==="mat"){ MAT_AIQ=nm; matQ(nm); } else { FUR_AIQ=nm; furQ(nm); } }
@@ -16523,7 +16571,12 @@ function _goodsIns(kind){
     +esc(x.sup||"supplier")+when+'</small></span><b>'+money(x.cost)+'</b></div>';
   h+=F(kind==="mat"?"Billed":"Trade", money(x.bill));
   h+=F("MSRP", money(x.msrp));
-  if(_goodsStale(x)) h+='<div class="pbk-f gd-stale"><span class="k">Quote age</span><b>over 90 days</b></div>';
+  // Say the real number and only wear red once it has earned it. A price read off a
+  // live page an hour ago is not "over 90 days" — it is today.
+  {const _ag=_goodsAgeDays(x);
+   if(_ag!=null) h+='<div class="pbk-f '+(_ag>=90?'gd-stale':'gd-fresh')+'"><span class="k">Quote age</span><b>'
+     +(_ag>=90?'over 90 days':_ag===0?'today':_ag+' day'+(_ag===1?'':'s'))+'</b></div>';
+   else h+='<div class="pbk-f"><span class="k">Quote age</span><b>not dated</b></div>';}
   // What you make on it — the reason to specify it, so it belongs beside the price.
   const _earn=(function(){ try{ return kind==="mat"?_matEarn(x):_furEarn(x); }catch(e){ return 0; } })();
   const _cl=+((kind==="mat")?x.msrp:x.msrp)||0;
@@ -17745,7 +17798,7 @@ let FURNISHINGS=(function(){ try{ const s=localStorage.getItem("studioh_furnishi
   dims:"24 in dia × 32 H in",seat:"—",weight:"—",frame:"Terracotta",
   cushion:"—",assembly:"—",weather:"—",maint:"—",cover:"—",warranty:"—",parts:"—",
   ship:"—",region:"CA",offer:"—",
-  goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:"",
+  goesTable:"—",goesShade:"—",goesPaving:"—",goesPlants:"—",goesLight:"—",priced:_goodsNow(),
   ai:[["alert","<b>From the supplier's catalogue.</b> Specification and images are theirs. They do not publish a price — add one to use it on a project."]]},
 ];
 function furSave(){ try{ localStorage.setItem("studioh_furnishings_v1", JSON.stringify(FURNISHINGS)); }catch(e){}
@@ -19674,7 +19727,11 @@ try{ document.addEventListener("click",()=>closeHMenus()); }catch(e){}
     }catch(e){}
   }, 900)); }catch(e){}
   try{ matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{ if(themeMode()==="system"){ _setThemeIcon(effectiveTheme()); applyAccent(); applyShell(); } }); }catch(e){}
-  try{ document.addEventListener("DOMContentLoaded",()=>{ _setThemeIcon(effectiveTheme()); _applyProfileText(); renderPhaseBar(); }); }catch(e){}
+  try{ document.addEventListener("DOMContentLoaded",()=>{ _setThemeIcon(effectiveTheme()); _applyProfileText(); renderPhaseBar();
+    // Undated prices get their real date from the row's own id. Silent: it corrects
+    // data rather than asking you to.
+    try{ goodsAgeBackfill(); }catch(e){}
+  }); }catch(e){}
 })();
 // Replace native alert() everywhere with a non-suppressible in-page notice. Browsers silently kill
 // alert/confirm/prompt once "prevent additional dialogs" is ticked — and the old flood of alerts is
