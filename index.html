@@ -5496,7 +5496,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1129</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1130</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10591,8 +10591,7 @@ function _docOfferPaint(){
       +'<span class="t"><b>'+escAttr(_docTitle(d))+'</b><i>'+escAttr(
           [_docHint(d),_docSize(d.bytes)+(got?"":_docMins(d.bytes))]
           .filter(Boolean).join(" · ")+(d.year?"":" · no date"))+'</i></span>'
-      +(got?'<span class="imp done">Read ✓</span>'
-           :'<button class="imp" onclick="_docImport('+i+')">Import</button>')
+      +'<button class="imp" onclick="_docImport('+i+')">Import</button>'
       +'</div>';
   }).join("");
   const any=o.read.length;
@@ -10603,69 +10602,50 @@ function _docOfferPaint(){
     +(o.dropped&&o.dropped.length
        ?'<div class="doff-skip">'+o.dropped.length+' price list'+(o.dropped.length>1?"s":"")
         +' from '+o.dropped.map(d=>d.year).join(", ")+' not shown — over '+DOC_MAX_AGE+' years old</div>':"")
-    +'<div class="doff-f">'
-      +'<button onclick="_docOfferClose()">'+(any?"Cancel":"Close")+'</button>'
-      +(any?'<button class="go" onclick="_docOfferReview()">Review '+any+' document'+(any===1?"":"s")+'</button>':"")
-    +'</div></div>';
+    +'<div class="doff-f"><button onclick="_docOfferClose()">Close</button></div></div>';
 }
 function _docOfferClose(){
   const o=_DOFF; _DOFF=null;
   const x=document.getElementById("doff"); if(x) x.remove();
   if(o&&o.done) o.done(!!o.read.length);
 }
-/* Read one, on its own. Nothing is written to the library here — that is what the
-   review step is for, and the row says "Read" rather than "Added" for that reason. */
+/* Import means import. The first version read the file, marked the row "Read ✓" and
+   made you press "Review 1 document" afterwards — two steps to do one thing, and the
+   second one looked like the flow had stalled. One press now takes a catalogue all
+   the way to a list of products you can add. */
 async function _docImport(i){
   const o=_DOFF; if(!o) return;
   const d=o.docs[i];
-  const x=document.getElementById("doff"); if(x) x.style.display="none";
-  const txt=await _docReadOne(o.brand||o.host,d);
-  if(x) x.style.display="";
-  if(txt==null) return;                      // cancelled or unreadable — already told
-  o.text=(o.text||"")+"\n\n=== "+_docTitle(d)+" ===\n"+txt;
-  if(o.read.indexOf(i)<0) o.read.push(i);
-  _docOfferPaint();
-}
-/* The review window opens ONLY when there are rows in it. Opening it first is what
-   put "Upload the list your supplier sent" on screen while a 33 MB catalogue was
-   still downloading behind it.
-   A catalogue yields PRODUCTS, priced or not; a price list yields prices for products
-   you already have. Reading everything as a price list is what made a whole catalogue
-   come back as "No prices in that" with nothing to do but cancel. */
-async function _docOfferReview(){
-  const o=_DOFF; if(!o||!o.text) return;
   const book=(o.kind==="mat")?"materials":"furnishings";
   const brand=o.brand||o.host;
-  const onlyPriceLists=o.read.every(i=>o.docs[i] && o.docs[i].kind==="price");
   const x=document.getElementById("doff"); if(x) x.style.display="none";
-  gwOpen({title:"Reading what is in "+(o.read.length===1?"it":"them"),
-          sub:brand,
-          steps:["Finding the products","Matching them to your library"],
-          pct:null,cancel:false});
+  const txt=await _docReadOne(brand,d);
+  if(txt==null){ if(x) x.style.display=""; return; }   // cancelled or unreadable — already said
 
-  if(onlyPriceLists){
+  if(d.kind==="price"){
     // A price list is about products you already carry: match and set the number.
+    gwOpen({title:"Finding the prices",sub:brand,steps:["Reading the lines","Matching them to your library"],pct:null,cancel:false});
     gwStep(1);
-    _psBook=book; _psRows=[];
-    _psSrc=brand+" — price list";
-    try{ await _psExtract(o.text); }catch(e){}
+    _psBook=book; _psRows=[]; _psSrc=brand+" — "+_docTitle(d);
+    try{ await _psExtract(txt); }catch(e){}
     gwClose();
-    if(_psRows.length){ _DOFF=null; if(x) x.remove();
-      openPriceSheet(book,true); _psRender(); return; }
-    // fall through and treat it as a catalogue rather than dead-ending
+    if(_psRows.length){ _DOFF=null; if(x) x.remove(); openPriceSheet(book,true); _psRender(); return; }
+    // no priced lines in it after all — fall through and treat it as a catalogue
   }
-  const rows=await _docExtractProducts(o.text,brand,book);
+  gwOpen({title:"Finding the products",sub:_docTitle(d)+" · "+brand,
+          steps:["Reading the pages","Picking out the products"],pct:null,cancel:false});
+  gwStep(1);
+  const rows=await _docExtractProducts(txt,brand,book);
   gwClose();
   if(!rows.length){
-    _docOfferPaint(); if(x) x.style.display="";
-    await askTell("Nothing readable in that",
-      "No product lines could be made out of it. That usually means the pages are "
-      +"scanned images rather than text, or the file is a brochure rather than a catalogue.",{icon:"!"});
+    if(x) x.style.display="";
+    await askTell("No products in that one",
+      "No product lines could be made out of "+_docTitle(d)+". That usually means the pages are "
+      +"scanned images rather than text, or it is a brochure rather than a catalogue.",{icon:"!"});
     return;
   }
   _DOFF=null; if(x) x.remove();
-  const src=(o.docs[o.read[0]]||{}).url||"";
-  _docReviewOpen(book,brand,rows,src);
+  _docReviewOpen(book,brand,rows,d.url);
 }
 /* ── A CATALOGUE IS NOT A PRICE SHEET ─────────────────────────────────────────
    The first version ran everything through the price-sheet reader, which only
