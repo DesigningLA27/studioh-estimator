@@ -1321,3 +1321,44 @@ Diagnosed against the live site rather than guessed:
 **Open**
 - Furnishings still has no filter rail (`furRailHTML` does not exist), so its Filters panel is empty.
 - No way to upload your own photo for a product that has none.
+
+## v1114 — Why the card picker came up empty on a real supplier
+Shipped in v1113 having only ever been tested against a stub. Driven against
+qdisurfaces.com it produced 24 empty cards. Three faults, stacked:
+- **The layer sampler raced the cards.** `_gpickAnalyse` asks the reader for a dozen pages at
+  once — a dozen upstream fetches into the same supplier the cards are being read from — and its
+  two re-renders abandoned the card reads mid-flight. It now runs *after* the first page of cards.
+- **A failed read was cached for ever.** One timeout and that card stayed dead, because nothing
+  ever asked again. Reads now retry (three times), and `_gpickPeekOne` retries internally because
+  the reader gives up at ~9s while a cold page on a big catalogue takes longer — the same page
+  answers instantly on the second ask.
+- **A photo that would not LOAD was reclassified as "no photo"**, which under "With photos" deleted
+  the card. On a supplier whose CDN is unreachable that emptied the whole grid. It now says so and
+  stays put.
+
+**Lesson, recorded:** a stub proves the rendering, never the flow. Anything touching the scrape
+worker gets driven over CDP against a real supplier before it ships.
+
+## v1115 — The search bar IS the importer
+**Decided**
+- One box. A **link** opens the picker immediately — no 40-second model call to confirm that
+  bedrosians.com exists. A **search term** runs the supplier search and then goes straight into the
+  best match's catalogue.
+- **The intermediate list of eight suppliers is gone.** Finding suppliers and then making you pick
+  one from a list was a step for its own sake.
+- The rail carries the other suppliers **for that search** — a tile search gives tile houses, a
+  furniture search gives furniture houses — under "Also for '…'". Switching supplier keeps the rail
+  and puts the one you left into it.
+- Pasting a link cannot know the category, so its rail is your own suppliers plus **"Suppliers like
+  this one"**, which reads what the site sells off its own pages and then searches. On request only:
+  it costs the best part of a minute.
+
+**Verified on the live site**, v1115, real web search: "outdoor porcelain pavers" → picker on
+qdisurfaces.com, 1,447 products, rail listing Walker Zanger, Thompson, MSI, Bedrosians, Arizona
+Tile and Daltile — all outdoor-paver pages.
+
+**Open**
+- Related suppliers show their host rather than their company name when the structuring call
+  returns nothing and the prose fallback is used.
+- QDI's image CDN refuses this machine, so photo rendering on that one supplier is still unverified
+  from here; Bedrosians renders 18 of 24.
