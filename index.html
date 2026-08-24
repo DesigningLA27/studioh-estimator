@@ -5197,6 +5197,41 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .al-status.ok{background:var(--brand-soft);color:var(--gm)}
 .al-apply{border:0;background:var(--gm);color:#fff;border-radius:12px;font:inherit;font-size:12.5px;
   font-weight:700;padding:10px 14px;cursor:pointer;margin-top:10px;width:100%}
+
+/* ══ ASK — the app's own dialog ═══════════════════════════════════════════════
+   A browser confirm() cannot be styled, so every message wearing one arrives in a
+   grey box with two buttons named OK and Cancel — which forces the text to explain
+   what the buttons do ("OK to add them anyway, or Cancel to leave them out"). Name
+   the buttons after the action and that sentence is not needed.
+   Above 200000 because it has to sit over the picker, the lightbox and the trace
+   overlay, all of which can be the thing asking. */
+.ask-x{position:fixed;inset:0;z-index:300000;background:rgba(20,26,18,.42);
+  display:flex;align-items:center;justify-content:center;padding:20px;
+  opacity:0;transition:opacity .14s;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.ask-x.in{opacity:1}
+.ask{width:392px;max-width:100%;max-height:88vh;overflow:auto;background:var(--surface2);
+  border-radius:16px;box-shadow:0 24px 60px -18px rgba(0,0,0,.45);
+  transform:translateY(6px) scale(.985);transition:transform .16s}
+.ask-x.in .ask{transform:none}
+.ask-b{padding:20px 20px 4px}
+.ask-i{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;
+  font-size:15px;margin-bottom:11px;background:var(--brand-soft);color:var(--gm)}
+.ask-i.bad{background:#FBEDEA;color:#B23F3C}
+:root[data-theme="dark"] .ask-i.bad{background:#3A211F;color:#E39B95}
+.ask h3{font-size:16.5px;font-weight:730;letter-spacing:-.015em;margin:0 0 6px;color:var(--tx)}
+.ask p{font-size:13.5px;color:var(--tm);margin:0;line-height:1.5;white-space:pre-wrap}
+.ask .ask-n{background:var(--brl);border-radius:11px;padding:10px 12px;margin:13px 0 0;
+  font-size:12.5px;color:var(--tm);white-space:pre-wrap}
+.ask-f{display:flex;gap:9px;justify-content:flex-end;padding:16px 20px 18px;flex-wrap:wrap}
+.ask-f button{border:0;border-radius:12px;padding:11px 17px;font:inherit;font-size:13.5px;
+  font-weight:650;cursor:pointer;background:var(--brl);color:var(--tm)}
+.ask-f button.go{background:var(--gm);color:#fff}
+.ask-f button.bad{background:#B23F3C;color:#fff}
+.ask-f button:focus-visible{outline:2px solid var(--gm);outline-offset:2px}
+.ask-f .ask-again{margin-right:auto;display:flex;align-items:center;gap:7px;
+  font-size:12px;color:var(--tl);cursor:pointer;user-select:none}
+.ask-f .ask-again input{margin:0}
+@media (max-width:460px){ .ask-f button{flex:1 1 auto} }
 </style>
 
 <script>
@@ -5262,7 +5297,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1111</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1112</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9987,6 +10022,34 @@ async function _goodsDiscoverPages(url,first){
   return Object.assign({},first||{},{products:out,count:out.length});
 }
 async function goodsDiscover(url,limit){ return _scrapeCall({type:"discover",url,limit:limit||1500}); }
+/* A catalogue page links to its own filters as heavily as to its goods, and the
+   filters sort to the front — so the first screenful of the picker was
+   "Product Sizes 12x24/Material Porcelain", which is a search result, not a tile.
+   QDI returned 20 of those alongside 1,447 real products, and importing one gives a
+   record with no price, no size and no photo, which is what then asked about missing
+   images. Two structural signals, no site-specific lists:
+     · a site that publishes /product/<slug> in bulk is using /products/ for listings
+     · two or more segments under a /products/ root is a filter crossing
+   The `list` shape is preserved: strings or {url,title}, whichever came in. */
+function _goodsDropFacets(list){
+  const rows=(list||[]).map(p=>(typeof p==="string")?{url:p,title:""}:p).filter(p=>p&&p.url);
+  const segsOf=u=>{ let s=""; try{ s=new URL(u).pathname; }catch(e){ s=String(u||""); }
+    return s.replace(/\/+$/,"").split("/").filter(Boolean); };
+  let sing=0, plur=0;
+  rows.forEach(p=>{ const g=segsOf(p.url)[0];
+    if(g==="product") sing++; else if(g==="products") plur++; });
+  const pluralIsListing = sing>=8 && plur>0;
+  const keep=rows.filter(p=>{
+    const g=segsOf(p.url);
+    if(pluralIsListing && g[0]==="products") return false;
+    if(g[0]==="products" && g.length>=3) return false;
+    if(_goodsIsListUrl(p.url)) return false;
+    return true;
+  });
+  // Never hand back nothing: if the rules ate the whole list the site does not follow
+  // either convention, and a full list you can filter beats an empty picker.
+  return keep.length ? keep : rows;
+}
 // Pull the fields we can read straight out of schema.org rather than asking the
 // model for them — exact beats inferred whenever the site publishes it.
 function _ldFields(sc){
@@ -10088,6 +10151,12 @@ async function goodsImportFlow(kind,url){
   // page one happened to contain.
   try{ dis=await _goodsDiscoverPages(u,dis); }catch(e){}
   if(dis.err==="needs-worker"){ alert(_SCRAPE_HELP); return; }
+  // Filters out, before the count is shown — "Found 1468 products" was counting the
+  // twenty search pages as products.
+  if(dis&&dis.products&&dis.products.length){
+    const kept=_goodsDropFacets(dis.products);
+    if(kept.length!==dis.products.length) dis=Object.assign({},dis,{products:kept,count:kept.length});
+  }
   if(dis.err||!dis.products||!dis.products.length){
     if(!sc.err) return _goodsImportOne(kind,u,host);        // no list found — try it as a product anyway
     alert("Couldn't find any products at "+host+".");
@@ -10318,7 +10387,12 @@ async function _gpickRun(){
   if(!picks.length) return;
   // Every page is a fetch and a read, so a whole catalogue is a real wait rather than
   // an instant. Say so once, up front, instead of letting it look like a hang.
-  if(picks.length>150 && !confirm(`Import ${picks.length} products?\n\nEach page is fetched and read individually — roughly ${Math.max(1,Math.round(picks.length/60))} minutes. Leave this tab open.`)) return;
+  if(picks.length>150){
+    const a=await askDlg({icon:"⇣",title:`Import ${picks.length} products?`,
+      body:`Each page is fetched and read on its own — roughly ${Math.max(1,Math.round(picks.length/60))} minutes. Leave this tab open.`,
+      actions:["Cancel",`Import ${picks.length.toLocaleString()}`]});
+    if(a!==1) return;
+  }
   const go=document.getElementById("gpk-go"), pr=document.getElementById("gpk-prog");
   if(go){ go.disabled=true; go.textContent="Importing…"; }
   let done=0, ok=0, idx=0; const made=[]; _goodsDupeCount=0;
@@ -10353,8 +10427,12 @@ async function _gpickRun(){
   const _bk=kind==="mat"?"materials":"furnishings";
   const _lib=_bk==="materials"?MATERIALS:FURNISHINGS;
   const thin=made.filter(id=>{ const x=_lib.find(r=>r&&r.id===id); return x&&goodsThin(x); });
-  if(thin.length) setTimeout(()=>{
-    if(confirm(`${ok} imported, but ${thin.length} of them carry no specification — no thickness, size, finish or price on the page.\n\nDelete those ${thin.length} now?`)){
+  if(thin.length) setTimeout(async()=>{
+    const a=await askDlg({danger:true,icon:"◲",
+      title:`${thin.length} of them carry no specification`,
+      body:"No thickness, size, finish or price was published on those pages, so there is nothing to price them from.",
+      actions:["Keep them",`Delete ${thin.length}`]});
+    if(a===1){
       const ids=thin.slice();
       if(_bk==="materials") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
       else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
@@ -10368,9 +10446,12 @@ async function _gpickRun(){
   // choose, and cleaning them out afterwards is work you should not have to do.
   const noimg=made.filter(id=>{ const x=_lib.find(r=>r&&r.id===id);
     return x && !(goodsImgs(x)||[]).length; });
-  if(noimg.length) setTimeout(()=>{
-    const keep=confirm(noimg.length+" of the "+ok+" had no usable image — the page had none, or its links would not load.\n\nThey have been left out.\n\nOK to add them anyway, or Cancel to leave them out.");
-    if(!keep){
+  if(noimg.length) setTimeout(async()=>{
+    const a=await askDlg({icon:"◲",
+      title:`${noimg.length} of the ${ok} have no photo`,
+      body:"Their pages published none, or the links would not load. A product you cannot see is a product you cannot specify.",
+      actions:["Leave them out","Keep them anyway"]});
+    if(a===0){
       const ids=noimg.slice();
       if(_bk==="materials") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
       else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
@@ -10570,13 +10651,21 @@ async function goodsFetchImages(book,onlyId){
     // Imports made before v629 kept whichever links happened to upload, duplicates and
     // all, and stopped at three — so a page's installation shots were often crowded out
     // by two copies of the same product swatch. Re-reading fixes those rows.
-    if(!confirm(`All ${fromURL.length} imported item${fromURL.length>1?"s have":" has"} a picture already.\n\n`+
-      `Re-read every supplier page anyway and replace the images with the best ones on the page? `+
-      `Earlier imports often saved the same photo two or three times and dropped the installation shots.`+
-      (noSrc?`\n\n(${noSrc} hand-added item${noSrc>1?"s have":" has"} no page to read — those are skipped.)`:""))) return;
+    const a=await askDlg({icon:"◲",
+      title:`All ${fromURL.length} already have a picture`,
+      body:"Earlier imports often saved the same photo two or three times and dropped the installation shots. Re-reading replaces them with the best ones on the page.",
+      note:noSrc?`${noSrc} hand-added item${noSrc>1?"s have":" has"} no page to read — those are skipped.`:"",
+      actions:["Keep what I have","Re-read all pages"]});
+    if(a!==1) return;
     todo = fromURL;
   }
-  else if(!confirm(`${todo.length} item${todo.length>1?"s have":" has"} no picture.\n\nRe-read the supplier pages and pull the images in? Nothing else on the item is touched.`)) return;
+  else {
+    const a=await askDlg({icon:"◲",
+      title:`${todo.length} item${todo.length>1?"s have":" has"} no picture`,
+      body:"Their supplier pages are read again and the images pulled in. Nothing else on the item is touched.",
+      actions:["Cancel","Pull the images in"]});
+    if(a!==1) return;
+  }
   _gimgStop=false;
   let done=0, got=0, none=0;
   const say=()=>{ try{ _prog("Reading supplier pages",done,todo.length); }catch(e){} };
@@ -10832,7 +10921,11 @@ async function goodsFindSales(book){
     (arr||[]).forEach(x=>{ if(!x||!x.srcUrl) return; const h=_brandHost(x.srcUrl); if(h) (hosts[h]=hosts[h]||[]).push(x); });
     const keys=Object.keys(hosts);
     if(!keys.length){ alert("Nothing here came from a supplier site, so there is nowhere to look for a sale."); return; }
-    if(!confirm(`Check ${keys.length} supplier site${keys.length===1?"":"s"} for current sales?\n\nReads their home page, banners and any sale or clearance section. Anything found is shown before it is applied.`)) return;
+    { const a=await askDlg({icon:"%",
+        title:`Check ${keys.length} supplier site${keys.length===1?"":"s"} for sales?`,
+        body:"Reads each home page, its banners and any sale or clearance section. Anything found is shown to you before it is applied.",
+        actions:["Cancel","Check them"]});
+      if(a!==1) return; }
     const found=[];
     _prog("Checking for sales",0,keys.length);
     for(let i=0;i<keys.length;i++){
@@ -10871,7 +10964,10 @@ ${blob}`}]})});
     // Only a site-wide claim is applied without asking. "Some products" is exactly the
     // case where a blanket 20% off would put a wrong number on a bid.
     const lines=found.map(f=>`  ${f.host} — ${f.pct}% off${f.ends?", until "+f.ends:""}\n    ${f.what}\n    “${f.quote}”\n    ${f.scope==="all"?`applies to all ${f.rows.length} of your items`:`covers only part of the range — ${f.rows.length} items would be marked, check before you bid`}`).join("\n\n");
-    if(!confirm(`Sales found:\n\n${lines}\n\nApply these discounts?`)) return;
+    { const a=await askDlg({icon:"%",
+        title:`${found.length} sale${found.length===1?"":"s"} found`,
+        body:lines, actions:["Ignore them","Apply the discounts"]});
+      if(a!==1) return; }
     let n=0;
     found.forEach(f=>f.rows.forEach(x=>{
       if(+x.salePct>0 && !x.saleAuto) return;      // never overwrite a discount you typed
@@ -11347,7 +11443,7 @@ function specInstalled(m){
            hasRate:!!r, rateIsSet:set, line:(r?r.line:null) };
 }
 
-function specAdd(book,gid){
+async function specAdd(book,gid){
   const m=specGoods(book,gid); if(!m) return false;
   if(specIsOn(gid)){ specDrop(gid); return false; }
   if(!goodsEstPrice(m)){ alert("This product has no price yet.\n\nAdd one in the Pricing block and it can be specified."); return false; }
@@ -11360,7 +11456,11 @@ function specAdd(book,gid){
   if(clash){
     const other=specGoods(clash.book,clash.gid);
     const nm=(other&&other.nm)||"another product";
-    if(!confirm(`“${L.name}” is already specified as ${nm}.\n\nA line can only carry one product — replace ${nm} with ${m.nm}?`)) return false;
+    const a=await askDlg({icon:"⇄",
+      title:`“${L.name}” already carries ${nm}`,
+      body:"A line can only hold one product, so specifying this one drops the other.",
+      actions:[`Keep ${nm}`,`Use ${m.nm}`]});
+    if(a!==1) return false;
     specDrop(clash.gid);
   }
   const it=S.cats[L.catId].items[L.idx];
@@ -11540,16 +11640,26 @@ function goodsSetNum(book,id,field,el){
 function goodsClearComm(book,id){ const x=goodsRow(book,id); if(!x) return;
   delete x.commOwn; goodsSaveBook(book);
   try{ _toast("Back to the supplier/brand rate","#4C7B3D"); }catch(e){} }
-function goodsDelete(book,id){
+async function goodsDelete(book,id,asked){
   const arr=book==="materials"?MATERIALS:FURNISHINGS;
   const i=arr.findIndex(x=>x&&x.id===id); if(i<0) return;
   const x=arr[i];
-  if(typeof specIsOn==="function" && specIsOn(id)){
+  if(asked){ if(typeof specIsOn==="function" && specIsOn(id)) specDrop(id); }
+  else if(typeof specIsOn==="function" && specIsOn(id)){
     const rec=specFind(id);
-    if(!confirm(`${x.nm} is specified on this project — it is driving “${rec.item}” at ${fmtN(rec.per)}/${rec.u}.\n\nDeleting it removes that specification and puts the line back to its allowance.\n\nDelete anyway?`)) return;
+    const a=await askDlg({danger:true,icon:"🗑",
+      title:`${x.nm} is specified on this project`,
+      body:`It is driving “${rec.item}” at ${fmtN(rec.per)}/${rec.u}. Deleting it drops that specification and puts the line back to its allowance.`,
+      actions:["Keep it","Delete it anyway"]});
+    if(a!==1) return;
     specDrop(id);
   }
-  else if(!confirm(`Delete ${x.nm}?\n\nThis removes it from the library on every device.`)) return;
+  else {
+    const a=await askDlg({danger:true,icon:"🗑",title:`Delete ${x.nm}?`,
+      body:"This removes it from the library on every device.",
+      actions:["Keep it","Delete it"]});
+    if(a!==1) return;
+  }
   arr.splice(i,1);
   if(book==="materials") MAT_OPEN=null; else FUR_OPEN=null;
   goodsSaveBook(book,true);
@@ -11693,7 +11803,10 @@ async function goodsFixBrands(book){
       (p.res.alt.length?`  (also searchable as ${p.res.alt.join(", ")})`:"")+`\n`+
       `    Brand${mk.length>1?"s":""}: ${mk.length? (mk.length>3?`${mk.slice(0,3).join(", ")} +${mk.length-3} more`:mk.join(", ")) : "none published — left blank"}`;
   }).join("\n\n");
-  if(!confirm(`Read from each site:\n\n${lines}\n\nSupplier is who you buy from; brand is who made it. Apply?`)) return;
+  { const a=await askDlg({icon:"⌂",title:"Read from each site",body:lines,
+      note:"Supplier is who you buy from; brand is who made it.",
+      actions:["Cancel","Apply these"]});
+    if(a!==1) return; }
   let n=0;
   plan.forEach(p=>p.rows.forEach(x=>{
     const b=goodsBrandFor(x.brand||x.sup||"",p.res);
@@ -11750,7 +11863,12 @@ async function goodsDropThin(book){
   const thin=(arr||[]).filter(x=>x&&x.srcUrl&&goodsThin(x));
   if(!thin.length){ alert("Every imported item carries a specification."); return; }
   const names=thin.slice(0,4).map(x=>x.nm).join(", ");
-  if(!confirm(`${thin.length} item${thin.length===1?"":"s"} came in with no specification at all — no thickness, size, finish or published price.\n\n${names}${thin.length>4?` and ${thin.length-4} more`:""}\n\nDelete them?`)) return;
+  { const a=await askDlg({danger:true,icon:"◲",
+      title:`${thin.length} item${thin.length===1?"":"s"} carry no specification`,
+      body:"No thickness, size, finish or published price came in with them.",
+      note:`${names}${thin.length>4?` and ${thin.length-4} more`:""}`,
+      actions:["Keep them",`Delete ${thin.length}`]});
+    if(a!==1) return; }
   const ids=thin.map(x=>x.id);
   if(book==="materials") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
   else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
@@ -13755,14 +13873,22 @@ async function contribAccept(id){
   if(x.kind==="fix"){
     // Nothing to merge — a correction is applied by hand to the item itself. This
     // only records that it was dealt with, so it leaves the queue.
-    if(!confirm(`Mark this correction as applied?\n\n“${(x.item&&x.item.nm)||"the item"}”\n${x.note||""}\n\nThis does not change the item — make that edit yourself first.`)) return;
+    { const a=await askDlg({icon:"✓",title:"Mark this correction as applied?",
+        body:`“${(x.item&&x.item.nm)||"the item"}”\n${x.note||""}`,
+        note:"This does not change the item — make that edit yourself first.",
+        actions:["Leave it queued","Mark it applied"]});
+      if(a!==1) return; }
   } else if(x.book==="materials"||x.book==="furnishings"){
     const arr=_goodsArr(x.book);
     const row=JSON.parse(JSON.stringify(x.item||{}));
     row.id=(x.book==="materials"?"m":"f")+"c"+Date.now().toString(36);
     row._by=x.by||""; row._at=x.at||""; row._sub=x.id;
     if(arr.some(r=>r&&r.nm===row.nm&&(r.brand||"")===(row.brand||""))){
-      if(!confirm(`You already have “${row.nm}”${row.brand?" by "+row.brand:""}.\n\nAdd this one as well?`)) return;
+      const a=await askDlg({icon:"⧉",
+        title:`You already have “${row.nm}”${row.brand?" by "+row.brand:""}`,
+        body:"This is a second copy from the community queue.",
+        actions:["Skip it","Add it as well"]});
+      if(a!==1) return;
     }
     arr.push(row);
     const ok=await goodsPush(x.book,false);
@@ -14213,8 +14339,11 @@ async function goodsEstimateUnpriced(book){
   const todo=lib.filter(x=>!(x.msrp>0)).map(x=>x.id);
   if(!todo.length){ alert("Everything in this library already has a price."); return; }
   todo.forEach(id=>{ const x=lib.find(r=>r&&r.id===id); if(x) delete x.aiTried; });   // an explicit retry
-  if(!confirm("Estimate a market price for "+todo.length+" unpriced item"+(todo.length===1?"":"s")+"?\n\n"
-    +"These are AI estimates from typical market rates, not supplier quotes. They are flagged everywhere they appear, and a real price from a supplier sheet always replaces them.")) return;
+  { const a=await askDlg({icon:"$",
+      title:`Estimate a price for ${todo.length} unpriced item${todo.length===1?"":"s"}?`,
+      body:"These are AI estimates from typical market rates, not supplier quotes. They are flagged everywhere they appear, and a real price from a supplier sheet always replaces them.",
+      actions:["Cancel",`Estimate ${todo.length}`]});
+    if(a!==1) return; }
   try{ _toast("Estimating "+todo.length+" prices…","#6A4FA3"); }catch(e){}
   let n=0;
   for(let i=0;i<todo.length;i+=15) n+=await goodsAIPrice(book,todo.slice(i,i+15));
@@ -14475,7 +14604,11 @@ async function goodsFillSpecs(book){
     const need=x=>x&&x.nm&&(!x.csi||!x.loc||x.loc==="—");
     const todo=(arr||[]).filter(need);
     if(!todo.length){ alert("Every item already has a CSI section and a supplier location."); return; }
-    if(!confirm(`Fill in the CSI section and supplier location for ${todo.length} item${todo.length===1?"":"s"}?\n\nCSI comes from the product type; the location is where that supplier is based. Anything already filled in is left alone.`)) return;
+    { const a=await askDlg({icon:"§",
+        title:`Fill CSI and location for ${todo.length} item${todo.length===1?"":"s"}?`,
+        body:"CSI comes from the product type; the location is where that supplier is based. Anything already filled in is left alone.",
+        actions:["Cancel","Fill them in"]});
+      if(a!==1) return; }
     let n=0;
     _prog("Filling CSI and locations",0,todo.length);
     for(let i=0;i<todo.length;i+=30){
@@ -14527,7 +14660,11 @@ async function goodsFillMaterial(book){
     const arr=book==="materials"?MATERIALS:FURNISHINGS;
     const todo=(arr||[]).filter(x=>x&&x.nm&&!goodsMat(x));
     if(!todo.length){ alert("Everything already says what it is made of."); return; }
-    if(!confirm(`Work out what ${todo.length} item${todo.length===1?"":"s"} ${todo.length===1?"is":"are"} made of?\n\nGlass, porcelain, natural stone, concrete and so on — judged from the name, finish and tags already stored.`)) return;
+    { const a=await askDlg({icon:"◈",
+        title:`Work out what ${todo.length} item${todo.length===1?"":"s"} ${todo.length===1?"is":"are"} made of?`,
+        body:"Glass, porcelain, natural stone, concrete and so on — judged from the name, finish and tags already stored.",
+        actions:["Cancel","Work it out"]});
+      if(a!==1) return; }
     let n=0; _prog("Reading materials",0,todo.length);
     for(let i=0;i<todo.length;i+=40){
       const batch=todo.slice(i,i+40);
@@ -14619,7 +14756,11 @@ async function goodsFillUse(book){
     const arr=book==="materials"?MATERIALS:FURNISHINGS;
     const todo=(arr||[]).filter(x=>x&&x.nm&&!goodsUse(x));
     if(!todo.length){ alert("Everything is already marked outdoor or indoor."); return; }
-    if(!confirm(`Work out which of ${todo.length} item${todo.length===1?"":"s"} suit outdoor use?\n\nJudged from the name, category, finish and tags already stored — no pages are re-read.`)) return;
+    { const a=await askDlg({icon:"☀",
+        title:`Work out which of ${todo.length} item${todo.length===1?"":"s"} suit outdoor use?`,
+        body:"Judged from the name, category, finish and tags already stored — no pages are re-read.",
+        actions:["Cancel","Work it out"]});
+      if(a!==1) return; }
     let n=0;
     _prog("Sorting outdoor from indoor",0,todo.length);
     for(let i=0;i<todo.length;i+=40){
@@ -14695,16 +14836,19 @@ function matSelToggle(id,ev){ if(ev) ev.stopPropagation();
 // of filtering first and acting second.
 function matSelAll(on,ids){ if(on) (ids||[]).forEach(id=>{ MAT_SEL[id]=1; }); else MAT_SEL={};
   renderMaterials(); }
-function matSelDelete(){
+async function matSelDelete(){
   const ids=Object.keys(MAT_SEL).filter(k=>MAT_SEL[k]);
   if(!ids.length) return;
   const rows=MATERIALS.filter(m=>ids.indexOf(m.id)>=0);
   const brands=[...new Set(rows.map(m=>goodsMaker(m)||"—"))];
   const spec=rows.filter(m=>+m.specSF>0).length;
-  if(!confirm(`Delete ${ids.length} material${ids.length===1?"":"s"}?\n\n`+
-    `${brands.slice(0,3).join(", ")}${brands.length>3?` and ${brands.length-3} more`:""}\n`+
-    (spec?`\n${spec} of them ${spec===1?"is":"are"} specified on this project.\n`:"")+
-    `\nThis removes them from the library on every device.`)) return;
+  { const a=await askDlg({danger:true,icon:"🗑",
+      title:`Delete ${ids.length} material${ids.length===1?"":"s"}?`,
+      body:`${brands.slice(0,3).join(", ")}${brands.length>3?` and ${brands.length-3} more`:""}`
+        +(spec?`\n\n${spec} of them ${spec===1?"is":"are"} specified on this project.`:""),
+      note:"This removes them from the library on every device.",
+      actions:["Keep them",`Delete ${ids.length}`]});
+    if(a!==1) return; }
   MATERIALS=MATERIALS.filter(m=>ids.indexOf(m.id)<0);
   MAT_SEL={};
   goodsSaveBook("materials",true);      // you confirmed the count — the wipe-guard steps aside
@@ -15836,12 +15980,15 @@ function goodsSelClear(kind){
 }
 /* Selecting several and comparing them is the same intent as picking them one at a
    time — this just skips the one-at-a-time part. Four is the cap the sheet can read. */
-function goodsSelCompare(kind){
+async function goodsSelCompare(kind){
   const ids=_goodsSelIds(kind);
   if(ids.length<2) return;
   let take=ids;
   if(ids.length>4){
-    if(!confirm("Compare reads four at a time.\n\nCompare the first 4 of your "+ids.length+"?")) return;
+    const a=await askDlg({icon:"⧉",title:"Compare reads four at a time",
+      body:`You have ${ids.length} selected.`,
+      actions:["Cancel","Compare first 4"]});
+    if(a!==1) return;
     take=ids.slice(0,4);
   }
   GOODS_CMP[kind]=take.slice();
@@ -15850,15 +15997,18 @@ function goodsSelCompare(kind){
   try{ _goodsTrayPaint(kind); }catch(e){}
   goodsCompareOpen(kind);
 }
-function goodsSelDelete(kind){
+async function goodsSelDelete(kind){
   const ids=_goodsSelIds(kind); if(!ids.length) return;
   const book=(kind==="mat")?"materials":"furnishings";
   const lib=(kind==="mat")?MATERIALS:FURNISHINGS;
   const rows=lib.filter(x=>ids.indexOf(x.id)>=0);
   const spec=rows.filter(x=>{ try{ return specIsOn(x.id); }catch(e){ return false; } }).length;
-  if(!confirm("Delete "+ids.length+" "+(ids.length===1?"item":"items")+" from "+book+"?"
-    +(spec?("\n\n"+spec+" of them "+(spec===1?"is":"are")+" specified on this project — those specifications go too."):"")
-    +"\n\nThis cannot be undone.")) return;
+  { const a=await askDlg({danger:true,icon:"🗑",
+      title:`Delete ${ids.length} ${ids.length===1?"item":"items"} from ${book}?`,
+      body:spec?`${spec} of them ${spec===1?"is":"are"} specified on this project — those specifications go too.`:"",
+      note:"This cannot be undone.",
+      actions:["Keep them",`Delete ${ids.length}`]});
+    if(a!==1) return; }
   if(kind==="mat") MATERIALS=MATERIALS.filter(x=>ids.indexOf(x.id)<0);
   else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
   if(ids.indexOf(kind==="mat"?MAT_PICK:FUR_PICK)>=0){ if(kind==="mat") MAT_PICK=null; else FUR_PICK=null; }
@@ -15868,13 +16018,20 @@ function goodsSelDelete(kind){
   try{ _toast(ids.length+" deleted","#B23F3C"); }catch(e){}
 }
 /* One product, from the panel or the sheet. */
-function goodsDeleteOne(kind,id){
+async function goodsDeleteOne(kind,id){
   const book=(kind==="mat")?"materials":"furnishings";
   const lib=(kind==="mat")?MATERIALS:FURNISHINGS;
   const x=lib.filter(r=>r&&r.id===id)[0]; if(!x) return;
-  if(!confirm("Delete “"+(x.nm||"this item")+"” from "+book+"?\n\nThis cannot be undone.")) return;
+  const a=await askDlg({danger:true,icon:"🗑",
+    title:`Delete “${x.nm||"this item"}”?`,
+    body:`It goes from ${book} on every device.`,
+    note:"This cannot be undone.",
+    actions:["Keep it","Delete it"]});
+  if(a!==1) return;
   try{ goodsLbxClose(); }catch(e){}
-  try{ goodsDelete(book,id); }catch(e){
+  // goodsDelete asks its own question; this one has already been asked, so go
+  // straight to the removal and only fall back to it for the spec bookkeeping.
+  try{ goodsDelete(book,id,true); }catch(e){
     if(kind==="mat") MATERIALS=MATERIALS.filter(r=>r.id!==id); else FURNISHINGS=FURNISHINGS.filter(r=>r.id!==id);
     try{ goodsSaveBook(book,true); }catch(e2){}
   }
@@ -18551,6 +18708,87 @@ function appAsk(o){
     setTimeout(()=>{ inp.focus(); inp.select&&inp.select(); },40);
   });
 }
+/* ══ ASK ══════════════════════════════════════════════════════════════════════
+   One dialog for the whole app. Buttons are named after what they do, so the body
+   text never has to explain them.
+
+     const a = await askDlg({title:"3 products have no photo", body:"…",
+                             actions:["Leave them out","Add without photos"]});
+     if(a===1) …
+
+   Returns the index of the button pressed. The LAST action is the primary — green,
+   or red when danger is set. The FIRST is the safe one, and it is what Escape, a
+   tap on the scrim and the close of a queued dialog all resolve to, so a stray tap
+   can never be the thing that deletes twelve materials.  */
+let _askQ=[], _askOn=null;
+function askDlg(o){
+  o=o||{};
+  // A prompt you have already dismissed for good answers itself.
+  if(o.again){ const s=_askSkipGet(o.again); if(s!=null) return Promise.resolve(s); }
+  return new Promise(res=>{ _askQ.push([o,res]); _askPump(); });
+}
+/* Told, not asked: one way out, and the button says so. */
+function askTell(title,body,opt){
+  return askDlg(Object.assign({title:title,body:body||"",actions:["Got it"]},opt||{}));
+}
+function _askSkipGet(k){
+  try{ const v=localStorage.getItem("studioh_ask_"+k); return v==null?null:+v; }catch(e){ return null; }
+}
+function _askSkipSet(k,i){ try{ localStorage.setItem("studioh_ask_"+k,String(i)); }catch(e){} }
+function _askEsc(s){ return String(s==null?"":s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function _askPump(){
+  if(_askOn||!_askQ.length) return;
+  const [o,res]=_askQ.shift();
+  const acts=(o.actions&&o.actions.length?o.actions:["Got it"])
+    .map(a=>typeof a==="string"?{label:a}:(a||{label:"OK"}));
+  const last=acts.length-1;
+  const safe=(typeof o.safe==="number")?o.safe:0;   // first button, or the only one
+
+  const x=document.createElement("div");
+  x.className="ask-x";
+  const icon=o.icon||(o.danger?"!":"✓");
+  x.innerHTML=`<div class="ask" role="dialog" aria-modal="true"><div class="ask-b">`
+    +(o.noIcon?"":`<div class="ask-i${o.danger?" bad":""}">${_askEsc(icon)}</div>`)
+    +(o.title?`<h3>${_askEsc(o.title)}</h3>`:"")
+    +(o.body?`<p>${_askEsc(o.body)}</p>`:"")
+    +(o.note?`<div class="ask-n">${_askEsc(o.note)}</div>`:"")
+    +`</div><div class="ask-f">`
+    +(o.again?`<label class="ask-again"><input type="checkbox" id="ask-again"> Don't ask again</label>`:"")
+    +acts.map((a,i)=>`<button data-i="${i}" class="${i===last?(o.danger?"bad":"go"):""}">${_askEsc(a.label)}</button>`).join("")
+    +`</div></div>`;
+  document.body.appendChild(x);
+  _askOn=x;
+  requestAnimationFrame(()=>x.classList.add("in"));
+
+  let done=false;
+  const finish=i=>{
+    if(done) return; done=true;
+    if(o.again){ const c=x.querySelector("#ask-again"); if(c&&c.checked) _askSkipSet(o.again,i); }
+    document.removeEventListener("keydown",key,true);
+    x.classList.remove("in");
+    setTimeout(()=>{ try{ x.remove(); }catch(e){} _askOn=null; _askPump(); },160);
+    res(i);
+  };
+  const key=e=>{
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); finish(safe); }
+    else if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); finish(last); }
+  };
+  document.addEventListener("keydown",key,true);
+  x.addEventListener("click",e=>{ if(e.target===x) finish(safe); });
+  x.querySelectorAll(".ask-f button").forEach(b=>{
+    b.addEventListener("click",()=>finish(+b.dataset.i)); });
+  // Focus the safe button when something is about to be destroyed, the primary
+  // otherwise — so a held Return never confirms a deletion you did not read.
+  try{ const bs=x.querySelectorAll(".ask-f button");
+       (bs[o.danger?safe:last]||bs[0]).focus(); }catch(e){}
+}
+/* alert() is deliberately NOT routed through here. It is already replaced further
+   down the file with a bottom notice, because a browser that has been told to
+   "prevent additional dialogs" kills alert() silently and Save/Open stop working.
+   Every native box you still see is a confirm(), which cannot be shimmed — it
+   answers synchronously with a boolean — so those are converted call site by call
+   site to askDlg with named buttons. */
 function _toast(msg,col){ try{ let t=document.getElementById("_toast"); if(t) t.remove(); t=document.createElement("div"); t.id="_toast";
   t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100000;background:"+(col||"#4C7B3D")+";color:#fff;padding:.6rem 1.05rem;border-radius:10px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.3);opacity:0;transition:opacity .2s";
   t.textContent=msg; document.body.appendChild(t); requestAnimationFrame(()=>{ t.style.opacity="1"; });
