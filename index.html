@@ -2957,7 +2957,9 @@ body.tray-on .lib .pbk-list{padding-bottom:84px}
 .pb-selbar b{font:700 13px ui-monospace,Menlo,monospace}
 .pb-selbar button{border:0;background:var(--card);color:var(--gm);border-radius:9px;
   padding:6px 11px;font:650 12px inherit;cursor:pointer}
-.pb-selbar button.del{background:#B23F3C;color:#fff;margin-left:auto}
+.pb-selbar button.cmp{background:var(--gm);color:#fff;margin-left:auto}
+.pb-selbar button.cmp[disabled]{opacity:.45}
+.pb-selbar button.del{background:#B23F3C;color:#fff}
 .pb-selbar button.del[disabled]{opacity:.45}
 /* What you have picked, in every view. */
 .lib .pb-cd.picked,.lib .pb-row.picked{outline:3px solid var(--gm);outline-offset:-3px}
@@ -5260,7 +5262,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1109</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1111</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15806,6 +15808,8 @@ function _goodsSelBarSync(kind){
   const b=view.querySelector(".pb-selbar b"); if(b) b.textContent=n;
   const d=view.querySelector(".pb-selbar .del");
   if(d){ d.textContent="Delete "+(n||""); if(n) d.removeAttribute("disabled"); else d.setAttribute("disabled",""); }
+  const c=view.querySelector(".pb-selbar .cmp");
+  if(c){ c.textContent="Compare "+(n>1?n:""); if(n>1) c.removeAttribute("disabled"); else c.setAttribute("disabled",""); }
 }
 function _goodsSelIds(kind){ return Object.keys(GOODS_SEL[kind]||{}).filter(k=>GOODS_SEL[kind][k]); }
 /* Tapping a card means "select" while the mode is on, and "show me" the rest of the time. */
@@ -15829,6 +15833,22 @@ function goodsSelClear(kind){
   try{ ids.forEach(i=>document.querySelectorAll('[data-gid="'+i+'"]')
     .forEach(el=>el.classList.remove("picked")));
     _goodsSelBarSync(kind); }catch(e){}
+}
+/* Selecting several and comparing them is the same intent as picking them one at a
+   time — this just skips the one-at-a-time part. Four is the cap the sheet can read. */
+function goodsSelCompare(kind){
+  const ids=_goodsSelIds(kind);
+  if(ids.length<2) return;
+  let take=ids;
+  if(ids.length>4){
+    if(!confirm("Compare reads four at a time.\n\nCompare the first 4 of your "+ids.length+"?")) return;
+    take=ids.slice(0,4);
+  }
+  GOODS_CMP[kind]=take.slice();
+  GOODS_SEL[kind]={}; GOODS_SELMODE[kind]=false;
+  try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
+  try{ _goodsTrayPaint(kind); }catch(e){}
+  goodsCompareOpen(kind);
 }
 function goodsSelDelete(kind){
   const ids=_goodsSelIds(kind); if(!ids.length) return;
@@ -16034,13 +16054,20 @@ function goodsCompareAdd(kind,id){
   _goodsTrayPaint(kind);
 }
 function goodsCompareClear(kind){ GOODS_CMP[kind]=[]; _goodsTrayPaint(kind); }
-/* The rail can open or close under it, so re-measure rather than assume. */
+/* The rail can open or close under it, so re-measure rather than assume — but watch the
+   VIEW's box, never body's class list. _goodsTrayPaint toggles a class on body, so a
+   MutationObserver on body re-triggered the paint that caused it: the tray rebuilt itself
+   forever, which is the flashing, and a click never survived long enough to land. */
 try{
   let _trayT=null;
   const reflow=()=>{ clearTimeout(_trayT); _trayT=setTimeout(()=>{
-    ["mat","fur"].forEach(k=>{ if((GOODS_CMP[k]||[]).length) _goodsTrayPaint(k); }); },60); };
+    ["mat","fur"].forEach(k=>{ if((GOODS_CMP[k]||[]).length) _goodsTrayPaint(k); }); },80); };
   window.addEventListener("resize",reflow);
-  new MutationObserver(reflow).observe(document.body,{attributes:true,attributeFilter:["class"]});
+  if(window.ResizeObserver){
+    const ro=new ResizeObserver(reflow);
+    ["view-materials","view-furnishings"].forEach(id=>{
+      const el=document.getElementById(id); if(el) ro.observe(el); });
+  }
 }catch(e){}
 function goodsCmpQty(kind,v){ GOODS_CMP_QTY[kind]=Math.max(0,+v||0);
   _goodsTrayPaint(kind); if(document.getElementById("goods-cmp")) goodsCompareOpen(kind); }
@@ -16054,9 +16081,10 @@ function _goodsTrayPaint(kind){
   let t=document.getElementById("goods-tray");
   const ids=GOODS_CMP[kind]||[];
   if(!view||!view.classList.contains("active")||!ids.length){ if(t) t.remove();
-    document.body.classList.remove("tray-on"); return; }
+    if(document.body.classList.contains("tray-on")) document.body.classList.remove("tray-on");
+    return; }
   if(!t){ t=document.createElement("div"); t.id="goods-tray"; document.body.appendChild(t); }
-  document.body.classList.add("tray-on");
+  if(!document.body.classList.contains("tray-on")) document.body.classList.add("tray-on");
   const unit=(kind==="mat")?"sf":"ea";
   const slot=id=>{ const x=_goodsFind(kind,id); if(!x) return "";
     const u=(function(){ try{ return goodsImg(x); }catch(e){ return ""; } })();
@@ -16074,6 +16102,11 @@ function _goodsTrayPaint(kind){
   // Starts as small as it can be. One pick is a thumbnail and a prompt; the quantity
   // and Clear only appear once there is something to compare.
   const many=ids.length>1;
+  // Same picks, same quantity, same width → nothing to redraw. Rewriting identical
+  // markup throws away the thumbnails and fetches them again, which reads as a flash.
+  const sig=ids.join(",")+"|"+GOODS_CMP_QTY[kind]+"|"+t.style.width;
+  if(t.dataset.sig===sig) return;
+  t.dataset.sig=sig;
   t.innerHTML='<div class="gt-in">'
     + ids.map(slot).join('')
     + (many
@@ -16361,6 +16394,7 @@ function _goodsHeader(kind,shown,total){
     +'<b>'+n+'</b> selected'
     +'<button onclick="goodsSelAllShown(\''+kind+'\')">All shown</button>'
     +'<button onclick="goodsSelClear(\''+kind+'\')">Clear</button>'
+    +'<button class="cmp"'+(n>1?'':' disabled')+' onclick="goodsSelCompare(\''+kind+'\')">Compare '+(n>1?n:'')+'</button>'
     +'<button class="del"'+(n?'':' disabled')+' onclick="goodsSelDelete(\''+kind+'\')">Delete '+(n||'')+'</button>'
     +'</div>'):'';
   return '<div class="pb-lh">'+count+so+selBtn+sw+'</div>'+bar;

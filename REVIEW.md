@@ -1254,3 +1254,21 @@ Diagnosed against the live site rather than guessed:
   twelve functions that happened to live inside it (`_gBlank`, `_gSrc`, the whole `goodsLbx*`
   set). Restored from the last commit and verified by diffing every function name against it —
   a check worth running after any region replacement.
+
+## v1110–1111 — Compare from Select, and the tray that flashed
+- **Compare joins the select bar.** Pick several cards, press Compare — no need to hold each one.
+  Enabled at two, capped at four with a prompt when more are selected, and it hands the picks to
+  the tray so the two stay consistent. Verified: disabled at 1, "Compare 3" at 3, opens a
+  three-column sheet, leaves select mode, tray shows three slots.
+- **The flashing was a feedback loop I built.** v1107 added a `MutationObserver` on
+  `body.class` to re-measure when the rail toggles — and `_goodsTrayPaint` toggles
+  `body.tray-on`. So the paint triggered the observer that triggered the paint, forever. That is
+  the flashing, and it is why the Compare button could not be clicked: the element was replaced
+  before the tap completed.
+  - The observer is now a `ResizeObserver` on the **view**, which the tray cannot change.
+  - The class is only touched when it actually differs.
+  - The paint carries a signature of picks + quantity + width and returns early when nothing has
+    changed, so identical markup is never rewritten — rewriting it discards the thumbnails and
+    re-requests them.
+  - Measured: two adds produce two builds, then **zero rebuilds while idle**, and the same
+    `<img>` node survives.
