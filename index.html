@@ -2816,6 +2816,8 @@ body:not(.sp-on) #sp-open{display:grid}
 #view-materials .gd-src .k small,#view-furnishings .gd-src .k small{color:var(--gm);opacity:.85}
 #view-materials .gd-stale b,#view-furnishings .gd-stale b{color:#B23F3C}
 #view-materials .gd-fresh b,#view-furnishings .gd-fresh b{color:var(--gm)}
+#view-materials .gd-ai b,#view-furnishings .gd-ai b{color:var(--gold)}
+#view-materials .gd-ai .k small,#view-furnishings .gd-ai .k small{color:var(--gold);opacity:.85}
 /* No lines in either book. */
 #view-materials .mcard,#view-materials .mchip,#view-materials .gsearch,#view-materials .mgrid,
 #view-materials .mwrap,#view-materials .mbody,#view-materials .gcols,#view-materials .gcols button,
@@ -5496,7 +5498,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1132</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1133</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12875,7 +12877,7 @@ function goodsSetNum(book,id,field,el){
   if(field==="comm") x.commOwn=1;
   // A price you typed is a real price, so it stops being flagged as an AI guess.
   if((field==="msrp"||field==="cost"||field==="bill"||field==="sale") && n>0){
-    delete x.msrpAI; delete x.aiLo; delete x.aiHi; delete x.aiConf; delete x.aiNote;
+    delete x.msrpAI; delete x.aiLo; delete x.aiHi; delete x.aiConf; delete x.aiNote; delete x.msrpSrc;
     x.priced=new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
   }
   // Once it carries a price it can be specified — that is what "claimed" gates.
@@ -15624,19 +15626,25 @@ async function goodsAIPrice(book,ids){
                  bit(x.dims),bit(x.frame),(x.tags||[]).slice(0,3).join(" ")].filter(Boolean);
     return `${i+1}. ${x.nm}${parts.length?" — "+parts.join(", "):""}`;
   }).join("\n");
-  const prompt=`Typical MATERIAL-ONLY cost for these in ${where}, current market. Output ONLY a minified JSON array:
-[{"i":1,"lo":0,"hi":0,"unit":"sf|each|lf|ton","conf":"high|med|low","note":"max 12 words"}]
+  const prompt=`Find the current MATERIAL-ONLY price for each of these in ${where}. SEARCH THE WEB for real listings — a supplier page, a dealer, a published price list — and quote what you actually find rather than what you remember.
+
+Output ONLY a minified JSON array:
+[{"i":1,"lo":0,"hi":0,"unit":"sf|each|lf|ton","conf":"high|med|low","src":"domain you found it on, or empty","note":"max 12 words"}]
 lo/hi = realistic trade-to-retail range, numbers only, no labor or installation.
-Use conf "low" when the product is obscure or the range is very wide. Skip nothing — give your best range for every line.
+src = the site the figure came from. Leave it empty ONLY when nothing could be found and the range is your own estimate.
+conf: "high" only when a real listing was found; "med" for a comparable product; "low" when it is a guess.
+Skip nothing — give your best range for every line.
 
 ${book==="materials"?"MATERIALS":"FURNISHINGS"}:
 ${list}`;
   try{
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2500,temperature:0,
-        system:"You are a landscape construction cost reference. Output only a minified JSON array. "+
-               "Give the same product the same figure every time — quote the established trade range, "+
-               "not a fresh opinion.",
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,temperature:0,
+        tools:[{type:"web_search_20250305",name:"web_search",max_uses:5}],
+        system:"You price landscape materials and furnishings by LOOKING THEM UP. Search for the "+
+               "actual product and quote the figure you find, with the site you found it on. Only "+
+               "fall back on your own estimate when a search turns up nothing, and mark that low "+
+               "confidence with an empty src. Output only a minified JSON array.",
         messages:[{role:"user",content:prompt}]})});
     const d=await r.json();
     let t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("")||"");
@@ -15660,6 +15668,9 @@ ${list}`;
       x.aiLo=lo; x.aiHi=hi; x.aiConf=String(o.conf||"").toLowerCase();
       x.aiNote=String(o.note||"").slice(0,80);
       x.aiUnit=String(o.unit||"").toLowerCase();
+      // Where it was found. An estimate with a site behind it is a different thing
+      // from one out of the model's head, and the row has to be able to say which.
+      x.msrpSrc=String(o.src||"").replace(/^https?:\/\//,"").replace(/\/.*$/,"").slice(0,60);
       x.msrpAI=true;                       // the flag everything else keys off
       x.priced="AI estimate";
       n++;
@@ -15721,7 +15732,10 @@ async function goodsEstimateUnpriced(book){
 // A one-line, honest description of where a price came from.
 function goodsPriceSrc(x){
   if(!x) return "";
-  if(x.msrpAI) return "AI estimate"+(x.aiLo&&x.aiHi?` · $${x.aiLo}–$${x.aiHi}`:"")+(x.aiConf?` · ${x.aiConf} confidence`:"");
+  if(x.msrpAI) return (x.msrpSrc?("AI · found at "+x.msrpSrc):"AI estimate")
+    +(x.aiLo&&x.aiHi?` · $${x.aiLo}–$${x.aiHi}`:"")
+    +(x.aiConf?` · ${x.aiConf} confidence`:"")
+    +(x.msrpSrc?"":" · not from a listing");
   if(x.priced) return "Priced "+x.priced;
   return "";
 }
@@ -16278,7 +16292,7 @@ function matListHTML(list){
         <span class="nm">${escAttr(m.nm)}</span>
         <span class="br">${escAttr(goodsMaker(m))}</span>
         <span class="ct">${escAttr(m.cat||"—")}</span>
-        <span class="r${m.msrpAI?" est":""}">${pr>0?"$"+pr.toFixed(2):"—"}</span>
+        <span class="r${m.msrpAI?" est":""}"${m.msrpAI?` title="${escAttr(goodsPriceSrc(m))}"`:""}>${pr>0?"$"+pr.toFixed(2):"—"}</span>
         <span class="r">${goodsCommOf(m)?goodsCommOf(m)+"%":"—"}</span>
       </div>`;}).join("")}
   </div>`;
@@ -17467,7 +17481,12 @@ function _goodsIns(kind){
   if(x.cost!=null) h+='<div class="pbk-f gd-src"><span class="k">Your cost<small>'
     +esc(x.sup||"supplier")+when+'</small></span><b>'+money(x.cost)+'</b></div>';
   h+=F(kind==="mat"?"Billed":"Trade", money(x.bill));
-  h+=F("MSRP", money(x.msrp));
+  // An AI figure must never look like a supplier's. Gold, labelled, and it says where
+  // it came from when you hover it — the same treatment the cards and the list use.
+  if(x.msrpAI) h+='<div class="pbk-f gd-ai" title="'+escAttr(goodsPriceSrc(x))+'">'
+    +'<span class="k">MSRP<small>'+escAttr(goodsPriceSrc(x))+'</small></span>'
+    +'<b>'+money(x.msrp)+'</b></div>';
+  else h+=F("MSRP", money(x.msrp));
   // Say the real number and only wear red once it has earned it. A price read off a
   // live page an hour ago is not "over 90 days" — it is today.
   {const _ag=_goodsAgeDays(x);
@@ -18435,7 +18454,7 @@ function _matGrid(host){
      if(F.ship)   r.push(row("truck","Shipping",m.ship));
      if(F.price)  r.push((seeded && !m.msrpAI)
        ? `<span class="fr">${mi("tag")}Price<b style="color:var(--tl)">not listed</b></span>`
-       : `<span class="fr">${mi("tag")}${m.msrpAI?"Est. price":(matModel()==="resale"?"You bill":"Client pays")}<b${m.msrpAI?' class="est"':''}>$${(matModel()==="resale"?m.bill:m.msrp).toFixed(2)}/sf</b></span>`);
+       : `<span class="fr"${m.msrpAI?` title="${escAttr(goodsPriceSrc(m))}"`:""}>${mi("tag")}${m.msrpAI?"Est. price":(matModel()==="resale"?"You bill":"Client pays")}<b${m.msrpAI?' class="est"':''}>$${(matModel()==="resale"?m.bill:m.msrp).toFixed(2)}/sf</b></span>`);
       const shot=goodsImg(m);
     const price=(matModel()==="resale"?m.bill:m.msrp);
     return `<button data-gid="${m.id}" class="pb-cd${MAT_PICK===m.id?" on":""}${(GOODS_SEL.mat||{})[m.id]?" picked":""}" onclick="goodsCardTap('mat','${m.id}')">
