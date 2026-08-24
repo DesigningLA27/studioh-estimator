@@ -1446,3 +1446,26 @@ them, and the server is sent all 25 rows. An explicit `replace` still replaces.
 - A row deleted on another device will now come back if this device still has it. Losing an import
   is far worse than a resurrected delete, so that is the right trade for now — proper deletes need
   tombstones.
+
+## v1134 — The data loss, root cause
+Third occurrence. The first two fixes were real but were different links in the chain; neither
+asked **who is allowed to force a save**.
+
+**Cause.** `goodsAgeBackfill()` — added in v1118 to date undated prices — ran on
+`DOMContentLoaded`, which is *before* `goodsSyncBoot()` pulls at load+2500ms. So it ran over
+whatever stale rows localStorage held, and finished with `goodsSaveBook(book, true)`. The server's
+wipe guard is `if (prevRaw && !b.force)`, so **force walks past every protection**. A cosmetic
+date-stamping pass force-wrote 6 furnishings over 109. Confirmed from the server's own timestamps:
+109 rows at 20:25, 6 rows at 21:11 — a reload, not an import.
+
+**Fixed, three layers**
+- The backfill no longer forces, no longer saves to the server at all, and **returns early unless
+  `_goodsSynced`** — until the boot pull lands, this device's arrays are a guess.
+- `force` is now used only by deletes where the user was shown and confirmed the count. Adding rows
+  never needs it.
+- **The server keeps the previous copy of every write** — 10 deep, 30 days, with `listbaks` and
+  `restorebak`. No client bug can be terminal again. This layer should have existed first.
+
+**Not recovered.** The versioning went live after the overwrite, so the 109 rows are gone from the
+server. If any open tab still lists them, Tools → Save to server now restores them; a reload on
+that device does not.
