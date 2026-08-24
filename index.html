@@ -5532,7 +5532,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1136</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1137</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10877,24 +10877,35 @@ function _docReviewPaint(){
    base64 in a browser that has already run out of room. */
 async function _docArtwork(rows,idOf){
   if(!_DOCPAGES.length) return 0;
-  let done=0;
   const want=rows.filter(r=>r.use&&!r.dupe);
-  for(let i=0;i<want.length;i++){
-    const r=want[i];
-    gwSet({pct:(i+1)/want.length*100, sub:"picture "+(i+1)+" of "+want.length});
-    let hit=null;
+  if(!want.length) return 0;
+  // Find every crop first — it is local work and fast (57 pages of the FX catalogue
+  // render in about two seconds) — then upload. Uploading inside the loop meant 124
+  // round trips end to end, which is minutes of staring at a bar.
+  const jobs=[];
+  want.forEach(r=>{
     for(const pg of _DOCPAGES){
       const box=_pdfArtFor(r.nm,pg.words,pg.art);
-      if(box){ hit={pg,box}; break; }
+      if(box){ jobs.push({r,pg,box}); break; }
     }
-    if(!hit) continue;
-    try{
-      const data=_cropToDataUrl(hit.pg.canvas,hit.box,420);
-      const up=await _uploadImageR2(idOf(r)+"_cat",data);
-      if(up.ok&&up.url){ r.img=up.url; done++; }
-    }catch(e){}
-  }
-  return done;
+  });
+  if(!jobs.length) return 0;
+  let done=0, idx=0;
+  const worker=async()=>{
+    while(true){
+      const i=idx++; if(i>=jobs.length) return;
+      const j=jobs[i];
+      gwSet({pct:(done+1)/jobs.length*100, sub:"picture "+(done+1)+" of "+jobs.length});
+      try{
+        const data=_cropToDataUrl(j.pg.canvas,j.box,420);
+        const up=await _uploadImageR2(idOf(j.r)+"_cat",data);
+        if(up.ok&&up.url) j.r.img=up.url;
+      }catch(e){}
+      done++;
+    }
+  };
+  await Promise.all([0,0,0,0].map(worker));
+  return jobs.filter(j=>j.r.img).length;
 }
 async function _docReviewAdd(){
   const o=_DREV; if(!o) return;
