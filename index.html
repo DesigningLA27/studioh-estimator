@@ -5532,7 +5532,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1142</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1143</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10597,6 +10597,12 @@ let _DOFF=null;
    internal codes and no amount of cleaning turns "fx-002-ss-fr-us-web" into a
    title — so the type and the year lead, which is the only part you decide on,
    and whatever the name genuinely says goes underneath to tell two apart. */
+/* One spelling for a name, so a comparison cannot fail on punctuation or case.
+   The awkward name is deliberate: a _dupKey exists further down for plants and a
+   _goodsNameKey exists for name+supplier, and a duplicate function declaration means
+   the last one silently wins — which is exactly what made this return "" for every
+   product and mark a whole catalogue as duplicates. */
+function _catNameKey(v){ return String(v==null?"":v).toLowerCase().replace(/[^a-z0-9]+/g,""); }
 function _docTitle(d){
   const base=(d&&d.kind==="price")?"Price list":"Catalogue";
   return base+((d&&d.year)?" "+d.year:"");
@@ -10854,11 +10860,13 @@ ${text.slice(0,90000)}`;
 let _DREV=null;
 function _docReviewOpen(book,brand,rows,src){
   const lib=(book==="materials")?MATERIALS:FURNISHINGS;
-  rows.forEach(r=>{
-    r.dupe=lib.some(x=>x && String(x.nm||"").toLowerCase()===r.nm.toLowerCase()
-      && String(x.brand||x.sup||"").toLowerCase()===String(brand||"").toLowerCase());
-    if(r.dupe) r.use=false;
-  });
+  // Name alone, within this book. A product name out of a catalogue is distinctive —
+  // "BQ Barbecue Light" is not going to collide with anything — whereas the brand
+  // field is whatever that run happened to read, so comparing it created a fresh copy
+  // every time.
+  const seen={};
+  lib.forEach(x=>{ if(x&&x.nm) seen[_catNameKey(x.nm)]=1; });
+  rows.forEach(r=>{ r.dupe=!!seen[_catNameKey(r.nm)]; if(r.dupe) r.use=false; });
   _DREV={book,brand,rows,src};
   let x=document.getElementById("drev");
   if(!x){ x=document.createElement("div"); x.id="drev"; x.className="lb-scrim on";
@@ -15827,11 +15835,24 @@ async function goodsEstimateUnpriced(book){
       body:"These are AI estimates from typical market rates, not supplier quotes. They are flagged everywhere they appear, and a real price from a supplier sheet always replaces them.",
       actions:["Cancel",`Estimate ${todo.length}`]});
     if(a!==1) return; }
-  try{ _toast("Estimating "+todo.length+" prices…","#6A4FA3"); }catch(e){}
+  gwOpen({title:"Looking up prices",
+          sub:todo.length+" item"+(todo.length===1?"":"s")+" with no price",
+          steps:["Searching for each product","Reading what it sells for"],
+          pct:0,cancel:true});
+  gwStep(1);
   let n=0;
-  for(let i=0;i<todo.length;i+=15) n+=await goodsAIPrice(book,todo.slice(i,i+15));
-  try{ renderMaterials(); }catch(e){} try{ renderFurnishings(); }catch(e){}
-  try{ _toast(n+" price"+(n===1?"":"s")+" estimated — flagged as AI","#4C7B3D"); }catch(e){}
+  for(let i=0;i<todo.length;i+=15){
+    if(gwCancelled()) break;
+    gwSet({pct:Math.min(100,(i/todo.length)*100),
+           sub:Math.min(todo.length,i+15)+" of "+todo.length});
+    n+=await goodsAIPrice(book,todo.slice(i,i+15));
+  }
+  gwClose();
+  try{ renderMaterials(); }catch(e){} try{ goodsRepaint("fur"); }catch(e){}
+  await askTell(n+" price"+(n===1?"":"s")+" found",
+    n?"Each one is marked EST on its card, and says where it was found when you tap it. Type a real price over any of them and the mark clears."
+     :"Nothing could be found for those. They stay unpriced rather than being guessed at.",
+    {icon:"$"});
 }
 /* Where the price came from, as a mark you can SEE. A title tooltip was no use:
    the iPad this is built for has no hover, so the one device it matters on never
@@ -16971,6 +16992,7 @@ function furToolsHTML(){
       ${it("goodsFindSales('furnishings')","Find sales")}
       <div class="hd">Housekeeping</div>
       ${it("goodsDropThin('furnishings')","Drop empties")}
+      ${it("goodsDropDupes('furnishings')","Remove duplicates",goodsDupeGroups("furnishings").reduce((s,g)=>s+g.length-1,0)||"")}
       ${it("goodsSyncNow()","Save to server now")}
     </div></span>`;
 }
@@ -17573,6 +17595,37 @@ function goodsLooksLikeProduct(x){
   if(PROD_CATS.indexOf(String(x.cat||""))>=0) return true;
   const hay=[x.nm,x.cat,x.brand,x.sup,(x.tags||[]).join(" ")].filter(Boolean).join(" ");
   return _PRODWORDS.test(hay);
+}
+/* 438 copies got in before the guard was fixed. Counted and confirmed, never silent —
+   this deletes rows, and nothing that deletes rows happens on its own. */
+function goodsDupeGroups(book){
+  const arr=(book==="materials")?MATERIALS:FURNISHINGS;
+  const by={};
+  (arr||[]).forEach(x=>{ if(!x||!x.nm) return; const k=_catNameKey(x.nm); (by[k]=by[k]||[]).push(x); });
+  return Object.keys(by).map(k=>by[k]).filter(g=>g.length>1);
+}
+async function goodsDropDupes(book){
+  const groups=goodsDupeGroups(book);
+  const extra=groups.reduce((s,g)=>s+g.length-1,0);
+  if(!extra){ await askTell("No duplicates","Every name in this library appears once.",{icon:"✓"}); return 0; }
+  const a=await askDlg({danger:true,icon:"⧉",
+    title:extra+" duplicate"+(extra===1?"":"s")+" to remove",
+    body:groups.length+" product"+(groups.length===1?" appears":"s appear")+" more than once. The copy with a photo is kept, then the one with a price, then the oldest.",
+    note:groups.slice(0,4).map(g=>"· "+g[0].nm+" ×"+g.length).join("\n"),
+    actions:["Keep them","Remove "+extra]});
+  if(a!==1) return 0;
+  const kill={};
+  groups.forEach(g=>{
+    const rank=x=>((x.img?4:0)+((+x.msrp>0)?2:0)+((x.priced&&!x.msrpAI)?1:0));
+    const keep=g.slice().sort((p,q)=>rank(q)-rank(p))[0];
+    g.forEach(x=>{ if(x!==keep) kill[x.id]=1; });
+  });
+  if(book==="materials") MATERIALS=MATERIALS.filter(x=>!kill[x.id]);
+  else FURNISHINGS=FURNISHINGS.filter(x=>!kill[x.id]);
+  goodsSaveBook(book,true);                 // you were shown the count and confirmed it
+  try{ renderMaterials(); }catch(e){} try{ goodsRepaint("fur"); }catch(e){}
+  try{ _toast(extra+" duplicates removed","#4C7B3D"); }catch(e){}
+  return extra;
 }
 function goodsMoveToProducts(){
   const move=(MATERIALS||[]).filter(goodsLooksLikeProduct);
@@ -18886,8 +18939,32 @@ function _catKey(v){ return String(v==null?"":v).toLowerCase().replace(/[^a-z0-9
    so matching a category by exact string put 140 fixtures in the wrong library. */
 function goodsCanonCat(v){
   const k=_catKey(v);
+  if(!k) return String(v||"");
   const hit=PROD_CATS.concat(FUR_CATS).filter(c=>_catKey(c)===k)[0];
-  return hit || String(v||"");
+  if(hit) return hit;
+  // the near misses the extractor produces, run to run
+  if(/light|luminaire|lamp|sconce|bollard|uplight|downlight/.test(k)) return "Lighting";
+  if(/irrigation|sprinkler|drip|emitter|valve/.test(k)) return "Irrigation";
+  if(/pump|filter|skimmer|fountain/.test(k)) return "Water & Pumps";
+  if(/control|timer|dimmer|transformer|power/.test(k)) return "Controls";
+  if(/drain|channel|grate/.test(k)) return "Drainage";
+  if(/seat|chair|sofa|lounge|bench/.test(k)) return "Seating";
+  if(/table|dining/.test(k)) return "Tables";
+  if(/pot|planter|urn|vessel/.test(k)) return "Pottery & Planters";
+  if(/umbrella|shade|pergola/.test(k)) return "Umbrellas & Shade";
+  if(/fire|firepit|hearth/.test(k)) return "Fire";
+  return String(v||"");
+}
+/* Tidy what is already in the book, automatically. A category is a label, not data —
+   correcting it destroys nothing, so it does not need asking about. */
+function goodsTidyCats(){
+  let n=0;
+  [MATERIALS,FURNISHINGS].forEach(arr=>(arr||[]).forEach(x=>{
+    if(!x||!x.cat) return;
+    const c=goodsCanonCat(x.cat);
+    if(c && c!==x.cat){ x.cat=c; n++; }
+  }));
+  return n;
 }
 function goodsLibOf(x){
   const k=_catKey((x&&x.cat)||"");
@@ -18965,39 +19042,39 @@ function _furEarn(f){ const md=goodsModel();
 
 function furFields(){ const o=(PREFS.furFields||null); return o||Object.assign({},FUR_FIELDS_DEFAULT); }
 function furSetField(k){ const f=furFields(); if(f[k]) delete f[k]; else f[k]=1;
-  PREFS.furFields=f; prefsSave(); renderFurnishings(); }
+  PREFS.furFields=f; prefsSave(); goodsRepaint("fur"); }
 function furAllFields(on){ PREFS.furFields = on ? Object.fromEntries(FUR_FIELDS.map(f=>[f[0],1])) : {};
-  prefsSave(); renderFurnishings(); }
+  prefsSave(); goodsRepaint("fur"); }
 
 let FUR_OPEN=null, FUR_TAB="detail";
 let FUR_CATS_SEL={};
 let FUR_TAGS={}, FUR_TAGQ="", FUR_AI=null, FUR_AIQ="", FUR_AIBUSY=false;
 // Same rule as materials: tap to include, tap again to drop, several at a time.
 function furSetCat(c){
-  if(!c||c==="All"){ FUR_CATS_SEL={}; renderFurnishings(); return; }
+  if(!c||c==="All"){ FUR_CATS_SEL={}; goodsRepaint("fur"); return; }
   if(FUR_CATS_SEL[c]) delete FUR_CATS_SEL[c]; else FUR_CATS_SEL[c]=1;
-  renderFurnishings();
+  goodsRepaint("fur");
 }
 function furCatList(){ return Object.keys(FUR_CATS_SEL).filter(c=>FUR_CATS_SEL[c]); }
 function furCatOk(f){ const c=furCatList(); return !c.length || c.indexOf(f&&f.cat)>=0; }
-function furOpen(id){ FUR_OPEN=id; FUR_TAB="detail"; renderFurnishings(); }
-function furBack(){ FUR_OPEN=null; renderFurnishings(); }
-function furTab(t){ FUR_TAB=t; renderFurnishings(); }
-function furToggleTag(t){ if(FUR_TAGS[t]) delete FUR_TAGS[t]; else FUR_TAGS[t]=1; renderFurnishings(); }
-function furClearTags(){ FUR_TAGS={}; renderFurnishings(); }
+function furOpen(id){ FUR_OPEN=id; FUR_TAB="detail"; goodsRepaint("fur"); }
+function furBack(){ FUR_OPEN=null; goodsRepaint("fur"); }
+function furTab(t){ FUR_TAB=t; goodsRepaint("fur"); }
+function furToggleTag(t){ if(FUR_TAGS[t]) delete FUR_TAGS[t]; else FUR_TAGS[t]=1; goodsRepaint("fur"); }
+function furClearTags(){ FUR_TAGS={}; goodsRepaint("fur"); }
 function furTagQ(v){ FUR_TAGQ=v||"";
   const m=document.getElementById("fur-tagdd"); const open=m&&m.classList.contains("open");
-  renderFurnishings();
+  goodsRepaint("fur");
   if(open){ const n=document.getElementById("fur-tagdd"); if(n){ n.classList.add("open");
     const q=n.querySelector(".tagq"); if(q){ q.focus(); q.setSelectionRange(q.value.length,q.value.length); } } }
 }
-function furQ(v){ FUR_AIQ=v||""; FUR_AI=null; renderFurnishings();
+function furQ(v){ FUR_AIQ=v||""; FUR_AI=null; goodsRepaint("fur");
   const el=document.getElementById("fur-ai-in"); if(el){ el.focus();
     try{ el.setSelectionRange(el.value.length,el.value.length); }catch(e){} } }
-function furAIClear(){ FUR_AI=null; FUR_AIQ=""; renderFurnishings(); }
+function furAIClear(){ FUR_AI=null; FUR_AIQ=""; goodsRepaint("fur"); }
 async function furAIGo(q){
   q=(q||"").trim(); if(!q) return;
-  FUR_AIQ=q; FUR_AIBUSY=true; renderFurnishings();
+  FUR_AIQ=q; FUR_AIBUSY=true; goodsRepaint("fur");
   const rows=FURNISHINGS.map(f=>({id:f.id,nm:f.nm,cat:f.cat,sup:f.sup,tags:f.tags||[],
     frame:f.frame,dims:f.dims,seat:f.seat,weather:f.weather,lead:f.lead,
     priced:goodsPriced(f)?1:0,price:goodsPriced(f)?furPrice(f):null,onSale:furOnSale(f)?1:0}));
@@ -19005,7 +19082,7 @@ async function furAIGo(q){
   FUR_AIBUSY=false;
   if(r.err){ FUR_AI=null; try{ _toast(r.err,"#B23F3C"); }catch(e){} }
   else FUR_AI={ids:r.ids,why:r.why};
-  renderFurnishings();
+  goodsRepaint("fur");
 }
 async function furSpecify(id){
   const f=furFind(id); if(!f||!goodsPriced(f)) return;
@@ -19014,7 +19091,7 @@ async function furSpecify(id){
     type:"number", step:"1", min:0, suffix:"ea", value:f.specQty||"", ok:"Specify"});
   if(v===null) return;
   f.specQty=Math.max(0,Math.round(+String(v).replace(/[^0-9.]/g,"")||0));
-  furSave(); renderFurnishings();
+  furSave(); goodsRepaint("fur");
   try{ _toast(f.specQty?("Specified "+f.specQty+" · "+fmtN(_furEarn(f)*f.specQty)+" to you"):"Removed from the project","#4C7B3D"); }catch(e){}
 }
 // Paste a supplier product page and let AI read it. Images, specs and list price come
@@ -19037,7 +19114,7 @@ async function furClaim(id){
   const num=v=>Math.max(0,+String(v).replace(/[^0-9.]/g,"")||0);
   f.msrp=num(msrp); f.cost=num(cost); f.comm=num(comm); f.commOwn=1;
   if(f.msrp>0){ f.claimed=1; delete f.msrpAI; f.priced=new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}); }
-  furSave(); renderFurnishings();
+  furSave(); goodsRepaint("fur");
   try{ _toast(goodsPriced(f)?"Priced — it can be specified now":"Needs a price before it can be specified","#4C7B3D"); }catch(e){}
 }
 
@@ -19058,7 +19135,7 @@ let GOODS_HOST="fur-body";
    the rail did nothing on Products — they redrew Furnishings instead. */
 function goodsRepaint(kind){
   if(kind==="mat"){ try{ return renderMaterials(); }catch(e){ return; } }
-  try{ return (GOODS_PAGE==="prod") ? renderProducts() : renderFurnishings(); }catch(e){}
+  try{ return (GOODS_PAGE==="prod") ? renderProducts() : goodsRepaint("fur"); }catch(e){}
 }
 function goodsViewEl(kind){
   return document.getElementById(kind==="mat" ? "view-materials"
@@ -20913,6 +20990,7 @@ try{ document.addEventListener("click",()=>closeHMenus()); }catch(e){}
     // Runs once the server copy is in, so it can never move a guess.
     try{ setTimeout(()=>{ try{
       if(typeof _goodsSynced!=="undefined" && !_goodsSynced) return;
+      try{ goodsTidyCats(); }catch(e){}
       const n=goodsMoveToProducts();
       if(n) _toast(n+" fixtures moved to Products","#4C7B3D");
     }catch(e){} }, 4000); }catch(e){}
@@ -30436,7 +30514,7 @@ function toggleSumPanel(){
   try{ _pbFit(); }catch(e){}
   // The goods grids size themselves to the panel, so they have to re-derive here.
   try{ if(S.view==="materials") renderMaterials(); }catch(e){}
-  try{ if(S.view==="furnishings") renderFurnishings(); }catch(e){}
+  try{ if(S.view==="furnishings") goodsRepaint("fur"); }catch(e){}
 }
 (function(){ let v="1"; try{ v=localStorage.getItem("studioh_sp_v1")||"1"; }catch(e){}
   if(v==="1") document.body.classList.add("sp-on"); })();
