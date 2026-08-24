@@ -5425,7 +5425,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1121</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1122</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10324,6 +10324,11 @@ async function goodsImportFlow(kind,url,related,forTerm){
         {icon:"⛔"});
       return;
     }
+    // Same offer when the page simply yields nothing: a supplier whose site the
+    // reader cannot make sense of usually still publishes a catalogue and a sheet.
+    const got=await goodsOfferDocs(kind,host,"",
+      "The page at "+host+" answered, but no products could be read from it.");
+    if(got) return;
     await askTell("Nothing to read at "+host,
       "The page answered, but had no products on it. A category page or a product page usually works better than the home page.",
       {icon:"!"});
@@ -10384,10 +10389,27 @@ Up to 6 files. If you cannot find a real .pdf link, say so plainly rather than g
     try{
       const r=await _scrapeCall({type:"pdfhead",url:u});
       if(!r||r.err||!r.ok||!r.isPdf) return null;
-      return {url:r.url||u, name:nameOf(u), bytes:+r.bytes||0, kind:guessKind(u)};
+      return {url:r.url||u, name:nameOf(u), bytes:+r.bytes||0, kind:guessKind(u),
+              lastMod:r.lastMod||"", year:0};
     }catch(e){ return null; }
   }));
   return checked.filter(Boolean);
+}
+/* How old is it, without opening it. A year in the file's own name beats the
+   server's date — a supplier re-uploading a 2017 sheet in 2025 does not make it a
+   2025 sheet — but Last-Modified is what most of them give us and it is enough:
+   FX's price list reports 2017 and its catalogue 2025. */
+const DOC_MAX_AGE=5;
+function _docYear(d){
+  const m=String((d&&d.name)||"").match(/\b(19\d{2}|20\d{2})\b/);
+  if(m) return +m[1];
+  const t=Date.parse((d&&d.lastMod)||"");
+  if(!isNaN(t)) return new Date(t).getFullYear();
+  return 0;
+}
+function _docStale(d){
+  const y=_docYear(d);
+  return !!y && (new Date().getFullYear()-y) > DOC_MAX_AGE;
 }
 function _docSize(b){ return b>=1048576 ? (b/1048576).toFixed(1)+" MB" : b?Math.round(b/1024)+" KB" : ""; }
 /* Offered, not done. These are big files and reading one is a real wait, so the
@@ -10397,9 +10419,26 @@ async function goodsOfferDocs(kind,host,brand,why){
   try{ _toast("Looking for a catalogue or price list…","#6A4FA3"); }catch(e){}
   try{ docs=await goodsFindDocs(host,brand); }catch(e){}
   if(!docs.length) return false;
+  docs.forEach(d=>{ d.year=_docYear(d); });
+  // A price list nobody has revised in five years is not a price list, it is history.
+  // Dropped before it is offered rather than warned about afterwards — the offer is
+  // the moment it looks trustworthy.
+  const dropped=docs.filter(d=>d.kind==="price" && _docStale(d));
+  docs=docs.filter(d=>!(d.kind==="price" && _docStale(d)));
+  if(!docs.length){
+    await askTell("Nothing current published by "+(brand||host),
+      dropped.length
+        ? ("The only price list found is from "+dropped.map(d=>d.year).join(", ")
+           +" — too old to price from, so it is not offered.")
+        : "No catalogue or price list turned up.",{icon:"!"});
+    return false;
+  }
   const cat=docs.filter(d=>d.kind==="catalog"), pl=docs.filter(d=>d.kind==="price");
   const lines=docs.map(d=>"· "+d.name+(d.kind==="price"?"  — price list":"  — catalogue")
-    +(d.bytes?"  ("+_docSize(d.bytes)+")":"")).join("\n");
+    +(d.year?"  · "+d.year:"  · date unknown")
+    +(d.bytes?"  ("+_docSize(d.bytes)+")":"")).join("\n")
+    +(dropped.length?("\n\n"+dropped.length+" price list"+(dropped.length>1?"s":"")+" from "
+      +dropped.map(d=>d.year).join(", ")+" left out — over "+DOC_MAX_AGE+" years old"):"");
   const what=[cat.length?(cat.length+" catalogue"+(cat.length>1?"s":"")):"",
               pl.length?(pl.length+" price list"+(pl.length>1?"s":"")):""].filter(Boolean).join(" and ");
   const a=await askDlg({icon:"⎙",
@@ -10431,21 +10470,20 @@ async function goodsReadDocs(kind,host,brand,docs){
       failed.join("\n")||"The documents came back empty.",{icon:"!"});
     return;
   }
-  // A published PDF is not automatically a CURRENT one — the first price list found
-  // for fxl.com was dated 2012. Say the year the document gives itself, so an old
-  // sheet cannot quietly become this year's number.
+  // Backstop. The offer is already filtered on the server's date, but a document can
+  // date ITSELF differently — FX's sheet says "Effective February 1, 2012" inside a
+  // file the server stamped 2017. Same rule, applied to what the page actually says.
   let yr="";
   const ym=text.slice(0,4000).match(/\b(19|20)\d{2}\b/g);
   if(ym){ const years=ym.map(Number).filter(y=>y>=1990&&y<=new Date().getFullYear()+1);
     if(years.length) yr=String(Math.max.apply(null,years)); }
-  const thisYear=new Date().getFullYear();
-  if(yr && (thisYear-(+yr))>=2){
-    const go=await askDlg({danger:true,icon:"!",
-      title:"That document is dated "+yr,
-      body:"It is "+(thisYear-(+yr))+" years old, so its prices are very unlikely to be what "+(brand||host)+" charges now.",
-      note:"Nothing is written until you review each row — but a stale sheet is a poor place to start.",
-      actions:["Stop","Read it anyway"]});
-    if(go!==1) return;
+  const age=yr?(new Date().getFullYear()-(+yr)):0;
+  if(yr && age>DOC_MAX_AGE){
+    await askTell("That document is dated "+yr,
+      "It is "+age+" years old, so its prices are not what "+(brand||host)+" charges now. "
+      +"Nothing has been written to your library.\n\nAsk "+(brand||host)
+      +" for their current sheet and import it through Tools \u2192 Price sheet.",{icon:"!"});
+    return;
   }
   // Straight into the existing reviewer: it already extracts priced lines, matches
   // them against the library and writes nothing until you say so.

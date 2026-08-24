@@ -134,6 +134,7 @@ async function pdfHead(url) {
     if (!r.ok) return { ok: false, error: "http " + r.status, url };
     const ct = (r.headers.get("content-type") || "").toLowerCase();
     const len = +(r.headers.get("content-length") || 0) || 0;
+    const lastMod = r.headers.get("last-modified") || "";
     // Some hosts serve a PDF as octet-stream, so trust the magic bytes over the header.
     // Read the first chunk only. arrayBuffer() on the clone pulled the WHOLE file
     // down to look at four bytes — 33 MB for FX's catalogue, every time it is offered.
@@ -145,7 +146,7 @@ async function pdfHead(url) {
       try { await rd.cancel(); } catch (e) {}
     } catch (e) {}
     const isPdf = /pdf/.test(ct) || magic === "%PDF";
-    return { ok: true, url: r.url || url, isPdf, contentType: ct, bytes: len };
+    return { ok: true, url: r.url || url, isPdf, contentType: ct, bytes: len, lastMod };
   } catch (e) { return { ok: false, error: (e && e.message) || "fetch failed", url }; }
 }
 async function pdfProxy(url) {
