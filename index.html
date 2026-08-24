@@ -5496,7 +5496,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1126</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1127</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15269,18 +15269,58 @@ async function goodsSyncBoot(){
 }
 try{ window.addEventListener("load",()=>setTimeout(()=>{ try{ goodsSyncBoot(); }catch(e){} }, 2500)); }catch(e){}
 
-/* A write that fails must never look like a write that worked. This was
-   try{...}catch(e){} — so a full localStorage lost the library in silence and the
-   next reload showed the old copy as though nothing had been done. */
+/* What is actually using this browser's five megabytes. Reported rather than
+   guessed at, and never cleared automatically — everything in there is somebody's
+   work and deleting it to make room is not a repair. */
+function _kbytes(n){ return n>=1048576?(n/1048576).toFixed(1)+" MB":Math.round(n/1024)+" KB"; }
+function _storageReport(){
+  const rows=[]; let total=0;
+  try{ for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i), v=localStorage.getItem(k)||"";
+    const n=(k.length+v.length)*2;              // UTF-16 in the browser's accounting
+    total+=n; rows.push({k,n}); } }catch(e){}
+  rows.sort((a,b)=>b.n-a.n);
+  const name=k=>({
+    "studioh_plantbook_v1":"Plant book (a copy of the master)",
+    "studioh_pricebook_v5":"Price book",
+    "studioh_materials_v1":"Materials library",
+    "studioh_furnishings_v1":"Furnishings library",
+    "studioh_pt_last":"Last trace",
+    "studioh_nurseries_v1":"Nurseries"
+  }[k]||k.replace(/^studioh_/,"").replace(/_v?\d*$/,"").replace(/_/g," "));
+  return {total, lines:rows.slice(0,5).map(r=>"· "+name(r.k)+" — "+_kbytes(r.n))};
+}
+/* A write that fails must never look like a write that worked — this was
+   try{...}catch(e){} in four places, so a full browser lost the library in silence
+   and the next reload showed the old copy as though nothing had happened.
+   But a full browser is NOT the same as lost work: this device holds a cache, the
+   server holds the library. So when the local write fails, save to the server at
+   once and only raise the alarm if THAT fails too. */
+let _goodsFullWarned={};
 function _goodsWrite(key,arr,label){
   try{ localStorage.setItem(key, JSON.stringify(arr)); return true; }
   catch(e){
-    const full=/quota|exceeded|storage/i.test(String((e&&e.name)||"")+String((e&&e.message)||""));
-    try{ askTell("This device could not save your "+label,
-      full ? ("There is no room left in this browser's storage, so the "+arr.length
-              +" items in your "+label+" library are only in memory — a reload would lose them.")
-           : ("The browser refused to write them: "+((e&&e.message)||"unknown")),
-      {icon:"!"} ); }catch(e2){}
+    const book=(label==="materials")?"materials":"furnishings";
+    (async()=>{
+      let saved=false;
+      try{ saved=await goodsPushNow(book); }catch(e2){}
+      if(_goodsFullWarned[book]) return;         // once per session, not once per row
+      _goodsFullWarned[book]=true;
+      const rep=_storageReport();
+      if(saved){
+        await askTell("Saved to the server — this browser is full",
+          "Your "+arr.length+" "+label+" are safe on the server and will load from there.\n\n"
+          +"This browser has run out of local space ("+_kbytes(rep.total)+" used), so it is "
+          +"keeping no copy of its own. Nothing is lost; pages may just take a moment longer to open.",
+          {icon:"☁"});
+      } else {
+        await askTell("Not saved anywhere yet",
+          "This browser is full ("+_kbytes(rep.total)+" used) and the server refused too: "
+          +(_goodsLastErr[book]||"no reason given")+"\n\n"
+          +"Your "+arr.length+" "+label+" are only in this tab — do not reload until this is sorted.",
+          {icon:"!", note:"Biggest users of this browser's space:\n"+rep.lines.join("\n")});
+      }
+    })();
     return false;
   }
 }
