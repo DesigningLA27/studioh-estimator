@@ -5496,7 +5496,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1127</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1128</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15114,6 +15114,34 @@ async function goodsSyncNow(){
 }
 // Debounced per book, so importing 120 products is one upload rather than 120.
 function _bk0(kind){ return kind==="mat"?"materials":"furnishings"; }
+/* Whether this device can reach the server, said out loud and permanently. The app
+   asked for the admin key once, at the moment of the first save, and never again —
+   so a device that had quietly never been able to save looked identical to one that
+   always could. Nothing is more worth knowing than whether your library is safe. */
+function goodsSyncChip(kind){
+  const book=_bk0(kind);
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key) return '<button class="mchip warn" onclick="goodsSetKey()">'
+    +mi("cloud")+'Not saving to the server</button>';
+  const err=_goodsLastErr[book];
+  if(err) return '<button class="mchip warn" onclick="goodsSyncNow()">'
+    +mi("cloud")+'Last save failed</button>';
+  return "";
+}
+async function goodsSetKey(){
+  let cur=""; try{ cur=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  const k=await appAsk({title:"Master library access",
+    hint:"Without this key nothing on this device reaches the server — your libraries would live only in this browser. Paste it once and it is remembered here.",
+    value:cur, placeholder:"Studio H admin key", ok:"Save key"});
+  if(k&&k.trim()){
+    try{ localStorage.setItem("studioh_admin_key",k.trim()); }catch(e){}
+    _goodsNoKeyWarned=false; _goodsFullWarned={};
+    try{ _toast("Key saved — syncing…","#4C7B3D"); }catch(e){}
+    try{ await goodsSyncNow(); }catch(e){}
+  }
+  try{ renderMaterials(); }catch(e){}
+  try{ renderFurnishings(); }catch(e){}
+}
 function goodsSchedulePush(book){
   if(_goodsTimer[book]) clearTimeout(_goodsTimer[book]);
   _goodsTimer[book]=setTimeout(()=>{ _goodsTimer[book]=null; goodsPush(book); }, 4000);
@@ -15297,6 +15325,13 @@ function _storageReport(){
    server holds the library. So when the local write fails, save to the server at
    once and only raise the alarm if THAT fails too. */
 let _goodsFullWarned={};
+/* The browser holds a CACHE. The server holds the library. So a cache that will not
+   write is not an event worth a dialog — it is a fact about this browser, and the
+   answer is to save to the server, which is where it belongs anyway.
+   The first version popped "Saved to the server — this browser is full" every time,
+   which is a modal interrupting you to say nothing went wrong. It says nothing now.
+   The only case that speaks is the one that is genuinely dangerous: the cache would
+   not take it AND the server refused, so the rows exist nowhere but this tab. */
 function _goodsWrite(key,arr,label){
   try{ localStorage.setItem(key, JSON.stringify(arr)); return true; }
   catch(e){
@@ -15304,22 +15339,15 @@ function _goodsWrite(key,arr,label){
     (async()=>{
       let saved=false;
       try{ saved=await goodsPushNow(book); }catch(e2){}
-      if(_goodsFullWarned[book]) return;         // once per session, not once per row
+      if(saved) return;                         // it is on the server; nothing to say
+      if(_goodsFullWarned[book]) return;
       _goodsFullWarned[book]=true;
       const rep=_storageReport();
-      if(saved){
-        await askTell("Saved to the server — this browser is full",
-          "Your "+arr.length+" "+label+" are safe on the server and will load from there.\n\n"
-          +"This browser has run out of local space ("+_kbytes(rep.total)+" used), so it is "
-          +"keeping no copy of its own. Nothing is lost; pages may just take a moment longer to open.",
-          {icon:"☁"});
-      } else {
-        await askTell("Not saved anywhere yet",
-          "This browser is full ("+_kbytes(rep.total)+" used) and the server refused too: "
-          +(_goodsLastErr[book]||"no reason given")+"\n\n"
-          +"Your "+arr.length+" "+label+" are only in this tab — do not reload until this is sorted.",
-          {icon:"!", note:"Biggest users of this browser's space:\n"+rep.lines.join("\n")});
-      }
+      await askTell("Not saved anywhere yet",
+        "This browser is full ("+_kbytes(rep.total)+" used) and the server refused too: "
+        +(_goodsLastErr[book]||"no reason given")+"\n\n"
+        +"Your "+arr.length+" "+label+" are only in this tab — do not reload until this is sorted.",
+        {icon:"!", note:"Biggest users of this browser's space:\n"+rep.lines.join("\n")});
     })();
     return false;
   }
@@ -18225,6 +18253,7 @@ function _matGrid(host){
          </div></span>
        <span class="sp-grp">
          <button class="mchip pri${GOODS_URLBAR==="mat"?" on":""}" onclick="matImportURL()">${mi("link")}Add from URL</button>
+         ${goodsSyncChip("mat")}
          ${matToolsHTML()}
          ${matSortBarHTML()}
          ${matCardSizeHTML()}
@@ -18683,6 +18712,7 @@ function _furGrid(host){
          </div></span>
        <span class="sp-grp">
          <button class="mchip pri${GOODS_URLBAR==="fur"?" on":""}" onclick="furImportURL()">${mi("link")}Add from URL</button>
+         ${goodsSyncChip("fur")}
          ${furToolsHTML()}
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
