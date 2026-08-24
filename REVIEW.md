@@ -1272,3 +1272,52 @@ Diagnosed against the live site rather than guessed:
     re-requests them.
   - Measured: two adds produce two builds, then **zero rebuilds while idle**, and the same
     `<img>` node survives.
+
+## v1112 — Dialogs, and the importer's filter-page bug
+**Decided**
+- The app has its own dialog, `askDlg({title, body, note, danger, actions:[…]})`. Buttons are
+  named after the action, so the body never explains them. Primary is last (green, or red for
+  destructive); Escape, the scrim and a stray tap all take the *first* button, which is the safe
+  one. Destructive dialogs focus the safe button so a held Return cannot confirm a deletion.
+- `alert()` is deliberately left alone — it is already replaced with a bottom notice further down
+  the file, because a browser told to "prevent additional dialogs" kills alert() silently and
+  Save/Open stop working. Only `confirm()` produces the native grey box.
+- 20 confirms converted (importer, materials, furnishings, deletes, compare). **51 remain** in
+  trace, plant book, projects and the price book.
+
+**Fixed**
+- The importer was offering a site's own filter pages as products. qdisurfaces.com returned
+  20 `/products/<facet>/<facet>/` alongside 1,447 `/product/<slug>` — and the filters sorted
+  first, so the opening screen was entirely filters. `_goodsDropFacets` drops them on two
+  structural signals (a site publishing `/product/` in bulk is using `/products/` for listings;
+  two or more segments under a `/products/` root is a filter crossing) and never returns an empty
+  list. Verified against live data: 1,467 → 1,447, Shopify-shaped catalogues untouched.
+- `goodsDeleteOne` asked, then called `goodsDelete` which asked again. `goodsDelete(book,id,asked)`.
+
+**Open**
+- The remaining 51 confirms.
+- The notifications question is still undecided — 216 toasts, ~80 of them saying a thing that is
+  already visible on screen.
+
+## v1113 — The importer, as cards
+**Decided**
+- 24 products a page, shown on the library's own card: photo, name, supplier, price.
+- Only the 24 on screen are read. A peek is one fetch per product with **no model behind it** —
+  the page's own structured data carries name, price and photo. "Select all N" never peeks and
+  imports from the URL list exactly as before, so taking a whole catalogue costs nothing extra.
+- Price on the card is `toFixed(2)`, not `fmtN`. $4.49/sf rounded to $4 is an 11% error and this
+  card is what the tile gets chosen on.
+- **With photos** is the default. Photoless products drop out once the page has finished reading
+  — not per card — and the page backfills from further down the list. Capped at three refills,
+  because a supplier with no photos would otherwise have its whole catalogue read to fill one
+  screen. Whatever was set aside is counted in the bar with a **Show them** button next to it.
+- A tap repaints one card and the footer, never the grid. Re-rendering on tap is what made every
+  other card blank for a frame.
+- The rail carries this site's groups (from the existing layer detection) above the suppliers
+  already in your library, so a second import is a tap rather than another paste.
+- Finishing asks **Close** / **Import more**; "Import more" leaves the picker where it is with the
+  selection cleared.
+
+**Open**
+- Furnishings still has no filter rail (`furRailHTML` does not exist), so its Filters panel is empty.
+- No way to upload your own photo for a product that has none.
