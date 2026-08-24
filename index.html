@@ -5496,7 +5496,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1130</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1131</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -15321,23 +15321,34 @@ let _goodsFullWarned={};
    not take it AND the server refused, so the rows exist nowhere but this tab. */
 function _goodsWrite(key,arr,label){
   try{ localStorage.setItem(key, JSON.stringify(arr)); return true; }
-  catch(e){
-    const book=(label==="materials")?"materials":"furnishings";
-    (async()=>{
-      let saved=false;
-      try{ saved=await goodsPushNow(book); }catch(e2){}
-      if(saved) return;                         // it is on the server; nothing to say
-      if(_goodsFullWarned[book]) return;
-      _goodsFullWarned[book]=true;
-      const rep=_storageReport();
-      await askTell("Not saved anywhere yet",
-        "This browser is full ("+_kbytes(rep.total)+" used) and the server refused too: "
-        +(_goodsLastErr[book]||"no reason given")+"\n\n"
-        +"Your "+arr.length+" "+label+" are only in this tab — do not reload until this is sorted.",
-        {icon:"!", note:"Biggest users of this browser's space:\n"+rep.lines.join("\n")});
-    })();
-    return false;
+  catch(e){ const book=(label==="materials")?"materials":"furnishings";
+    _goodsRecover(book,arr,label); return false; }
+}
+/* The cache would not take it. Get it onto the server, and work out what a refusal
+   actually means before saying anything — because a refusal is often the OPPOSITE of
+   loss. The server keeps a wipe-guard: it will not let a tab holding 6 rows overwrite
+   the 109 it has. Telling you "not saved anywhere" while the server holds MORE than
+   you do is exactly backwards; the answer is to take its copy. */
+async function _goodsRecover(book,arr,label){
+  let saved=false;
+  try{ saved=await goodsPushNow(book); }catch(e){}
+  if(saved) return "saved";                      // on the server; nothing to say
+  const why=_goodsLastErr[book]||"";
+  if(/would drop|stale|newer|behind/i.test(why)){
+    let got=false;
+    try{ got=await goodsPull(book,true); }catch(e){}
+    if(got){ try{ _toast("This tab was behind — loaded the server's copy","#4C7B3D"); }catch(e){}
+             return "pulled"; }
   }
+  if(_goodsFullWarned[book]) return "quiet";
+  _goodsFullWarned[book]=true;
+  const rep=_storageReport();
+  await askTell("Not saved anywhere yet",
+    "This browser is full ("+_kbytes(rep.total)+" used) and the server refused too: "
+    +(why||"no reason given")+"\n\n"
+    +"Your "+arr.length+" "+label+" are only in this tab — do not reload until this is sorted.",
+    {icon:"!", note:"Biggest users of this browser's space:\n"+rep.lines.join("\n")});
+  return "warned";
 }
 function matSave(){ _goodsWrite("studioh_materials_v1",MATERIALS,"materials");
   goodsSchedulePush("materials"); }
@@ -20073,7 +20084,15 @@ function plantAddImgPrompt(kind,pid){
     if(_lbOpen) _lbRender();
   }
 }
-function plantBookSave(){ _imgNameIdx=null; try{ const slim={}; PLANT_KINDS.forEach(k=>{ slim[k]=(PLANT_DB[k]||[]).map(p=>{ if(!p.imgAlts&&p._imgIdx==null) return p; const c={}; for(const f in p){ if(f!=="imgAlts"&&f!=="_imgIdx") c[f]=p[f]; } return c; }); }); localStorage.setItem("studioh_plantbook_v1", JSON.stringify(slim)); }catch(e){ /* local cache full (common on Safari) — harmless, the master book lives on the server */ } if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof _scheduleAutoPublish==="function") _scheduleAutoPublish(); }
+/* The plant book is NOT kept in the browser any more. It was 9.8 MB of a 10 MB
+   budget — a second copy of the master that the server already holds and that every
+   boot pulls anyway — and it was the reason there was no room left for the libraries
+   people actually import. It lives on the server; this saves to the server. */
+function plantBookSave(){ _imgNameIdx=null;
+  try{ localStorage.removeItem("studioh_plantbook_v1"); }catch(e){}
+  try{ localStorage.removeItem("studioh_plantbook_presync"); }catch(e){}
+  if(typeof renderPlantBook==="function") renderPlantBook();
+  if(typeof _scheduleAutoPublish==="function") _scheduleAutoPublish(); }
 const IMG_FIELDS=["img","imgAI","imgSrc","imgPrev","imgLic","imgAttr","imgFlag","_imgMod"];
 function plantBookMerge(data, mode){ if(!data) return;
   // ids present anywhere locally — so a plant you reclassified (moved to another type) is NOT re-added to its old type
@@ -20476,6 +20495,9 @@ try{ document.addEventListener("click",()=>closeHMenus()); }catch(e){}
     // Undated prices get their real date from the row's own id. Silent: it corrects
     // data rather than asking you to.
     try{ goodsAgeBackfill(); }catch(e){}
+    // Reclaim the space the old build took for a copy of the master plant book.
+    try{ localStorage.removeItem("studioh_plantbook_v1");
+         localStorage.removeItem("studioh_plantbook_presync"); }catch(e){}
   }); }catch(e){}
 })();
 // Replace native alert() everywhere with a non-suppressible in-page notice. Browsers silently kill
