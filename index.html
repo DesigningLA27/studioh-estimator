@@ -5532,7 +5532,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1137</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1138</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10761,6 +10761,25 @@ function _pdfArtFor(name,items,art){
   });
   return bestScore>=0.55 ? best : null;
 }
+/* Re-render JUST this rectangle, at whatever scale makes it sharp. Cropping from a
+   page rendered at 1.6x threw away almost everything the file actually holds — the
+   embedded images run to 1285x1149, and a 100px tile scaled up from a 1.6x page is
+   the blur you saw. Rendering the region on its own is both sharper and lighter than
+   rendering the whole page big: the canvas is the size of the crop, not the page. */
+async function _cropSharp(pg,box,vpScale,target){
+  const want=target||560;
+  const k=Math.min(6, Math.max(1, want/Math.max(box.w,box.h)));   // 6x is plenty; beyond it is empty pixels
+  const vp=pg.getViewport({scale:vpScale*k});
+  const c=document.createElement("canvas");
+  c.width=Math.max(8,Math.round(box.w*k));
+  c.height=Math.max(8,Math.round(box.h*k));
+  const g=c.getContext("2d");
+  g.fillStyle="#ffffff"; g.fillRect(0,0,c.width,c.height);
+  // shift the page so the wanted rectangle lands on the origin of this small canvas
+  await pg.render({canvasContext:g, viewport:vp,
+                   transform:[1,0,0,1,-box.x*k,-box.y*k]}).promise;
+  return c.toDataURL("image/jpeg",0.9);
+}
 function _cropToDataUrl(canvas,r,max){
   const s=Math.min(1,(max||420)/Math.max(r.w,r.h));
   const c=document.createElement("canvas");
@@ -10897,7 +10916,9 @@ async function _docArtwork(rows,idOf){
       const j=jobs[i];
       gwSet({pct:(done+1)/jobs.length*100, sub:"picture "+(done+1)+" of "+jobs.length});
       try{
-        const data=_cropToDataUrl(j.pg.canvas,j.box,420);
+        let data=null;
+        try{ if(j.pg.pg) data=await _cropSharp(j.pg.pg,j.box,j.pg.vpScale||1.6,560); }catch(e){}
+        if(!data) data=_cropToDataUrl(j.pg.canvas,j.box,420);      // fallback: the page we already drew
         const up=await _uploadImageR2(idOf(j.r)+"_cat",data);
         if(up.ok&&up.url) j.r.img=up.url;
       }catch(e){}
@@ -11010,7 +11031,7 @@ async function _docReadOne(who,d){
           return {t:String(it.str||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(),
                   x:r[0], y:r[1], w:(it.width||40)*vp.scale, h:(it.height||10)*vp.scale};
         }).filter(w=>w.t);
-        if(art.length) _DOCPAGES.push({canvas:cv,art,words});
+        if(art.length) _DOCPAGES.push({canvas:cv,art,words,pg,vpScale:1.6});
       }catch(e){}
     }
     gwClose();
