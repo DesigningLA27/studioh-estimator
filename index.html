@@ -5498,7 +5498,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1133</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1134</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10901,7 +10901,7 @@ async function _docReviewAdd(){
   });
   _docReviewClose();
   _DOCPAGES=[];                       // release the rendered pages
-  goodsSaveBook(o.book,true);
+  goodsSaveBook(o.book);          // adding rows never needs the guard bypassed
   // Straight up to the server and awaited — an import that only exists on this
   // device is the fault that lost the Gloster products.
   (async()=>{
@@ -17425,6 +17425,9 @@ function _goodsStale(x){
    was actually created. Runs by itself on load — a data fault should not be a chip
    you have to find and press. */
 function goodsAgeBackfill(){
+  // Before the boot pull, this device's arrays are a guess. Dating them then pushing
+  // is writing a guess over the truth.
+  if(typeof _goodsSynced!=="undefined" && !_goodsSynced) return 0;
   let n=0;
   [["materials",MATERIALS],["furnishings",FURNISHINGS]].forEach(([book,arr])=>{
     let touched=0;
@@ -17433,8 +17436,11 @@ function goodsAgeBackfill(){
       const t=_goodsBornAt(x); if(t==null) return;
       x.priced=new Date(t).toISOString(); touched++; n++;
     });
-    if(touched){ try{ goodsSaveBook(book,true); }catch(e){
-      try{ book==="materials"?matSave():furSave(); }catch(e2){} } }
+    // NEVER force, and never from here. This runs on load, before the server copy has
+    // arrived, over whatever stale rows the browser happens to hold — and a forced save
+    // walks straight past the wipe-guard. That is how 109 furnishings became 6 on a
+    // reload. Dating a row is cosmetic; it can wait for a save the user actually causes.
+    if(touched){ try{ book==="materials"?matSave():furSave(); }catch(e2){} }
   });
   return n;
 }
@@ -17679,7 +17685,7 @@ async function goodsSelDelete(kind){
   else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
   if(ids.indexOf(kind==="mat"?MAT_PICK:FUR_PICK)>=0){ if(kind==="mat") MAT_PICK=null; else FUR_PICK=null; }
   GOODS_SEL[kind]={}; GOODS_SELMODE[kind]=false;
-  try{ goodsSaveBook(book,true); }catch(e){}
+  try{ goodsSaveBook(book); }catch(e){}
   try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}
   try{ _toast(ids.length+" deleted","#B23F3C"); }catch(e){}
 }
@@ -17699,7 +17705,7 @@ async function goodsDeleteOne(kind,id){
   // straight to the removal and only fall back to it for the spec bookkeeping.
   try{ goodsDelete(book,id,true); }catch(e){
     if(kind==="mat") MATERIALS=MATERIALS.filter(r=>r.id!==id); else FURNISHINGS=FURNISHINGS.filter(r=>r.id!==id);
-    try{ goodsSaveBook(book,true); }catch(e2){}
+    try{ goodsSaveBook(book); }catch(e2){}
   }
   if((kind==="mat"?MAT_PICK:FUR_PICK)===id){ if(kind==="mat") MAT_PICK=null; else FUR_PICK=null; }
   try{ (kind==="mat")?renderMaterials():renderFurnishings(); }catch(e){}

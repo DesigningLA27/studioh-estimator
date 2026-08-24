@@ -117,9 +117,49 @@ export default {
           }
         }
 
+        // KEEP WHAT IS BEING REPLACED. Every guard above can be walked past with
+        // force:true, and a client bug that forces a stale array over a good one is
+        // unrecoverable the moment it lands. So the previous copy is kept, always,
+        // before the new one is written. Ten of them, rolling. This is the difference
+        // between a bad write being an annoyance and being a disaster.
+        if (prevRaw) {
+          try {
+            const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+            await env.GOODS.put(k + "__bak__" + stamp, prevRaw, { expirationTtl: 60 * 60 * 24 * 30 });
+            const idxRaw = await env.GOODS.get(k + "__baks");
+            let idx = [];
+            try { idx = JSON.parse(idxRaw || "[]"); } catch (e) {}
+            let prevCount = 0;
+            try { const pj = JSON.parse(prevRaw); prevCount = (pj && pj.data && pj.data.length) || 0; } catch (e) {}
+            idx.unshift({ stamp, count: prevCount, savedAt: (JSON.parse(prevRaw) || {}).savedAt || "" });
+            idx = idx.slice(0, 10);
+            await env.GOODS.put(k + "__baks", JSON.stringify(idx));
+          } catch (e) { /* a backup that fails must not block the save */ }
+        }
         const rec = { savedAt: new Date().toISOString(), by: String(b.by || "").slice(0, 60), data: b.data };
         await env.GOODS.put(k, JSON.stringify(rec));
         return json({ ok: true, book: b.book, savedAt: rec.savedAt, count: b.data.length });
+      }
+
+      // What previous copies are still available, newest first.
+      if (b.type === "listbaks") {
+        const k = keyFor(b.book);
+        if (!k) return json({ ok: false, error: "unknown book" }, 400);
+        const idxRaw = await env.GOODS.get(k + "__baks");
+        let idx = []; try { idx = JSON.parse(idxRaw || "[]"); } catch (e) {}
+        return json({ ok: true, book: b.book, backups: idx });
+      }
+
+      // Put one back. Needs the key, like any other write.
+      if (b.type === "restorebak") {
+        const k = keyFor(b.book);
+        if (!k) return json({ ok: false, error: "unknown book" }, 400);
+        if (!env.ADMIN_KEY || b.key !== env.ADMIN_KEY) return json({ ok: false, error: "not authorised" }, 403);
+        const raw = await env.GOODS.get(k + "__bak__" + String(b.stamp || ""));
+        if (!raw) return json({ ok: false, error: "that copy is no longer held" }, 404);
+        let rec = null; try { rec = JSON.parse(raw); } catch (e) {}
+        if (!rec || !Array.isArray(rec.data)) return json({ ok: false, error: "that copy is unreadable" }, 500);
+        return json({ ok: true, book: b.book, data: rec.data, count: rec.data.length, savedAt: rec.savedAt || "" });
       }
 
       // Verify a link before it is ever offered as a tap target. Cloudflare validates
