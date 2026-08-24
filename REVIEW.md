@@ -1362,3 +1362,38 @@ Tile and Daltile — all outdoor-paver pages.
   returns nothing and the prose fallback is used.
 - QDI's image CDN refuses this machine, so photo rendering on that one supplier is still unverified
   from here; Bedrosians renders 18 of 24.
+
+## v1116 — Recent searches in the picker
+Last eight per book (materials and furnishings keep separate lists), most recent first, a repeat
+moves to the top rather than adding a second copy. Terms marked ⌕ re-run the web search; links
+marked ⌾ re-open that supplier. Clear empties it. On the device for now — moves to the profile
+with accounts, same as typed prices and image framing.
+
+## v1117 — The filter rail, built for 400 suppliers
+**Decided**
+- **Multi-select** on Category, Supplier and Finish (Material for furnishings). Within a section
+  the chosen values are OR'd — two suppliers means either — and sections AND together. Supplier and
+  Finish were never filters before: they wrote the search box, so a second click replaced the first.
+- **The cap rule**, one per section: ≤5 shows all; 6–15 shows 5 then a button carrying the number it
+  reveals; 16+ shows 5 plus a filter box inside the section and "Show all N".
+- **Selected values pin above the cut** however far down they really sit, and **zero counts are
+  hidden** unless selected. These two matter more than the cap: a filter you cannot see is one you
+  forget is on, and a zero row can only ever give an empty screen.
+- **Order per section** — By count (default), A–Z, Custom — kept in PREFS, which already syncs, so
+  the arrangement follows between machines.
+- **Custom is a partial order on purpose.** You place the few that matter; everything else follows
+  by count underneath, so a new supplier never lands at the bottom of a 340-row list unnoticed.
+- **Up/down buttons, not drag.** This runs on an iPad, where HTML5 drag-and-drop is unreliable, and
+  a mis-drag on a list you are paid to keep in order is worse than an extra tap.
+- **Paid position is labelled on the row** (`PROMOTED`), not hidden in settings. A supplier list
+  that quietly sells its order is one designers stop believing; labelled, it is an advert.
+
+**Verified** against a 420-item / 20-supplier library: two suppliers selected returned exactly the
+union (42 = expected), supplier AND finish returned the intersection (6 = expected), a selected
+value pinned to the top of its section, the cap held at 5, zero counts stayed hidden, the section
+filter box narrowed the list, and placing a value switched the section to Custom and reordered the
+rail with the badge showing.
+
+**Open**
+- Furnishings still has no *second* rail (`furRailHTML` does not exist) — the price/size/colour
+  filters Materials has under its Filters tab. The tree rail above is shared and now works for both.
