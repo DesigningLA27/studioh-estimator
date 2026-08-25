@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1178</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1179</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24036,7 +24036,7 @@ function nurseryCsvImport(input){ const f=input.files&&input.files[0]; if(!f) re
 async function _nurseryExtractRows(text){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep) return [];
-  const prompt=`This is text read from a wholesale nursery's availability or price list PDF. Extract every distinct plant line.
+  const prompt=`This is text read from a wholesale nursery's availability or price list — a PDF or a web page. Extract every distinct plant line.
 
 Output ONLY a minified JSON array, no prose:
 [{"bot":"botanical name as written","common":"common name if given","size":"container size, e.g. 1gal, 5gal, 15gal, 24in box","avail":"yes or check","price":0}]
@@ -24069,6 +24069,24 @@ ${text.slice(0,120000)}`;
     }).filter(o=>o.bot.length>2);
   }catch(e){ return []; }
 }
+// Page-by-page text reconstruction, shared by every way a nursery PDF can arrive
+// (local file, or fetched from a link) — same row/column layout logic the supplier-
+// catalogue reader uses. onPage, if given, can return true to cancel mid-read.
+async function _pdfDocToText(doc,onPage){
+  const n=Math.min(doc.numPages,60);
+  let out="";
+  for(let i=1;i<=n;i++){
+    if(onPage && onPage(i,n)) return null;
+    const pg=await doc.getPage(i), tc=await pg.getTextContent();
+    const rows={};
+    tc.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0);
+      (rows[y]=rows[y]||[]).push({x:(it.transform&&it.transform[4])||0,s:it.str}); });
+    Object.keys(rows).sort((a,b)=>b-a).forEach(y=>{
+      out += rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim()+"\n"; });
+    out+="\n";
+  }
+  return out;
+}
 async function nurseryPdfImport(input){
   const f=input.files&&input.files[0]; if(!f) return;
   if(f.size>25*1024*1024){ alert("That file is "+(f.size/1048576).toFixed(1)+" MB. Keep it under 25 MB."); input.value=""; return; }
@@ -24078,19 +24096,12 @@ async function nurseryPdfImport(input){
     const buf=new Uint8Array(await f.arrayBuffer());
     gwStep(1);
     const doc=await lib.getDocument({data:buf}).promise;
-    const n=Math.min(doc.numPages,60);
-    let out="";
-    for(let i=1;i<=n;i++){
-      if(gwCancelled()){ gwClose(); input.value=""; return; }
-      gwSet({pct:i/n*55,sub:"page "+i+" of "+n});
-      const pg=await doc.getPage(i), tc=await pg.getTextContent();
-      const rows={};
-      tc.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0);
-        (rows[y]=rows[y]||[]).push({x:(it.transform&&it.transform[4])||0,s:it.str}); });
-      Object.keys(rows).sort((a,b)=>b-a).forEach(y=>{
-        out += rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim()+"\n"; });
-      out+="\n";
-    }
+    let cancelled=false;
+    const out=await _pdfDocToText(doc,(i,n)=>{
+      if(gwCancelled()){ cancelled=true; return true; }
+      gwSet({pct:i/n*55,sub:"page "+i+" of "+n}); return false;
+    });
+    if(cancelled){ gwClose(); input.value=""; return; }
     if(!out || out.trim().length<50){
       gwClose();
       await askTell("Nothing readable in that file", f.name+" has no text in it \u2014 it is most likely scanned pages rather than a typed document.",{icon:"!"});
@@ -24113,6 +24124,60 @@ async function nurseryPdfImport(input){
     alert((merge?"Updated":"Imported")+" \u201C"+name+"\u201D from PDF.\n"+lines+" stock lines\n"+priced+" with a price\n"+matched+" matched to existing plants\n"+created+" new plants created from the list.\n\nRead by AI, not a structured file \u2014 worth checking a few rows against the original.");
   }catch(err){ gwClose(); alert("PDF import failed: "+((err&&err.message)||err)); }
   input.value="";
+}
+// One entry point for "I don't have a file, I have a link" — a PDF hosted somewhere,
+// or a nursery's own page that just lists availability live. Same PDF-vs-not check
+// the catalogue importer already uses (extension on the URL), same reader either way,
+// same commit as CSV/PDF-upload once there's text to hand the AI.
+async function nurseryLinkImport(){
+  const url=(prompt("Paste a link — a PDF price list, or a page that lists live availability:")||"").trim();
+  if(!url) return;
+  if(!/^https?:\/\//i.test(url)){ alert("That doesn't look like a link."); return; }
+  const isPdf=/\.pdf(\?|$)/i.test(url);
+  const host=(function(){ try{ return new URL(url).hostname.replace(/^www\./,""); }catch(e){ return "that link"; } })();
+  gwOpen({title:"Reading "+host,sub:isPdf?"PDF":"web page",steps:["Fetching","Reading","Finding the plants"],pct:null,cancel:false});
+  try{
+    let text="";
+    if(isPdf){
+      const lib=await _ptLoadLib();
+      const r=await fetch(PDF_PROXY+encodeURIComponent(url));
+      if(!r.ok) throw new Error("could not fetch it ("+r.status+")");
+      const buf=await r.arrayBuffer();
+      gwStep(1);
+      const doc=await lib.getDocument({data:new Uint8Array(buf)}).promise;
+      text=await _pdfDocToText(doc)||"";
+    } else {
+      const sc=await goodsScrape(url);
+      if(sc.err){ gwClose(); alert(sc.err==="needs-worker"?_SCRAPE_HELP:("Couldn't read that page: "+sc.err)); return; }
+      text=sc.text||"";
+    }
+    if(!text || text.trim().length<50){
+      gwClose();
+      await askTell("Nothing readable there",isPdf?"That PDF has no text in it — it is most likely scanned pages rather than a typed document.":"That page didn't have readable plant-list text on it.",{icon:"!"});
+      return;
+    }
+    gwStep(2,"asking the AI to find the plants");
+    const parsed=await _nurseryExtractRows(text);
+    gwClose();
+    if(!parsed.length){
+      await askTell("Nothing found","Couldn't find botanical names and sizes there.",{icon:"!"});
+      return;
+    }
+    let name=prompt("Nursery name for this list ("+parsed.length+" plant lines found — worth a glance over once it's in):", host);
+    if(name===null) return;
+    name=(name||"").trim()||host;
+    const {nid,merge}=_nurseryOpenSlot(name);
+    const {matched,created,lines,priced}=_nurseryCommitRows(nid,parsed,merge);
+    if(created) plantBookSave(); nurserySave(); try{ syncNurseryToBook(false); inheritWaterAll(false); }catch(e){} if(typeof renderPlantBook==="function") renderPlantBook();
+    alert((merge?"Updated":"Imported")+" “"+name+"” from a link.\n"+lines+" stock lines\n"+priced+" with a price\n"+matched+" matched to existing plants\n"+created+" new plants created from the list.\n\nRead by AI, not a structured file — worth checking a few rows against the original.");
+  }catch(err){ gwClose(); alert("Import failed: "+((err&&err.message)||err)); }
+}
+// One place for the CSV/PDF/link buttons every nursery toolbar shows, so a fourth
+// import path never again gets added to two of three toolbars and missed on the third.
+function _nurseryImportButtonsHTML(){
+  return `<label class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none;cursor:pointer" title="Import a nursery's price/availability CSV (botanical, size, availability, price). Matches to your plants and adds any it doesn't recognize.">⊞ Import list<input type="file" accept=".csv,text/csv" style="display:none" onchange="nurseryCsvImport(this)"></label>`
+    +`<label class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer" title="Read straight from a PDF price list — slower, worth a glance over afterward.">⊞ Import PDF<input type="file" accept="application/pdf,.pdf" style="display:none" onchange="nurseryPdfImport(this)"></label>`
+    +`<button class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurseryLinkImport()" title="Paste a link — a hosted PDF, or a page that lists live availability.">⊞ Import from link</button>`;
 }
 function nurseryTemplate(){ const csv="botanical,common,size,availability,price\n\"Salvia greggii 'Furmans Red'\",Autumn Sage,1G,Yes,7.50\n\"Salvia greggii 'Furmans Red'\",Autumn Sage,5G,Yes,18.00\nQuercus agrifolia,Coast Live Oak,15G,Check for production status,85.00\n\"Arctostaphylos 'Howard McMinn'\",Manzanita,5G,Yes,16.00\n"; const blob=new Blob([csv],{type:"text/csv"}); const u=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=u; a.download="studioh-nursery-template.csv"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),3000); }
 function removeNursery(id){ const n=nurseryById(id); if(!n) return; if(!confirm("Remove \u201C"+n.name+"\u201D and its availability/pricing? (Plants created from it stay.)")) return; NURSERY_DB.nurseries=NURSERY_DB.nurseries.filter(x=>x.id!==id); delete NURSERY_DB.stock[id]; nurserySave(); renderPlantBook(); }
@@ -24152,8 +24217,7 @@ function nurseryPanel(){
     <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem">
       <strong style="font-size:.92rem">Nurseries</strong><span style="font-size:.72rem;color:var(--tl)">availability &amp; wholesale pricing — click a nursery to see its plants</span>
       <div style="margin-left:auto;display:flex;gap:.45rem;flex-wrap:wrap">
-        <label class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none;cursor:pointer" title="Import a nursery's price/availability CSV (botanical, size, availability, price). Matches to your plants and adds any it doesn't recognize.">⊞ Import nursery list<input type="file" accept=".csv,text/csv" style="display:none" onchange="nurseryCsvImport(this)"></label>
-        <label class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer" title="Import a nursery's price/availability list straight from a PDF — read with the same engine that reads supplier catalogues, then an AI pass finds the plant lines. Slower than a CSV and worth a glance over afterward.">⊞ Import PDF<input type="file" accept="application/pdf,.pdf" style="display:none" onchange="nurseryPdfImport(this)"></label>
+        ${_nurseryImportButtonsHTML()}
         <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="nurseryTemplate()">template ↓</button>
         <button class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurseryExport()" title="Back up all nursery data (commit nurseries-data.json to your repo to ship it)">⬇ Export</button>
         <label class="btn" style="padding:.3rem .55rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer">⬆ Import<input type="file" accept="application/json,.json" style="display:none" onchange="nurseryImportJson(this)"></label>
@@ -24187,7 +24251,7 @@ function nurAddPlant(nid){ const q=(prompt("Add a plant — type its botanical o
 function renderNurseryManager(){
   const host=document.getElementById("nursery-body"); if(!host) return; const ns=NURSERY_DB.nurseries;
   if(!ns.length){ host.innerHTML=`<div class="card"><p style="font-size:.9rem;color:var(--tm);margin-bottom:.8rem">No nurseries yet. Import a wholesale price list, or create one by hand.</p>
-    <div style="display:flex;gap:.5rem;flex-wrap:wrap"><label class="btn" style="padding:.35rem .8rem;background:var(--gm);color:#fff;border:none;cursor:pointer">⊞ Import nursery list<input type="file" accept=".csv,text/csv" style="display:none" onchange="nurseryCsvImport(this)"></label><label class="btn" style="padding:.35rem .8rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer" title="Read straight from a PDF price list — slower, worth a glance over afterward.">⊞ Import PDF<input type="file" accept="application/pdf,.pdf" style="display:none" onchange="nurseryPdfImport(this)"></label><button class="btn" style="padding:.35rem .8rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurNew()">+ New nursery</button><button class="btn" style="padding:.35rem .8rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="nurseryTemplate()">template ↓</button></div></div>`; return; }
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">${_nurseryImportButtonsHTML()}<button class="btn" style="padding:.35rem .8rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurNew()">+ New nursery</button><button class="btn" style="padding:.35rem .8rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="nurseryTemplate()">template ↓</button></div></div>`; return; }
   if(!NUR_VIEW.sel || !nurseryById(NUR_VIEW.sel)) NUR_VIEW.sel=ns[0].id;
   const nid=NUR_VIEW.sel, nur=nurseryById(nid), markup=nur.markup, st=NURSERY_DB.stock[nid]||{};
   const chips=ns.map(x=>{ const on=x.id===nid; const cnt=Object.keys(NURSERY_DB.stock[x.id]||{}).length; return `<button class="btn" onclick="nurSel('${x.id}')" style="padding:.3rem .75rem;font-size:.8rem;border-radius:12px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--gm);border:1px solid var(--gm)'}">${escAttr(x.name)} <span style="opacity:.7">${cnt}</span></button>`; }).join('');
@@ -24217,8 +24281,7 @@ function renderNurseryManager(){
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
         <span style="font-size:.7rem;font-weight:700;color:var(--tl);text-transform:uppercase">Nursery:</span>${chips}
         <div style="margin-left:auto;display:flex;gap:.45rem;flex-wrap:wrap">
-          <label class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none;cursor:pointer">⊞ Import list<input type="file" accept=".csv,text/csv" style="display:none" onchange="nurseryCsvImport(this)"></label>
-          <label class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer" title="Read straight from a PDF price list — slower, worth a glance over afterward.">⊞ Import PDF<input type="file" accept="application/pdf,.pdf" style="display:none" onchange="nurseryPdfImport(this)"></label>
+          ${_nurseryImportButtonsHTML()}
           <button class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurNew()">+ New nursery</button>
           <button class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:#fff;color:#9a6b1f;border:1px solid #E5D2AE" onclick="syncNurseryToBook(true)" title="Make sure every plant in your nursery lists exists in the Plant Book and is linked correctly. Fixes plants that show up in a nursery but not the book.">⟳ Sync to Plant Book</button>
           <button class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="nurseryExportCsv('${nid}')" title="Download this nursery's inventory as an editable CSV — change prices/availability in Excel, then re-import and choose Update.">⬇ Export CSV (edit &amp; re-upload)</button>
