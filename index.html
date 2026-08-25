@@ -3062,13 +3062,6 @@ body.tray-on .lib .pbk-list{padding-bottom:84px}
 .gl-btn{border:0;border-radius:11px;padding:9px 13px;font:650 12.5px inherit;cursor:pointer;
   background:var(--surface2);color:var(--gm);white-space:nowrap}
 .gl-btn.solid{background:var(--gm);color:#fff}
-/* "Open on…" and "change this link" share one pill instead of two, since one link
-   only ever needs one home to open it and one to edit it, not a button apiece. */
-.gl-btn.gl-src{display:inline-flex;align-items:center;gap:2px;padding:0}
-.gl-btn.gl-src a{color:inherit;text-decoration:none;padding:9px 6px 9px 13px}
-.gl-btn.gl-src i{display:grid;place-items:center;width:26px;height:100%;padding:9px 11px 9px 6px;cursor:pointer;opacity:.6}
-.gl-btn.gl-src i:hover{opacity:1}
-.gl-btn.gl-src i svg{width:13px;height:13px}
 .gl-qty{display:flex;align-items:center;background:var(--surface2);border-radius:11px}
 .gl-qty button{border:0;background:none;padding:11px 13px;font-size:15px;color:var(--tm);cursor:pointer}
 .gl-qty button:hover{color:var(--gm)}
@@ -5557,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1171</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1172</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10143,7 +10136,6 @@ const MAT_ICONS={
   link:'<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
   cloud:'<path d="M7 18h9.5a3.5 3.5 0 0 0 .3-7A5.5 5.5 0 0 0 6.3 9.6 3.7 3.7 0 0 0 7 18Z"/><path d="M12 15v-5M9.5 12.5 12 10l2.5 2.5"/>',
   chair:'<path d="M6 11V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v5"/><path d="M4 11h16v4H4Z"/><path d="M6 15v5M18 15v5"/>',
-  pencil:'<path d="M4 20l1-4L16 5l3 3L8 19l-4 1Z"/><path d="M14 7l3 3"/>',
 };
 function mi(n){ return `<svg viewBox="0 0 24 24">${MAT_ICONS[n]||""}</svg>`; }
 
@@ -13269,6 +13261,24 @@ async function goodsRenameCategory(kind,cur){
   const arr=kind==="mat"?MATERIALS:FURNISHINGS;
   let n=0;
   arr.forEach(x=>{ if(x&&x.cat===from){ x.cat=to; n++; } });
+  if(!n) return;
+  goodsSaveBook(book);
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ _toast(n+" item"+(n===1?"":"s")+" moved to \""+to+"\"","#4C7B3D"); }catch(e){}
+}
+// Same rename-everywhere as Category, for any other plain-value facet (Type, Material)
+// that doesn't carry Brand's own alt-name-tracking needs.
+async function goodsRenameFacet(kind,field,label,cur){
+  const from=String(cur||"").trim(); if(!from) return;
+  const v=await appAsk({title:label+" name",
+    hint:"Renames it on every item carrying it now — both Furnishings and Products, since they share one library.",
+    value:from, placeholder:"", ok:"Rename"});
+  if(v===null) return;
+  const to=String(v).trim(); if(!to||to===from) return;
+  const book=kind==="mat"?"materials":"furnishings";
+  const arr=kind==="mat"?MATERIALS:FURNISHINGS;
+  let n=0;
+  arr.forEach(x=>{ if(x&&x[field]===from){ x[field]=to; n++; } });
   if(!n) return;
   goodsSaveBook(book);
   try{ goodsRepaint(kind); }catch(e){}
@@ -17791,9 +17801,16 @@ function _goodsTree(kind){
     const shown=(open||qs)?pool:pool.slice(0,room);
     const hidden=pool.length-shown.length;
 
+    // Renaming touches every item in the shared library, not just this device's copy
+    // of it — same bar as anything else that writes to the master book, so it stays
+    // behind the admin key already set up in Settings → Master library access rather
+    // than a separate switch.
     const renamer=n=>{
+      if(!_hasAdminKey()) return null;
       if(facet==="cat") return "goodsRenameCategory('"+kind+"','"+q(n)+"')";
       if(facet==="sup") return "goodsRenameBrand('"+(kind==="mat"?"materials":"furnishings")+"','"+q(n)+"')";
+      if(facet==="subcat") return "goodsRenameFacet('"+kind+"','subcat','Type','"+q(n)+"')";
+      if(facet==="matl") return "goodsRenameFacet('"+kind+"','matl','Material','"+q(n)+"')";
       return null;
     };
     sec(title,kind,facet);
@@ -18938,8 +18955,9 @@ function _goodsLbxHTML(kind,x){
      +(_gSrc(x)?'<button class="gl-btn" onclick="goodsFetchImages(\''+(kind==="mat"?"materials":"furnishings")+'\',\''+x.id+'\')">Find images</button>':'')
      +'<button class="gl-btn" onclick="goodsAddPhotoURL(\''+kind+'\',\''+x.id+'\')">+ Photo link</button>'
      +'<label class="gl-btn" style="cursor:pointer">+ Upload<input type="file" accept="image/*" hidden onchange="goodsAddPhotoFile(this,\''+kind+'\',\''+x.id+'\')"></label>'
-     +(_gSrc(x)?('<span class="gl-btn gl-src"><a href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener">Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>'
-        +'<i onclick="goodsAddProductURL(\''+kind+'\',\''+x.id+'\')" title="Change this link">'+mi("pencil")+'</i></span>')
+     +(_gSrc(x)?('<a class="gl-btn" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener" '
+        +'ondblclick="event.preventDefault();goodsAddProductURL(\''+kind+'\',\''+x.id+'\')" title="Double-click to change this link">'
+        +'Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>')
         :'<button class="gl-btn" onclick="goodsAddProductURL(\''+kind+'\',\''+x.id+'\')">+ Product link</button>')
      +'<button class="gl-btn" onclick="goodsLbxClose();'+(kind==="mat"?"matOpen":"furOpen")+'(\''+x.id+'\')">Documents · Where used</button>'
      +'<button class="gl-btn del" onclick="goodsDeleteOne(\''+kind+'\',\''+x.id+'\')">Delete</button>'
