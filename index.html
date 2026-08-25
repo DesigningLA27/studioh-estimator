@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1186</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1187</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24031,14 +24031,23 @@ function inheritFromBase(np,kind){ // a cultivar inherits water/size/zones from 
   ["wu","w","h","oc","pf","perFt","basal","sunZ","usdaZ","bloom","color","habit"].forEach(f=>{ if((np[f]===undefined||np[f]===null||np[f]==="") && src[f]!==undefined && src[f]!==null && src[f]!=="") np[f]=src[f]; });
   np.tags=Array.from(new Set([...(np.tags||[]),"water-inherited"])); np.sv=""; // inherited, not source-verified
   return true; }
+// Wholesale nursery price lists mix true vegetable/produce crops in with ornamental
+// plants — a nursery sells both. A vegetable has no place in a landscape architecture
+// Plant Book (it's not a shrub/tree/palm/groundcover), so it's kept nursery-only:
+// still fully priced and tracked in the nursery list, just never auto-added to the book.
+// Deliberately narrow (core produce crops only) — an ornamental annual like Ageratum or
+// Alyssum is a real landscape bedding plant and must NOT get caught by this.
+const EDIBLE_CROP_RX=/\b(tomato|pepper|eggplant|aubergine|beans?|peas?|squash|pumpkin|zucchini|lettuce|kale|collards?|cabbage|broccoli|cauliflower|brussels ?sprouts?|carrots?|beets?|radish(es)?|turnips?|parsnips?|onions?|garlic|leeks?|shallots?|chives?|corn|maize|cucumbers?|melons?|cantaloupe|watermelons?|spinach|arugula|rocket|artichokes?|asparagus|potato(es)?|okra|rhubarb|swiss ?chard)\b/i;
+function _isEdibleCrop(bot,common){ return EDIBLE_CROP_RX.test(((common||"")+" "+(bot||"")).trim()); }
 function syncNurseryToBook(verbose){
-  NURSERY_DB.plants=NURSERY_DB.plants||{}; const mi=plantMatchIndex(); let created=0, repointed=0, already=0;
+  NURSERY_DB.plants=NURSERY_DB.plants||{}; const mi=plantMatchIndex(); let created=0, repointed=0, already=0, skipped=0;
   // backfill registry from book for any stock plant still present there
   Object.keys(NURSERY_DB.stock).forEach(nid=>{ Object.keys(NURSERY_DB.stock[nid]||{}).forEach(pid=>{ if(!NURSERY_DB.plants[pid]){ const p=plantAny(pid); if(p) NURSERY_DB.plants[pid]={b:p.b||"",c:p.c||"",cv:p.cv||"",k:plantKindOf(pid)}; } }); });
   const remap={};
   Object.keys(NURSERY_DB.stock).forEach(nid=>{ Object.keys(NURSERY_DB.stock[nid]||{}).forEach(pid=>{
     if(plantAny(pid)){ already++; return; } // already in book under this id
     const meta=NURSERY_DB.plants[pid]; if(!meta||!meta.b) return; // no name to rebuild from
+    if(_isEdibleCrop(meta.b,meta.c)){ skipped++; return; } // vegetable/produce -- nursery-only, on purpose
     const botn=meta.b+(meta.cv?` '${meta.cv}'`:""); let hit=mi.exact[normBot(botn)]; if(!hit){ const bl=mi.base[normBase(meta.b)]; if(bl&&bl.length===1) hit=bl[0]; }
     if(hit && hit.id!==pid){ remap[pid]=hit.id; repointed++; }
     else if(!hit){ const kind=meta.k||guessKind(meta.c,meta.b); const arr=PLANT_DB[kind]=PLANT_DB[kind]||[];
@@ -24051,8 +24060,8 @@ function syncNurseryToBook(verbose){
   Object.keys(remap).forEach(oldId=>{ const newId=remap[oldId]; Object.keys(NURSERY_DB.stock).forEach(nid=>{ const st=NURSERY_DB.stock[nid]; if(st[oldId]){ st[newId]=st[newId]||{}; Object.keys(st[oldId]).forEach(sz=>{ if(!st[newId][sz]) st[newId][sz]=st[oldId][sz]; }); delete st[oldId]; } });
     if(NURSERY_DB.plants[oldId]&&!NURSERY_DB.plants[newId]) NURSERY_DB.plants[newId]=NURSERY_DB.plants[oldId]; delete NURSERY_DB.plants[oldId]; });
   if(created) plantBookSave(); nurserySave();
-  if(verbose) alert("Synced nursery plants to the Plant Book.\n"+repointed+" re-linked to existing plants\n"+created+" added to the book\n"+already+" already linked.");
-  return {created,repointed,already};
+  if(verbose) alert("Synced nursery plants to the Plant Book.\n"+repointed+" re-linked to existing plants\n"+created+" added to the book\n"+already+" already linked."+(skipped?"\n"+skipped+" vegetable/produce items left nursery-only.":""));
+  return {created,repointed,already,skipped};
 }
 function inheritWaterAll(verbose){ // copy base-species water/zones onto from-nursery cultivars sitting on placeholders
   let n=0; ["shrub","tree","palm","gc"].forEach(kind=>{ const arr=PLANT_DB[kind]||[];
@@ -24082,10 +24091,12 @@ function _nurseryCommitRows(nid,normRows,merge){
     let hit=mi.exact[normBot(bot)]; if(!hit){ const bl=mi.base[normBase(bot)]; if(bl&&bl.length===1) hit=bl[0]; }
     let plantId;
     if(hit){ plantId=hit.id; if(!plantsTouched[plantId]){matched++;plantsTouched[plantId]=1;} }
-    else { const kind=guessKind(common,bot); const cvm=(bot.match(/'([^']+)'/)||[])[1]||""; const base=bot.replace(/\s*'[^']*'/,"").replace(/\s*\([^)]*\)/g,"").trim();
-      let pid=_slug(base)+(cvm?"_"+_slug(cvm):""); const arr=PLANT_DB[kind]=PLANT_DB[kind]||[]; let ex=arr.find(x=>x.id===pid),n2=2;
+    else { const cvm=(bot.match(/'([^']+)'/)||[])[1]||""; const base=bot.replace(/\s*'[^']*'/,"").replace(/\s*\([^)]*\)/g,"").trim();
+      let pid=_slug(base)+(cvm?"_"+_slug(cvm):"");
+      if(_isEdibleCrop(base,common)) pid="veg_"+pid; // vegetable/produce -- nursery-only, never in the Plant Book
+      else { const kind=guessKind(common,bot); const arr=PLANT_DB[kind]=PLANT_DB[kind]||[]; let ex=arr.find(x=>x.id===pid),n2=2;
       while(ex&&((ex.b||"")!==base||(ex.cv||"")!==cvm)){ pid=_slug(base)+(cvm?"_"+_slug(cvm):"")+"_"+n2; ex=arr.find(x=>x.id===pid); n2++; }
-      if(!ex){ const np={id:pid,c:common||base,b:base,cls:"common",tags:["from-nursery"]}; if(cvm)np.cv=cvm; Object.assign(np, kind==='tree'?{w:25,h:30,wu:'L'}:kind==='palm'?{h:25,perFt:180,wu:'L'}:kind==='gc'?{oc:18,pf:36,wu:'L'}:{w:4,h:4,basal:0.8,wu:'L'}); inheritFromBase(np,kind); arr.push(np); created++; mi.exact[normBot(botName(np))]={kind,id:pid}; mi.base[normBase(base)]=[{kind,id:pid}]; }
+      if(!ex){ const np={id:pid,c:common||base,b:base,cls:"common",tags:["from-nursery"]}; if(cvm)np.cv=cvm; Object.assign(np, kind==='tree'?{w:25,h:30,wu:'L'}:kind==='palm'?{h:25,perFt:180,wu:'L'}:kind==='gc'?{oc:18,pf:36,wu:'L'}:{w:4,h:4,basal:0.8,wu:'L'}); inheritFromBase(np,kind); arr.push(np); created++; mi.exact[normBot(botName(np))]={kind,id:pid}; mi.base[normBase(base)]=[{kind,id:pid}]; } }
       plantId=pid; }
     const st=NURSERY_DB.stock[nid]; const pp=st[plantId]=st[plantId]||{}; const prev=pp[size]||{};
     NURSERY_DB.plants=NURSERY_DB.plants||{}; const cvm2=(bot.match(/'([^']+)'/)||[])[1]||""; const base2=bot.replace(/\s*'[^']*'/,"").replace(/\s*\([^)]*\)/g,"").trim();
@@ -24362,11 +24373,18 @@ function renderNurseryManager(){
   if(!NUR_VIEW.sel || !nurseryById(NUR_VIEW.sel)) NUR_VIEW.sel=ns[0].id;
   const nid=NUR_VIEW.sel, nur=nurseryById(nid), markup=nur.markup, st=NURSERY_DB.stock[nid]||{};
   const chips=ns.map(x=>{ const on=x.id===nid; const cnt=Object.keys(NURSERY_DB.stock[x.id]||{}).length; return `<button class="btn" onclick="nurSel('${x.id}')" style="padding:.3rem .75rem;font-size:.8rem;border-radius:12px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--gm);border:1px solid var(--gm)'}">${escAttr(x.name)} <span style="opacity:.7">${cnt}</span></button>`; }).join('');
-  let plants=Object.keys(st).map(pid=>{ const p=plantAny(pid); const kind=(p&&plantKindOf(pid))||(NURSERY_DB.plants&&NURSERY_DB.plants[pid]&&NURSERY_DB.plants[pid].k)||"shrub"; return {pid,p,sizes:st[pid],kind}; });
-  const orphanCount=plants.filter(x=>!x.p).length;
-  const withName=plants.filter(x=>!x.p && NURSERY_DB.plants && NURSERY_DB.plants[x.pid] && NURSERY_DB.plants[x.pid].b).length;
+  let plants=Object.keys(st).map(pid=>{ const p=plantAny(pid); const kind=(p&&plantKindOf(pid))||(NURSERY_DB.plants&&NURSERY_DB.plants[pid]&&NURSERY_DB.plants[pid].k)||"shrub";
+    const meta=NURSERY_DB.plants&&NURSERY_DB.plants[pid]; const edible=!p&&meta&&_isEdibleCrop(meta.b,meta.c);
+    return {pid,p,sizes:st[pid],kind,edible}; });
+  // Vegetables/edible crops are deliberately left nursery-only — they don't belong in a
+  // landscape Plant Book, and never counting them here means "Fix N now" only ever
+  // targets real, fixable landscape plants; nothing nags forever about an intentional skip.
+  const edibleOrphanCount=plants.filter(x=>!x.p&&x.edible).length;
+  const orphanCount=plants.filter(x=>!x.p&&!x.edible).length;
+  const withName=plants.filter(x=>!x.p&&!x.edible && NURSERY_DB.plants && NURSERY_DB.plants[x.pid] && NURSERY_DB.plants[x.pid].b).length;
   const orphanBanner = orphanCount? `<div style="background:#FBF1E4;border:1px solid #E5C98A;border-radius:9px;padding:.6rem .8rem;margin-bottom:.8rem;font-size:.78rem;color:#7a5a16">
-    <strong>⚠ ${orphanCount} plant${orphanCount>1?'s':''} here ${orphanCount>1?'aren\'t':'isn\'t'} linked to the Plant Book.</strong> ${withName?`<button class="btn" style="margin:0 .3rem;padding:.15rem .55rem;font-size:.72rem;background:var(--gm);color:#fff;border:none" onclick="syncNurseryToBook(true)">⟳ Fix ${withName} now</button>`:''}${orphanCount>withName?`<div style="margin-top:.3rem">${orphanCount-withName} ${orphanCount-withName>1?'were':'was'} imported by an older version that didn't save plant names, so they can't be auto-rebuilt. <strong>Re-import this nursery's CSV and choose “Replace”</strong> — the current importer links every plant to the book (verified: 0 left unlinked).</div>`:''}</div>`:'';
+    <strong>⚠ ${orphanCount} plant${orphanCount>1?'s':''} here ${orphanCount>1?'aren\'t':'isn\'t'} linked to the Plant Book.</strong> ${withName?`<button class="btn" style="margin:0 .3rem;padding:.15rem .55rem;font-size:.72rem;background:var(--gm);color:#fff;border:none" onclick="syncNurseryToBook(true)">⟳ Fix ${withName} now</button>`:''}${orphanCount>withName?`<div style="margin-top:.3rem">${orphanCount-withName} ${orphanCount-withName>1?'were':'was'} imported by an older version that didn't save plant names, so they can't be auto-rebuilt. <strong>Re-import this nursery's CSV and choose “Replace”</strong> — the current importer links every plant to the book (verified: 0 left unlinked).</div>`:''}</div>`:''
+    +(edibleOrphanCount?`<div style="background:var(--surface2);border:1px solid var(--br);border-radius:9px;padding:.5rem .8rem;margin-bottom:.8rem;font-size:.76rem;color:var(--tm)">${edibleOrphanCount} vegetable/produce item${edibleOrphanCount>1?'s':''} left nursery-only on purpose — not added to the Plant Book.</div>`:'');
   if(NUR_VIEW.q) plants=plants.filter(x=>((x.p?botName(x.p)+" "+(x.p.c||""):x.pid)).toLowerCase().indexOf(NUR_VIEW.q)>=0);
   const nameOf=x=>(x.p&&x.p.c)||x.pid;
   const dir=NUR_VIEW.sortDir||1;
@@ -24377,7 +24395,7 @@ function renderNurseryManager(){
   const thS=(t,field,w)=>{ const on=NUR_VIEW.sort===field; const ar=on?(dir===1?' ▲':' ▼'):''; return `<th onclick="nurSortBy('${field}')" style="text-align:left;padding:.4rem .6rem;font-size:.62rem;color:${on?'var(--gm)':'var(--tl)'};text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid var(--br);cursor:pointer;user-select:none${w?';width:'+w:''}">${t}${ar}</th>`; };
   const th=(t,w)=>`<th style="text-align:left;padding:.4rem .6rem;font-size:.62rem;color:var(--tl);text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid var(--br)${w?';width:'+w:''}">${t}</th>`;
   const CAP=300;
-  const nameActionsCell=(x,first)=>{ const p=x.p; const nameCell = p? `<div style="font-weight:600;font-size:.82rem">${escAttr(p.c||'')}</div><div style="font-style:italic;font-size:.74rem;color:var(--tl)">${escAttr(botName(p))}</div>` : `<div style="font-size:.8rem;color:#9a6b1f">${escAttr(x.pid)} <span style="font-size:.68rem">(not in Plant Book)</span></div>`;
+  const nameActionsCell=(x,first)=>{ const p=x.p; const nameCell = p? `<div style="font-weight:600;font-size:.82rem">${escAttr(p.c||'')}</div><div style="font-style:italic;font-size:.74rem;color:var(--tl)">${escAttr(botName(p))}</div>` : `<div style="font-size:.8rem;color:${x.edible?'var(--tl)':'#9a6b1f'}">${escAttr(x.pid)} <span style="font-size:.68rem">${x.edible?'(nursery only)':'(not in Plant Book)'}</span></div>`;
     return `<td style="padding:.35rem .6rem;vertical-align:top">${first?nameCell+`<div style="margin-top:.25rem;display:flex;gap:.3rem"><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurAddSize('${nid}','${x.pid}')">+ size</button><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3" onclick="nurDelPlant('${nid}','${x.pid}')">remove</button></div>`:''}</td>`; };
   const lineCells=(pid,sz,c)=>{ const yes=c.a==="yes"; const retailPH=(c.p!=null&&markup)?(c.p*(1+markup/100)).toFixed(2):'';
     return `<td style="padding:.35rem .6rem;font-weight:600;font-size:.8rem">${sz}</td>
@@ -24394,7 +24412,7 @@ function renderNurseryManager(){
       if(NUR_VIEW.sort==="category" && x.kind!==_lastKind){ _lastKind=x.kind; headerRow=`<tr><td colspan="6" style="padding:.55rem .6rem .3rem;font-size:.68rem;font-weight:700;color:var(--gm);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--br)">${PLANT_KIND_LABEL[x.kind]||x.kind}</td></tr>`; }
       return headerRow + sizes.map((sz,i)=>`<tr style="border-bottom:1px solid #F0ECE3">${nameActionsCell(x,i===0)}${lineCells(x.pid,sz,x.sizes[sz])}</tr>`).join(''); }).join('');
   } else {
-    let flat=[]; plants.forEach(x=>Object.keys(x.sizes).forEach(sz=>flat.push({pid:x.pid,p:x.p,size:sz,cell:x.sizes[sz]})));
+    let flat=[]; plants.forEach(x=>Object.keys(x.sizes).forEach(sz=>flat.push({pid:x.pid,p:x.p,size:sz,cell:x.sizes[sz],edible:x.edible})));
     if(NUR_VIEW.sort==="size") flat.sort((a,b)=>dir*(sizeRank(a.size)-sizeRank(b.size)));
     else if(NUR_VIEW.sort==="avail"){ const rk=c=>c.a==="yes"?0:1; flat.sort((a,b)=>dir*(rk(a.cell)-rk(b.cell))); }
     else if(NUR_VIEW.sort==="wholesale") flat.sort((a,b)=>dir*((a.cell.p==null?Infinity:a.cell.p)-(b.cell.p==null?Infinity:b.cell.p)));
@@ -24408,7 +24426,7 @@ function renderNurseryManager(){
       <div style="height:110px;${img?goodsShotStyle(p,img,'var(--surface2)'):'background:var(--surface2)'};display:flex;align-items:center;justify-content:center;color:var(--tl);font-size:1.4rem">${img?'':'🌱'}</div>
       <div style="padding:.5rem .6rem">
         <div style="font-weight:600;font-size:.82rem">${escAttr((p&&p.c)||x.pid)}</div>
-        <div style="font-style:italic;font-size:.72rem;color:var(--tl);margin-bottom:.35rem">${p?escAttr(botName(p)):'(not in Plant Book)'}</div>
+        <div style="font-style:italic;font-size:.72rem;color:var(--tl);margin-bottom:.35rem">${p?escAttr(botName(p)):(x.edible?'(nursery only)':'(not in Plant Book)')}</div>
         <div>${sizeChips}</div>
       </div>
     </div>`; }).join('');
@@ -24537,8 +24555,8 @@ function _mbPhotoInner(x){
   if(x.kind==="plants"){
     return `<div class="mb-imgwrap" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;inset:0;overflow:hidden;background:var(--surface2);cursor:grab;touch-action:none">
       <img data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" src="${escAttr(x.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;${_imgXform(x.obj)}">
-      <button class="mb-adjbtn" data-dz="-0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:5px;left:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">−</button>
-      <button class="mb-adjbtn" data-dz="0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:5px;right:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">+</button>
+      <button class="mb-adjbtn" data-dz="-0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:32px;left:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">−</button>
+      <button class="mb-adjbtn" data-dz="0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:32px;right:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">+</button>
     </div>`;
   }
   return `<div style="position:absolute;inset:0;${goodsShotStyle(x.obj,x.img,"var(--surface2)")};cursor:zoom-in" title="Click to zoom &amp; pan" onclick="goodsFrameOpen(event,'${x.book}','${escAttr(x.pid)}','${escAttr(x.img)}')"></div>`;
