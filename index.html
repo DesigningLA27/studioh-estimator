@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1183</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1184</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -13482,6 +13482,7 @@ function _goodsRepaintAll(book){
   const kind=book==="materials"?"mat":"fur";
   try{ goodsRepaint(kind); }catch(e){}
   try{ if(GL_OPEN) _goodsLbxPaint(); }catch(e){}
+  try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){}
 }
 function goodsFrameSave(){
   const row=goodsRow(_gframe.book,_gframe.id); if(!row) return goodsFrameClose();
@@ -22759,7 +22760,9 @@ function _imgXform(p){ const z=+(p&&p.imgZoom)||1, x=+(p&&p.imgPanX)||0, y=+(p&&
 function _applyImgXform(img,p){ const z=+p.imgZoom||1,x=+p.imgPanX||0,y=+p.imgPanY||0; img.style.transformOrigin="center center"; img.style.transform=`translate(-50%,-50%) translate(${x}%,${y}%) scale(${z})`; }
 // Apply to EVERY copy of the same plant in the report (a plant can appear in several zones) so a zoom
 // or pan on one instance updates them all live — the value lives on the shared plant record.
-function _applyImgXformAll(kind,pid,p){ const body=document.getElementById("pl-body"); if(!body) return; body.querySelectorAll("img.plr-img[data-pk]").forEach(im=>{ if(im.getAttribute("data-pk")===kind && im.getAttribute("data-pi")===pid) _applyImgXform(im,p); }); }
+// Not scoped to one container — the same plant's photo can be on screen in the report
+// (#pl-body) and the Mood Board (#mb-body) at once, and both need to move together.
+function _applyImgXformAll(kind,pid,p){ document.querySelectorAll("img[data-pk][data-pi]").forEach(im=>{ if(im.getAttribute("data-pk")===kind && im.getAttribute("data-pi")===pid) _applyImgXform(im,p); }); }
 let _plImgSaveT=null; function _plImgSave(){ if(_plImgSaveT) clearTimeout(_plImgSaveT); _plImgSaveT=setTimeout(()=>{ try{ plantBookSave(); }catch(e){} }, 400); }
 function _plAttachImgAdjust(){ const body=document.getElementById("pl-body"); if(!body) return;
   body.querySelectorAll("img.plr-img[data-pk]").forEach(img=>{ const wrap=img.parentElement; if(!wrap||wrap._adj) return; wrap._adj=true;
@@ -24413,7 +24416,7 @@ function _mbGather(){
     if(!rec||!rec.gid) return; const key=rec.book+":"+rec.gid; if(seenG.has(key)) return; seenG.add(key);
     const g=specGoods(rec.book,rec.gid); if(!g) return;
     const type = rec.book==="materials" ? "materials" : (goodsLibOf(g)==="prod"?"products":"furnishings");
-    goods.push({type,g});
+    goods.push({type,g,book:rec.book});
   });
   return {plants,goods};
 }
@@ -24427,25 +24430,62 @@ function _mbPalette(plants,goods){
   hexes.forEach(h=>{ const u=(""+h).toUpperCase(); if(!seen.has(u)){ seen.add(u); out.push(u); } });
   return out.slice(0,10);
 }
-const MB_KIND_TINT={plants:"var(--c-plant-bg)",materials:"var(--c-hard-bg)",furnishings:"var(--c-lav-bg)",products:"var(--c-struct-bg)"};
-const MB_KIND_INK={plants:"var(--c-plant)",materials:"var(--c-hard)",furnishings:"var(--c-lav)",products:"var(--c-struct)"};
 const MB_KIND_LABEL={plants:"Plant",materials:"Material",furnishings:"Furnishing",products:"Product"};
-function _mbTile(x,ratio){
-  const ph = x.img? `${goodsShotStyle(x.obj,x.img,MB_KIND_TINT[x.kind])}` : `background:${MB_KIND_TINT[x.kind]}`;
+// Plants use the same drag-to-pan + zoom-button photo the Planting Palette report uses
+// (imgZoom/imgPanX/imgPanY on the shared plant record — set it here, it's set everywhere).
+// Goods reuse the existing click-to-frame modal already shipped for Materials/Furnishings.
+function _mbPhotoInner(x){
+  if(x.kind==="plants"){
+    return `<div class="mb-imgwrap" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;inset:0;overflow:hidden;background:var(--surface2);cursor:grab;touch-action:none">
+      <img data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" src="${escAttr(x.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;${_imgXform(x.obj)}">
+      <button class="mb-adjbtn" data-dz="-0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:5px;left:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">−</button>
+      <button class="mb-adjbtn" data-dz="0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:5px;right:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">+</button>
+    </div>`;
+  }
+  return `<div style="position:absolute;inset:0;${goodsShotStyle(x.obj,x.img,"var(--surface2)")};cursor:zoom-in" title="Click to zoom &amp; pan" onclick="goodsFrameOpen(event,'${x.book}','${escAttr(x.pid)}','${escAttr(x.img)}')"></div>`;
+}
+function _mbTile(x,mode){
+  const tag=`<span style="position:absolute;top:7px;left:7px;font-size:.6rem;font-weight:600;padding:2px 7px;border-radius:8px;background:rgba(0,0,0,.45);color:#fff;pointer-events:none;z-index:2">${MB_KIND_LABEL[x.kind]}</span>`;
+  if(mode==="wall"){
+    return `<div style="border-radius:10px;overflow:hidden;position:relative;aspect-ratio:1;background:var(--surface2)">
+      ${_mbPhotoInner(x)}${tag}
+      <div style="position:absolute;left:0;right:0;bottom:0;padding:20px 10px 8px;background:linear-gradient(to top,rgba(0,0,0,.65),transparent);pointer-events:none;z-index:2">
+        <div style="color:#fff;font-weight:600;font-size:.8rem;line-height:1.25">${escAttr(x.label)}</div>
+      </div>
+    </div>`;
+  }
   return `<div style="border:1px solid var(--br);border-radius:10px;overflow:hidden;background:var(--card)">
-    <div style="aspect-ratio:${ratio};${ph};position:relative">
-      <span style="position:absolute;top:7px;left:7px;font-size:.6rem;font-weight:600;padding:2px 7px;border-radius:8px;background:${x.img?'rgba(0,0,0,.45)':'rgba(255,255,255,.6)'};color:${x.img?'#fff':MB_KIND_INK[x.kind]}">${MB_KIND_LABEL[x.kind]}</span>
-    </div>
+    <div style="aspect-ratio:1;position:relative">${_mbPhotoInner(x)}${tag}</div>
     <div style="padding:.45rem .55rem">
       <div style="font-weight:600;font-size:.8rem;line-height:1.25">${escAttr(x.label)}</div>
       ${x.sub?`<div style="font-size:.7rem;color:var(--tl);font-style:${x.kind==='plants'?'italic':'normal'}">${escAttr(x.sub)}</div>`:''}
     </div>
   </div>`;
 }
+// Drag-to-pan + the −/+ zoom buttons, mirroring _plAttachImgAdjust exactly (same fields,
+// same debounce-save) so a photo framed here matches everywhere else it appears.
+function _mbAttachImgAdjust(){
+  const body=document.getElementById("mb-body"); if(!body) return;
+  body.querySelectorAll(".mb-adjbtn").forEach(b=>{
+    b.addEventListener("pointerdown",e=>e.stopPropagation());
+    b.onclick=e=>{ e.stopPropagation(); const kind=b.getAttribute("data-pk"), pid=b.getAttribute("data-pi"); const p=plantDbFind(kind,pid); if(!p) return;
+      p.imgZoom=Math.round(Math.max(0.4,Math.min(3,(+p.imgZoom||1)+(+b.getAttribute("data-dz"))))*100)/100;
+      _applyImgXformAll(kind,pid,p); _plImgSave(); };
+  });
+  body.querySelectorAll(".mb-imgwrap[data-pk]").forEach(wrap=>{
+    const kind=wrap.getAttribute("data-pk"), pid=wrap.getAttribute("data-pi"); const getP=()=>plantDbFind(kind,pid);
+    let drag=false,sx=0,sy=0,px=0,py=0;
+    wrap.addEventListener("pointerdown",e=>{ if(e.target.classList.contains("mb-adjbtn")) return; const p=getP(); if(!p) return; drag=true; sx=e.clientX; sy=e.clientY; px=+p.imgPanX||0; py=+p.imgPanY||0; try{ wrap.setPointerCapture(e.pointerId); }catch(_){} wrap.style.cursor="grabbing"; e.preventDefault(); });
+    wrap.addEventListener("pointermove",e=>{ if(!drag) return; const p=getP(); if(!p) return; const w=wrap.clientWidth||160,h=wrap.clientHeight||w; p.imgPanX=Math.max(-120,Math.min(120,px+(e.clientX-sx)/w*100)); p.imgPanY=Math.max(-120,Math.min(120,py+(e.clientY-sy)/h*100)); _applyImgXformAll(kind,pid,p); });
+    const end=()=>{ if(!drag) return; drag=false; wrap.style.cursor="grab"; _plImgSave(); };
+    wrap.addEventListener("pointerup",end); wrap.addEventListener("pointercancel",end);
+  });
+}
 function renderMoodBoard(){
   const host=document.getElementById("mb-body"); if(!host) return;
   const {plants,goods}=_mbGather();
-  if(!plants.length && !goods.length){
+  const totalSpecified=plants.length+goods.length;
+  if(!totalSpecified){
     host.innerHTML=`<div class="card"><p style="font-size:.9rem;color:var(--tm)">Nothing to show yet. The Mood Board pulls automatically from what's specified on this project — add plants in <b>Design</b> and attach materials/furnishings/products from the estimate, and they'll show up here.</p></div>`;
     return;
   }
@@ -24455,25 +24495,32 @@ function renderMoodBoard(){
     ? `${fmtN(grand)} specified · <b style="color:${gap>0?'#B23F3C':'var(--gm)'}">${gap>0?'+':gap<0?'−':''}${fmtN(Math.abs(gap))}</b> ${gap>0?'over':gap<0?'under':'at'} your ${fmtN(bud)} budget`
     : `${fmtN(grand)} specified so far · <a href="#" onclick="askProjBudget();return false" style="color:var(--gm)">set a project budget</a> to track against it`;
 
+  // Photo-only: a mood board of blank cards defeats the point, so anything without a
+  // real photo is left off the board entirely rather than shown as a placeholder tile.
   let items=[];
-  plants.forEach(x=>items.push({kind:"plants",label:x.p.c||botName(x.p),sub:botName(x.p),img:x.p.img,obj:x.p}));
-  goods.forEach(x=>items.push({kind:x.type,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img,obj:x.g}));
+  plants.forEach(x=>{ if(x.p.img) items.push({kind:"plants",kind0:x.kind,pid:x.p.id,label:x.p.c||botName(x.p),sub:botName(x.p),img:x.p.img,obj:x.p}); });
+  goods.forEach(x=>{ if(x.g.img) items.push({kind:x.type,pid:x.g.id,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img,obj:x.g,book:x.book}); });
   const counts={plants:0,materials:0,furnishings:0,products:0}; items.forEach(x=>counts[x.kind]++);
   if(MB_VIEW.filter!=="all") items=items.filter(x=>x.kind===MB_VIEW.filter);
 
+  if(!items.length){
+    host.innerHTML=`<div class="card"><p style="font-size:.9rem;color:var(--tm)">${totalSpecified} item${totalSpecified>1?'s are':' is'} specified on this project, but none have a photo yet. Add photos in the Plant Book / Materials / Furnishings library and they'll appear here.</p></div>`;
+    return;
+  }
+
   const filterBtn=(v,lb)=>`<button class="btn" onclick="mbSetFilter('${v}')" style="padding:.3rem .65rem;font-size:.78rem;${MB_VIEW.filter===v?'background:var(--gm);color:#fff;border-color:var(--gm)':'background:#fff;color:var(--gm);border:1px solid var(--gm)'}">${lb}</button>`;
+  const dispBtn=(v,lb)=>`<button class="btn" onclick="mbSetDisp('${v}')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${MB_VIEW.disp===v?'background:var(--gd);color:#fff':'background:#fff;color:var(--gm)'}">${lb}</button>`;
 
   let boardHtml;
   if(MB_VIEW.disp==="editorial"){
     const chunks=[]; for(let i=0;i<items.length;i+=6) chunks.push(items.slice(i,i+6));
     boardHtml=chunks.map(ch=>{
-      const cells=ch.map((x,i)=>i===0
-        ? `<div style="grid-row:span 2">${_mbTile(x,"1/1")}</div>`
-        : _mbTile(x,"4/3"));
+      const cells=ch.map((x,i)=>i===0 ? `<div style="grid-row:span 2">${_mbTile(x)}</div>` : _mbTile(x));
       return `<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:10px;margin-bottom:10px">${cells.join('')}</div>`;
     }).join('');
   } else {
-    boardHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">${items.map(x=>_mbTile(x,"1/1")).join('')}</div>`;
+    const mode=MB_VIEW.disp==="wall"?"wall":"card";
+    boardHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">${items.map(x=>_mbTile(x,mode)).join('')}</div>`;
   }
 
   host.innerHTML=`
@@ -24492,12 +24539,13 @@ function renderMoodBoard(){
         ${counts.furnishings?filterBtn("furnishings","Furnishings "+counts.furnishings):''}
         ${counts.products?filterBtn("products","Products "+counts.products):''}
         <div style="display:flex;border:1px solid var(--br);border-radius:8px;overflow:hidden;margin-left:auto">
-          <button class="btn" onclick="mbSetDisp('grid')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${MB_VIEW.disp!=='editorial'?'background:var(--gd);color:#fff':'background:#fff;color:var(--gm)'}">▦ Grid</button>
-          <button class="btn" onclick="mbSetDisp('editorial')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${MB_VIEW.disp==='editorial'?'background:var(--gd);color:#fff':'background:#fff;color:var(--gm)'}">▤ Editorial</button>
+          ${dispBtn("grid","▦ Grid")}${dispBtn("editorial","▤ Editorial")}${dispBtn("wall","▧ Photo wall")}
         </div>
       </div>
       ${items.length?boardHtml:`<div style="font-size:.85rem;color:var(--tl);padding:1rem">Nothing in this category yet.</div>`}
+      <div style="font-size:.68rem;color:var(--tl);margin-top:.7rem">Drag a plant photo to reposition, or use −/+ to zoom. Click a material/furnishing/product photo to zoom &amp; pan.</div>
     </div>`;
+  _mbAttachImgAdjust();
 }
 // ── Plant Book, in the Price Book's frame ────────────────────────────────────
 // Tree on the left, list in the middle, inspector on the right — same cards, same pill rows,
