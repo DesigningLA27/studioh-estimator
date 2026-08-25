@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1180</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1181</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -23903,11 +23903,23 @@ async function pbAIGo(q){
 
 // ===== NURSERY AVAILABILITY & PRICING LAYER =====
 let NURSERY_DB={nurseries:[],stock:{},plants:{}};
-(function loadNurseries(){ try{ const s=localStorage.getItem("studioh_nurseries_v1"); if(s){ const d=JSON.parse(s); if(d&&d.nurseries) NURSERY_DB=d; } }catch(e){} NURSERY_DB.plants=NURSERY_DB.plants||{}; })();
+(function loadNurseries(){ try{ const s=localStorage.getItem("studioh_nurseries_v1"); if(s){ const d=JSON.parse(s); if(d&&d.nurseries) NURSERY_DB=d; } }catch(e){} NURSERY_DB.plants=NURSERY_DB.plants||{}; _nurseryFixPotSizes(); })();
+// Older imports mislabeled small container sizes (e.g. a 4" pot) as a "BOX" size — box sizing is a tree-only
+// convention that starts around 24". Anything under 14" tagged BOX is really a pot; relabel it in place.
+function _nurseryFixPotSizes(){ let changed=false;
+  Object.keys(NURSERY_DB.stock||{}).forEach(nid=>{ const st=NURSERY_DB.stock[nid];
+    Object.keys(st||{}).forEach(pid=>{ const sizes=st[pid];
+      Object.keys(sizes).filter(k=>{ const m=k.match(/^(\d+)"BOX$/); return m&&+m[1]<14; }).forEach(k=>{
+        const nk=k.match(/\d+/)[0]+'IN'; if(sizes[nk]){ if(sizes[nk].p==null) sizes[nk].p=sizes[k].p; if(sizes[nk].r==null) sizes[nk].r=sizes[k].r; } else sizes[nk]=sizes[k];
+        delete sizes[k]; changed=true; }); }); });
+  if(changed) nurserySave(); }
 function nurserySave(){ try{ localStorage.setItem("studioh_nurseries_v1", JSON.stringify(NURSERY_DB)); }catch(e){ /* local cache full — harmless, nurseries publish to the server */ } }
 function normSize(s){ s=(s||"").toString().trim().toUpperCase().replace(/\s+/g,""); if(!s) return ""; s=s.replace(/GALLONS?|GAL\.?/g,"G").replace(/^#/,"");
-  let m=s.match(/^(\d+)(?:"|IN|INCH|BOX)/); if(m) return m[1]+'"BOX'; m=s.match(/^(\d+)G$/); if(m) return m[1]+'G'; m=s.match(/^(\d+)$/); if(m) return m[1]+'G'; return s; }
-function sizeRank(s){ const m=(""+s).match(/(\d+)/); const n=m?+m[1]:99; return /BOX|"/.test(""+s)? 1000+n : n; }
+  let m=s.match(/^(\d+)"?BOX/); if(m) return m[1]+'"BOX';
+  m=s.match(/^(\d+)(?:"|IN|INCH)$/); if(m) return m[1]+'IN';
+  m=s.match(/^(\d+)G$/); if(m) return m[1]+'G'; m=s.match(/^(\d+)$/); if(m) return m[1]+'G'; return s; }
+function sizeRank(s){ s=(""+s).toUpperCase(); const m=s.match(/(\d+)/); const n=m?+m[1]:99;
+  if(/BOX/.test(s)) return 2000+n; if(/IN$|"$/.test(s)) return -1000+n; return n; }
 function normBot(b){ return (b||"").toString().replace(/\s*\([^)]*\)/g,"").replace(/\s+/g," ").trim().toLowerCase(); }
 function normBase(b){ return normBot(b).replace(/'[^']*'/g,"").replace(/\s+/g," ").trim(); }
 function nurseryById(id){ return NURSERY_DB.nurseries.find(n=>n.id===id)||null; }
