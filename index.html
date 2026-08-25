@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1191</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1192</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24553,12 +24553,9 @@ function _mbPalette(plants,goods){
 // it here, it's set everywhere the photo appears, same as the Planting Palette report).
 // Goods reuse the existing click-to-frame modal already shipped for Materials/Furnishings.
 function _mbPhotoInner(x){
-  if(x.kind==="plants"){
-    return `<div style="position:absolute;inset:0;overflow:hidden;background:var(--surface2);cursor:zoom-in" title="Click to zoom &amp; pan" onclick="mbFrameOpen(event,'${x.kind0}','${escAttr(x.pid)}')">
-      <img src="${escAttr(x.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;pointer-events:none;${_imgXform(x.obj)}">
-    </div>`;
-  }
-  return `<div style="position:absolute;inset:0;${goodsShotStyle(x.obj,x.img,"var(--surface2)")};cursor:zoom-in" title="Click to zoom &amp; pan" onclick="goodsFrameOpen(event,'${x.book}','${escAttr(x.pid)}','${escAttr(x.img)}')"></div>`;
+  const type = x.kind==="plants" ? "plant" : "goods";
+  const a = x.kind==="plants" ? x.kind0 : x.book;
+  return `<div style="position:absolute;inset:0;${_mbShotStyle(x.obj,x.img,"var(--surface2)")};cursor:zoom-in" title="Click to zoom &amp; pan" onclick="mbFrameOpen(event,'${type}','${a}','${escAttr(x.pid)}','${escAttr(x.img)}')"></div>`;
 }
 function _mbTile(x,mode){
   if(mode==="wall"){
@@ -24577,50 +24574,49 @@ function _mbTile(x,mode){
     </div>
   </div>`;
 }
-// Plant photo framing modal — same shell as goodsFrameOpen's (.gfrw/.gfrc/.gfrz/.askb,
-// already styled and shipped for Materials/Furnishings) so it looks like one feature, not
-// two. Writes imgZoom/imgPanX/imgPanY on the shared plant record, same fields the Planting
-// Palette report reads, so framing set from either place shows in both.
-let _mbFrame={kind:null,pid:null,z:1,x:0,y:0,drag:null};
-function mbFrameOpen(ev,kind,pid){
+// Mood Board photo framing — entirely its own storage (obj.mbFr[url]), never
+// imgZoom/imgPanX/imgPanY (the Plant Book / Planting Palette report's fields) or .fr
+// (the Materials/Furnishings library's field). The Plant Book is a shared library read by
+// every project; a Mood Board is one project's presentation choice. Reframing a photo here
+// must never silently change how that plant or material looks in the shared library or in
+// anyone else's printed report — so this reads and writes a completely separate field,
+// for both plants and goods, even though the interaction mirrors goodsFrameOpen's.
+function _mbFrameOf(x,url){ const f=x&&x.mbFr&&x.mbFr[url]; return f?{z:+f.z||100,x:+f.x||50,y:+f.y||50}:{z:100,x:50,y:50}; }
+function _mbShotStyle(x,url,fallback){
+  if(!url) return `background:${fallback}`;
+  const f=_mbFrameOf(x,url);
+  return `background-image:url('${escAttr(url)}');background-size:${f.z}% auto;`+
+         `background-position:${f.x}% ${f.y}%;background-repeat:no-repeat;background-color:var(--surface2)`;
+}
+let _mbFrame={type:null,a:null,b:null,url:"",z:100,x:50,y:50,drag:null};
+function _mbFrameObj(){ return _mbFrame.type==="plant" ? plantDbFind(_mbFrame.a,_mbFrame.b) : specGoods(_mbFrame.a,_mbFrame.b); }
+function mbFrameOpen(ev,type,a,b,url){
   if(ev) ev.stopPropagation();
-  const p=plantDbFind(kind,pid); if(!p) return;
-  _mbFrame={kind,pid,z:+p.imgZoom||1,x:+p.imgPanX||0,y:+p.imgPanY||0,drag:null};
+  const obj = type==="plant" ? plantDbFind(a,b) : specGoods(a,b); if(!obj) return;
+  const f=_mbFrameOf(obj,url);
+  _mbFrame={type,a,b,url,z:f.z,x:f.x,y:f.y,drag:null};
   let h=document.getElementById("mbfr"); if(!h){ h=document.createElement("div"); h.id="mbfr"; h.className="gfrw";
     h.addEventListener("click",e=>{ if(e.target===h) mbFrameClose(); });
     document.body.appendChild(h); }
   _mbFrameRender(); requestAnimationFrame(()=>h.classList.add("on"));
 }
 function mbFrameClose(){ const h=document.getElementById("mbfr"); if(h){ h.classList.remove("on"); setTimeout(()=>{ try{ h.remove(); }catch(e){} },160); } }
-// This one zoom/pan value is used everywhere the photo shows, but not everywhere crops it
-// into the same shape — square on the Mood Board, a wide card (~196x104) on the Planting
-// Palette report. Both live previews below share one state, so dragging or zooming either
-// one moves both, and the framing you land on is one that actually works for each shape it's
-// really used at, instead of a preview that only matches one of them.
-const MB_FRAME_TARGETS=[
-  {id:"mbfr-img",photoId:"mbfr-photo",label:"Mood Board",ratio:"1"},
-  {id:"mbfr-img2",photoId:"mbfr-photo2",label:"Planting Palette report",ratio:"196/104"},
-];
 function _mbFrameRender(){
   const h=document.getElementById("mbfr"); if(!h) return;
-  const p=plantDbFind(_mbFrame.kind,_mbFrame.pid); if(!p){ mbFrameClose(); return; }
-  const xform=_imgXform({imgZoom:_mbFrame.z,imgPanX:_mbFrame.x,imgPanY:_mbFrame.y});
-  const boxes=MB_FRAME_TARGETS.map(t=>`<div style="flex:1;min-width:150px">
-      <div style="font-size:.66rem;color:var(--tl);margin-bottom:4px;text-align:center">${t.label}</div>
-      <div id="${t.id}" class="gfri" style="position:relative;overflow:hidden;background:var(--surface2);width:100%;aspect-ratio:${t.ratio};height:auto;margin-top:0"
-        onmousedown="_mbFrameDown(event,'${t.id}')" ontouchstart="_mbFrameDown(event,'${t.id}')">
-        <img id="${t.photoId}" src="${escAttr(p.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;pointer-events:none;${xform}">
-      </div>
-    </div>`).join('');
+  // All three Mood Board layouts (Grid, Editorial, Photo wall) render this photo in the
+  // same square tile today, so one square preview is what's actually true right now. Once
+  // there's a second real output shape (an export, a different layout), add it here as its
+  // own preview the same way the two-box version worked — don't guess at one in advance.
   h.innerHTML=`<div class="gfrc" onclick="event.stopPropagation()">
     <div class="gfrt">Frame this photo</div>
-    <div class="gfrh">Drag either preview to move it, zoom to crop — one framing, previewed at every shape it's actually shown at.</div>
-    <div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">${boxes}</div>
+    <div class="gfrh">Drag to move it, zoom to crop. Square — how every Mood Board layout shows it today. This only affects the Mood Board, never the Plant Book or Materials/Furnishings library.</div>
+    <div id="mbfr-img" class="gfri" style="width:100%;aspect-ratio:1;height:auto;background-image:url('${escAttr(_mbFrame.url)}');background-size:${_mbFrame.z}% auto;background-position:${_mbFrame.x}% ${_mbFrame.y}%"
+      onmousedown="_mbFrameDown(event)" ontouchstart="_mbFrameDown(event)"></div>
     <div class="gfrz">
       <span>Zoom</span>
-      <input id="mbfr-zr" type="range" min="40" max="300" step="1" value="${Math.round(_mbFrame.z*100)}"
+      <input id="mbfr-zr" type="range" min="100" max="320" step="1" value="${Math.round(_mbFrame.z)}"
         oninput="mbFrameSet('z',this.value)">
-      <b id="mbfr-z">${Math.round(_mbFrame.z*100)}%</b>
+      <b id="mbfr-z">${Math.round(_mbFrame.z)}%</b>
     </div>
     <div class="askb">
       <button class="c" onclick="mbFrameReset()">Reset</button>
@@ -24628,34 +24624,35 @@ function _mbFrameRender(){
       <button class="o" onclick="mbFrameSave()">Save framing</button>
     </div></div>`;
 }
-function mbFrameSet(k,v){ _mbFrame[k]= k==='z' ? (+v)/100 : +v; _mbFrameApply(); }
+function mbFrameSet(k,v){ _mbFrame[k]=+v; _mbFrameApply(); }
 // Never write the slider's own .value back inside its own oninput handler — on a live
 // drag (especially trackpad-driven, which fires many rapid input events) that fights the
 // browser's internal drag-tracking and the thumb snaps back. Only sync the slider's
 // displayed position when zoom changes from somewhere OTHER than the slider itself
 // (Reset); _mbFrameApply never touches it.
 function _mbFrameApply(){
-  const t=`translate(-50%,-50%) translate(${_mbFrame.x}%,${_mbFrame.y}%) scale(${_mbFrame.z})`;
-  MB_FRAME_TARGETS.forEach(tg=>{ const img=document.getElementById(tg.photoId); if(img) img.style.transform=t; });
-  const z=document.getElementById("mbfr-z"); if(z) z.textContent=Math.round(_mbFrame.z*100)+"%";
+  const el=document.getElementById("mbfr-img"); if(!el) return;
+  el.style.backgroundSize=_mbFrame.z+"% auto";
+  el.style.backgroundPosition=_mbFrame.x+"% "+_mbFrame.y+"%";
+  const z=document.getElementById("mbfr-z"); if(z) z.textContent=Math.round(_mbFrame.z)+"%";
 }
-function mbFrameReset(){ _mbFrame.z=1; _mbFrame.x=0; _mbFrame.y=0; _mbFrameApply(); const zr=document.getElementById("mbfr-zr"); if(zr) zr.value=100; }
-function _mbFrameDown(ev,boxId){
+function mbFrameReset(){ _mbFrame.z=100; _mbFrame.x=50; _mbFrame.y=50; _mbFrameApply(); const zr=document.getElementById("mbfr-zr"); if(zr) zr.value=100; }
+// Dragging moves the picture behind a fixed window (background-position), so the direction
+// inverts — pulling the image left shows what is to its right. Same math as goodsFrameOpen's
+// _gframeMove, which this mirrors exactly, since it uses the same background-position mechanism.
+function _mbFrameDown(ev){
   const p=ev.touches?ev.touches[0]:ev;
-  _mbFrame.drag={boxId,sx:p.clientX,sy:p.clientY,x:_mbFrame.x,y:_mbFrame.y};
+  _mbFrame.drag={sx:p.clientX,sy:p.clientY,x:_mbFrame.x,y:_mbFrame.y};
   ev.preventDefault();
 }
 function _mbFrameMove(ev){
   if(!_mbFrame.drag) return;
   const p=ev.touches?ev.touches[0]:ev;
-  const el=document.getElementById(_mbFrame.drag.boxId); if(!el) return;
-  const w=el.clientWidth||160,h=el.clientHeight||w;
-  // This image is positioned with a CSS transform (translate), not background-position —
-  // increasing translateY moves the image DOWN, so the delta adds rather than subtracts,
-  // or the image drifts opposite the finger.
-  const over=Math.max(1,_mbFrame.z);
-  _mbFrame.x=Math.max(-120,Math.min(120,_mbFrame.drag.x+(p.clientX-_mbFrame.drag.sx)/w*100/over));
-  _mbFrame.y=Math.max(-120,Math.min(120,_mbFrame.drag.y+(p.clientY-_mbFrame.drag.sy)/h*100/over));
+  const el=document.getElementById("mbfr-img"); if(!el) return;
+  const w=el.clientWidth||1,h=el.clientHeight||1;
+  const over=Math.max(1,(_mbFrame.z-100)/100);
+  _mbFrame.x=Math.max(0,Math.min(100,_mbFrame.drag.x-(p.clientX-_mbFrame.drag.sx)/w*100/over));
+  _mbFrame.y=Math.max(0,Math.min(100,_mbFrame.drag.y-(p.clientY-_mbFrame.drag.sy)/h*100/over));
   _mbFrameApply(); if(ev.cancelable) ev.preventDefault();
 }
 function _mbFrameUp(){ _mbFrame.drag=null; }
@@ -24666,11 +24663,11 @@ try{
   document.addEventListener("touchend",_mbFrameUp);
 }catch(e){}
 function mbFrameSave(){
-  const p=plantDbFind(_mbFrame.kind,_mbFrame.pid); if(!p) return mbFrameClose();
-  if(_mbFrame.z===1 && _mbFrame.x===0 && _mbFrame.y===0){ delete p.imgZoom; delete p.imgPanX; delete p.imgPanY; }
-  else { p.imgZoom=Math.round(_mbFrame.z*100)/100; p.imgPanX=Math.round(_mbFrame.x); p.imgPanY=Math.round(_mbFrame.y); }
-  _applyImgXformAll(_mbFrame.kind,_mbFrame.pid,p);
-  _plImgSave();
+  const obj=_mbFrameObj(); if(!obj) return mbFrameClose();
+  obj.mbFr=obj.mbFr||{};
+  if(_mbFrame.z===100 && _mbFrame.x===50 && _mbFrame.y===50) delete obj.mbFr[_mbFrame.url];
+  else obj.mbFr[_mbFrame.url]={z:Math.round(_mbFrame.z),x:Math.round(_mbFrame.x),y:Math.round(_mbFrame.y)};
+  if(_mbFrame.type==="plant") plantBookSave(); else goodsSaveQuiet(_mbFrame.a);
   mbFrameClose();
   try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){}
 }
