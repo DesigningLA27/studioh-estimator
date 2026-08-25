@@ -5548,7 +5548,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1162</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1163</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19121,7 +19121,7 @@ function _matGrid(host){
       const shot=goodsImg(m);
     const price=(matModel()==="resale"?m.bill:m.msrp);
     return `<button data-gid="${m.id}" class="pb-cd${MAT_PICK===m.id?" on":""}${(GOODS_SEL.mat||{})[m.id]?" picked":""}" onclick="goodsCardTap('mat','${m.id}')">
-      ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`
+      ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onload="goodsTrimPad(this)" onerror="pbImgErr(this)">`
             :`<span class="pb-cdph none"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`}
       <b>${escAttr(m.nm)}</b><i>${escAttr(m.sup||"")}${price?" · $"+(+price).toFixed(2):""}${goodsOriginTag(m)}</i>
     </button>`;}).join("")}</div>`}
@@ -19657,7 +19657,7 @@ function _furGrid(host){
          : `<span class="fr">${mi("tag")}MSRP<b>${fmtN(f.msrp)}</b>${goodsOriginTag(f)}</span>`);
      const shot=goodsImg(f);
      return `<button data-gid="${f.id}" class="pb-cd${FUR_PICK===f.id?" on":""}${(GOODS_SEL.fur||{})[f.id]?" picked":""}" onclick="goodsCardTap('fur','${f.id}')">
-      ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`
+      ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onload="goodsTrimPad(this)" onerror="pbImgErr(this)">`
             :`<span class="pb-cdph none"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`}
       <b>${escAttr(f.nm)}</b><i>${escAttr(f.brand||f.sup||"")}${furPrice(f)?" · "+fmtN(furPrice(f)):""}${goodsOriginTag(f)}</i>
     </button>`;}).join("")}</div>`}`;
@@ -23533,6 +23533,101 @@ function pbImgErr(el){
   el.onerror=null; el.src=PLANT_IMG_PH;
   // Forget it rather than re-request it every render and keep counting it as a photo.
   try{ _goodsDropImg(bad); }catch(e){} }
+// Some re-hosted product photos (AI-generated ones especially) carry a padded frame
+// baked into the pixels themselves — sometimes two layers of it, a thin white edge
+// around a beige card around the actual subject. object-fit:cover can only crop room
+// the CSS box has to spare; it can't see past padding that's part of the image data.
+// This peels the border colour off in rounds (so it gets past the white AND the beige,
+// re-sampling the colour each round since the second frame isn't the first frame's
+// colour), lands on the subject's real bounding box, then works out the crop that
+// object-fit:cover's own fixed-size window can reach: re-centre with object-position,
+// then zoom what's left with transform — capped at how far the source image can
+// actually stand being zoomed before it runs out of pixels on the tight side. A no-op
+// on any photo that's already full-bleed. Keyed by URL so it only runs once per image.
+const _padTrimCache={};
+// The visible <img> never gets crossorigin="anonymous" — if the worker's CORS ever
+// hiccups for some viewer, that attribute turns a perfectly good photo into a broken
+// one (and worse, its onerror would call pbImgErr and permanently drop a real image
+// from the item's data). So the pixel read happens on a throwaway probe Image instead;
+// if the probe fails for any reason, we just skip the trim and leave the real <img>
+// completely alone.
+function goodsTrimPad(img){
+  const src=img.currentSrc||img.src;
+  const hit=_padTrimCache[src];
+  if(hit!==undefined){
+    if(hit){ img.style.objectPosition=hit.pos; img.style.transform="scale("+hit.scale+")"; }
+    return;
+  }
+  const r=img.getBoundingClientRect();
+  const boxW=r.width||172, boxH=r.height||92; // falls back to the card's own CSS size
+  const probe=new Image();
+  probe.crossOrigin="anonymous";
+  probe.onerror=()=>{ _padTrimCache[src]=null; };
+  probe.onload=()=>_goodsTrimPadRead(probe,src,boxW,boxH,img);
+  probe.src=src;
+}
+function _goodsTrimPadRead(img,src,boxW,boxH,liveImg){
+  try{
+    const W=img.naturalWidth, H=img.naturalHeight;
+    if(!W||!H){ _padTrimCache[src]=null; return; }
+    const S=80, ch=Math.max(1,Math.round(S*H/W));
+    const cv=document.createElement("canvas"); cv.width=S; cv.height=ch;
+    const ctx=cv.getContext("2d",{willReadFrequently:true});
+    ctx.drawImage(img,0,0,S,ch);
+    const px=ctx.getImageData(0,0,S,ch).data;
+    const at=(x,y)=>{ const i=(y*S+x)*4; return [px[i],px[i+1],px[i+2]]; };
+    const median=arr=>{ const s=arr.slice().sort((a,b)=>a-b); return s[Math.floor(s.length/2)]; };
+    const TH=36; // how far a pixel must sit from the border colour to count as subject
+    let left=0,right=S-1,top=0,bottom=ch-1;
+    for(let iter=0; iter<3; iter++){
+      if(right-left<4 || bottom-top<4) break;
+      // Median of the whole current perimeter, not just the 4 corners — robust even
+      // when a diagonal subject already touches one or two of them.
+      const ring=[];
+      for(let x=left;x<=right;x++){ ring.push(at(x,top)); ring.push(at(x,bottom)); }
+      for(let y=top;y<=bottom;y++){ ring.push(at(left,y)); ring.push(at(right,y)); }
+      const bg=[0,1,2].map(k=>median(ring.map(c=>c[k])));
+      const dist=c=>Math.abs(c[0]-bg[0])+Math.abs(c[1]-bg[1])+Math.abs(c[2]-bg[2]);
+      const rowHas=y=>{ for(let x=left;x<=right;x++) if(dist(at(x,y))>TH) return true; return false; };
+      const colHas=x=>{ for(let y=top;y<=bottom;y++) if(dist(at(x,y))>TH) return true; return false; };
+      let l=left,r=right,t=top,b=bottom;
+      while(l<r && !colHas(l)) l++;
+      while(r>l && !colHas(r)) r--;
+      while(t<b && !rowHas(t)) t++;
+      while(b>t && !rowHas(b)) b--;
+      const gained=(l-left)+(right-r)+(t-top)+(bottom-b);
+      if(gained < (S+ch)*0.02) break; // converged — further peeling would eat the subject
+      left=l; right=r; top=t; bottom=b;
+    }
+    const padL=left/S, padR=1-(right+1)/S, padT=top/ch, padB=1-(bottom+1)/ch;
+    // Under 4% a side is noise (JPEG ringing, a soft vignette) — not a frame worth cropping.
+    if(Math.max(padL,padR,padT,padB)<0.04){ _padTrimCache[src]=null; return; }
+
+    // Subject's bounding box back in source pixels, and the smallest box-shaped
+    // rectangle that contains it (clamped — a very wide/tall subject can demand a
+    // rectangle bigger than the source actually has).
+    const sx0=left/S*W, sx1=(right+1)/S*W, sy0=top/ch*H, sy1=(bottom+1)/ch*H;
+    const tcx=(sx0+sx1)/2, tcy=(sy0+sy1)/2, sw=sx1-sx0, sh=sy1-sy0;
+    const Rb=boxW/boxH;
+    let targetW,targetH;
+    if(sw/sh>=Rb){ targetW=sw; targetH=sw/Rb; } else { targetH=sh; targetW=sh*Rb; }
+    targetW=Math.min(targetW,W); targetH=Math.min(targetH,H);
+
+    // object-fit:cover's own fixed-size window, before any of our repositioning/zoom.
+    let Wc,Hc;
+    if(W/H>=Rb){ Hc=H; Wc=H*Rb; } else { Wc=W; Hc=W/Rb; }
+
+    // transform:scale zooms that window from ITS OWN centre, so re-centring it on the
+    // subject first (object-position) is what makes the zoom land on the right spot.
+    const k=Math.max(1, Math.min(3, Wc/targetW));
+    const pxPct=(Wc>=W)?50:Math.max(0,Math.min(100,(tcx-Wc/2)/(W-Wc)*100));
+    const pyPct=(Hc>=H)?50:Math.max(0,Math.min(100,(tcy-Hc/2)/(H-Hc)*100));
+
+    const entry={pos:pxPct.toFixed(1)+"% "+pyPct.toFixed(1)+"%", scale:k.toFixed(3)};
+    _padTrimCache[src]=entry;
+    if(liveImg.isConnected){ liveImg.style.objectPosition=entry.pos; liveImg.style.transform="scale("+entry.scale+")"; }
+  }catch(e){ _padTrimCache[src]=null; }
+}
 let _gDropQ=null;
 function _goodsDropImg(url){
   if(!url||url===PLANT_IMG_PH) return;
