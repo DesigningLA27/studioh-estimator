@@ -5546,7 +5546,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1156</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1157</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16046,9 +16046,78 @@ async function goodsEstimateUnpriced(book){
   gwClose();
   try{ renderMaterials(); }catch(e){} try{ goodsRepaint("fur"); }catch(e){}
   await askTell(n+" price"+(n===1?"":"s")+" found",
-    n?"Each one is marked EST on its card, and says where it was found when you tap it. Type a real price over any of them and the mark clears."
+    n?"Each one is marked AI Est. after its price, and says where it was found when you tap it. Type a real price over any of them and the mark clears."
      :"Nothing could be found for those. They stay unpriced rather than being guessed at.",
     {icon:"$"});
+}
+// One name each — no web search, just reading what the product is called and
+// filing it under a specific type within its category. Batched at 20: this is a
+// classification pass, not a lookup, so it can carry more names per call than pricing does.
+async function goodsAISubcat(ids){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return 0;
+  const rows=FURNISHINGS.filter(x=>x&&ids.indexOf(x.id)>=0);
+  if(!rows.length) return 0;
+  const byCat={};
+  rows.forEach(x=>{ (byCat[x.cat||""]=byCat[x.cat||""]||[]).push(x); });
+  let n=0;
+  for(const cat of Object.keys(byCat)){
+    const group=byCat[cat];
+    const list=group.map((x,i)=>`${i+1}. ${x.nm}${x.brand?" — "+x.brand:""}`).join("\n");
+    const prompt=`These are all "${cat||"uncategorised"}" products. Sort each into a specific TYPE within that category — the kind a designer would file it under on a spec sheet. For lighting fixtures, types like: Path Light, Up Light, Down Light, Well Light, Wall Sconce, Flood Light, Bollard, Step Light, Deck Light, Underwater Light, String Light, Transformer, Controller, Dimmer, Accessory. For other categories, use whatever specific types genuinely apply.
+
+Output ONLY a minified JSON array:
+[{"i":1,"type":"Path Light"}]
+
+Use short, consistent, title-case type names — the exact same name for every item of that same kind, so they group together. If genuinely unclear, use "Other".
+
+PRODUCTS:
+${list}`;
+    try{
+      const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:3000,temperature:0,
+          system:"You classify landscape products into precise, consistent type names for grouping. Output only a minified JSON array.",
+          messages:[{role:"user",content:prompt}]})});
+      const d=await r.json();
+      let t=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+      const a2=t.indexOf("["); let arr=null;
+      if(a2>=0){ const b2=t.lastIndexOf("]");
+        if(b2>a2){ try{ arr=JSON.parse(t.slice(a2,b2+1)); }catch(e){} }
+        if(!arr) arr=_salvageJsonObjects(t.slice(a2)); }
+      if(!arr) continue;
+      arr.forEach(o=>{
+        const x=group[(o.i||0)-1]; if(!x) return;
+        const ty=String(o.type||"").trim().slice(0,40);
+        if(!ty) return;
+        x.subcat=ty; n++;
+      });
+    }catch(e){}
+  }
+  return n;
+}
+async function goodsGroupTypes(){
+  // Whole library, matching every other action in this Tools menu — Furnishings and
+  // Products share one save, so "estimate prices" already doesn't stop at the page
+  // you happen to be on, and the badge count here would lie if this one did.
+  const todo=FURNISHINGS.filter(x=>x&&x.nm&&!x.subcat).map(x=>x.id);
+  if(!todo.length){ alert("Everything here already has a type."); return; }
+  const a=await askDlg({icon:"◲",title:`Group ${todo.length} item${todo.length===1?"":"s"} by type?`,
+    body:"AI reads each name and sorts it into a specific type — Path Light, Up Light, Wall Sconce, and so on — grouped by category. Nothing else on the item is touched.",
+    actions:["Cancel",`Group ${todo.length}`]});
+  if(a!==1) return;
+  gwOpen({title:"Grouping by type",sub:todo.length+" item"+(todo.length===1?"":"s"),
+          steps:["Reading each name","Sorting into types"],pct:0,cancel:false});
+  let n=0;
+  for(let i=0;i<todo.length;i+=20){
+    n+=await goodsAISubcat(todo.slice(i,i+20));
+    try{ gwSet({pct:Math.min(100,((i+20)/todo.length)*100),sub:Math.min(todo.length,i+20)+" of "+todo.length}); }catch(e){}
+  }
+  gwClose();
+  goodsSaveQuiet("furnishings");
+  try{ goodsRepaint("fur"); }catch(e){}
+  await askTell(n+" grouped",
+    n?"Each is now filed under its type — see Type in the left rail.":"Nothing could be classified.",
+    {icon:n?"✓":"!"});
 }
 /* Where the price came from, as a mark you can SEE. A title tooltip was no use:
    the iPad this is built for has no hover, so the one device it matters on never
@@ -17172,6 +17241,7 @@ function furToolsHTML(){
   const lib=(typeof FURNISHINGS!=="undefined")?FURNISHINGS:[];
   const n=f=>{ try{ return lib.filter(f).length||""; }catch(e){ return ""; } };
   const noImg=n(x=>!(goodsImgs(x)||[]).length), unpriced=n(x=>!goodsPriced(x));
+  const ungrouped=n(x=>!x.subcat);
   const it=(fn,label,c)=>`<div class="it" onclick="event.stopPropagation();${fn}">${escAttr(label)}${c?`<small>${c}</small>`:""}</div>`;
   return `<span class="mdd sortdd">
     <button class="mchip mtools" onclick="event.stopPropagation();matDDToggle(event,'__ftools')">${mi("sliders")}Tools${mi("chev")}</button>
@@ -17180,6 +17250,7 @@ function furToolsHTML(){
       ${it("openPriceSheet('furnishings')","Price sheet")}
       <div class="hd">Fill in the gaps</div>
       ${it("goodsEstimateUnpriced('furnishings')","Estimate prices",unpriced)}
+      ${it("goodsGroupTypes()","Group into types",ungrouped)}
       ${it("goodsFillColours('furnishings')","Colours from photos")}
       ${it("goodsFixBrands('furnishings')","Fix brands")}
       ${it("goodsFillMaterial('furnishings')","Material type")}
@@ -17504,7 +17575,7 @@ let GOODS_FMORE={}, GOODS_FQ={}, _GTFOCUS="";
 /* Supplier and finish were never filters — they wrote the search box, so a second
    click replaced the first and two suppliers at once was impossible. They are sets
    now, like category always was. */
-const GOODS_FACET={mat:{sup:{},fin:{}},fur:{sup:{},matl:{}}};
+const GOODS_FACET={mat:{sup:{},fin:{}},fur:{sup:{},matl:{},subcat:{}}};
 function _gtSel(kind,facet){
   if(facet==="cat") return (kind==="mat")?MAT_CATS:FUR_CATS_SEL;
   const b=GOODS_FACET[kind]||(GOODS_FACET[kind]={});
@@ -17636,6 +17707,9 @@ function _goodsTree(kind){
   };
 
   band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968");
+  // Sub-grouped types (Path Light, Up Light, Wall Sconce…) — Materials doesn't use
+  // this yet, and it's meaningless before Group into types has actually run.
+  if(kind==="fur") band("Type","subcat",_goodsTally("fur",x=>x.subcat||null),"#7C6B98");
   band(kind==="mat"?"Supplier":"Brand","sup",_goodsTally(kind,x=>x.brand||x.sup),"#6d8f5c");
   if(kind==="mat") band("Finish","fin",_goodsTally("mat",x=>(x.fin&&x.fin!=="—")?x.fin:null),"#CFC6B4");
   else             band("Material","matl",_goodsTally("fur",x=>x.matl||x.material||null),"#B9A38C");
@@ -19322,6 +19396,12 @@ function furSetCat(c){
 }
 function furCatList(){ return Object.keys(FUR_CATS_SEL).filter(c=>FUR_CATS_SEL[c]); }
 function furCatOk(f){ const c=furCatList(); return !c.length || c.indexOf(f&&f.cat)>=0; }
+// Type ("Path Light") rides the same generic facet machinery as Brand/Material —
+// its own section in the tree, search box past 16 values, order-and-promote, all free.
+function furSubOk(f){
+  const sel=_gtKeys("fur","subcat");
+  return !sel.length || sel.indexOf(f&&f.subcat)>=0;
+}
 function furOpen(id){ FUR_OPEN=id; FUR_TAB="detail"; goodsRepaint("fur"); }
 function furBack(){ FUR_OPEN=null; goodsRepaint("fur"); }
 function furTab(t){ FUR_TAB=t; goodsRepaint("fur"); }
@@ -19428,6 +19508,7 @@ function _furGrid(host){
   const ql=(FUR_AIQ||"").trim().toLowerCase();
   let list=(GOODS_PAGE==="prod"?_prodRows():_furRows())
     .filter(f=>furCatOk(f))
+    .filter(f=>furSubOk(f))
     .filter(f=>goodsFacetOk("fur",f))
     .filter(f=>!nT || tsel.every(t=>(f.tags||[]).indexOf(t)>=0))
     // literal text filter, live as you type; AI (below) replaces it when run
