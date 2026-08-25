@@ -5326,6 +5326,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 
 /* ══ FILTER RAIL — cap, search and order ══════════════════════════════════════ */
 .gt-sec{display:flex;align-items:center;gap:8px}
+/* A child band (Type under Category, Category under Group) reads as nested, not as
+   just the next section down — indented and tied to the parent row above it. */
+.gt-nest{margin:0 0 4px 12px;padding-left:8px;border-left:2px solid var(--br)}
+.gt-nest .gt-sec{font-size:12px}
 .gt-ord{margin-left:auto;border:0;background:none;font:inherit;font-size:10px;font-weight:800;
   letter-spacing:.04em;color:var(--tl);cursor:pointer;padding:2px 5px;border-radius:6px}
 .gt-ord:hover{background:var(--brl);color:var(--gm)}
@@ -5544,7 +5548,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1160</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1161</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -17725,16 +17729,46 @@ function _goodsTree(kind){
       h+='<button class="gt-more" onclick="goodsFacetMore(\''+kind+'\',\''+facet+'\')">Show less</button>';
   };
 
-  band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968");
-  // Sub-grouped types (Path Light, Up Light, Wall Sconce…) are sub-categories of
-  // whichever Category is picked, not a book-wide list — so Lighting's types never
-  // bleed into Controls', and the section stays hidden until a Category narrows it.
-  if(kind==="fur"){
-    const catSel=_gtKeys("fur","cat");
-    if(catSel.length){
+  // Nest a child band under whichever parent row is picked: same wrap for Furnishings/
+  // Products' Category→Type as for Materials' Group→Category below. Kept out of band()
+  // itself since only these two calls need it — everything else (Brand, Material,
+  // Finish) is one flat level.
+  const nested=(title,facet,tally,dot)=>{
+    const before=h.length;
+    band(title,facet,tally,dot);
+    if(h.length>before) h=h.slice(0,before)+'<div class="gt-nest">'+h.slice(before)+'</div>';
+  };
+
+  if(kind==="mat"){
+    // Group is the real top level here (Hardscape, Softscape…); Category is its
+    // sub-category, same relationship as Type is to Furnishings' Category.
+    const counts=matCatCounts();
+    const groups=MAT_GROUPS.concat([{id:"other",nm:"Other",cats:[]}])
+      .map(g=>({id:g.id,nm:g.nm,n:matGroupCount(g.id,counts)})).filter(g=>g.n>0);
+    if(groups.length){
+      sec("Group","","");
+      row(!MAT_GRP,"matPick('','All')","All",MATERIALS.length,"#B08968");
+      groups.forEach(g=>row(MAT_GRP===g.id,"matPick('"+q(g.id)+"','All')",g.nm,g.n,"#B08968"));
+    }
+    if(MAT_GRP){
       const tally={};
-      _goodsAll("fur").forEach(x=>{ if(catSel.indexOf(x.cat)<0) return; if(x.subcat) tally[x.subcat]=(tally[x.subcat]||0)+1; });
-      band("Type","subcat",tally,"#7C6B98");
+      MATERIALS.forEach(m=>{ if(!m) return; const c=m.cat||"—"; if(matGroupOf(c)!==MAT_GRP) return; tally[c]=(tally[c]||0)+1; });
+      const gnm=(groups.find(g=>g.id===MAT_GRP)||{}).nm||"Category";
+      nested(gnm+" categories","cat",tally,"#7C6B98");
+    }
+  }else{
+    band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968");
+    // Sub-grouped types (Path Light, Up Light, Wall Sconce…) are sub-categories of
+    // whichever Category is picked, not a book-wide list — so Lighting's types never
+    // bleed into Controls', and the section stays hidden until a Category narrows it.
+    if(kind==="fur"){
+      const catSel=_gtKeys("fur","cat");
+      if(catSel.length){
+        const tally={};
+        _goodsAll("fur").forEach(x=>{ if(catSel.indexOf(x.cat)<0) return; if(x.subcat) tally[x.subcat]=(tally[x.subcat]||0)+1; });
+        const title=catSel.length===1?(catSel[0]+" types"):"Type";
+        nested(title,"subcat",tally,"#7C6B98");
+      }
     }
   }
   band(kind==="mat"?"Supplier":"Brand","sup",_goodsTally(kind,x=>x.brand||x.sup),"#6d8f5c");
