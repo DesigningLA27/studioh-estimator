@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1192</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1193</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24671,12 +24671,103 @@ function mbFrameSave(){
   mbFrameClose();
   try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){}
 }
+// ── AI plant suggestions ─────────────────────────────────────────────────
+// Session-only, never saved to S — these are candidates, not project data, exactly like
+// a goods AI search result. "Add" is the only thing that turns a suggestion into something
+// real, and it does that through the real planting-builder functions (addShrubRow etc.),
+// never by faking a specified-looking row here.
+let MB_SUGGEST={loading:false,items:[]};
+async function mbSuggestPlants(){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return; }
+  const styleKeys=(S.pi&&S.pi.style)||[];
+  if(!styleKeys.length){ alert("Set a design style first — Project Info → Design style & vibe, pick up to 2."); return; }
+  const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ");
+  const {plants}=_mbGather();
+  const already=plants.map(x=>botName(x.p)).filter(Boolean);
+  const bud=projBudget();
+  MB_SUGGEST.loading=true; renderMoodBoard();
+  const prompt=`Suggest 6 Southern California landscape plants (a mix of shrubs, groundcover, trees, or palms as fits) for a "${styleLabels}" design style.
+Do not repeat anything already used on this project: ${already.length?already.join(", "):"(nothing specified yet)"}.
+${bud?`This project has a target budget, so favor common, reasonably priced nursery plants over rare or expensive specimens.`:""}
+Output ONLY a minified JSON array, no prose, no markdown:
+[{"bot":"botanical name","common":"common name","kind":"shrub|tree|palm|gc","reason":"why it fits this style, under 12 words"}]
+Never invent a species that doesn't exist. Real, commonly available nursery plants only.`;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1200,temperature:0.4,
+        system:"You are a Southern California landscape designer suggesting real, commonly available nursery plants. Output only minified JSON.",
+        messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    const t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join(""))||"";
+    const a=t.indexOf("["); let arr=null;
+    if(a>=0){ const b=t.lastIndexOf("]"); if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} } if(!arr) arr=_salvageJsonObjects(t.slice(a)); }
+    const mi=plantMatchIndex();
+    MB_SUGGEST.items=(arr||[]).map(o=>{
+      const bot=String(o.bot||"").trim(), common=String(o.common||"").trim();
+      const kind=["shrub","tree","palm","gc"].indexOf(o.kind)>=0?o.kind:guessKind(common,bot);
+      let hit=mi.exact[normBot(bot)]; if(!hit){ const bl=mi.base[normBase(bot)]; if(bl&&bl.length===1) hit=bl[0]; }
+      return {bot,common,kind,reason:String(o.reason||"").trim(),pid:hit?hit.id:null,mkind:hit?hit.kind:null,matched:hit?plantDbFind(hit.kind,hit.id):null};
+    }).filter(x=>x.bot);
+    if(!MB_SUGGEST.items.length) alert("Couldn't find suggestions — try again.");
+  }catch(e){ alert("Couldn't reach the AI service."); }
+  MB_SUGGEST.loading=false;
+  renderMoodBoard();
+}
+// Turns a suggestion into a real specified plant through the same functions the Design
+// builder itself uses (addShrubRow/addTreeRow/addPalmRow/addGcRow) — never a hand-rolled
+// row here, so it rebalances, prices and totals exactly like any plant added in Design.
+function mbAddSuggestion(i){
+  const s=MB_SUGGEST.items[i]; if(!s) return;
+  let pid=s.pid, kind=s.mkind||s.kind;
+  if(!pid){
+    const cvm=(s.bot.match(/'([^']+)'/)||[])[1]||""; const base=s.bot.replace(/\s*'[^']*'/,"").replace(/\s*\([^)]*\)/g,"").trim();
+    pid=_slug(base)+(cvm?"_"+_slug(cvm):"");
+    const arr=PLANT_DB[kind]=PLANT_DB[kind]||[];
+    if(!arr.find(x=>x.id===pid)){
+      const np={id:pid,c:s.common||base,b:base,cls:"common",tags:["ai-suggested"]}; if(cvm) np.cv=cvm;
+      Object.assign(np, kind==='tree'?{w:25,h:30,wu:'M'}:kind==='palm'?{h:25,perFt:180,wu:'M'}:kind==='gc'?{oc:18,pf:36,wu:'M'}:{w:4,h:4,basal:0.8,wu:'M'});
+      inheritFromBase(np,kind); arr.push(np);
+    }
+  }
+  ensurePlanting();
+  ({shrub:addShrubRow,tree:addTreeRow,palm:addPalmRow,gc:addGcRow}[kind])(0,pid);
+  MB_SUGGEST.items.splice(i,1);
+  renderMoodBoard();
+}
+function mbDismissSuggestion(i){ MB_SUGGEST.items.splice(i,1); renderMoodBoard(); }
+function _mbSuggestHTML(){
+  if(MB_SUGGEST.loading) return `<div class="card" style="margin-bottom:1rem"><p style="font-size:.85rem;color:var(--tm)">✨ Thinking of plants that fit your style…</p></div>`;
+  if(!MB_SUGGEST.items.length) return '';
+  const cards=MB_SUGGEST.items.map((s,i)=>{
+    const img=s.matched&&s.matched.img;
+    const ph=img?`background-image:url('${escAttr(img)}');background-size:cover;background-position:center`:`background:var(--surface2)`;
+    return `<div style="border:1px solid var(--br);border-radius:10px;overflow:hidden;background:var(--card);width:170px;flex:none">
+      <div style="aspect-ratio:1;${ph}"></div>
+      <div style="padding:.5rem .6rem">
+        <div style="font-weight:600;font-size:.8rem;line-height:1.25">${escAttr(s.common||s.bot)}</div>
+        <div style="font-size:.7rem;color:var(--tl);font-style:italic;margin-bottom:.3rem">${escAttr(s.bot)}</div>
+        ${s.reason?`<div style="font-size:.7rem;color:var(--tm);margin-bottom:.4rem">${escAttr(s.reason)}</div>`:''}
+        <div style="font-size:.66rem;color:var(--tl);margin-bottom:.4rem">${s.matched?'Already in your Plant Book':'New — AI suggestion'}</div>
+        <div style="display:flex;gap:.35rem">
+          <button class="btn" style="flex:1;padding:.25rem .4rem;font-size:.72rem;background:var(--gm);color:#fff;border:none" onclick="mbAddSuggestion(${i})">+ Add</button>
+          <button class="btn" style="padding:.25rem .5rem;font-size:.72rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbDismissSuggestion(${i})">✕</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="margin-bottom:1rem">
+    <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:8px">Suggested — not yet part of this project</div>
+    <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:.2rem">${cards}</div>
+  </div>`;
+}
 function renderMoodBoard(){
   const host=document.getElementById("mb-body"); if(!host) return;
   const {plants,goods}=_mbGather();
   const totalSpecified=plants.length+goods.length;
+  const suggestBtn=`<button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestPlants()" ${MB_SUGGEST.loading?'disabled':''}>✨ Suggest plants</button>`;
   if(!totalSpecified){
-    host.innerHTML=`<div class="card"><p style="font-size:.9rem;color:var(--tm)">Nothing to show yet. The Mood Board pulls automatically from what's specified on this project — add plants in <b>Design</b> and attach materials/furnishings/products from the estimate, and they'll show up here.</p></div>`;
+    host.innerHTML=`<div class="card" style="margin-bottom:1rem"><p style="font-size:.9rem;color:var(--tm);margin-bottom:.6rem">Nothing to show yet. The Mood Board pulls automatically from what's specified on this project — add plants in <b>Design</b> and attach materials/furnishings/products from the estimate, and they'll show up here.</p>${suggestBtn}</div>${_mbSuggestHTML()}`;
     return;
   }
   const palette=_mbPalette(plants,goods);
@@ -24694,7 +24785,7 @@ function renderMoodBoard(){
   if(MB_VIEW.filter!=="all") items=items.filter(x=>x.kind===MB_VIEW.filter);
 
   if(!items.length){
-    host.innerHTML=`<div class="card"><p style="font-size:.9rem;color:var(--tm)">${totalSpecified} item${totalSpecified>1?'s are':' is'} specified on this project, but none have a photo yet. Add photos in the Plant Book / Materials / Furnishings library and they'll appear here.</p></div>`;
+    host.innerHTML=`<div class="card" style="margin-bottom:1rem"><p style="font-size:.9rem;color:var(--tm);margin-bottom:.6rem">${totalSpecified} item${totalSpecified>1?'s are':' is'} specified on this project, but none have a photo yet. Add photos in the Plant Book / Materials / Furnishings library and they'll appear here.</p>${suggestBtn}</div>${_mbSuggestHTML()}`;
     return;
   }
 
@@ -24715,8 +24806,12 @@ function renderMoodBoard(){
 
   host.innerHTML=`
     <div class="card" style="margin-bottom:1rem">
-      <div style="font-size:.78rem;color:var(--tm)">${budgetHtml}</div>
+      <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+        <div style="font-size:.78rem;color:var(--tm)">${budgetHtml}</div>
+        <div style="margin-left:auto">${suggestBtn}</div>
+      </div>
     </div>
+    ${_mbSuggestHTML()}
     ${palette.length?`<div class="card" style="margin-bottom:1rem">
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:8px">Palette — from bloom colors &amp; specified finishes</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${palette.map(h=>`<span title="${h}" style="width:34px;height:34px;border-radius:8px;background:${h};border:1px solid var(--br)"></span>`).join('')}</div>
