@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1173</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1174</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -13284,6 +13284,23 @@ async function goodsRenameFacet(kind,field,label,cur){
   try{ goodsRepaint(kind); }catch(e){}
   try{ _toast(n+" item"+(n===1?"":"s")+" moved to \""+to+"\"","#4C7B3D"); }catch(e){}
 }
+// Section headers (Category, Group, Finish…) are fixed English, not per-item data —
+// renaming one just relabels that rail section, everywhere it appears, for everyone
+// looking at this shared library. Stored as an override so the built-in name is still
+// the fallback if it's ever cleared.
+async function goodsRenameLabel(kind,titleKey,cur){
+  const from=String(cur||"").trim();
+  const v=await appAsk({title:"Section name",
+    hint:"Renames this section's label in the left rail — every book that shares it, not just here.",
+    value:from, placeholder:"", ok:"Rename"});
+  if(v===null) return;
+  const to=String(v).trim(); if(!to||to===from) return;
+  PREFS.railLabels=PREFS.railLabels||{};
+  PREFS.railLabels[kind+"|"+titleKey]=to;
+  try{ prefsSave(); }catch(e){}
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ _toast("Renamed to \""+to+"\"","#4C7B3D"); }catch(e){}
+}
 async function goodsRenameBrand(book,cur){
   const arr=book==="materials"?MATERIALS:FURNISHINGS;
   const from=String(cur||"").trim();
@@ -17768,9 +17785,21 @@ function _goodsTree(kind){
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const q=v=>String(v==null?"":v).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
   let h='';
-  const sec=(t,kindF,facet)=>{
-    h+='<div class="pbk-sec gt-sec" style="cursor:default">'+esc(t)
-      +(facet?'<button class="gt-ord" title="Order and promote" onclick="_gtOrdOpen(\''+kindF+'\',\''+facet+'\')">'+esc(_gtOrdMode(kindF,facet)==="count"?"⇅":_gtOrdMode(kindF,facet)==="az"?"A–Z":"★")+'</button>':'')
+  // Same admin gate and same tap-vs-double-click choice as the values themselves —
+  // see goodsRenameFacet/goodsRenameLabel — computed once so every section in this
+  // tree agrees on which gesture is live right now.
+  const railEdit=!!PREFS.railRenameMode;
+  const railLabels=PREFS.railLabels||{};
+  // titleKey is only passed by sections whose title is fixed (Category, Brand, Group…)
+  // — a nested band's title changes with whatever parent row is selected, so it is
+  // never a rename target itself, only the values under it are.
+  const sec=(t,kindF,facet,titleKey)=>{
+    const lbl=titleKey?(railLabels[kindF+"|"+titleKey]||t):t;
+    const canRen=!!titleKey&&_hasAdminKey();
+    const renAct=canRen?("goodsRenameLabel('"+kindF+"','"+titleKey+"','"+q(lbl)+"')"):"";
+    h+='<div class="pbk-sec gt-sec" style="cursor:default">'
+      +'<span'+(renAct?(' onclick="'+(railEdit?("event.stopPropagation();"+renAct):"")+'" ondblclick="event.stopPropagation();'+renAct+'"'):'')+'>'+esc(lbl)+'</span>'
+      +(facet?'<button class="gt-ord" title="Order and promote" onclick="event.stopPropagation();_gtOrdOpen(\''+kindF+'\',\''+facet+'\')">'+esc(_gtOrdMode(kindF,facet)==="count"?"⇅":_gtOrdMode(kindF,facet)==="az"?"A–Z":"★")+'</button>':'')
       +'</div>';
   };
   // No visible rename control — a category row is a filter button first, and a pencil
@@ -17786,7 +17815,7 @@ function _goodsTree(kind){
      rendered) lands right after the chosen rows and before the unselected rest —
      directly under the parent it belongs to, not after the whole section, which
      otherwise reads as a child of whatever row happens to be drawn last. */
-  const band=(title,facet,tally,dot,child)=>{
+  const band=(title,facet,tally,dot,child,titleKey)=>{
     const selMap=_gtSel(kind,facet);
     let names=Object.keys(tally).filter(n=>n!=="" && (tally[n]>0 || selMap[n]));
     if(!names.length) return;
@@ -17816,9 +17845,8 @@ function _goodsTree(kind){
     // With "Tap to rename" on (Settings → Master library access, admin only), a plain
     // tap renames instead of filtering — double-click stays as a second way in, but
     // doesn't depend on the gesture actually registering on a touch device.
-    const editMode=!!PREFS.railRenameMode;
-    const actOf=n=>{ const rn=renamer(n); return (editMode&&rn)?rn:("goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')"); };
-    sec(title,kind,facet);
+    const actOf=n=>{ const rn=renamer(n); return (railEdit&&rn)?rn:("goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')"); };
+    sec(title,kind,facet,titleKey);
     if(chosen.length){
       chosen.forEach(n=>{
         row(true,actOf(n),n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n));
@@ -17866,7 +17894,7 @@ function _goodsTree(kind){
       childHtml=nestedStr(gnm+" categories","cat",tally,"#7C6B98");
     }
     if(groups.length){
-      sec("Group","","");
+      sec("Group",kind,"","grp");
       row(!MAT_GRP,"matPick('','All')","All",MATERIALS.length,"#B08968");
       groups.forEach(g=>{
         row(MAT_GRP===g.id,"matPick('"+q(g.id)+"','All')",g.nm,g.n,"#B08968");
@@ -17889,20 +17917,23 @@ function _goodsTree(kind){
         return nestedStr(catName+" types","subcat",tally,"#7C6B98");
       };
     }
-    band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968",childFn);
+    band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968",childFn,"cat");
   }
-  band(kind==="mat"?"Supplier":"Brand","sup",_goodsTally(kind,x=>x.brand||x.sup),"#6d8f5c");
-  if(kind==="mat") band("Finish","fin",_goodsTally("mat",x=>(x.fin&&x.fin!=="—")?x.fin:null),"#CFC6B4");
-  else             band("Material","matl",_goodsTally("fur",x=>x.matl||x.material||null),"#B9A38C");
+  band(kind==="mat"?"Supplier":"Brand","sup",_goodsTally(kind,x=>x.brand||x.sup),"#6d8f5c",null,"sup");
+  if(kind==="mat") band("Finish","fin",_goodsTally("mat",x=>(x.fin&&x.fin!=="—")?x.fin:null),"#CFC6B4",null,"fin");
+  else             band("Material","matl",_goodsTally("fur",x=>x.matl||x.material||null),"#B9A38C",null,"matl");
 
-  // The two upkeep counts that actually cost money: no photo, and a price nobody
-  // has confirmed in three months.
-  sec("Book upkeep","","");
-  const all=_goodsAll(kind);
-  const noimg=all.filter(x=>{ try{ return !goodsImg(x); }catch(e){ return false; } }).length;
-  const stale=all.filter(x=>_goodsStale(x)).length;
-  row(false,"goodsUpkeep('"+kind+"','noimg')","No photo",noimg,"#C9A75C");
-  row(false,"goodsUpkeep('"+kind+"','stale')","Price over 90 days",stale,"#C05E4C");
+  // Housekeeping, not browsing — which items still need a photo or a fresh quote is
+  // useful to whoever is maintaining the shared book and just clutter to everyone
+  // reading it to spec a project, so it only shows up for the admin who can fix it.
+  if(_hasAdminKey()){
+    sec("Book upkeep",kind,"","upkeep");
+    const all=_goodsAll(kind);
+    const noimg=all.filter(x=>{ try{ return !goodsImg(x); }catch(e){ return false; } }).length;
+    const stale=all.filter(x=>_goodsStale(x)).length;
+    row(false,"goodsUpkeep('"+kind+"','noimg')","No photo",noimg,"#C9A75C");
+    row(false,"goodsUpkeep('"+kind+"','stale')","Price over 90 days",stale,"#C05E4C");
+  }
   return h;
 }
 /* ── ORDER EDITOR ─────────────────────────────────────────────────────────────
@@ -19230,8 +19261,12 @@ function _matGrid(host){
        : `<span class="fr">${mi("tag")}${m.msrpAI?"Est. price":(matModel()==="resale"?"You bill":"Client pays")}<b${m.msrpAI?' class="est"':''}>$${(matModel()==="resale"?m.bill:m.msrp).toFixed(2)}/sf</b>${goodsOriginTag(m)}</span>`);
       const shot=goodsImg(m);
     const price=(matModel()==="resale"?m.bill:m.msrp);
+    // A shot with its own saved framing (Frame this photo) has to show it here too —
+    // this card was the whole reason that tool exists, not just the popup that opened it.
+    const framed=shot&&m.fr&&m.fr[shot];
     return `<button data-gid="${m.id}" class="pb-cd${MAT_PICK===m.id?" on":""}${(GOODS_SEL.mat||{})[m.id]?" picked":""}" onclick="goodsCardTap('mat','${m.id}')">
-      ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`
+      ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(m,shot,'var(--surface2)')}"></span>`
+            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
             :`<span class="pb-cdph none"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`}
       <b>${escAttr(m.nm)}</b><i>${escAttr(m.sup||"")}${price?" · $"+(+price).toFixed(2):""}${goodsOriginTag(m)}</i>
     </button>`;}).join("")}</div>`}
@@ -19766,8 +19801,12 @@ function _furGrid(host){
          ? `<span class="fr">${mi("tag")}MSRP<b class="was">${fmtN(f.msrp)}</b><span class="sale">${fmtN(f.sale)}</span>${goodsOriginTag(f)}</span>`
          : `<span class="fr">${mi("tag")}MSRP<b>${fmtN(f.msrp)}</b>${goodsOriginTag(f)}</span>`);
      const shot=goodsImg(f);
+     // A shot with its own saved framing (Frame this photo) has to show it here too —
+     // this card was the whole reason that tool exists, not just the popup that opened it.
+     const framed=shot&&f.fr&&f.fr[shot];
      return `<button data-gid="${f.id}" class="pb-cd${FUR_PICK===f.id?" on":""}${(GOODS_SEL.fur||{})[f.id]?" picked":""}" onclick="goodsCardTap('fur','${f.id}')">
-      ${shot?`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`
+      ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(f,shot,'var(--surface2)')}"></span>`
+            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
             :`<span class="pb-cdph none"><svg viewBox="0 0 24 24">${PB_ICO.leaf}</svg></span>`}
       <b>${escAttr(f.nm)}</b><i>${escAttr(f.brand||f.sup||"")}${furPrice(f)?" · "+fmtN(furPrice(f)):""}${goodsOriginTag(f)}</i>
     </button>`;}).join("")}</div>`}`;
