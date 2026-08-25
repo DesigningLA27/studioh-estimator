@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1181</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1182</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24014,6 +24014,15 @@ function _nurseryCommitRows(nid,normRows,merge){
   });
   return {matched,created,lines,priced};
 }
+// Every import path ends here: saves, re-links to the Plant Book, and \u2014 the part all
+// three used to skip \u2014 actually shows the result if the Nurseries tab is open, instead
+// of leaving it stale until the user clicks away and back.
+function _nurseryAfterImport(nid,created){
+  if(created) plantBookSave(); nurserySave();
+  try{ syncNurseryToBook(false); inheritWaterAll(false); }catch(e){}
+  if(typeof renderPlantBook==="function") renderPlantBook();
+  NUR_VIEW.sel=nid; if(document.getElementById("nursery-body")) renderNurseryManager();
+}
 // Asks a nursery-new/existing question and sets up NURSERY_DB for the import, shared
 // by CSV and PDF so "already exists \u2014 update or replace?" behaves identically either way.
 function _nurseryOpenSlot(name){
@@ -24039,7 +24048,7 @@ function nurseryCsvImport(input){ const f=input.files&&input.files[0]; if(!f) re
       return {bot:g(r,"b"), common:g(r,"c"), size:g(r,"size"), avail:g(r,"avail"), price};
     });
     const {matched,created,lines,priced}=_nurseryCommitRows(nid,normRows,merge);
-    if(created) plantBookSave(); nurserySave(); try{ syncNurseryToBook(false); inheritWaterAll(false); }catch(e){} if(typeof renderPlantBook==="function") renderPlantBook();
+    _nurseryAfterImport(nid,created);
     alert((merge?"Updated":"Imported")+" \u201C"+name+"\u201D.\n"+lines+" stock lines\n"+priced+" with a price\n"+matched+" matched to existing plants\n"+created+" new plants created from the list.");
   }catch(err){ alert("Nursery import failed: "+err.message); } input.value=""; }; rd.readAsText(f); }
 // Same destination as the CSV path, fed by the PDF text-extraction engine already
@@ -24132,7 +24141,7 @@ async function nurseryPdfImport(input){
     name=(name||"").trim()||defName;
     const {nid,merge}=_nurseryOpenSlot(name);
     const {matched,created,lines,priced}=_nurseryCommitRows(nid,parsed,merge);
-    if(created) plantBookSave(); nurserySave(); try{ syncNurseryToBook(false); inheritWaterAll(false); }catch(e){} if(typeof renderPlantBook==="function") renderPlantBook();
+    _nurseryAfterImport(nid,created);
     alert((merge?"Updated":"Imported")+" \u201C"+name+"\u201D from PDF.\n"+lines+" stock lines\n"+priced+" with a price\n"+matched+" matched to existing plants\n"+created+" new plants created from the list.\n\nRead by AI, not a structured file \u2014 worth checking a few rows against the original.");
   }catch(err){ gwClose(); alert("PDF import failed: "+((err&&err.message)||err)); }
   input.value="";
@@ -24180,7 +24189,7 @@ async function nurseryLinkImport(){
     name=(name||"").trim()||host;
     const {nid,merge}=_nurseryOpenSlot(name);
     const {matched,created,lines,priced}=_nurseryCommitRows(nid,parsed,merge);
-    if(created) plantBookSave(); nurserySave(); try{ syncNurseryToBook(false); inheritWaterAll(false); }catch(e){} if(typeof renderPlantBook==="function") renderPlantBook();
+    _nurseryAfterImport(nid,created);
     alert((merge?"Updated":"Imported")+" “"+name+"” from a link.\n"+lines+" stock lines\n"+priced+" with a price\n"+matched+" matched to existing plants\n"+created+" new plants created from the list.\n\nRead by AI, not a structured file — worth checking a few rows against the original.");
   }catch(err){ gwClose(); alert("Import failed: "+((err&&err.message)||err)); }
 }
@@ -24240,11 +24249,15 @@ function nurseryPanel(){
   </div>`;
 }
 // ===== NURSERY INVENTORY MANAGER (top-level tab) =====
-let NUR_VIEW={sel:null,q:"",sort:"name"};
+let NUR_VIEW={sel:null,q:"",sort:"name",sortDir:1,disp:"list"};
 function plantAny(pid){ for(const k of ["shrub","tree","palm","gc"]){ const p=(PLANT_DB[k]||[]).find(x=>x.id===pid); if(p) return p; } return null; }
 function nurSel(id){ NUR_VIEW.sel=id; renderNurseryManager(); }
 function nurSearch(v){ NUR_VIEW.q=(v||"").toLowerCase(); renderNurseryManager(); }
-function nurSetSort(v){ NUR_VIEW.sort=v; renderNurseryManager(); }
+function nurSetSort(v){ NUR_VIEW.sort=v; NUR_VIEW.sortDir=1; renderNurseryManager(); }
+// Click a column header to sort by it; click the same one again to flip direction.
+function nurSortBy(field){ if(NUR_VIEW.sort===field) NUR_VIEW.sortDir=-(NUR_VIEW.sortDir||1); else { NUR_VIEW.sort=field; NUR_VIEW.sortDir=1; } renderNurseryManager(); }
+function nurSetDisp(v){ NUR_VIEW.disp=v; renderNurseryManager(); }
+function nurCardClick(name){ NUR_VIEW.q=(name||"").toLowerCase(); NUR_VIEW.disp="list"; renderNurseryManager(); }
 function nurSetMarkup(id,v){ const n=nurseryById(id); if(!n) return; const m=parseFloat(v); n.markup=isNaN(m)?undefined:m; nurserySave(); renderNurseryManager(); }
 function nurSetModel(id,v){ const n=nurseryById(id); if(!n) return; n.model=v||undefined; nurserySave(); renderNurseryManager(); }
 function nurSetCommPct(id,v){ const n=nurseryById(id); if(!n) return; const m=parseFloat(v); n.commPct=isNaN(m)?undefined:m; nurserySave(); renderNurseryManager(); }
@@ -24275,25 +24288,49 @@ function renderNurseryManager(){
     <strong>⚠ ${orphanCount} plant${orphanCount>1?'s':''} here ${orphanCount>1?'aren\'t':'isn\'t'} linked to the Plant Book.</strong> ${withName?`<button class="btn" style="margin:0 .3rem;padding:.15rem .55rem;font-size:.72rem;background:var(--gm);color:#fff;border:none" onclick="syncNurseryToBook(true)">⟳ Fix ${withName} now</button>`:''}${orphanCount>withName?`<div style="margin-top:.3rem">${orphanCount-withName} ${orphanCount-withName>1?'were':'was'} imported by an older version that didn't save plant names, so they can't be auto-rebuilt. <strong>Re-import this nursery's CSV and choose “Replace”</strong> — the current importer links every plant to the book (verified: 0 left unlinked).</div>`:''}</div>`:'';
   if(NUR_VIEW.q) plants=plants.filter(x=>((x.p?botName(x.p)+" "+(x.p.c||""):x.pid)).toLowerCase().indexOf(NUR_VIEW.q)>=0);
   const nameOf=x=>(x.p&&x.p.c)||x.pid;
+  const dir=NUR_VIEW.sortDir||1;
+  const GROUPED=new Set(["name","category"]);
   if(NUR_VIEW.sort==="category") plants.sort((a,b)=>(PLANT_KINDS.indexOf(a.kind)-PLANT_KINDS.indexOf(b.kind))||nameOf(a).localeCompare(nameOf(b)));
-  else plants.sort((a,b)=>nameOf(a).localeCompare(nameOf(b)));
+  else if(GROUPED.has(NUR_VIEW.sort)) plants.sort((a,b)=>dir*nameOf(a).localeCompare(nameOf(b)));
   const totalLines=plants.reduce((s,x)=>s+Object.keys(x.sizes).length,0);
+  const thS=(t,field,w)=>{ const on=NUR_VIEW.sort===field; const ar=on?(dir===1?' ▲':' ▼'):''; return `<th onclick="nurSortBy('${field}')" style="text-align:left;padding:.4rem .6rem;font-size:.62rem;color:${on?'var(--gm)':'var(--tl)'};text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid var(--br);cursor:pointer;user-select:none${w?';width:'+w:''}">${t}${ar}</th>`; };
   const th=(t,w)=>`<th style="text-align:left;padding:.4rem .6rem;font-size:.62rem;color:var(--tl);text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid var(--br)${w?';width:'+w:''}">${t}</th>`;
-  const CAP=300; const shownP=plants.slice(0,CAP);
-  let _lastKind=null;
-  const rowsHtml=shownP.map(x=>{ const p=x.p; const sizes=Object.keys(x.sizes).sort((a,b)=>sizeRank(a)-sizeRank(b));
-    let headerRow='';
-    if(NUR_VIEW.sort==="category" && x.kind!==_lastKind){ _lastKind=x.kind; headerRow=`<tr><td colspan="6" style="padding:.55rem .6rem .3rem;font-size:.68rem;font-weight:700;color:var(--gm);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--br)">${PLANT_KIND_LABEL[x.kind]||x.kind}</td></tr>`; }
-    const nameCell = p? `<div style="font-weight:600;font-size:.82rem">${escAttr(p.c||'')}</div><div style="font-style:italic;font-size:.74rem;color:var(--tl)">${escAttr(botName(p))}</div>` : `<div style="font-size:.8rem;color:#9a6b1f">${escAttr(x.pid)} <span style="font-size:.68rem">(not in Plant Book)</span></div>`;
-    return headerRow + sizes.map((sz,i)=>{ const c=x.sizes[sz]; const yes=c.a==="yes"; const retailPH=(c.p!=null&&markup)?(c.p*(1+markup/100)).toFixed(2):'';
-      return `<tr style="border-bottom:1px solid #F0ECE3">
-        <td style="padding:.35rem .6rem;vertical-align:top">${i===0?nameCell+`<div style="margin-top:.25rem;display:flex;gap:.3rem"><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurAddSize('${nid}','${x.pid}')">+ size</button><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3" onclick="nurDelPlant('${nid}','${x.pid}')">remove</button></div>`:''}</td>
-        <td style="padding:.35rem .6rem;font-weight:600;font-size:.8rem">${sz}</td>
-        <td style="padding:.35rem .6rem"><button class="btn" onclick="nurToggleAvail('${nid}','${x.pid}','${sz}')" style="padding:.12rem .5rem;font-size:.72rem;border-radius:10px;${yes?'background:#EAF3EA;color:var(--gm);border:1px solid var(--gm)':'background:#FBF1E4;color:#9a6b1f;border:1px solid #E5D2AE'}">${yes?'✓ in stock':'◐ check'}</button></td>
-        <td style="padding:.35rem .6rem">$<input value="${c.p==null?'':c.p}" onchange="nurSetPrice('${nid}','${x.pid}','${sz}','p',this.value)" style="width:64px;font-size:.78rem;padding:.2rem .35rem;border:1px solid var(--br);border-radius:5px"></td>
-        <td style="padding:.35rem .6rem">$<input value="${c.r==null?'':c.r}" placeholder="${retailPH}" onchange="nurSetPrice('${nid}','${x.pid}','${sz}','r',this.value)" style="width:64px;font-size:.78rem;padding:.2rem .35rem;border:1px solid var(--br);border-radius:5px"></td>
-        <td style="padding:.35rem .6rem"><button class="btn" onclick="nurDelSize('${nid}','${x.pid}','${sz}')" title="Remove this size" style="padding:.06rem .4rem;font-size:.7rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3">✕</button></td>
-      </tr>`; }).join(''); }).join('');
+  const CAP=300;
+  const nameActionsCell=(x,first)=>{ const p=x.p; const nameCell = p? `<div style="font-weight:600;font-size:.82rem">${escAttr(p.c||'')}</div><div style="font-style:italic;font-size:.74rem;color:var(--tl)">${escAttr(botName(p))}</div>` : `<div style="font-size:.8rem;color:#9a6b1f">${escAttr(x.pid)} <span style="font-size:.68rem">(not in Plant Book)</span></div>`;
+    return `<td style="padding:.35rem .6rem;vertical-align:top">${first?nameCell+`<div style="margin-top:.25rem;display:flex;gap:.3rem"><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurAddSize('${nid}','${x.pid}')">+ size</button><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3" onclick="nurDelPlant('${nid}','${x.pid}')">remove</button></div>`:''}</td>`; };
+  const lineCells=(pid,sz,c)=>{ const yes=c.a==="yes"; const retailPH=(c.p!=null&&markup)?(c.p*(1+markup/100)).toFixed(2):'';
+    return `<td style="padding:.35rem .6rem;font-weight:600;font-size:.8rem">${sz}</td>
+        <td style="padding:.35rem .6rem"><button class="btn" onclick="nurToggleAvail('${nid}','${pid}','${sz}')" style="padding:.12rem .5rem;font-size:.72rem;border-radius:10px;${yes?'background:#EAF3EA;color:var(--gm);border:1px solid var(--gm)':'background:#FBF1E4;color:#9a6b1f;border:1px solid #E5D2AE'}">${yes?'✓ in stock':'◐ check'}</button></td>
+        <td style="padding:.35rem .6rem">$<input value="${c.p==null?'':c.p}" onchange="nurSetPrice('${nid}','${pid}','${sz}','p',this.value)" style="width:64px;font-size:.78rem;padding:.2rem .35rem;border:1px solid var(--br);border-radius:5px"></td>
+        <td style="padding:.35rem .6rem">$<input value="${c.r==null?'':c.r}" placeholder="${retailPH}" onchange="nurSetPrice('${nid}','${pid}','${sz}','r',this.value)" style="width:64px;font-size:.78rem;padding:.2rem .35rem;border:1px solid var(--br);border-radius:5px"></td>
+        <td style="padding:.35rem .6rem"><button class="btn" onclick="nurDelSize('${nid}','${pid}','${sz}')" title="Remove this size" style="padding:.06rem .4rem;font-size:.7rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3">✕</button></td>`; };
+  let rowsHtml='', totalShownOf=0;
+  if(GROUPED.has(NUR_VIEW.sort)){
+    const shownP=plants.slice(0,CAP); totalShownOf=plants.length;
+    let _lastKind=null;
+    rowsHtml=shownP.map(x=>{ const sizes=Object.keys(x.sizes).sort((a,b)=>sizeRank(a)-sizeRank(b));
+      let headerRow='';
+      if(NUR_VIEW.sort==="category" && x.kind!==_lastKind){ _lastKind=x.kind; headerRow=`<tr><td colspan="6" style="padding:.55rem .6rem .3rem;font-size:.68rem;font-weight:700;color:var(--gm);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--br)">${PLANT_KIND_LABEL[x.kind]||x.kind}</td></tr>`; }
+      return headerRow + sizes.map((sz,i)=>`<tr style="border-bottom:1px solid #F0ECE3">${nameActionsCell(x,i===0)}${lineCells(x.pid,sz,x.sizes[sz])}</tr>`).join(''); }).join('');
+  } else {
+    let flat=[]; plants.forEach(x=>Object.keys(x.sizes).forEach(sz=>flat.push({pid:x.pid,p:x.p,size:sz,cell:x.sizes[sz]})));
+    if(NUR_VIEW.sort==="size") flat.sort((a,b)=>dir*(sizeRank(a.size)-sizeRank(b.size)));
+    else if(NUR_VIEW.sort==="avail"){ const rk=c=>c.a==="yes"?0:1; flat.sort((a,b)=>dir*(rk(a.cell)-rk(b.cell))); }
+    else if(NUR_VIEW.sort==="wholesale") flat.sort((a,b)=>dir*((a.cell.p==null?Infinity:a.cell.p)-(b.cell.p==null?Infinity:b.cell.p)));
+    else if(NUR_VIEW.sort==="retail"){ const rv=c=>c.r!=null?c.r:(c.p!=null&&markup?c.p*(1+markup/100):null); flat.sort((a,b)=>dir*((rv(a.cell)==null?Infinity:rv(a.cell))-(rv(b.cell)==null?Infinity:rv(b.cell)))); }
+    totalShownOf=flat.length; const shownF=flat.slice(0,CAP);
+    rowsHtml=shownF.map(x=>`<tr style="border-bottom:1px solid #F0ECE3">${nameActionsCell(x,true)}${lineCells(x.pid,x.size,x.cell)}</tr>`).join('');
+  }
+  const cardsHtml=plants.map(x=>{ const p=x.p; const img=p&&p.img;
+    const sizeChips=Object.keys(x.sizes).sort((a,b)=>sizeRank(a)-sizeRank(b)).map(sz=>{ const c=x.sizes[sz]; return `<span style="font-size:.66rem;padding:.08rem .4rem;border-radius:8px;background:${c.a==="yes"?'#EAF3EA':'#FBF1E4'};color:${c.a==="yes"?'var(--gm)':'#9a6b1f'};margin:0 .2rem .2rem 0;display:inline-block">${sz} ${c.p!=null?'$'+c.p:''}</span>`; }).join('');
+    return `<div onclick="nurCardClick('${escAttr((p&&p.c)||x.pid).replace(/'/g,"\\'")}')" style="cursor:pointer;border:1px solid var(--br);border-radius:10px;overflow:hidden;background:#fff">
+      <div style="height:110px;${img?goodsShotStyle(p,img,'var(--surface2)'):'background:var(--surface2)'};display:flex;align-items:center;justify-content:center;color:var(--tl);font-size:1.4rem">${img?'':'🌱'}</div>
+      <div style="padding:.5rem .6rem">
+        <div style="font-weight:600;font-size:.82rem">${escAttr((p&&p.c)||x.pid)}</div>
+        <div style="font-style:italic;font-size:.72rem;color:var(--tl);margin-bottom:.35rem">${p?escAttr(botName(p)):'(not in Plant Book)'}</div>
+        <div>${sizeChips}</div>
+      </div>
+    </div>`; }).join('');
   host.innerHTML=`
     <div class="card" style="margin-bottom:1rem">
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
@@ -24327,15 +24364,21 @@ function renderNurseryManager(){
       <div style="display:flex;gap:.5rem;margin-bottom:.7rem">
         <input class="inp" placeholder="🔍 Filter this nursery's inventory…" value="${escAttr(NUR_VIEW.q)}" style="font-size:.85rem;flex:1" oninput="nurSearch(this.value)">
         <select onchange="nurSetSort(this.value)" style="font-size:.8rem;padding:.35rem .5rem;border:1px solid var(--br);border-radius:6px;background:#fff">
-          <option value="name" ${NUR_VIEW.sort!=="category"?'selected':''}>Sort: Plant name</option>
+          <option value="name" ${NUR_VIEW.sort==="name"?'selected':''}>Sort: Plant name</option>
           <option value="category" ${NUR_VIEW.sort==="category"?'selected':''}>Sort: Category</option>
         </select>
+        <div style="display:flex;border:1px solid var(--br);border-radius:6px;overflow:hidden">
+          <button class="btn" onclick="nurSetDisp('list')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${NUR_VIEW.disp!=='cards'?'background:var(--gm);color:#fff':'background:#fff;color:var(--gm)'}">☰ List</button>
+          <button class="btn" onclick="nurSetDisp('cards')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${NUR_VIEW.disp==='cards'?'background:var(--gm);color:#fff':'background:#fff;color:var(--gm)'}">▦ Cards</button>
+        </div>
       </div>
-      ${plants.length? `<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;min-width:620px">
-        <thead><tr>${th("Plant")}${th("Size")}${th("Availability")}${th("Wholesale ea")}${th("Retail ea")}${th("")}</tr></thead>
-        <tbody>${rowsHtml}</tbody></table></div>${plants.length>CAP?`<div style="font-size:.76rem;color:var(--tm);margin-top:.6rem">Showing first ${CAP} of ${plants.length} — use the filter to narrow.</div>`:''}
-        <div style="font-size:.68rem;color:var(--tl);margin-top:.6rem">Retail shows your typed price, or a grey preview computed from the markup %. Leave wholesale/retail blank if unknown.</div>`
-        : `<div style="font-size:.85rem;color:var(--tl);padding:1rem">No plants ${NUR_VIEW.q?'match your filter':'in this nursery yet'}. Use “+ Add plant” or import a price list.</div>`}
+      ${!plants.length? `<div style="font-size:.85rem;color:var(--tl);padding:1rem">No plants ${NUR_VIEW.q?'match your filter':'in this nursery yet'}. Use “+ Add plant” or import a price list.</div>`
+        : NUR_VIEW.disp==='cards'? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.7rem">${cardsHtml}</div>
+          <div style="font-size:.68rem;color:var(--tl);margin-top:.6rem">Click a card to jump to it in the list, where prices and availability are editable.</div>`
+        : `<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;min-width:620px">
+        <thead><tr>${thS("Plant","name")}${thS("Size","size")}${thS("Availability","avail")}${thS("Wholesale ea","wholesale")}${thS("Retail ea","retail")}${th("")}</tr></thead>
+        <tbody>${rowsHtml}</tbody></table></div>${totalShownOf>CAP?`<div style="font-size:.76rem;color:var(--tm);margin-top:.6rem">Showing first ${CAP} of ${totalShownOf} — use the filter to narrow.</div>`:''}
+        <div style="font-size:.68rem;color:var(--tl);margin-top:.6rem">Retail shows your typed price, or a grey preview computed from the markup %. Leave wholesale/retail blank if unknown.</div>`}
     </div>`;
 }
 // ── Plant Book, in the Price Book's frame ────────────────────────────────────
