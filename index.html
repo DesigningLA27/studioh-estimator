@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1179</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1180</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24180,7 +24180,7 @@ function _nurseryImportButtonsHTML(){
     +`<button class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurseryLinkImport()" title="Paste a link — a hosted PDF, or a page that lists live availability.">⊞ Import from link</button>`;
 }
 function nurseryTemplate(){ const csv="botanical,common,size,availability,price\n\"Salvia greggii 'Furmans Red'\",Autumn Sage,1G,Yes,7.50\n\"Salvia greggii 'Furmans Red'\",Autumn Sage,5G,Yes,18.00\nQuercus agrifolia,Coast Live Oak,15G,Check for production status,85.00\n\"Arctostaphylos 'Howard McMinn'\",Manzanita,5G,Yes,16.00\n"; const blob=new Blob([csv],{type:"text/csv"}); const u=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=u; a.download="studioh-nursery-template.csv"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),3000); }
-function removeNursery(id){ const n=nurseryById(id); if(!n) return; if(!confirm("Remove \u201C"+n.name+"\u201D and its availability/pricing? (Plants created from it stay.)")) return; NURSERY_DB.nurseries=NURSERY_DB.nurseries.filter(x=>x.id!==id); delete NURSERY_DB.stock[id]; nurserySave(); renderPlantBook(); }
+function removeNursery(id){ const n=nurseryById(id); if(!n) return; if(!confirm("Remove \u201C"+n.name+"\u201D and its availability/pricing? (Plants created from it stay.)")) return; NURSERY_DB.nurseries=NURSERY_DB.nurseries.filter(x=>x.id!==id); delete NURSERY_DB.stock[id]; if(NUR_VIEW.sel===id) NUR_VIEW.sel=null; nurserySave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("nursery-body")) renderNurseryManager(); }
 function nurseryExport(){ try{ const blob=new Blob([JSON.stringify(NURSERY_DB)],{type:"application/json"}); const u=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=u; a.download="nurseries-data.json"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),3000);}catch(e){alert("Export failed: "+e.message);} }
 function _csvCell(s){ s=(s==null?"":""+s); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
 function nurseryExportCsv(nid){ const n=nurseryById(nid); if(!n){ alert("Pick a nursery first."); return; } const st=NURSERY_DB.stock[nid]||{};
@@ -24228,10 +24228,11 @@ function nurseryPanel(){
   </div>`;
 }
 // ===== NURSERY INVENTORY MANAGER (top-level tab) =====
-let NUR_VIEW={sel:null,q:""};
+let NUR_VIEW={sel:null,q:"",sort:"name"};
 function plantAny(pid){ for(const k of ["shrub","tree","palm","gc"]){ const p=(PLANT_DB[k]||[]).find(x=>x.id===pid); if(p) return p; } return null; }
 function nurSel(id){ NUR_VIEW.sel=id; renderNurseryManager(); }
 function nurSearch(v){ NUR_VIEW.q=(v||"").toLowerCase(); renderNurseryManager(); }
+function nurSetSort(v){ NUR_VIEW.sort=v; renderNurseryManager(); }
 function nurSetMarkup(id,v){ const n=nurseryById(id); if(!n) return; const m=parseFloat(v); n.markup=isNaN(m)?undefined:m; nurserySave(); renderNurseryManager(); }
 function nurSetModel(id,v){ const n=nurseryById(id); if(!n) return; n.model=v||undefined; nurserySave(); renderNurseryManager(); }
 function nurSetCommPct(id,v){ const n=nurseryById(id); if(!n) return; const m=parseFloat(v); n.commPct=isNaN(m)?undefined:m; nurserySave(); renderNurseryManager(); }
@@ -24255,19 +24256,24 @@ function renderNurseryManager(){
   if(!NUR_VIEW.sel || !nurseryById(NUR_VIEW.sel)) NUR_VIEW.sel=ns[0].id;
   const nid=NUR_VIEW.sel, nur=nurseryById(nid), markup=nur.markup, st=NURSERY_DB.stock[nid]||{};
   const chips=ns.map(x=>{ const on=x.id===nid; const cnt=Object.keys(NURSERY_DB.stock[x.id]||{}).length; return `<button class="btn" onclick="nurSel('${x.id}')" style="padding:.3rem .75rem;font-size:.8rem;border-radius:12px;${on?'background:var(--gm);color:#fff;border:1px solid var(--gm)':'background:#fff;color:var(--gm);border:1px solid var(--gm)'}">${escAttr(x.name)} <span style="opacity:.7">${cnt}</span></button>`; }).join('');
-  let plants=Object.keys(st).map(pid=>({pid,p:plantAny(pid),sizes:st[pid]}));
+  let plants=Object.keys(st).map(pid=>{ const p=plantAny(pid); const kind=(p&&plantKindOf(pid))||(NURSERY_DB.plants&&NURSERY_DB.plants[pid]&&NURSERY_DB.plants[pid].k)||"shrub"; return {pid,p,sizes:st[pid],kind}; });
   const orphanCount=plants.filter(x=>!x.p).length;
   const withName=plants.filter(x=>!x.p && NURSERY_DB.plants && NURSERY_DB.plants[x.pid] && NURSERY_DB.plants[x.pid].b).length;
   const orphanBanner = orphanCount? `<div style="background:#FBF1E4;border:1px solid #E5C98A;border-radius:9px;padding:.6rem .8rem;margin-bottom:.8rem;font-size:.78rem;color:#7a5a16">
     <strong>⚠ ${orphanCount} plant${orphanCount>1?'s':''} here ${orphanCount>1?'aren\'t':'isn\'t'} linked to the Plant Book.</strong> ${withName?`<button class="btn" style="margin:0 .3rem;padding:.15rem .55rem;font-size:.72rem;background:var(--gm);color:#fff;border:none" onclick="syncNurseryToBook(true)">⟳ Fix ${withName} now</button>`:''}${orphanCount>withName?`<div style="margin-top:.3rem">${orphanCount-withName} ${orphanCount-withName>1?'were':'was'} imported by an older version that didn't save plant names, so they can't be auto-rebuilt. <strong>Re-import this nursery's CSV and choose “Replace”</strong> — the current importer links every plant to the book (verified: 0 left unlinked).</div>`:''}</div>`:'';
   if(NUR_VIEW.q) plants=plants.filter(x=>((x.p?botName(x.p)+" "+(x.p.c||""):x.pid)).toLowerCase().indexOf(NUR_VIEW.q)>=0);
-  plants.sort((a,b)=>((a.p&&a.p.c)||a.pid).localeCompare((b.p&&b.p.c)||b.pid));
+  const nameOf=x=>(x.p&&x.p.c)||x.pid;
+  if(NUR_VIEW.sort==="category") plants.sort((a,b)=>(PLANT_KINDS.indexOf(a.kind)-PLANT_KINDS.indexOf(b.kind))||nameOf(a).localeCompare(nameOf(b)));
+  else plants.sort((a,b)=>nameOf(a).localeCompare(nameOf(b)));
   const totalLines=plants.reduce((s,x)=>s+Object.keys(x.sizes).length,0);
   const th=(t,w)=>`<th style="text-align:left;padding:.4rem .6rem;font-size:.62rem;color:var(--tl);text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid var(--br)${w?';width:'+w:''}">${t}</th>`;
   const CAP=300; const shownP=plants.slice(0,CAP);
+  let _lastKind=null;
   const rowsHtml=shownP.map(x=>{ const p=x.p; const sizes=Object.keys(x.sizes).sort((a,b)=>sizeRank(a)-sizeRank(b));
+    let headerRow='';
+    if(NUR_VIEW.sort==="category" && x.kind!==_lastKind){ _lastKind=x.kind; headerRow=`<tr><td colspan="6" style="padding:.55rem .6rem .3rem;font-size:.68rem;font-weight:700;color:var(--gm);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--br)">${PLANT_KIND_LABEL[x.kind]||x.kind}</td></tr>`; }
     const nameCell = p? `<div style="font-weight:600;font-size:.82rem">${escAttr(p.c||'')}</div><div style="font-style:italic;font-size:.74rem;color:var(--tl)">${escAttr(botName(p))}</div>` : `<div style="font-size:.8rem;color:#9a6b1f">${escAttr(x.pid)} <span style="font-size:.68rem">(not in Plant Book)</span></div>`;
-    return sizes.map((sz,i)=>{ const c=x.sizes[sz]; const yes=c.a==="yes"; const retailPH=(c.p!=null&&markup)?(c.p*(1+markup/100)).toFixed(2):'';
+    return headerRow + sizes.map((sz,i)=>{ const c=x.sizes[sz]; const yes=c.a==="yes"; const retailPH=(c.p!=null&&markup)?(c.p*(1+markup/100)).toFixed(2):'';
       return `<tr style="border-bottom:1px solid #F0ECE3">
         <td style="padding:.35rem .6rem;vertical-align:top">${i===0?nameCell+`<div style="margin-top:.25rem;display:flex;gap:.3rem"><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="nurAddSize('${nid}','${x.pid}')">+ size</button><button class="btn" style="padding:.06rem .4rem;font-size:.64rem;background:transparent;color:#B23F3C;border:1px solid #E0C4C3" onclick="nurDelPlant('${nid}','${x.pid}')">remove</button></div>`:''}</td>
         <td style="padding:.35rem .6rem;font-weight:600;font-size:.8rem">${sz}</td>
@@ -24303,9 +24309,16 @@ function renderNurseryManager(){
         ${nur.model==='commission'?`<div><div style="font-size:.58rem;color:var(--tl);text-transform:uppercase;margin-bottom:.1rem">Commission %</div><input value="${nur.commPct==null?'':nur.commPct}" onchange="nurSetCommPct('${nid}',this.value)" placeholder="20" style="width:72px;font-size:.85rem;padding:.3rem .45rem;border:1px solid var(--br);border-radius:6px"></div>`:''}
         <div style="font-size:.74rem;color:var(--tl)">${Object.keys(st).length} plants · ${totalLines} size lines${nur.updated?' · imported '+_fmtDate(nur.updated):''}</div>
         <button class="btn" style="margin-left:auto;padding:.3rem .7rem;font-size:.78rem;background:var(--gm);color:#fff;border:none" onclick="nurAddPlant('${nid}')">+ Add plant</button>
+        <button class="btn" style="padding:.3rem .6rem;font-size:.78rem;background:#fff;color:#B23F3C;border:1px solid #E0C4C3" onclick="removeNursery('${nid}')">Delete nursery</button>
       </div>
       ${orphanBanner}
-      <input class="inp" placeholder="🔍 Filter this nursery's inventory…" value="${escAttr(NUR_VIEW.q)}" style="font-size:.85rem;margin-bottom:.7rem" oninput="nurSearch(this.value)">
+      <div style="display:flex;gap:.5rem;margin-bottom:.7rem">
+        <input class="inp" placeholder="🔍 Filter this nursery's inventory…" value="${escAttr(NUR_VIEW.q)}" style="font-size:.85rem;flex:1" oninput="nurSearch(this.value)">
+        <select onchange="nurSetSort(this.value)" style="font-size:.8rem;padding:.35rem .5rem;border:1px solid var(--br);border-radius:6px;background:#fff">
+          <option value="name" ${NUR_VIEW.sort!=="category"?'selected':''}>Sort: Plant name</option>
+          <option value="category" ${NUR_VIEW.sort==="category"?'selected':''}>Sort: Category</option>
+        </select>
+      </div>
       ${plants.length? `<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;min-width:620px">
         <thead><tr>${th("Plant")}${th("Size")}${th("Availability")}${th("Wholesale ea")}${th("Retail ea")}${th("")}</tr></thead>
         <tbody>${rowsHtml}</tbody></table></div>${plants.length>CAP?`<div style="font-size:.76rem;color:var(--tm);margin-top:.6rem">Showing first ${CAP} of ${plants.length} — use the filter to narrow.</div>`:''}
