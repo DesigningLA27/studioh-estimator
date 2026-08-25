@@ -5544,7 +5544,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1158</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1159</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12266,7 +12266,7 @@ async function goodsColourRow(book,x){
   return true;
 }
 async function goodsFillColours(book){
-  const arr=book==="materials"?MATERIALS:FURNISHINGS;
+  const arr=_goodsBookArr(book);
   const todo=arr.filter(x=>x&&goodsIsOurs(goodsImg(x))&&x.colsFrom!=="photo");
   const notOurs=arr.filter(x=>x&&goodsImg(x)&&!goodsIsOurs(goodsImg(x))).length;
   if(!todo.length){
@@ -12357,7 +12357,7 @@ async function goodsFindSales(book){
   try{
     const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(!ep){ alert("No worker connected."); return; }
-    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    const arr=_goodsBookArr(book);
     const hosts={};
     (arr||[]).forEach(x=>{ if(!x||!x.srcUrl) return; const h=_brandHost(x.srcUrl); if(h) (hosts[h]=hosts[h]||[]).push(x); });
     const keys=Object.keys(hosts);
@@ -13250,7 +13250,7 @@ async function goodsRenameBrand(book,cur){
 // Repair what is already in the book. Groups by domain so a site is resolved once,
 // not once per product.
 async function goodsFixBrands(book){
-  const arr = book==="materials" ? MATERIALS : FURNISHINGS;
+  const arr = _goodsBookArr(book);
   const hosts={};
   arr.forEach(x=>{ if(!x||!x.srcUrl) return; const h=_brandHost(x.srcUrl); if(h) (hosts[h]=hosts[h]||[]).push(x); });
   const keys=Object.keys(hosts);
@@ -13331,7 +13331,7 @@ function goodsThinCount(book){
   return (arr||[]).filter(x=>x&&x.srcUrl&&goodsThin(x)).length;
 }
 async function goodsDropThin(book){
-  const arr=book==="materials"?MATERIALS:FURNISHINGS;
+  const arr=_goodsBookArr(book);
   const thin=(arr||[]).filter(x=>x&&x.srcUrl&&goodsThin(x));
   if(!thin.length){ alert("Every imported item carries a specification."); return; }
   const names=thin.slice(0,4).map(x=>x.nm).join(", ");
@@ -16020,7 +16020,7 @@ async function _goodsAutoPrices(){
   }
 }
 async function goodsEstimateUnpriced(book){
-  const lib=book==="materials"?MATERIALS:FURNISHINGS;
+  const lib=_goodsBookArr(book);
   const todo=lib.filter(x=>!(x.msrp>0)).map(x=>x.id);
   if(!todo.length){ alert("Everything in this library already has a price."); return; }
   todo.forEach(id=>{ const x=lib.find(r=>r&&r.id===id); if(x) delete x.aiTried; });   // an explicit retry
@@ -16094,11 +16094,15 @@ ${list}`;
   return n;
 }
 async function goodsGroupTypes(){
-  // Whole library, matching every other action in this Tools menu — Furnishings and
-  // Products share one save, so "estimate prices" already doesn't stop at the page
-  // you happen to be on, and the badge count here would lie if this one did.
-  const todo=FURNISHINGS.filter(x=>x&&x.nm&&!x.subcat).map(x=>x.id);
-  if(!todo.length){ alert("Everything here already has a type."); return; }
+  // Scoped to the page on screen. This used to read the whole shared store — Products
+  // and Furnishings together — so pressing it on Products (138 items) opened "Group
+  // 248 items by type?", the sum of both pages. Grouping is fast and the button lives
+  // on both toolbars, so there is no reason for one page's action to reach into the
+  // other's rows; matching the visible count is what stops the dialog looking wrong.
+  const kind=GOODS_PAGE==="prod"?"prod":"fur";
+  const lib=kind==="prod"?_prodRows():_furRows();
+  const todo=lib.filter(x=>x&&x.nm&&!x.subcat).map(x=>x.id);
+  if(!todo.length){ await askTell("Nothing to group","Everything here already has a type.",{icon:"✓"}); return; }
   const a=await askDlg({icon:"◲",title:`Group ${todo.length} item${todo.length===1?"":"s"} by type?`,
     body:"AI reads each name and sorts it into a specific type — Path Light, Up Light, Wall Sconce, and so on — grouped by category. Nothing else on the item is touched.",
     actions:["Cancel",`Group ${todo.length}`]});
@@ -16112,7 +16116,7 @@ async function goodsGroupTypes(){
   }
   gwClose();
   goodsSaveQuiet("furnishings");
-  try{ goodsRepaint("fur"); }catch(e){}
+  try{ goodsRepaint(kind); }catch(e){}
   await askTell(n+" grouped",
     n?"Each is now filed under its type — see Type in the left rail.":"Nothing could be classified.",
     {icon:n?"✓":"!"});
@@ -16402,7 +16406,7 @@ async function goodsFillSpecs(book){
   try{
     const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(!ep){ alert("No worker connected."); return; }
-    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    const arr=_goodsBookArr(book);
     const need=x=>x&&x.nm&&(!x.csi||!x.loc||x.loc==="—");
     const todo=(arr||[]).filter(need);
     if(!todo.length){ alert("Every item already has a CSI section and a supplier location."); return; }
@@ -16459,7 +16463,7 @@ async function goodsFillMaterial(book){
   try{
     const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(!ep){ alert("No worker connected."); return; }
-    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    const arr=_goodsBookArr(book);
     const todo=(arr||[]).filter(x=>x&&x.nm&&!goodsMat(x));
     if(!todo.length){ alert("Everything already says what it is made of."); return; }
     { const a=await askDlg({icon:"◈",
@@ -16555,7 +16559,7 @@ async function goodsFillUse(book){
   try{
     const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(!ep){ alert("No worker connected."); return; }
-    const arr=book==="materials"?MATERIALS:FURNISHINGS;
+    const arr=_goodsBookArr(book);
     const todo=(arr||[]).filter(x=>x&&x.nm&&!goodsUse(x));
     if(!todo.length){ alert("Everything is already marked outdoor or indoor."); return; }
     { const a=await askDlg({icon:"☀",
@@ -17236,7 +17240,11 @@ function matRailHTML(){
 }
 // Everything you run occasionally, in one menu, grouped by what you are trying to do.
 function furToolsHTML(){
-  const lib=(typeof FURNISHINGS!=="undefined")?FURNISHINGS:[];
+  // Furnishings and Products share one array (FURNISHINGS), split only by category.
+  // Counting against the raw array here summed BOTH pages — 110 furnishings + 138
+  // products read as "248 ungrouped" while looking at 138 products. Every count in
+  // this menu has to come from the page actually on screen.
+  const lib=(GOODS_PAGE==="prod")?_prodRows():_furRows();
   const n=f=>{ try{ return lib.filter(f).length||""; }catch(e){ return ""; } };
   const noImg=n(x=>!(goodsImgs(x)||[]).length), unpriced=n(x=>!goodsPriced(x));
   const ungrouped=n(x=>!x.subcat);
@@ -19323,6 +19331,17 @@ function goodsLibOf(x){
    the same row and nothing has to be remembered at each call site. */
 function _furRows(){ return (FURNISHINGS||[]).filter(x=>x&&goodsLibOf(x)==="fur"); }
 function _prodRows(){ return (FURNISHINGS||[]).filter(x=>x&&goodsLibOf(x)==="prod"); }
+/* Furnishings and Products are one saved book ("furnishings") split into two pages by
+   category. Every Tools action that counts "how many need X" and shows that count in
+   a dialog has to scope to the page you are looking at, or the dialog talks about a
+   number you cannot see — "Group 248 items" while looking at 138 products, because
+   248 was furnishings-plus-products together. goodsRow/goodsDelete/goodsRenameBrand
+   and the sync layer still use the whole store on purpose; this is only for the
+   "sweep everything in front of you" actions. */
+function _goodsBookArr(book){
+  if(book==="materials") return MATERIALS;
+  return (GOODS_PAGE==="prod") ? _prodRows() : _furRows();
+}
 /* Which of the two pages is on screen. The renderer is shared; this is the only
    thing that differs between them. */
 let GOODS_PAGE="fur";
