@@ -5536,7 +5536,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1153</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1154</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -18101,9 +18101,18 @@ async function goodsSelDelete(kind){
   else FURNISHINGS=FURNISHINGS.filter(x=>ids.indexOf(x.id)<0);
   if(ids.indexOf(kind==="mat"?MAT_PICK:FUR_PICK)>=0){ if(kind==="mat") MAT_PICK=null; else FUR_PICK=null; }
   GOODS_SEL[kind]={}; GOODS_SELMODE[kind]=false;
-  try{ goodsSaveBook(book); }catch(e){}
+  try{ book==="materials"?matSave():furSave(); }catch(e){}
   try{ goodsRepaint(kind); }catch(e){}
-  try{ _toast(ids.length+" deleted","#B23F3C"); }catch(e){}
+  // A deliberate, just-confirmed deletion is exactly what force:true is for. Without
+  // it, deleting more than half of a shared library trips the server's own overwrite
+  // guard — the save is refused, and the client's stale-recovery path pulls the old
+  // (undeleted) copy straight back down, which looks like the delete never happened.
+  let ok=false;
+  try{ ok=await goodsPushNow(book,true); }catch(e){}
+  if(ok) try{ _toast(ids.length+" deleted","#B23F3C"); }catch(e){}
+  else await askTell("Removed here, but NOT on the server",
+    "The server refused: "+(_goodsLastErr[book]||"no reason given")
+    +"\n\nReloading would bring them back. Sort the save out first.",{icon:"!"});
 }
 /* One product, from the panel or the sheet. */
 async function goodsDeleteOne(kind,id){
@@ -19340,14 +19349,15 @@ function _furGrid(host){
   if(FUR_AI){ const rank={}; FUR_AI.ids.forEach((id,i)=>{rank[id]=i;});
     list=list.filter(f=>rank[f.id]!=null).sort((a,b)=>rank[a.id]-rank[b.id]); }
   else list=furSortList(list);
-  _GOODS_SHOWN=list.length; _GOODS_TOTAL=FURNISHINGS.length;
+  const pageRows=GOODS_PAGE==="prod"?_prodRows():_furRows();
+  _GOODS_SHOWN=list.length; _GOODS_TOTAL=pageRows.length;
   _GOODS_FIRST.fur=list.length?list[0].id:null;
   _GOODS_SHOWNIDS.fur=list.map(x=>x.id);
   const row=(icon,label,val)=>`<span class="fr">${mi(icon)}${label}<b>${val}</b></span>`;
   const catCount=c=>(GOODS_PAGE==="prod"?_prodRows():_furRows()).filter(f=>c==="All"||f.cat===c).length;
   host.innerHTML=`
-   <div class="mat-h"><span><b>Site Furnishings</b>
-     <small>${FURNISHINGS.length} products · ${new Set(FURNISHINGS.map(f=>f.sup)).size} suppliers · ${goodsModel()==="resale"?"resale model":goodsModel()==="fee"?"fee model":"commission model"}</small></span>
+   <div class="mat-h"><span><b>${GOODS_PAGE==="prod"?"Site Products":"Site Furnishings"}</b>
+     <small>${pageRows.length} products · ${new Set(pageRows.map(f=>f.sup)).size} suppliers · ${goodsModel()==="resale"?"resale model":goodsModel()==="fee"?"fee model":"commission model"}</small></span>
      <span class="sp">
        ${goodsSearchBarHTML({id:"fur-ai-in",q:FUR_AIQ,ai:FUR_AI,busy:FUR_AIBUSY,kind:"fur",
          ph:"Search your library, or the web…",onInput:"furQ",onAI:"furAIGo",onClear:"furAIClear"})}
