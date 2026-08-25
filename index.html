@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1185</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1186</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6281,6 +6281,7 @@ function algoRecalc(){
         </button>
         <div class="pbt-menu" id="pb-more-menu">
           <button type="button" onclick="pbCloseMore();configLoad(false)">Pull from the cloud</button>
+          <button type="button" onclick="pbCloseMore();cfgRestoreBackup()" title="If a sync conflict picked the server's copy over yours, this brings back what was on this device.">Restore this device's last backup</button>
           <button type="button" onclick="pbCloseMore();pbExportCsv()">Export CSV</button>
           <button type="button" onclick="pbCloseMore();document.getElementById('pb-import-file').click()">Import CSV</button>
           <button type="button" class="danger" onclick="pbCloseMore();pbResetConfirm()">Reset to defaults</button>
@@ -21730,10 +21731,13 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
-  if(!confirm("Publish your pricing (price book, nurseries, labor, markups) as the Studio H master?\nEvery designer will pull these.")) return;
+  const pick=await askDlg({title:"Publish your pricing?",
+    body:"This publishes your price book, nurseries, labor rates and markups as the Studio H master. Every designer's device will pull this.",
+    actions:["Cancel","Publish"]});
+  if(pick!==1) return;
   const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json();
-    if(d&&d.ok){ try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} _cfgMarkSynced(); alert("Pricing published to master ✓"); }
+    if(d&&d.ok){ try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} _cfgSaveSnapshot(); _cfgMarkSynced(); alert("Pricing published to master ✓"); }
     else if(d&&/authoriz/i.test(d.error||"")){ alert("Wrong admin key. Check it in Settings → Master library access, then try again."); }
     else alert("Publish failed: "+((d&&d.error)||"error"));
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
@@ -21784,7 +21788,10 @@ async function _cfgAutoPush(){
     const srvStamp=(sd&&sd.found&&sd.config&&sd.config.savedAt)||"";
     if(srvStamp && applied && srvStamp!==applied){
       _cfgPushBusy=false;
-      if(!_cfgConflictAsked){ _cfgConflictAsked=true; setTimeout(()=>_cfgResolve(),200); }
+      // Let configLoad's per-key diff decide -- most of the time the server moved on a
+      // DIFFERENT key than the one this device is dirty on, so it merges silently and
+      // this device's push resumes on its next 30s tick with nothing to ask about.
+      if(!_cfgConflictAsked) setTimeout(()=>configLoad(true),200);
       return;
     }
     const cfg={ savedAt:new Date().toISOString(), data:{} };
@@ -21815,54 +21822,111 @@ function _renderPbSync(){
 // Watch for local edits without having to touch all 16 save paths.
 setInterval(()=>{ _renderPbSync(); if(_cfgDirty()) _cfgSchedulePush(); }, 30*1000);
 document.addEventListener("visibilitychange",()=>{ if(document.hidden && _cfgDirty()) _cfgAutoPush(); });
-// Two copies of the pricing differ and neither side may quietly win, so the choice is
-// yours — but it is offered once and settled in one tap, rather than repeated on every
-// load with instructions to go and find two buttons.
+// ── Per-key sync snapshot ──────────────────────────────────────────────────
+// The old design compared ONE fingerprint across all ~22 keys, so editing anything —
+// even an unrelated pref on a device that never touched nurseries — made every OTHER
+// untouched key look "in conflict" too, surfacing a blocking two-sided dialog for what
+// was really a one-key, no-conflict pull. Each key is now diffed against its own
+// last-known-synced value: a change to just "studioh_nurseries_v1" pulls in silently;
+// nothing else is touched or asked about. A real conflict — the SAME key edited on both
+// sides since they last agreed — is now the only thing that prompts, and even then the
+// side you don't keep is backed up first, never just discarded.
+function _cfgSnapshot(){ try{ return JSON.parse(localStorage.getItem("studioh_cfg_snapshot")||"{}"); }catch(e){ return {}; } }
+function _cfgSaveSnapshot(){ const full={}; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) full[k]=v; }catch(e){} }); try{ localStorage.setItem("studioh_cfg_snapshot",JSON.stringify(full)); }catch(e){} }
+function _cfgBackupLocal(keys){
+  const data={}; keys.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) data[k]=v; }catch(e){} });
+  try{ localStorage.setItem("studioh_cfg_backup", JSON.stringify({savedAt:new Date().toISOString(), keys, data})); }catch(e){}
+}
+function cfgBackupInfo(){ try{ const b=JSON.parse(localStorage.getItem("studioh_cfg_backup")||"null"); return b?{savedAt:b.savedAt,keys:b.keys||Object.keys(b.data||{})}:null; }catch(e){ return null; } }
+function cfgRestoreBackup(){
+  let b=null; try{ b=JSON.parse(localStorage.getItem("studioh_cfg_backup")||"null"); }catch(e){}
+  if(!b||!b.data){ alert("No backup on this device."); return; }
+  askDlg({title:"Restore this device's earlier copy?",
+    body:"This puts back what "+(b.keys||Object.keys(b.data)).map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k)).join(", ")+" looked like on this device before you last chose the server's version, from "+new Date(b.savedAt).toLocaleString()+".",
+    actions:["Cancel","Restore"]}).then(i=>{ if(i!==1) return;
+    Object.keys(b.data).forEach(k=>{ try{ localStorage.setItem(k,b.data[k]); }catch(e){} });
+    _cfgSaveSnapshot(); _cfgMarkSynced();
+    location.reload();
+  });
+}
+function _cfgKeyLabel(k){ return (k||"").replace(/^studioh_/,"").replace(/_v\d+$/,"").replace(/_/g," "); }
+const CFG_KEY_LABEL={studioh_nurseries_v1:"Nurseries",studioh_pricebook_v5:"Price Book",studioh_labor_v1:"Labor rates",studioh_assemblies_v1:"Assemblies",studioh_favs_v1:"Favorites",studioh_water_v1:"Water pricing",studioh_settings_v1:"Settings"};
 let _cfgConflictAsked=false;
-async function _cfgResolve(){
-  const keep=confirm(
-    "Two copies of your pricing differ.\n\n"+
-    "The server has pricing this device has not seen, and this device has pricing the server has not seen.\n\n"+
-    "OK  — use the SERVER's pricing (discards this device's unsent pricing edits)\n"+
-    "Cancel — publish THIS DEVICE's pricing over the server's"
-  );
-  if(keep){
-    try{ localStorage.removeItem("studioh_cfg_fp"); }catch(e){}   // drop the dirty mark, then take theirs
-    await configLoad(false);
+async function _cfgResolveConflicts(keys,serverConfig,serverStamp){
+  const names=keys.map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k));
+  const i=await askDlg({title:"Pricing changed in two places",
+    body:(names.join(", "))+(names.length>1?" were":" was")+" edited on this device AND on another device since they last synced. Nothing is deleted either way — the copy you don't keep is backed up and restorable from Settings.",
+    actions:["Use the server's copy","Keep this device's copy"]});
+  if(i===0){
+    _cfgBackupLocal(keys);
+    keys.forEach(k=>{ const v=serverConfig.data[k]; if(v!=null){ try{ localStorage.setItem(k,v); }catch(e){} } });
+    try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
+    _cfgSaveSnapshot(); _cfgMarkSynced();
+    _toast("Using the server's copy — your version is backed up in Settings.","#4C7B3D");
+    setTimeout(()=>location.reload(),900);
   } else {
-    try{ await configPublish(); }catch(e){}
+    const ok=await _saveConfigSilent();
+    if(ok){ _cfgSaveSnapshot(); _cfgMarkSynced(); _toast("Kept this device's copy and published it.","#4C7B3D"); }
+    else _toast("Couldn't publish — try again from Settings.","#B23F3C");
   }
   try{ _renderPbSync(); }catch(e){}
 }
-async function configLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
-  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})}); const d=await r.json();
-    if(d&&d.found&&d.config&&d.config.data){ const serverStamp=d.config.savedAt||""; let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
-      if(serverStamp && serverStamp===applied && silent){ if(!_cfgSyncedFp()) _cfgMarkSynced(); return; } // already applied
-      // Never let a silent pull discard price edits this device has not pushed yet.
-      if(silent && _cfgDirty()){
-        if(_cfgConflictAsked) return;             // ask once per load, never nag
-        _cfgConflictAsked=true;
-        setTimeout(()=>_cfgResolve(),600);
+async function configLoad(silent){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})}); const d=await r.json();
+    if(!(d&&d.found&&d.config&&d.config.data)){ if(!silent) alert("No master pricing on the server yet. Publish it first."); return; }
+    const serverStamp=d.config.savedAt||""; let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
+    if(serverStamp && serverStamp===applied){ if(!_cfgSyncedFp()) _cfgMarkSynced(); return; } // already applied, nothing to do
+
+    const snap=_cfgSnapshot();
+    // A device with no snapshot yet has never synced — there is no baseline to diff
+    // against, so a local default (not a real edit) must never read as "changed" and
+    // trigger a conflict. Trust the server wholesale on a device's first-ever sync.
+    const freshDevice=!Object.keys(snap).length;
+    const toApply={}, conflicts=[];
+    SHARED_CFG_KEYS.forEach(k=>{
+      const srvVal=d.config.data[k]; let locVal=null; try{ locVal=localStorage.getItem(k); }catch(e){}
+      if(k==="studioh_favs_v1"){ // favorites always union — never a conflict, never a loss
+        let s=[],l=[]; try{ s=JSON.parse(srvVal||"[]"); }catch(e){} try{ l=JSON.parse(locVal||"[]"); }catch(e){}
+        toApply[k]=JSON.stringify(Array.from(new Set([].concat(Array.isArray(l)?l:[],Array.isArray(s)?s:[]))));
         return;
       }
-      Object.keys(d.config.data).forEach(k=>{ try{
-        if(k==="studioh_favs_v1"){ // favorites: UNION server + local so neither device loses a star
-          let srv=[]; try{ srv=JSON.parse(d.config.data[k]||"[]"); }catch(e){} let loc=[]; try{ loc=JSON.parse(localStorage.getItem(k)||"[]"); }catch(e){}
-          const uni=Array.from(new Set([].concat(Array.isArray(loc)?loc:[], Array.isArray(srv)?srv:[])));
-          localStorage.setItem(k, JSON.stringify(uni));
-        } else { localStorage.setItem(k,d.config.data[k]); }
-      }catch(e){} });
-      // An old server copy carries the pre-correction lighting prices. Fix them in
-      // place before the reload, so the corrected numbers are what actually load —
-      // and this device becomes dirty, so it pushes the correction back up.
-      try{ _lgtFixStoredPrices(); }catch(e){}
+      if(freshDevice){ if(srvVal!=null) toApply[k]=srvVal; return; }
+      const known=Object.prototype.hasOwnProperty.call(snap,k)?snap[k]:undefined;
+      const localChanged = known!==undefined ? (locVal!==known) : (locVal!=null);
+      const serverChanged = srvVal!==undefined && (known!==undefined ? (srvVal!==known) : true);
+      if(serverChanged && !localChanged){ if(srvVal!=null) toApply[k]=srvVal; }
+      else if(!serverChanged){ /* only local changed, or neither -- keep local as-is */ }
+      else conflicts.push(k);
+    });
+
+    if(conflicts.length){
+      if(silent){
+        if(_cfgConflictAsked) return;             // ask once per load, never nag
+        _cfgConflictAsked=true;
+        setTimeout(()=>_cfgResolveConflicts(conflicts,d.config,serverStamp),600);
+      } else await _cfgResolveConflicts(conflicts,d.config,serverStamp);
+      return;
+    }
+
+    if(!Object.keys(toApply).length){ // nothing actually differed -- just move the marker forward
       try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
-      _cfgMarkSynced();
-      if(silent){ // avoid reload loop: only reload once per session
-        let did=""; try{ did=sessionStorage.getItem("studioh_cfg_reloaded")||""; }catch(e){}
-        if(did!==serverStamp){ try{ sessionStorage.setItem("studioh_cfg_reloaded",serverStamp); }catch(e){} location.reload(); }
-      } else { alert("Pricing loaded from server. Reloading to apply."); location.reload(); }
-    } else if(!silent) alert("No master pricing on the server yet. Publish it first.");
+      _cfgSaveSnapshot(); _cfgMarkSynced();
+      return;
+    }
+
+    Object.keys(toApply).forEach(k=>{ try{ localStorage.setItem(k,toApply[k]); }catch(e){} });
+    // An old server copy carries the pre-correction lighting prices. Fix them in
+    // place before the reload, so the corrected numbers are what actually load —
+    // and this device becomes dirty, so it pushes the correction back up.
+    try{ _lgtFixStoredPrices(); }catch(e){}
+    try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
+    _cfgSaveSnapshot(); _cfgMarkSynced();
+    if(silent){ // avoid reload loop: only reload once per session
+      let did=""; try{ did=sessionStorage.getItem("studioh_cfg_reloaded")||""; }catch(e){}
+      if(did!==serverStamp){ try{ sessionStorage.setItem("studioh_cfg_reloaded",serverStamp); }catch(e){} location.reload(); }
+    } else { alert("Pricing updated from the server."); location.reload(); }
   }catch(e){ if(!silent) alert("Couldn't reach the server."); }
 }
 setTimeout(()=>{ try{ configLoad(true); }catch(e){} }, 1200);
