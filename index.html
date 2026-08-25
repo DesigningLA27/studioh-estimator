@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1187</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1188</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24548,15 +24548,15 @@ function _mbPalette(plants,goods){
   return out.slice(0,10);
 }
 const MB_KIND_LABEL={plants:"Plant",materials:"Material",furnishings:"Furnishing",products:"Product"};
-// Plants use the same drag-to-pan + zoom-button photo the Planting Palette report uses
-// (imgZoom/imgPanX/imgPanY on the shared plant record — set it here, it's set everywhere).
+// Both kinds are click-to-frame now, no floating buttons on a small tile — a −/+ pair
+// anchored to a tile this size had nowhere to sit that didn't collide with something else.
+// Plants open a dedicated modal (imgZoom/imgPanX/imgPanY on the shared plant record — set
+// it here, it's set everywhere the photo appears, same as the Planting Palette report).
 // Goods reuse the existing click-to-frame modal already shipped for Materials/Furnishings.
 function _mbPhotoInner(x){
   if(x.kind==="plants"){
-    return `<div class="mb-imgwrap" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;inset:0;overflow:hidden;background:var(--surface2);cursor:grab;touch-action:none">
-      <img data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" src="${escAttr(x.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;${_imgXform(x.obj)}">
-      <button class="mb-adjbtn" data-dz="-0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:32px;left:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">−</button>
-      <button class="mb-adjbtn" data-dz="0.15" data-pk="${x.kind0}" data-pi="${escAttr(x.pid)}" style="position:absolute;top:32px;right:5px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">+</button>
+    return `<div style="position:absolute;inset:0;overflow:hidden;background:var(--surface2);cursor:zoom-in" title="Click to zoom &amp; pan" onclick="mbFrameOpen(event,'${x.kind0}','${escAttr(x.pid)}')">
+      <img src="${escAttr(x.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;pointer-events:none;${_imgXform(x.obj)}">
     </div>`;
   }
   return `<div style="position:absolute;inset:0;${goodsShotStyle(x.obj,x.img,"var(--surface2)")};cursor:zoom-in" title="Click to zoom &amp; pan" onclick="goodsFrameOpen(event,'${x.book}','${escAttr(x.pid)}','${escAttr(x.img)}')"></div>`;
@@ -24579,24 +24579,81 @@ function _mbTile(x,mode){
     </div>
   </div>`;
 }
-// Drag-to-pan + the −/+ zoom buttons, mirroring _plAttachImgAdjust exactly (same fields,
-// same debounce-save) so a photo framed here matches everywhere else it appears.
-function _mbAttachImgAdjust(){
-  const body=document.getElementById("mb-body"); if(!body) return;
-  body.querySelectorAll(".mb-adjbtn").forEach(b=>{
-    b.addEventListener("pointerdown",e=>e.stopPropagation());
-    b.onclick=e=>{ e.stopPropagation(); const kind=b.getAttribute("data-pk"), pid=b.getAttribute("data-pi"); const p=plantDbFind(kind,pid); if(!p) return;
-      p.imgZoom=Math.round(Math.max(0.4,Math.min(3,(+p.imgZoom||1)+(+b.getAttribute("data-dz"))))*100)/100;
-      _applyImgXformAll(kind,pid,p); _plImgSave(); };
-  });
-  body.querySelectorAll(".mb-imgwrap[data-pk]").forEach(wrap=>{
-    const kind=wrap.getAttribute("data-pk"), pid=wrap.getAttribute("data-pi"); const getP=()=>plantDbFind(kind,pid);
-    let drag=false,sx=0,sy=0,px=0,py=0;
-    wrap.addEventListener("pointerdown",e=>{ if(e.target.classList.contains("mb-adjbtn")) return; const p=getP(); if(!p) return; drag=true; sx=e.clientX; sy=e.clientY; px=+p.imgPanX||0; py=+p.imgPanY||0; try{ wrap.setPointerCapture(e.pointerId); }catch(_){} wrap.style.cursor="grabbing"; e.preventDefault(); });
-    wrap.addEventListener("pointermove",e=>{ if(!drag) return; const p=getP(); if(!p) return; const w=wrap.clientWidth||160,h=wrap.clientHeight||w; p.imgPanX=Math.max(-120,Math.min(120,px+(e.clientX-sx)/w*100)); p.imgPanY=Math.max(-120,Math.min(120,py+(e.clientY-sy)/h*100)); _applyImgXformAll(kind,pid,p); });
-    const end=()=>{ if(!drag) return; drag=false; wrap.style.cursor="grab"; _plImgSave(); };
-    wrap.addEventListener("pointerup",end); wrap.addEventListener("pointercancel",end);
-  });
+// Plant photo framing modal — same shell as goodsFrameOpen's (.gfrw/.gfrc/.gfrz/.askb,
+// already styled and shipped for Materials/Furnishings) so it looks like one feature, not
+// two. Writes imgZoom/imgPanX/imgPanY on the shared plant record, same fields the Planting
+// Palette report reads, so framing set from either place shows in both.
+let _mbFrame={kind:null,pid:null,z:1,x:0,y:0,drag:null};
+function mbFrameOpen(ev,kind,pid){
+  if(ev) ev.stopPropagation();
+  const p=plantDbFind(kind,pid); if(!p) return;
+  _mbFrame={kind,pid,z:+p.imgZoom||1,x:+p.imgPanX||0,y:+p.imgPanY||0,drag:null};
+  let h=document.getElementById("mbfr"); if(!h){ h=document.createElement("div"); h.id="mbfr"; h.className="gfrw";
+    h.addEventListener("click",e=>{ if(e.target===h) mbFrameClose(); });
+    document.body.appendChild(h); }
+  _mbFrameRender(); requestAnimationFrame(()=>h.classList.add("on"));
+}
+function mbFrameClose(){ const h=document.getElementById("mbfr"); if(h){ h.classList.remove("on"); setTimeout(()=>{ try{ h.remove(); }catch(e){} },160); } }
+function _mbFrameRender(){
+  const h=document.getElementById("mbfr"); if(!h) return;
+  const p=plantDbFind(_mbFrame.kind,_mbFrame.pid); if(!p){ mbFrameClose(); return; }
+  h.innerHTML=`<div class="gfrc" onclick="event.stopPropagation()">
+    <div class="gfrt">Frame this photo</div>
+    <div class="gfrh">Drag to move it. Zoom in to crop. This is how it appears on the Mood Board and the Planting Palette report.</div>
+    <div id="mbfr-img" class="gfri" style="position:relative;overflow:hidden;background:var(--surface2)"
+      onmousedown="_mbFrameDown(event)" ontouchstart="_mbFrameDown(event)">
+      <img id="mbfr-photo" src="${escAttr(p.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;pointer-events:none;${_imgXform({imgZoom:_mbFrame.z,imgPanX:_mbFrame.x,imgPanY:_mbFrame.y})}">
+    </div>
+    <div class="gfrz">
+      <span>Zoom</span>
+      <input id="mbfr-zr" type="range" min="40" max="300" step="1" value="${Math.round(_mbFrame.z*100)}"
+        oninput="mbFrameSet('z',this.value)">
+      <b id="mbfr-z">${Math.round(_mbFrame.z*100)}%</b>
+    </div>
+    <div class="askb">
+      <button class="c" onclick="mbFrameReset()">Reset</button>
+      <button class="c" onclick="mbFrameClose()">Cancel</button>
+      <button class="o" onclick="mbFrameSave()">Save framing</button>
+    </div></div>`;
+}
+function mbFrameSet(k,v){ _mbFrame[k]= k==='z' ? (+v)/100 : +v; _mbFrameApply(); }
+function _mbFrameApply(){
+  const img=document.getElementById("mbfr-photo"); if(!img) return;
+  img.style.transform=`translate(-50%,-50%) translate(${_mbFrame.x}%,${_mbFrame.y}%) scale(${_mbFrame.z})`;
+  const z=document.getElementById("mbfr-z"); if(z) z.textContent=Math.round(_mbFrame.z*100)+"%";
+  const zr=document.getElementById("mbfr-zr"); if(zr) zr.value=Math.round(_mbFrame.z*100);
+}
+function mbFrameReset(){ _mbFrame.z=1; _mbFrame.x=0; _mbFrame.y=0; _mbFrameApply(); }
+function _mbFrameDown(ev){
+  const p=ev.touches?ev.touches[0]:ev;
+  _mbFrame.drag={sx:p.clientX,sy:p.clientY,x:_mbFrame.x,y:_mbFrame.y};
+  ev.preventDefault();
+}
+function _mbFrameMove(ev){
+  if(!_mbFrame.drag) return;
+  const p=ev.touches?ev.touches[0]:ev;
+  const el=document.getElementById("mbfr-img"); if(!el) return;
+  const w=el.clientWidth||160,h=el.clientHeight||w;
+  const over=Math.max(1,_mbFrame.z);
+  _mbFrame.x=Math.max(-120,Math.min(120,_mbFrame.drag.x-(p.clientX-_mbFrame.drag.sx)/w*100/over));
+  _mbFrame.y=Math.max(-120,Math.min(120,_mbFrame.drag.y-(p.clientY-_mbFrame.drag.sy)/h*100/over));
+  _mbFrameApply(); if(ev.cancelable) ev.preventDefault();
+}
+function _mbFrameUp(){ _mbFrame.drag=null; }
+try{
+  document.addEventListener("mousemove",_mbFrameMove);
+  document.addEventListener("mouseup",_mbFrameUp);
+  document.addEventListener("touchmove",_mbFrameMove,{passive:false});
+  document.addEventListener("touchend",_mbFrameUp);
+}catch(e){}
+function mbFrameSave(){
+  const p=plantDbFind(_mbFrame.kind,_mbFrame.pid); if(!p) return mbFrameClose();
+  if(_mbFrame.z===1 && _mbFrame.x===0 && _mbFrame.y===0){ delete p.imgZoom; delete p.imgPanX; delete p.imgPanY; }
+  else { p.imgZoom=Math.round(_mbFrame.z*100)/100; p.imgPanX=Math.round(_mbFrame.x); p.imgPanY=Math.round(_mbFrame.y); }
+  _applyImgXformAll(_mbFrame.kind,_mbFrame.pid,p);
+  _plImgSave();
+  mbFrameClose();
+  try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){}
 }
 function renderMoodBoard(){
   const host=document.getElementById("mb-body"); if(!host) return;
@@ -24660,9 +24717,8 @@ function renderMoodBoard(){
         </div>
       </div>
       ${items.length?boardHtml:`<div style="font-size:.85rem;color:var(--tl);padding:1rem">Nothing in this category yet.</div>`}
-      <div style="font-size:.68rem;color:var(--tl);margin-top:.7rem">Drag a plant photo to reposition, or use −/+ to zoom. Click a material/furnishing/product photo to zoom &amp; pan.</div>
+      <div style="font-size:.68rem;color:var(--tl);margin-top:.7rem">Click any photo to zoom &amp; pan.</div>
     </div>`;
-  _mbAttachImgAdjust();
 }
 // ── Plant Book, in the Price Book's frame ────────────────────────────────────
 // Tree on the left, list in the middle, inspector on the right — same cards, same pill rows,
