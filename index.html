@@ -5548,7 +5548,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1166</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1167</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -11962,6 +11962,26 @@ async function goodsRehostLater(book,id){
 // leave every other field alone.
 let _gimgStop=false;
 function goodsFetchImagesStop(){ _gimgStop=true; }
+// A page can genuinely be about one product and still carry a photo of five others —
+// a "goes well with" strip, a related-products rail. Ask Claude to look rather than
+// trust every image a page happens to serve. A failed check (network, no proxy) does
+// NOT block the photo — this only ever narrows what a page already offered, it must
+// never turn a working lookup into a dead one just because the check itself broke.
+async function goodsImgMatches(imgUrl,productName){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return true;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:10,
+        messages:[{role:"user",content:[
+          {type:"image",source:{type:"url",url:imgUrl}},
+          {type:"text",text:"Does this photograph show \""+productName+"\", or a different product entirely? Answer with exactly one word: YES or NO."}
+        ]}]})});
+    const d=await r.json();
+    const txt=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"").trim().toUpperCase();
+    return txt.indexOf("NO")!==0;
+  }catch(e){ return true; }
+}
 /* ── A BETTER PHOTO THAN THE CATALOGUE HAD ────────────────────────────────────
    A page tile is only as good as the file it was placed at. FX draw some fixtures
    at about a hundred pixels, and cropping that at 900 upscales rather than sharpens.
@@ -11997,11 +12017,22 @@ Nothing but the URLs. If you cannot find that exact product, say NONE.`}]})});
   if(!urls.length) return false;
   // Try the pages in order until one yields a real photograph.
   for(let i=0;i<Math.min(urls.length,4);i++){
+    // A category or search-results page has no single product on it — the same guard
+    // _docImport and goodsFetchImages already use, just missing here, which is how
+    // one wrong lookup ended up mixing five different fixtures into one item's photos.
+    if(_goodsIsListUrl(urls[i])) continue;
     let sc=null;
     try{ sc=await goodsScrape(urls[i]); }catch(e){}
     if(!sc||sc.err) continue;
     let imgs=[];
     try{ imgs=await goodsVerifyImgs(goodsBestImages(_goodsAllImages(sc),6)); }catch(e){}
+    if(!imgs.length) continue;
+    // Even a genuine product page can carry "related products" thumbnails, which is
+    // its own way of handing back the wrong photo. Ask before trusting any of them.
+    try{
+      const flags=await Promise.all(imgs.map(u=>goodsImgMatches(u,q)));
+      imgs=imgs.filter((u,k)=>flags[k]);
+    }catch(e){}
     if(!imgs.length) continue;
     row.imgs=imgs; row.img=imgs[0];
     row.srcUrl=(row.srcUrl&&!/\.pdf(\?|$)/i.test(row.srcUrl)) ? row.srcUrl : (sc.url||urls[i]);
