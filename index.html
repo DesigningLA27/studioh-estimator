@@ -2562,6 +2562,9 @@ body:not(.sp-on) #sp-open{display:grid}
 .pbk-tr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pbk-tr .n{font:700 11.5px ui-monospace,Menlo,monospace;background:var(--surface2);border-radius:8px;
   padding:2px 7px;color:var(--tl)}
+/* Always visible, not hover-revealed — the iPad this runs on has no hover. */
+.pbk-tr .gt-ren{flex:none;font-size:12px;opacity:.45;padding:2px 5px;border-radius:6px;color:var(--tl)}
+.pbk-tr .gt-ren:hover,.pbk-tr .gt-ren:active{opacity:1;background:var(--surface2);color:var(--gm)}
 .pbk-tr.on .n{background:rgba(255,255,255,.6);color:var(--gm)}
 :root[data-theme="dark"] .pbk-tr.on .n{background:rgba(0,0,0,.25)}
 .pbk-ph{display:block;width:100%;height:126px;border-radius:12px;object-fit:cover;
@@ -3025,6 +3028,9 @@ body.tray-on .lib .pbk-list{padding-bottom:84px}
 .gl-info{padding:24px 26px 22px;overflow-y:auto;min-height:0}
 .gl-eb{font:700 10.5px ui-monospace,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:var(--tl)}
 .gl-info h3{font-size:26px;font-weight:750;letter-spacing:-.024em;margin:8px 0 3px;line-height:1.15}
+.gl-h3ren{cursor:pointer}
+.gl-h3ren i{font-style:normal;font-size:14px;opacity:.4;margin-left:6px;vertical-align:2px}
+.gl-h3ren:hover i{opacity:.9;color:var(--gm)}
 .gl-sub{font-size:13.5px;color:var(--tm)}
 .gl-tabs{display:flex;gap:4px;margin:20px 0 18px;background:var(--surface2);border-radius:12px;padding:4px;
   flex-wrap:wrap}
@@ -4721,7 +4727,11 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   flex-direction:column;gap:3px;align-items:center}
 .wtime b{font-size:26px;font-weight:800;color:var(--tx);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .wtime span{font-size:11.5px;color:var(--tl)}
-.askw{position:fixed;inset:0;z-index:420;background:rgba(10,13,18,.62);display:grid;place-items:center;
+/* A prompt is a true modal — nothing should ever paint over it. It used to sit at
+   420, which is well under the goods lightbox (9000) and several other overlays, so
+   a rename or Add photo triggered from inside one of those opened a dialog that was
+   there, focused, and completely invisible behind the thing it was opened from. */
+.askw{position:fixed;inset:0;z-index:900000;background:rgba(10,13,18,.62);display:grid;place-items:center;
   padding:20px;opacity:0;transition:opacity .16s;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
 .askw.on{opacity:1}
 .askc{width:min(430px,100%);background:var(--card);border:1px solid var(--br);border-radius:16px;
@@ -5536,7 +5546,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1155</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1156</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -13183,6 +13193,37 @@ async function _goodsAutoBrands(){
 // Whatever a site publishes about itself, you know the name the industry uses. Typing
 // it here sets it on every item that carries the old name and marks it yours, so the
 // background pass leaves it alone from then on.
+// Same rule as the brand rename below: it changes the label on every item that
+// carries it right now, not a rule that applies forward.
+async function goodsRenameTitle(kind,id){
+  const book=kind==="mat"?"materials":"furnishings";
+  const x=goodsRow(book,id); if(!x) return;
+  const v=await appAsk({title:"Product name",
+    hint:"What this shows as everywhere — cards, the spec sheet, reports.",
+    value:x.nm||"", placeholder:"e.g. 180 Collection Lounge Chair", ok:"Rename"});
+  if(v===null) return;
+  const to=String(v).trim(); if(!to||to===x.nm) return;
+  x.nm=to;
+  goodsSaveBook(book);
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ _goodsLbxPaint(); }catch(e){}
+}
+async function goodsRenameCategory(kind,cur){
+  const from=String(cur||"").trim(); if(!from) return;
+  const v=await appAsk({title:"Category name",
+    hint:"Renames it on every item carrying it now — both Furnishings and Products, since they share one library.",
+    value:from, placeholder:"e.g. Path Lights", ok:"Rename"});
+  if(v===null) return;
+  const to=String(v).trim(); if(!to||to===from) return;
+  const book=kind==="mat"?"materials":"furnishings";
+  const arr=kind==="mat"?MATERIALS:FURNISHINGS;
+  let n=0;
+  arr.forEach(x=>{ if(x&&x.cat===from){ x.cat=to; n++; } });
+  if(!n) return;
+  goodsSaveBook(book);
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ _toast(n+" item"+(n===1?"":"s")+" moved to \""+to+"\"","#4C7B3D"); }catch(e){}
+}
 async function goodsRenameBrand(book,cur){
   const arr=book==="materials"?MATERIALS:FURNISHINGS;
   const from=String(cur||"").trim();
@@ -13642,6 +13683,44 @@ async function goodsAddFile(input,book,id,slot){
   goodsSaveQuiet(book);
   try{ goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
   try{ _toast(f.name+" attached","#4C7B3D"); }catch(e){}
+}
+// A photo the search didn't find, or one you already have — same rule as every
+// other imported image: the link is stored the moment it's given, shown right away,
+// then quietly upgraded to our own R2 copy so it never depends on someone else's server.
+async function goodsAddPhotoURL(kind,id){
+  const book=kind==="mat"?"materials":"furnishings";
+  const x=goodsRow(book,id); if(!x) return;
+  const v=await appAsk({title:"Add a photo from a link",
+    hint:"Paste a direct image URL. It's copied to your own server in the background.",
+    value:"", placeholder:"https://…jpg", ok:"Add photo"});
+  if(!v||!v.trim()) return;
+  const url=v.trim();
+  x.img=url; x.imgs=[url].concat((Array.isArray(x.imgs)?x.imgs:[]).filter(u=>u&&u!==url));
+  x.imgFrom="manual"; _gVerified[x.id]=1;
+  goodsSaveQuiet(book);
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ _goodsLbxPaint(); }catch(e){}
+  try{ _toast("Photo added","#4C7B3D"); }catch(e){}
+  try{ goodsRehostLater(book,id); }catch(e){}
+}
+async function goodsAddPhotoFile(input,kind,id){
+  const f=input&&input.files&&input.files[0]; if(input) input.value="";
+  if(!f) return;
+  const book=kind==="mat"?"materials":"furnishings";
+  const x=goodsRow(book,id); if(!x) return;
+  if(f.size>6*1024*1024){ alert("That file is "+(f.size/1048576).toFixed(1)+" MB. Keep it under 6 MB."); return; }
+  try{ _toast("Saving "+f.name+"…","#6A4FA3"); }catch(e){}
+  const data=await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(""); r.readAsDataURL(f); });
+  if(!data){ alert("Couldn't read that file."); return; }
+  let url="";
+  try{ const up=await _uploadImageR2("img_"+id+"_"+Date.now().toString(36), data); if(up.ok&&up.url) url=up.url; }catch(e){}
+  if(!url){ alert("Couldn't store that photo. Check your admin key in Settings."); return; }
+  x.img=url; x.imgs=[url].concat((Array.isArray(x.imgs)?x.imgs:[]).filter(u=>u&&u!==url));
+  x.imgFrom="manual"; _gVerified[x.id]=1;
+  goodsSaveQuiet(book);
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ _goodsLbxPaint(); }catch(e){}
+  try{ _toast("Photo added","#4C7B3D"); }catch(e){}
 }
 async function goodsEditCSI(book,id){
   const x=goodsRow(book,id); if(!x) return;
@@ -17517,9 +17596,10 @@ function _goodsTree(kind){
       +(facet?'<button class="gt-ord" title="Order and promote" onclick="_gtOrdOpen(\''+kindF+'\',\''+facet+'\')">'+esc(_gtOrdMode(kindF,facet)==="count"?"⇅":_gtOrdMode(kindF,facet)==="az"?"A–Z":"★")+'</button>':'')
       +'</div>';
   };
-  const row=(on,act,lab,n,dot,promo)=>{ h+='<button class="pbk-tr'+(on?' on':'')+'" onclick="'+act+'">'
+  const row=(on,act,lab,n,dot,promo,renameAct)=>{ h+='<button class="pbk-tr'+(on?' on':'')+'" onclick="'+act+'">'
     +'<span class="dot" style="background:'+dot+'"></span>'
     +'<span class="nm">'+esc(lab)+(promo?'<i class="gt-promo">PROMOTED</i>':'')+'</span>'
+    +(renameAct?'<span class="gt-ren" title="Rename" onclick="event.stopPropagation();'+renameAct+'">✎</span>':'')
     +(n==null?'':'<span class="n">'+n+'</span>')+'</button>'; };
 
   /* One section, one rule. */
@@ -17538,14 +17618,15 @@ function _goodsTree(kind){
     const shown=(open||qs)?pool:pool.slice(0,room);
     const hidden=pool.length-shown.length;
 
+    const renamer=n=>facet==="cat"?("goodsRenameCategory('"+kind+"','"+q(n)+"')"):null;
     sec(title,kind,facet);
     if(chosen.length){
-      chosen.forEach(n=>row(true,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n)));
+      chosen.forEach(n=>row(true,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n)));
       if(rest.length) h+='<div class="gt-cut"></div>';
     }
     if(big) h+='<div class="gt-find"><input id="gtq-'+kind+'-'+facet+'" type="search" value="'+esc(GOODS_FQ[key]||"")
       +'" placeholder="Filter '+names.length+'" oninput="goodsFacetQ(\''+kind+'\',\''+facet+'\',this.value)"></div>';
-    shown.forEach(n=>row(false,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n)));
+    shown.forEach(n=>row(false,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n)));
     if(qs && !shown.length) h+='<div class="gt-none">Nothing matches “'+esc(GOODS_FQ[key])+'”</div>';
     if(!qs && hidden>0)
       h+='<button class="gt-more" onclick="goodsFacetMore(\''+kind+'\',\''+facet+'\')">'
@@ -18599,7 +18680,7 @@ function _goodsLbxHTML(kind,x){
      +'</div>'
      +'<div class="gl-info">'
        +'<div class="gl-eb">'+esc(x.brand||x.sup||"")+'</div>'
-       +'<h3>'+esc(x.nm||"")+'</h3>'
+       +'<h3 class="gl-h3ren" onclick="goodsRenameTitle(\''+kind+'\',\''+x.id+'\')" title="Rename">'+esc(x.nm||"")+'<i>✎</i></h3>'
        +'<div class="gl-sub">'+esc([x.loc,x.dist!=null?(x.dist+" mi"):"",
             (!_gBlank(x.fin)?x.fin:"")].filter(Boolean).join(" · "))+'</div>'
        +'<div class="gl-tabs">'+live.map(t=>'<button class="'+(GL_TAB===t[0]?"on":"")
@@ -18622,6 +18703,8 @@ function _goodsLbxHTML(kind,x){
      +'<span class="gl-qty"><button onclick="goodsLbxQty(-1)">−</button><span>'
         +qty+(kind==="mat"?" sf":"")+'</span><button onclick="goodsLbxQty(1)">+</button></span>'
      +(_gSrc(x)?'<button class="gl-btn" onclick="goodsFetchImages(\''+(kind==="mat"?"materials":"furnishings")+'\',\''+x.id+'\')">Find images</button>':'')
+     +'<button class="gl-btn" onclick="goodsAddPhotoURL(\''+kind+'\',\''+x.id+'\')">+ Photo link</button>'
+     +'<label class="gl-btn" style="cursor:pointer">+ Upload<input type="file" accept="image/*" hidden onchange="goodsAddPhotoFile(this,\''+kind+'\',\''+x.id+'\')"></label>'
      +(_gSrc(x)?'<a class="gl-btn" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener">Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>':'')
      +'<button class="gl-btn" onclick="goodsLbxClose();'+(kind==="mat"?"matOpen":"furOpen")+'(\''+x.id+'\')">Documents · Where used</button>'
      +'<button class="gl-btn del" onclick="goodsDeleteOne(\''+kind+'\',\''+x.id+'\')">Delete</button>'
