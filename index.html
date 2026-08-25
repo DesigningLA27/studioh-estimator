@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1194</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1195</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6559,7 +6559,7 @@ function _phaseCats(){
 function setProjBudget(v){
   const n=Math.max(0, Math.round(+String(v).replace(/[^0-9.]/g,"")||0));
   if(n) S.budget=n; else delete S.budget;
-  try{ saveLocal&&saveLocal(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){}
   try{ renderProSummary(); }catch(e){}
 }
 function askProjBudget(){
@@ -24498,7 +24498,7 @@ function piToggleStyle(key){
   const i=S.pi.style.indexOf(key);
   if(i>=0) S.pi.style.splice(i,1);
   else { S.pi.style.push(key); if(S.pi.style.length>2) S.pi.style.shift(); }
-  try{ saveLocal&&saveLocal(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){}
   _piRenderStyle();
 }
 function _piRenderStyle(){
@@ -24555,7 +24555,7 @@ function _mbInsightPicks(){
 function _mbShuffleInsightsSilent(eligible){
   const mb=_mbEnsure(); const pool=eligible.slice(); const picks=[]; const n=Math.min(4,eligible.length);
   while(pool.length && picks.length<n){ picks.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0].id); }
-  mb.insightPicks=picks; try{ saveLocal&&saveLocal(); }catch(e){}
+  mb.insightPicks=picks; try{ _bidSchedule(); }catch(e){}
 }
 function mbShuffleInsights(){ const {d,t}=_mbInsightData(); _mbShuffleInsightsSilent(_mbInsightEligible(d,t)); renderMoodBoard(); }
 function _mbInsightSectionHtml(){
@@ -24564,11 +24564,11 @@ function _mbInsightSectionHtml(){
   return `<div class="ins-gr">${cards.map(c=>`<div class="ic${c.w===2?" w2":""}"><span class="k">${escAttr(c.nm)}</span>${c.draw(d,t)}</div>`).join('')}</div>`;
 }
 function _mbHiddenKey(kind,pid){ return kind+":"+pid; }
-function mbAddSection(key){ const mb=_mbEnsure(); if(mb.sections.indexOf(key)<0){ mb.sections.push(key); try{ saveLocal&&saveLocal(); }catch(e){} } renderMoodBoard(); }
-function mbRemoveSection(key){ const mb=_mbEnsure(); mb.sections=mb.sections.filter(k=>k!==key); try{ saveLocal&&saveLocal(); }catch(e){} renderMoodBoard(); }
+function mbAddSection(key){ const mb=_mbEnsure(); if(mb.sections.indexOf(key)<0){ mb.sections.push(key); try{ _bidSchedule(); }catch(e){} } renderMoodBoard(); }
+function mbRemoveSection(key){ const mb=_mbEnsure(); mb.sections=mb.sections.filter(k=>k!==key); try{ _bidSchedule(); }catch(e){} renderMoodBoard(); }
 // "Hide" removes a photo from the board display only — it stays fully specified and
 // priced. Un-specifying a real plant or material is Design's job, never a Mood Board click.
-function mbHideItem(kind,pid){ const mb=_mbEnsure(); const k=_mbHiddenKey(kind,pid); if(mb.hidden.indexOf(k)<0){ mb.hidden.push(k); try{ saveLocal&&saveLocal(); }catch(e){} } renderMoodBoard(); }
+function mbHideItem(kind,pid){ const mb=_mbEnsure(); const k=_mbHiddenKey(kind,pid); if(mb.hidden.indexOf(k)<0){ mb.hidden.push(k); try{ _bidSchedule(); }catch(e){} } renderMoodBoard(); }
 function mbUnhideSection(key){
   const sec=_mbSectionDefs().find(d=>d.key===key); if(!sec) return;
   const mb=_mbEnsure(); const {plants,goods}=_mbGather(); let keys=[];
@@ -24577,7 +24577,7 @@ function mbUnhideSection(key){
   else if(sec.group==="furnishings"||sec.group==="products") keys=goods.filter(x=>(x.type==="furnishings"||x.type==="products")&&x.g.cat===sec.cat).map(x=>_mbHiddenKey(x.type,x.g.id));
   const set=new Set(keys);
   mb.hidden=mb.hidden.filter(k=>!set.has(k));
-  try{ saveLocal&&saveLocal(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){}
   renderMoodBoard();
 }
 // Items actually specified + photo'd, minus anything hidden, for one section.
@@ -24771,22 +24771,34 @@ function mbFrameSave(){
   mbFrameClose();
   try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){}
 }
-// ── AI plant suggestions ─────────────────────────────────────────────────
-// Session-only, never saved to S — these are candidates, not project data, exactly like
-// a goods AI search result. "Add" is the only thing that turns a suggestion into something
-// real, and it does that through the real planting-builder functions (addShrubRow etc.),
-// never by faking a specified-looking row here.
-let MB_SUGGEST={loading:false,items:[]};
-async function mbSuggestPlants(){
+// ── AI suggestions, per section ─────────────────────────────────────────
+// Session-only, never saved to S — candidates, not project data, exactly like any AI
+// search result elsewhere in the app. Plants: AI proposes real species — a botanical name
+// is real taxonomy independent of any catalog, so it can suggest one not yet in the Plant
+// Book. Materials/Furnishings/Products: AI RANKS real items already in your library against
+// the style and their real prices — it never invents a product, since a manufactured good
+// only exists if someone actually stocks it; asking AI to invent a SKU would be actively
+// misleading in a way inventing a real plant species isn't. "+ Add" always goes through the
+// real production path — addShrubRow/addTreeRow/addPalmRow/addGcRow for plants, specAdd()
+// for goods — the exact functions Design and the Price Book use themselves.
+let MB_SUGGEST={}; // { [sectionKey]: {loading, items} }
+function _mbSuggestState(key){ return MB_SUGGEST[key]||(MB_SUGGEST[key]={loading:false,items:[]}); }
+async function mbSuggestSection(key){
+  const sec=_mbSectionDefs().find(d=>d.key===key); if(!sec) return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep){ alert("No worker connected."); return; }
   const styleKeys=(S.pi&&S.pi.style)||[];
   if(!styleKeys.length){ alert("Set a design style first — Project Info → Design style & vibe, pick up to 2."); return; }
+  if(sec.group==="plant") return _mbSuggestPlantsFor(sec,styleKeys,ep);
+  return _mbSuggestGoodsFor(sec,styleKeys,ep);
+}
+async function _mbSuggestPlantsFor(sec,styleKeys,ep){
+  const st=_mbSuggestState(sec.key);
   const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ");
   const {plants}=_mbGather();
   const already=plants.map(x=>botName(x.p)).filter(Boolean);
   const bud=projBudget();
-  MB_SUGGEST.loading=true; renderMoodBoard();
+  st.loading=true; renderMoodBoard();
   const prompt=`Suggest 6 Southern California landscape plants (a mix of shrubs, groundcover, trees, or palms as fits) for a "${styleLabels}" design style.
 Do not repeat anything already used on this project: ${already.length?already.join(", "):"(nothing specified yet)"}.
 ${bud?`This project has a target budget, so favor common, reasonably priced nursery plants over rare or expensive specimens.`:""}
@@ -24803,62 +24815,102 @@ Never invent a species that doesn't exist. Real, commonly available nursery plan
     const a=t.indexOf("["); let arr=null;
     if(a>=0){ const b=t.lastIndexOf("]"); if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} } if(!arr) arr=_salvageJsonObjects(t.slice(a)); }
     const mi=plantMatchIndex();
-    MB_SUGGEST.items=(arr||[]).map(o=>{
+    st.items=(arr||[]).map(o=>{
       const bot=String(o.bot||"").trim(), common=String(o.common||"").trim();
       const kind=["shrub","tree","palm","gc"].indexOf(o.kind)>=0?o.kind:guessKind(common,bot);
       let hit=mi.exact[normBot(bot)]; if(!hit){ const bl=mi.base[normBase(bot)]; if(bl&&bl.length===1) hit=bl[0]; }
-      return {bot,common,kind,reason:String(o.reason||"").trim(),pid:hit?hit.id:null,mkind:hit?hit.kind:null,matched:hit?plantDbFind(hit.kind,hit.id):null};
+      return {type:"plant",bot,common,kind,reason:String(o.reason||"").trim(),pid:hit?hit.id:null,mkind:hit?hit.kind:null,matched:hit?plantDbFind(hit.kind,hit.id):null};
     }).filter(x=>x.bot);
-    if(!MB_SUGGEST.items.length) alert("Couldn't find suggestions — try again.");
+    if(!st.items.length) alert("Couldn't find suggestions — try again.");
   }catch(e){ alert("Couldn't reach the AI service."); }
-  MB_SUGGEST.loading=false;
-  renderMoodBoard();
+  st.loading=false; renderMoodBoard();
 }
-// Turns a suggestion into a real specified plant through the same functions the Design
-// builder itself uses (addShrubRow/addTreeRow/addPalmRow/addGcRow) — never a hand-rolled
-// row here, so it rebalances, prices and totals exactly like any plant added in Design.
-function mbAddSuggestion(i){
-  const s=MB_SUGGEST.items[i]; if(!s) return;
-  let pid=s.pid, kind=s.mkind||s.kind;
-  if(!pid){
-    const cvm=(s.bot.match(/'([^']+)'/)||[])[1]||""; const base=s.bot.replace(/\s*'[^']*'/,"").replace(/\s*\([^)]*\)/g,"").trim();
-    pid=_slug(base)+(cvm?"_"+_slug(cvm):"");
-    const arr=PLANT_DB[kind]=PLANT_DB[kind]||[];
-    if(!arr.find(x=>x.id===pid)){
-      const np={id:pid,c:s.common||base,b:base,cls:"common",tags:["ai-suggested"]}; if(cvm) np.cv=cvm;
-      Object.assign(np, kind==='tree'?{w:25,h:30,wu:'M'}:kind==='palm'?{h:25,perFt:180,wu:'M'}:kind==='gc'?{oc:18,pf:36,wu:'M'}:{w:4,h:4,basal:0.8,wu:'M'});
-      inheritFromBase(np,kind); arr.push(np);
+async function _mbSuggestGoodsFor(sec,styleKeys,ep){
+  const st=_mbSuggestState(sec.key);
+  const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ");
+  const specifiedIds=new Set(projSpecs().map(s=>s.gid));
+  const book = sec.group==="materials" ? "materials" : "furnishings";
+  const lib = book==="materials" ? MATERIALS : FURNISHINGS;
+  const pool = (lib||[]).filter(g=>g && !specifiedIds.has(g.id) && (sec.group==="materials" ? true : g.cat===sec.cat));
+  if(!pool.length){ alert("Nothing left in your "+sec.label+" library to suggest — everything's already specified, or the library's empty."); return; }
+  const bud=projBudget(), grand=_grandNow(), remaining=bud?Math.max(0,bud-grand):null;
+  st.loading=true; renderMoodBoard();
+  const catalog=pool.slice(0,80).map(g=>`${g.id}|${g.nm}|${g.cat||""}|${g.fin||""}|$${goodsEstPrice(g)||"?"}`).join("\n");
+  const prompt=`From this real product catalog (id|name|category|finish|price), pick up to 6 that best fit a "${styleLabels}" design style${remaining!=null?`, staying mindful this project has roughly $${Math.round(remaining)} left in its budget`:""}.
+Never pick anything outside this list — these are the only real, in-stock options.
+Catalog:
+${catalog}
+Output ONLY a minified JSON array, no prose:
+[{"id":"the exact id from the list","reason":"why it fits, under 12 words"}]`;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,temperature:0.3,
+        system:"You are a Southern California landscape designer picking real products from a supplied catalog. Never invent an id not in the list. Output only minified JSON.",
+        messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    const t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join(""))||"";
+    const a=t.indexOf("["); let arr=null;
+    if(a>=0){ const b=t.lastIndexOf("]"); if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} } if(!arr) arr=_salvageJsonObjects(t.slice(a)); }
+    const byId={}; pool.forEach(g=>byId[g.id]=g);
+    st.items=(arr||[]).map(o=>{ const g=byId[String(o.id||"").trim()]; if(!g) return null; return {type:"goods",book,g,reason:String(o.reason||"").trim()}; }).filter(Boolean);
+    if(!st.items.length) alert("Couldn't find suggestions — try again.");
+  }catch(e){ alert("Couldn't reach the AI service."); }
+  st.loading=false; renderMoodBoard();
+}
+// Plants: same real Design-builder functions as before. Goods: specAdd() — the exact
+// function the Price Book itself uses, so it resolves the real estimate line, real price
+// and any conflict dialog on its own; nothing here fakes that.
+async function mbAddSectionSuggestion(key,i){
+  const st=_mbSuggestState(key); const s=st.items[i]; if(!s) return;
+  if(s.type==="plant"){
+    let pid=s.pid, kind=s.mkind||s.kind;
+    if(!pid){
+      const cvm=(s.bot.match(/'([^']+)'/)||[])[1]||""; const base=s.bot.replace(/\s*'[^']*'/,"").replace(/\s*\([^)]*\)/g,"").trim();
+      pid=_slug(base)+(cvm?"_"+_slug(cvm):"");
+      const arr=PLANT_DB[kind]=PLANT_DB[kind]||[];
+      if(!arr.find(x=>x.id===pid)){
+        const np={id:pid,c:s.common||base,b:base,cls:"common",tags:["ai-suggested"]}; if(cvm) np.cv=cvm;
+        Object.assign(np, kind==='tree'?{w:25,h:30,wu:'M'}:kind==='palm'?{h:25,perFt:180,wu:'M'}:kind==='gc'?{oc:18,pf:36,wu:'M'}:{w:4,h:4,basal:0.8,wu:'M'});
+        inheritFromBase(np,kind); arr.push(np);
+      }
     }
+    ensurePlanting();
+    ({shrub:addShrubRow,tree:addTreeRow,palm:addPalmRow,gc:addGcRow}[kind])(0,pid);
+  } else {
+    await specAdd(s.book,s.g.id);
   }
-  ensurePlanting();
-  ({shrub:addShrubRow,tree:addTreeRow,palm:addPalmRow,gc:addGcRow}[kind])(0,pid);
-  MB_SUGGEST.items.splice(i,1);
+  st.items.splice(i,1);
   renderMoodBoard();
 }
-function mbDismissSuggestion(i){ MB_SUGGEST.items.splice(i,1); renderMoodBoard(); }
-function _mbSuggestHTML(){
-  if(MB_SUGGEST.loading) return `<div class="card" style="margin-bottom:1rem"><p style="font-size:.85rem;color:var(--tm)">✨ Thinking of plants that fit your style…</p></div>`;
-  if(!MB_SUGGEST.items.length) return '';
-  const cards=MB_SUGGEST.items.map((s,i)=>{
-    const img=s.matched&&s.matched.img;
+function mbDismissSectionSuggestion(key,i){ _mbSuggestState(key).items.splice(i,1); renderMoodBoard(); }
+function _mbSuggestSectionHtml(key){
+  const st=_mbSuggestState(key);
+  if(st.loading) return `<div style="margin-top:10px;font-size:.8rem;color:var(--tm)">✨ Thinking…</div>`;
+  if(!st.items.length) return '';
+  const cards=st.items.map((s,i)=>{
+    const img = s.type==="plant" ? (s.matched&&s.matched.img) : s.g.img;
     const ph=img?`background-image:url('${escAttr(img)}');background-size:cover;background-position:center`:`background:var(--surface2)`;
-    return `<div style="border:1px solid var(--br);border-radius:10px;overflow:hidden;background:var(--card);width:170px;flex:none">
+    const label = s.type==="plant" ? (s.common||s.bot) : s.g.nm;
+    const sub = s.type==="plant" ? s.bot : [s.g.cat,s.g.fin].filter(Boolean).join(" · ");
+    const price = s.type==="goods" ? goodsEstPrice(s.g) : 0;
+    const status = s.type==="plant" ? (s.matched?'Already in your Plant Book':'New — AI suggestion') : (price?fmtN(price)+' ea':'In your library');
+    return `<div style="border:1px solid var(--br);border-radius:10px;overflow:hidden;background:var(--card);width:150px;flex:none">
       <div style="aspect-ratio:1;${ph}"></div>
-      <div style="padding:.5rem .6rem">
-        <div style="font-weight:600;font-size:.8rem;line-height:1.25">${escAttr(s.common||s.bot)}</div>
-        <div style="font-size:.7rem;color:var(--tl);font-style:italic;margin-bottom:.3rem">${escAttr(s.bot)}</div>
-        ${s.reason?`<div style="font-size:.7rem;color:var(--tm);margin-bottom:.4rem">${escAttr(s.reason)}</div>`:''}
-        <div style="font-size:.66rem;color:var(--tl);margin-bottom:.4rem">${s.matched?'Already in your Plant Book':'New — AI suggestion'}</div>
-        <div style="display:flex;gap:.35rem">
-          <button class="btn" style="flex:1;padding:.25rem .4rem;font-size:.72rem;background:var(--gm);color:#fff;border:none" onclick="mbAddSuggestion(${i})">+ Add</button>
-          <button class="btn" style="padding:.25rem .5rem;font-size:.72rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbDismissSuggestion(${i})">✕</button>
+      <div style="padding:.4rem .5rem">
+        <div style="font-weight:600;font-size:.76rem;line-height:1.25">${escAttr(label)}</div>
+        <div style="font-size:.66rem;color:var(--tl);${s.type==='plant'?'font-style:italic;':''}margin-bottom:.25rem">${escAttr(sub)}</div>
+        ${s.reason?`<div style="font-size:.66rem;color:var(--tm);margin-bottom:.3rem">${escAttr(s.reason)}</div>`:''}
+        <div style="font-size:.62rem;color:var(--tl);margin-bottom:.3rem">${status}</div>
+        <div style="display:flex;gap:.3rem">
+          <button class="btn" style="flex:1;padding:.2rem .3rem;font-size:.68rem;background:var(--gm);color:#fff;border:none" onclick="mbAddSectionSuggestion('${escAttr(key)}',${i})">+ Add</button>
+          <button class="btn" style="padding:.2rem .4rem;font-size:.68rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbDismissSectionSuggestion('${escAttr(key)}',${i})">✕</button>
         </div>
       </div>
     </div>`;
   }).join('');
-  return `<div class="card" style="margin-bottom:1rem">
-    <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:8px">Suggested — not yet part of this project</div>
-    <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:.2rem">${cards}</div>
+  return `<div style="margin-top:10px;border-top:1px dashed var(--br);padding-top:10px">
+    <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:6px">Suggested — not yet part of this project</div>
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:.2rem">${cards}</div>
   </div>`;
 }
 function _mbSectionBoardHtml(shown){
@@ -24879,7 +24931,6 @@ function renderMoodBoard(){
   const mb=_mbEnsure();
   const {plants,goods}=_mbGather();
   const totalSpecified=plants.length+goods.length;
-  const suggestBtn=`<button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestPlants()" ${MB_SUGGEST.loading?'disabled':''}>✨ Suggest plants</button>`;
   const dispBtn=(v,lb)=>`<button class="btn" onclick="mbSetDisp('${v}')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${MB_VIEW.disp===v?'background:var(--gd);color:#fff':'background:#fff;color:var(--gm)'}">${lb}</button>`;
   const bud=projBudget(), grand=_grandNow(), gap=bud?grand-bud:0;
   const budgetHtml = totalSpecified
@@ -24918,13 +24969,16 @@ function renderMoodBoard(){
       </div>`;
     }
     const {shown,hiddenCount}=_mbItemsForSection(sec);
+    const sst=_mbSuggestState(sec.key);
     return `<div class="card" style="margin-bottom:1rem">
       <div style="display:flex;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:.5rem">
         <div style="font-size:.85rem;font-weight:600;color:var(--tx)">${escAttr(sec.label)} <span style="font-weight:400;color:var(--tl);font-size:.78rem">${shown.length}</span></div>
         ${hiddenCount?`<button class="btn" style="padding:.1rem .5rem;font-size:.68rem;background:#fff;color:var(--tl);border:1px solid var(--br)" onclick="mbUnhideSection('${escAttr(sec.key)}')">${hiddenCount} hidden — show</button>`:''}
+        <button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestSection('${escAttr(sec.key)}')" ${sst.loading?'disabled':''}>✨ Suggest more</button>
         ${removeBtn}
       </div>
       ${_mbSectionBoardHtml(shown)}
+      ${_mbSuggestSectionHtml(sec.key)}
     </div>`;
   }).join('');
 
@@ -24933,14 +24987,12 @@ function renderMoodBoard(){
       <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
         <div style="font-size:.78rem;color:var(--tm)">${budgetHtml}</div>
         <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
-          ${suggestBtn}
           <div style="display:flex;border:1px solid var(--br);border-radius:8px;overflow:hidden">
             ${dispBtn("grid","▦ Grid")}${dispBtn("editorial","▤ Editorial")}${dispBtn("wall","▧ Photo wall")}
           </div>
         </div>
       </div>
     </div>
-    ${_mbSuggestHTML()}
     ${sectionsHtml || `<div class="card" style="margin-bottom:1rem"><p style="font-size:.85rem;color:var(--tm)">No sections on this board yet — add one below.</p></div>`}
     <div class="card">
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:8px">+ Add a section</div>
@@ -25259,10 +25311,40 @@ function _pbkInspector(){
   if(!p) return '<div class="pbk-empty">Pick a plant to see its sizes, prices and conditions.</div>';
   const kind=PB_BOOK.kind;
   let h='';
+  // A record that is new or thin opens as a form; one already filled in opens reading.
+  // Computed here, before the photo block, so the photo tools can key off the same
+  // Read/Edit state as everything else in the panel.
+  if(PB_BOOK.edit==null || PB_BOOK._editFor!==p.id){ PB_BOOK.edit=_pbEditDefault(p); PB_BOOK._editFor=p.id; }
+  const editing=!!PB_BOOK.edit;
   // An <img>, not a background: JSON.stringify wraps the URL in raw double quotes, which
   // close the style attribute the moment they are written, so no photo ever loaded here.
-  h+= p.img ? '<img class="pbk-ph" src="'+escAttr(p.img)+'" alt="" onerror="pbImgErr(this)" onclick="pbkOpenLightbox()">'
-            : '<div class="pbk-ph none" onclick="pbkOpenLightbox()">no photo</div>';
+  // Read mode: a plain photo, tap to open the lightbox. Edit mode: the full photo toolset
+  // (AI generate w/ reference photos, real-photo fetch, Commons, upload, clear) — same
+  // menu and same handlers renderPlantBookList's row editor already uses, just shown here
+  // too since this inspector panel is where editing actually happens now.
+  if(!editing){
+    h+= p.img ? '<img class="pbk-ph" src="'+escAttr(p.img)+'" alt="" onerror="pbImgErr(this)" onclick="pbkOpenLightbox()">'
+              : '<div class="pbk-ph none" onclick="pbkOpenLightbox()">no photo</div>';
+  } else {
+    h+='<div class="pb-thumbwrap" style="width:100%;height:172px;margin-bottom:.6rem">'
+      +'<img class="pb-idthumb" src="'+escAttr(p.img||PLANT_IMG_PH)+'" onerror="pbImgErr(this)" alt="" '+(p.img?'onclick="pbkOpenLightbox()" style="cursor:zoom-in"':'')+'>'
+      +(p.imgAI?'<span class="pb-aichip">✨ AI</span>':'')
+      +(p.imgFlag?'<span class="pb-vchip" title="Review this one — a cultivar photo fell back to the species, or confidence was low">⚠</span>':'')
+      +'<button class="pb-imgbtn" onclick="event.stopPropagation();toggleHMenu(\'pbins-img\',event)" title="Image options"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="3.2"/><path d="M4 8h3l1.6-2h6.8L17 8h3v11H4z"/></svg></button>'
+      +'<div class="hmenu pb-imgmenu" id="pbins-img">'
+        +'<button onclick="aiPlantImageBtn(\''+kind+'\',\''+p.id+'\')" title="Generate an AI illustration (~$0.03) — verify it">✨&nbsp; Generate AI image</button>'
+        +'<button onclick="fetchOnePlantImage(\''+kind+'\',\''+p.id+'\')" title="Fetch a commercial-safe real photo">🖼&nbsp; Fetch real photo</button>'
+        +(p.img?'<button onclick="togglePlantAI(\''+kind+'\',\''+p.id+'\')">'+(p.imgAI?'✓&nbsp; Unmark as AI':'⚑&nbsp; Mark as AI')+'</button>':'')
+        +(p.imgAI&&p.imgPrev?'<button onclick="restorePlantPhoto(\''+kind+'\',\''+p.id+'\')">↺&nbsp; Restore real photo</button>':'')
+        +((p.imgAlts&&p.imgAlts.length>1)?'<div style="display:flex;align-items:center;justify-content:center;gap:.5rem;padding:4px"><button onclick="cyclePlantImage(\''+kind+'\',\''+p.id+'\',-1)" style="border:1px solid var(--br);background:#fff;border-radius:6px;padding:2px 9px;cursor:pointer">‹</button><span style="font-size:.7rem;color:var(--tl)">'+((p._imgIdx||0)+1)+'/'+p.imgAlts.length+'</span><button onclick="cyclePlantImage(\''+kind+'\',\''+p.id+'\',1)" style="border:1px solid var(--br);background:#fff;border-radius:6px;padding:2px 9px;cursor:pointer">›</button></div>':'')
+        +'<div class="div"></div>'
+        +'<button onclick="window.open(\''+_commonsSearchLink(p)+'\',\'_blank\',\'noopener\')">⧉&nbsp; Browse Wikimedia Commons</button>'
+        +'<button onclick="pasteCommonsImage(\''+kind+'\',\''+p.id+'\')">🔗&nbsp; Paste image link</button>'
+        +'<label>⬆&nbsp; Upload from device<input type="file" accept="image/*" style="display:none" onchange="plantImgUpload(this,\''+kind+'\',\''+p.id+'\')"></label>'
+        +(p.img?'<div class="div"></div><button onclick="setPlantField(\''+kind+'\',\''+p.id+'\',\'img\',\'\')" style="color:#C05E4C">🗑&nbsp; Clear image</button>':'')
+      +'</div>'
+    +'</div>';
+  }
   const fav=(function(){ try{ return isFav(p,kind); }catch(e){ return false; } })();
   h+='<div class="pbk-hd">'+esc(p.c||"")+(fav?' <span style="color:#D99A00">★</span>':'')
     +'<i>'+esc(p.b||"")+'</i></div>';
@@ -25270,9 +25352,6 @@ function _pbkInspector(){
   const F=(k,v)=>v?('<div class="pbk-f"><span class="k">'+k+'</span><b>'+esc(v)+'</b></div>'):'';
   const EB=t=>'<div class="pbk-eb">'+t+'</div>';
 
-  // A record that is new or thin opens as a form; one already filled in opens reading.
-  if(PB_BOOK.edit==null || PB_BOOK._editFor!==p.id){ PB_BOOK.edit=_pbEditDefault(p); PB_BOOK._editFor=p.id; }
-  const editing=!!PB_BOOK.edit;
   h+='<div class="pbe-seg">'
     +'<button class="'+(editing?'':'on')+'" onclick="pbEditMode(false)">Read</button>'
     +'<button class="'+(editing?'on':'')+'" onclick="pbEditMode(true)">Edit</button></div>';
@@ -43090,7 +43169,7 @@ function veApply(){
   try{ renderTotal(); }catch(e){}
   try{ renderProSummary(); }catch(e){}
   try{ updateProBar&&updateProBar(); }catch(e){}
-  try{ saveLocal&&saveLocal(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){}
   VE_SEL={}; VE_PLAN=""; VE_AI=null;
   veRender();
   try{ _toast&&_toast(picked.length+" change"+(picked.length===1?"":"s")+" applied"); }catch(e){}
@@ -43107,7 +43186,7 @@ function veUndo(){
   try{ renderTotal(); }catch(e){}
   try{ renderProSummary(); }catch(e){}
   try{ updateProBar&&updateProBar(); }catch(e){}
-  try{ saveLocal&&saveLocal(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){}
   veRender();
   try{ _toast&&_toast("Put back"); }catch(e){}
 }
@@ -44209,7 +44288,7 @@ function lightingApply(){
   try{ refreshCatTotals("lighting"); }catch(e){}
   try{ renderTotal(); renderProSummary(); }catch(e){}
   try{ if(typeof buildProCats==="function") buildProCats(); }catch(e){}
-  try{ saveLocal&&saveLocal(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){}
   try{ _toast&&_toast("Lighting estimated — "+r.fixtures+" fixtures"); }catch(e){}
   try{ renderAlgos(); }catch(e){}
 }
