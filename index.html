@@ -5532,7 +5532,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1146</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1147</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -11946,6 +11946,86 @@ async function goodsRehostLater(book,id){
 // leave every other field alone.
 let _gimgStop=false;
 function goodsFetchImagesStop(){ _gimgStop=true; }
+/* ── A BETTER PHOTO THAN THE CATALOGUE HAD ────────────────────────────────────
+   A page tile is only as good as the file it was placed at. FX draw some fixtures
+   at about a hundred pixels, and cropping that at 900 upscales rather than sharpens.
+   The manufacturer's own site has the real photograph, so go and find it.
+   Search for the product, open the page, take the best image on it. */
+async function goodsLookupImage(book,id){
+  const arr=(book==="materials")?MATERIALS:FURNISHINGS;
+  const row=arr.filter(x=>x&&x.id===id)[0];
+  if(!row) return false;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return false;
+  const who=row.brand||row.sup||"";
+  const q=[who,row.nm].filter(Boolean).join(" ");
+  let prose="";
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,
+        tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}],
+        system:"You find the manufacturer's own product page. Give the direct URL and nothing else that matters.",
+        messages:[{role:"user",content:
+`Find the product page for: ${q}
+
+Prefer the manufacturer's own site. Give the single best URL, on its own line. If you cannot find that exact product, say NONE.`}]})});
+    const d=await r.json();
+    prose=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\\n")||"");
+  }catch(e){ return false; }
+  const urls=(prose.match(/https?:\/\/[^\s`*"'<>()\[\]]+/gi)||[])
+    .map(u=>u.replace(/[.,;:]+$/,""))
+    .filter(u=>!/\.(pdf|jpg|jpeg|png|webp)$/i.test(u));
+  if(!urls.length) return false;
+  // Try the pages in order until one yields a real photograph.
+  for(let i=0;i<Math.min(urls.length,3);i++){
+    let sc=null;
+    try{ sc=await goodsScrape(urls[i]); }catch(e){}
+    if(!sc||sc.err) continue;
+    let imgs=[];
+    try{ imgs=await goodsVerifyImgs(goodsBestImages(_goodsAllImages(sc),6)); }catch(e){}
+    if(!imgs.length) continue;
+    row.imgs=imgs; row.img=imgs[0];
+    row.srcUrl=(row.srcUrl&&!/\.pdf(\?|$)/i.test(row.srcUrl)) ? row.srcUrl : (sc.url||urls[i]);
+    row.imgFrom="web";
+    _gVerified[row.id]=1;
+    try{ setTimeout(()=>goodsRehostLater(book,row.id),0); }catch(e){}   // onto our own R2
+    return true;
+  }
+  return false;
+}
+/* The whole library, for the ones the catalogue could not do justice to. */
+async function goodsLookupImages(book){
+  const arr=(book==="materials")?MATERIALS:FURNISHINGS;
+  const page=(book==="materials")?arr:((GOODS_PAGE==="prod")?_prodRows():_furRows());
+  const todo=page.filter(x=>x&&x.nm&&x.imgFrom!=="web");
+  if(!todo.length){ await askTell("Nothing to look up","Every product here already has a photo from its own supplier page.",{icon:"✓"}); return; }
+  const a=await askDlg({icon:"⌕",
+    title:"Find better photos for "+todo.length+" product"+(todo.length===1?"":"s")+"?",
+    body:"Each one is searched for on its maker's own site and the photograph taken from there. "
+      +"About a second each, and anything not found keeps the picture it has.",
+    actions:["Cancel","Find them"]});
+  if(a!==1) return;
+  gwOpen({title:"Finding photographs",sub:goodsBookWord(book==="materials"?"mat":"fur"),
+          steps:["Searching each product","Saving the pictures"],pct:0,cancel:true});
+  let done=0, got=0, idx=0;
+  const worker=async()=>{
+    while(true){
+      const i=idx++; if(i>=todo.length) return;
+      if(gwCancelled()) return;
+      const ok=await goodsLookupImage(book,todo[i].id);
+      done++; if(ok) got++;
+      gwSet({pct:done/todo.length*100, sub:done+" of "+todo.length+" · "+got+" found"});
+    }
+  };
+  await Promise.all([0,0,0].map(worker));
+  gwClose();
+  try{ goodsSaveBook(book); }catch(e){}
+  try{ renderMaterials(); }catch(e){} try{ goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
+  await askTell(got+" better photo"+(got===1?"":"s")+" found",
+    got<done ? ((done-got)+" kept the picture from the catalogue — nothing better turned up.") : "",
+    {icon:"✓"});
+}
+
 async function goodsFetchImages(book,onlyId){
   const arr = book==="materials" ? MATERIALS : FURNISHINGS;
   const fromURL = arr.filter(x=>x && x.srcUrl);
@@ -11953,7 +12033,21 @@ async function goodsFetchImages(book,onlyId){
   if(onlyId){
     const row=arr.filter(x=>x&&x.id===onlyId)[0];
     if(!row) return;
-    if(!row.srcUrl){ alert("This one was added by hand, so there is no supplier page to read."); return; }
+    // A row imported from a catalogue has a PDF as its source, and re-reading the PDF
+    // gives back the same low-resolution tile. Look the product up instead.
+    if(!row.srcUrl || /\.pdf(\?|$)/i.test(row.srcUrl)){
+      gwOpen({title:"Looking for a better photo",sub:(row.brand||row.sup||"")+" "+row.nm,
+              steps:["Finding the product page","Taking the photograph"],pct:null,cancel:false});
+      const ok=await goodsLookupImage(book,onlyId);
+      gwClose();
+      try{ book==="materials"?matSave():furSave(); }catch(e){}
+      try{ goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
+      try{ _goodsLbxPaint(); }catch(e){}
+      await askTell(ok?"Found a better photo":"Nothing better found",
+        ok?"Taken from the maker's own page and saved.":"The picture from the catalogue has been kept.",
+        {icon:ok?"✓":"!"});
+      return;
+    }
     try{ _toast("Reading "+_gHost(row.srcUrl)+"…","#6A4FA3"); }catch(e){}
     let imgs=[];
     try{ const sc=await goodsScrape(row.srcUrl);
@@ -16993,6 +17087,7 @@ function furToolsHTML(){
       <div class="hd">Housekeeping</div>
       ${it("goodsDropThin('furnishings')","Drop empties")}
       ${it("goodsDropDupes('furnishings')","Remove duplicates",goodsDupeGroups("furnishings").reduce((s,g)=>s+g.length-1,0)||"")}
+      ${it("goodsLookupImages('furnishings')","Find better photos")}
       ${it("goodsReloadFromServer('fur')","Reload from the server")}
       ${it("goodsEmptyLibrary('fur')","Empty this library")}
       ${it("goodsSyncNow()","Save to server now")}
@@ -17022,6 +17117,7 @@ function matToolsHTML(){
       ${it("goodsFixBrands('materials')","Fix brands")}
       ${it("goodsDropThin('materials')","Drop empties",thin)}
       ${it("goodsDropDupes('materials')","Remove duplicates",goodsDupeGroups("materials").reduce((a,g)=>a+g.length-1,0)||"")}
+      ${it("goodsLookupImages('materials')","Find better photos")}
       ${it("goodsReloadFromServer('mat')","Reload from the server")}
       ${it("goodsEmptyLibrary('mat')","Empty this library")}
       ${it("goodsSyncNow()","Sync now")}
