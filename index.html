@@ -5557,7 +5557,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1170</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1171</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -13297,6 +13297,7 @@ async function goodsRenameBrand(book,cur){
     x.brand=to; x.brandOwn=1; x.supAlt=alt.slice(0,8); n++;
   });
   goodsSaveBook(book);
+  try{ goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
   try{ _toast(n+" item"+(n===1?"":"s")+" — brand set to "+to,"#4C7B3D"); }catch(e){}
 }
 // Repair what is already in the book. Groups by domain so a site is resolved once,
@@ -17790,11 +17791,21 @@ function _goodsTree(kind){
     const shown=(open||qs)?pool:pool.slice(0,room);
     const hidden=pool.length-shown.length;
 
-    const renamer=n=>facet==="cat"?("goodsRenameCategory('"+kind+"','"+q(n)+"')"):null;
+    const renamer=n=>{
+      if(facet==="cat") return "goodsRenameCategory('"+kind+"','"+q(n)+"')";
+      if(facet==="sup") return "goodsRenameBrand('"+(kind==="mat"?"materials":"furnishings")+"','"+q(n)+"')";
+      return null;
+    };
     sec(title,kind,facet);
     if(chosen.length){
-      chosen.forEach(n=>row(true,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n)));
-      if(child) h+=child;
+      chosen.forEach(n=>{
+        row(true,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n));
+        // A function child renders once per selected row, right under that row — so
+        // when two parents are both selected, each keeps its own children instead of
+        // both piling up under whichever row happened to be drawn last.
+        if(typeof child==="function"){ const c=child(n); if(c) h+=c; }
+      });
+      if(typeof child==="string" && child) h+=child;
       if(rest.length) h+='<div class="gt-cut"></div>';
     }
     if(big) h+='<div class="gt-find"><input id="gtq-'+kind+'-'+facet+'" type="search" value="'+esc(GOODS_FQ[key]||"")
@@ -17843,19 +17854,20 @@ function _goodsTree(kind){
   }else{
     // Sub-grouped types (Path Light, Up Light, Wall Sconce…) are sub-categories of
     // whichever Category is picked, not a book-wide list — so Lighting's types never
-    // bleed into Controls', and the child band is spliced in right after Lighting's
-    // own row rather than after the whole Category list (Controls included).
-    let childHtml='';
+    // bleed into Controls'. Each selected Category gets its OWN nested list, computed
+    // fresh and placed right under that one row — so with Lighting and Controls both
+    // picked, each keeps its own types instead of Controls' row going childless while
+    // a single merged list piles up under Lighting.
+    let childFn=null;
     if(kind==="fur"){
       const catSel=_gtKeys("fur","cat");
-      if(catSel.length){
+      if(catSel.length) childFn=catName=>{
         const tally={};
-        _goodsAll("fur").forEach(x=>{ if(catSel.indexOf(x.cat)<0) return; if(x.subcat) tally[x.subcat]=(tally[x.subcat]||0)+1; });
-        const title=catSel.length===1?(catSel[0]+" types"):"Type";
-        childHtml=nestedStr(title,"subcat",tally,"#7C6B98");
-      }
+        _goodsAll("fur").forEach(x=>{ if(x.cat!==catName) return; if(x.subcat) tally[x.subcat]=(tally[x.subcat]||0)+1; });
+        return nestedStr(catName+" types","subcat",tally,"#7C6B98");
+      };
     }
-    band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968",childHtml);
+    band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968",childFn);
   }
   band(kind==="mat"?"Supplier":"Brand","sup",_goodsTally(kind,x=>x.brand||x.sup),"#6d8f5c");
   if(kind==="mat") band("Finish","fin",_goodsTally("mat",x=>(x.fin&&x.fin!=="—")?x.fin:null),"#CFC6B4");
