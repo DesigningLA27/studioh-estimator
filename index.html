@@ -2562,9 +2562,6 @@ body:not(.sp-on) #sp-open{display:grid}
 .pbk-tr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pbk-tr .n{font:700 11.5px ui-monospace,Menlo,monospace;background:var(--surface2);border-radius:8px;
   padding:2px 7px;color:var(--tl)}
-/* Always visible, not hover-revealed — the iPad this runs on has no hover. */
-.pbk-tr .gt-ren{flex:none;font-size:12px;opacity:.45;padding:2px 5px;border-radius:6px;color:var(--tl)}
-.pbk-tr .gt-ren:hover,.pbk-tr .gt-ren:active{opacity:1;background:var(--surface2);color:var(--gm)}
 .pbk-tr.on .n{background:rgba(255,255,255,.6);color:var(--gm)}
 :root[data-theme="dark"] .pbk-tr.on .n{background:rgba(0,0,0,.25)}
 .pbk-ph{display:block;width:100%;height:126px;border-radius:12px;object-fit:cover;
@@ -3028,9 +3025,6 @@ body.tray-on .lib .pbk-list{padding-bottom:84px}
 .gl-info{padding:24px 26px 22px;overflow-y:auto;min-height:0}
 .gl-eb{font:700 10.5px ui-monospace,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:var(--tl)}
 .gl-info h3{font-size:26px;font-weight:750;letter-spacing:-.024em;margin:8px 0 3px;line-height:1.15}
-.gl-h3ren{cursor:pointer}
-.gl-h3ren i{font-style:normal;font-size:14px;opacity:.4;margin-left:6px;vertical-align:2px}
-.gl-h3ren:hover i{opacity:.9;color:var(--gm)}
 .gl-sub{font-size:13.5px;color:var(--tm)}
 .gl-tabs{display:flex;gap:4px;margin:20px 0 18px;background:var(--surface2);border-radius:12px;padding:4px;
   flex-wrap:wrap}
@@ -3173,7 +3167,11 @@ body.tray-on .lib .pbk-list{padding-bottom:84px}
    The card itself carries no padding any more — the photo bleeds to every edge and
    .pb-cd's own overflow:hidden clips its square corners to the card's radius. Padding
    moved onto the text rows below, which are the only thing that still needs an inset. */
-.pb-cdph{display:block;width:100%;height:92px;border-radius:0;object-fit:cover;padding:0;
+/* Rounded on the image itself, not just clipped by the card's overflow:hidden —
+   Safari doesn't always honour a parent's border-radius clip on an object-fit:cover
+   image once it's promoted to its own layer, which is exactly what a lazy-loaded
+   photo does. Belt and suspenders: whichever one Safari actually respects, it's flush. */
+.pb-cdph{display:block;width:100%;height:92px;border-radius:15px 15px 0 0;object-fit:cover;padding:0;
   border:0;background:var(--pbwell);margin:0;background-size:cover}
 .pb-cdph.none{display:grid;place-items:center}
 .pb-cdph.none svg{width:22px;height:22px;fill:none;stroke:var(--tl);stroke-width:1.6}
@@ -5546,7 +5544,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1157</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1158</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -17404,14 +17402,21 @@ function matDDToggle(ev,gid){
   _matDD = (_matDD===gid) ? "" : gid;
   // Both books share this toggle, so redraw whichever one is actually on screen —
   // redrawing Materials left the Furnishings menu open in state but never painted.
-  const onFur=(function(){ try{ return document.getElementById("view-furnishings").classList.contains("active"); }catch(e){ return false; } })();
+  // Products shares the same pipeline as Furnishings and was missing from this check
+  // entirely, so every dropdown on the Products page — Tools included — set its state
+  // correctly and then painted nothing, because the wrong (hidden) view got redrawn.
+  const onFur=(function(){ try{ return document.getElementById("view-furnishings").classList.contains("active")
+    || document.getElementById("view-products").classList.contains("active"); }catch(e){ return false; } })();
   if(onFur){ try{ goodsRepaint("fur"); }catch(e){} } else { renderMaterials(); }
   // No _ddFit() here. The render already schedules one on the next frame, and running
   // both is a race: the first portals the menu out to <body>, the second strips every
   // portal and then looks only for ".mddm.open:not([data-portal])" — which the menu it
   // just removed no longer matches. The menu vanished, intermittently.
 }
-document.addEventListener("click",()=>{ if(_matDD){ _matDD=""; try{ renderMaterials(); }catch(e){} try{ _ddFit(true); }catch(e){} } });
+document.addEventListener("click",()=>{ if(_matDD){ _matDD="";
+  const onFur=(function(){ try{ return document.getElementById("view-furnishings").classList.contains("active")
+    || document.getElementById("view-products").classList.contains("active"); }catch(e){ return false; } })();
+  try{ onFur?goodsRepaint("fur"):renderMaterials(); }catch(e){} try{ _ddFit(true); }catch(e){} } });
 let MAT_GRP="", _matDD="", MAT_USE="", MAT_SALE=false, MAT_SPEC=false;
 // Sets, not single values — "blue or neutral", "12x24 or 24x24" is the ordinary way a
 // designer narrows a catalogue, and one-at-a-time made every one of these a dead end.
@@ -17667,10 +17672,13 @@ function _goodsTree(kind){
       +(facet?'<button class="gt-ord" title="Order and promote" onclick="_gtOrdOpen(\''+kindF+'\',\''+facet+'\')">'+esc(_gtOrdMode(kindF,facet)==="count"?"⇅":_gtOrdMode(kindF,facet)==="az"?"A–Z":"★")+'</button>':'')
       +'</div>';
   };
-  const row=(on,act,lab,n,dot,promo,renameAct)=>{ h+='<button class="pbk-tr'+(on?' on':'')+'" onclick="'+act+'">'
+  // No visible rename control — a category row is a filter button first, and a pencil
+  // sitting on every row was clutter for something used once in a while. Double-click
+  // does it instead, same gesture on a trackpad or an iPad, nothing extra to look at.
+  const row=(on,act,lab,n,dot,promo,renameAct)=>{ h+='<button class="pbk-tr'+(on?' on':'')+'" onclick="'+act+'"'
+    +(renameAct?' ondblclick="event.stopPropagation();'+renameAct+'"':'')+'>'
     +'<span class="dot" style="background:'+dot+'"></span>'
     +'<span class="nm">'+esc(lab)+(promo?'<i class="gt-promo">PROMOTED</i>':'')+'</span>'
-    +(renameAct?'<span class="gt-ren" title="Rename" onclick="event.stopPropagation();'+renameAct+'">✎</span>':'')
     +(n==null?'':'<span class="n">'+n+'</span>')+'</button>'; };
 
   /* One section, one rule. */
@@ -18355,7 +18363,9 @@ function goodsSwipeBind(root){
 }
 function _goodsKindOf(el){
   const v=el.closest(".view"); if(!v) return "";
-  return v.id==="view-materials"?"mat":(v.id==="view-furnishings"?"fur":"");
+  // Products shares the "fur" kind — it's the same array, split by category, not a
+  // third book — so anything keyed off view-furnishings alone silently did nothing here.
+  return v.id==="view-materials"?"mat":((v.id==="view-furnishings"||v.id==="view-products")?"fur":"");
 }
 function _swipeSkin(row){
   if(row.parentNode.querySelector(".pb-swipe")) return;
@@ -18474,7 +18484,7 @@ try{
   window.addEventListener("resize",reflow);
   if(window.ResizeObserver){
     const ro=new ResizeObserver(reflow);
-    ["view-materials","view-furnishings"].forEach(id=>{
+    ["view-materials","view-furnishings","view-products"].forEach(id=>{
       const el=document.getElementById(id); if(el) ro.observe(el); });
   }
 }catch(e){}
@@ -18754,7 +18764,7 @@ function _goodsLbxHTML(kind,x){
      +'</div>'
      +'<div class="gl-info">'
        +'<div class="gl-eb">'+esc(x.brand||x.sup||"")+'</div>'
-       +'<h3 class="gl-h3ren" onclick="goodsRenameTitle(\''+kind+'\',\''+x.id+'\')" title="Rename">'+esc(x.nm||"")+'<i>✎</i></h3>'
+       +'<h3 class="gl-h3ren" ondblclick="goodsRenameTitle(\''+kind+'\',\''+x.id+'\')" title="Double-click to rename">'+esc(x.nm||"")+'</h3>'
        +'<div class="gl-sub">'+esc([x.loc,x.dist!=null?(x.dist+" mi"):"",
             (!_gBlank(x.fin)?x.fin:"")].filter(Boolean).join(" · "))+'</div>'
        +'<div class="gl-tabs">'+live.map(t=>'<button class="'+(GL_TAB===t[0]?"on":"")
