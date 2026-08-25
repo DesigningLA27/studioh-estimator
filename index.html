@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1195</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1196</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24512,6 +24512,65 @@ function _piRenderStyle(){
     </div>`; }).join('')}
   </div>`;
 }
+// ── Mood Board intake wizard ─────────────────────────────────────────────
+// Pops once per project on first-ever visit to the tab (mb.wizardSeen), skippable, always
+// re-openable from the "Preferences" link in the board's own toolbar. Style reuses
+// S.pi.style / piToggleStyle directly — no duplicate storage, same field Project Info's
+// own style tiles read and write. Plant character is new (S.moodboard.wizPlantChar) and
+// feeds straight into _mbSuggestPlantsFor's prompt, closing the loop Warwick described:
+// suggestions driven by "the question wizard, the estimate, and the other colors/materials."
+const MB_PLANTCHAR_OPTS=[
+  {key:"lush",label:"Lush &amp; layered"},
+  {key:"drought",label:"Drought-tolerant"},
+  {key:"formal",label:"Formal &amp; structured"},
+  {key:"naturalistic",label:"Naturalistic &amp; wild"},
+  {key:"colorful",label:"Colorful &amp; blooming"},
+  {key:"lowmaint",label:"Low-maintenance"},
+  {key:"native",label:"California native"},
+  {key:"tropical",label:"Tropical &amp; bold"},
+];
+function mbTogglePlantChar(key){
+  const mb=_mbEnsure(); mb.wizPlantChar=mb.wizPlantChar||[];
+  const i=mb.wizPlantChar.indexOf(key);
+  if(i>=0) mb.wizPlantChar.splice(i,1); else mb.wizPlantChar.push(key);
+  try{ _bidSchedule(); }catch(e){}
+  _mbWizardRender();
+}
+function mbToggleStyleWiz(key){ piToggleStyle(key); _mbWizardRender(); }
+function mbWizardMaybeOpen(){
+  const mb=_mbEnsure(); if(mb.wizardSeen) return;
+  mb.wizardSeen=true; try{ _bidSchedule(); }catch(e){}
+  mbWizardOpen();
+}
+function mbWizardOpen(){
+  let h=document.getElementById("mbwiz"); if(!h){ h=document.createElement("div"); h.id="mbwiz"; h.className="gfrw";
+    h.addEventListener("click",e=>{ if(e.target===h) mbWizardClose(); });
+    document.body.appendChild(h); }
+  _mbWizardRender(); requestAnimationFrame(()=>h.classList.add("on"));
+}
+function mbWizardClose(){ const h=document.getElementById("mbwiz"); if(h){ h.classList.remove("on"); setTimeout(()=>{ try{ h.remove(); }catch(e){} },160); } try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){} }
+function _mbWizardRender(){
+  const h=document.getElementById("mbwiz"); if(!h) return;
+  const sel=(S.pi&&S.pi.style)||[];
+  const mb=_mbEnsure(); const chars=mb.wizPlantChar||[];
+  h.innerHTML=`<div class="gfrc" onclick="event.stopPropagation()" style="max-width:480px">
+    <div class="gfrt">A few quick questions</div>
+    <div class="gfrh">Answer what you know, skip the rest — you can always come back and edit these from the Preferences link at the top of the Mood Board. These bias the AI's suggestions for this project.</div>
+    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin:12px 0 8px">Design style — pick up to 2</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+      ${MB_STYLES.map(s=>{ const on=sel.indexOf(s.key)>=0; return `<div onclick="mbToggleStyleWiz('${s.key}')" style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:8px;padding:7px 5px;text-align:center;cursor:pointer;background:${on?'var(--brand-soft)':'var(--surface2)'}">
+        <div style="height:22px;border-radius:5px;margin-bottom:4px;background:${s.grad}"></div>
+        <div style="font-size:.66rem;font-weight:500;color:var(--tx)">${s.label}</div>
+      </div>`; }).join('')}
+    </div>
+    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin:14px 0 8px">What should the planting feel like?</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      ${MB_PLANTCHAR_OPTS.map(o=>{ const on=chars.indexOf(o.key)>=0; return `<button class="btn" onclick="mbTogglePlantChar('${o.key}')" style="padding:.3rem .65rem;font-size:.74rem;border-radius:20px;background:${on?'var(--gd)':'#fff'};color:${on?'#fff':'var(--gm)'};border:1px solid var(--gm)">${o.label}</button>`; }).join('')}
+    </div>
+    <div class="askb" style="margin-top:16px">
+      <button class="c" onclick="mbWizardClose()">Skip / Done</button>
+    </div></div>`;
+}
 // ── Mood Board ────────────────────────────────────────────────────────────
 // Phase 1: assembled entirely from what's already specified on THIS project —
 // no browsing, no AI suggestions yet. Plants come from S.planting's zones,
@@ -24558,13 +24617,39 @@ function _mbShuffleInsightsSilent(eligible){
   mb.insightPicks=picks; try{ _bidSchedule(); }catch(e){}
 }
 function mbShuffleInsights(){ const {d,t}=_mbInsightData(); _mbShuffleInsightsSilent(_mbInsightEligible(d,t)); renderMoodBoard(); }
+// Customize is a deliberate pick from every eligible card, distinct from Shuffle's random
+// re-roll — both write the same mb.insightPicks field, just via a different UI.
+let MB_INSIGHTS_EDIT=false;
+function mbInsightsCustomize(){ MB_INSIGHTS_EDIT=!MB_INSIGHTS_EDIT; renderMoodBoard(); }
+function mbInsightToggle(id){
+  const mb=_mbEnsure(); mb.insightPicks=mb.insightPicks||[];
+  const i=mb.insightPicks.indexOf(id);
+  if(i>=0) mb.insightPicks.splice(i,1); else mb.insightPicks.push(id);
+  try{ _bidSchedule(); }catch(e){}
+  renderMoodBoard();
+}
+function _mbInsightCustomizeHtml(){
+  const {d,t}=_mbInsightData(); const eligible=_mbInsightEligible(d,t);
+  const mb=_mbEnsure(); const picked=new Set(mb.insightPicks||[]);
+  if(!eligible.length) return `<div style="font-size:.78rem;color:var(--tl)">Nothing priced yet to pick from.</div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px">
+    ${eligible.map(c=>`<label style="display:flex;align-items:center;gap:.4rem;font-size:.76rem;border:1px solid var(--br);border-radius:6px;padding:.35rem .5rem;cursor:pointer;background:${picked.has(c.id)?'var(--brand-soft)':'var(--surface2)'}">
+      <input type="checkbox" ${picked.has(c.id)?'checked':''} onchange="mbInsightToggle('${c.id}')"> ${escAttr(c.nm)}
+    </label>`).join('')}
+  </div>`;
+}
 function _mbInsightSectionHtml(){
   const {d,t}=_mbInsightData(); const cards=_mbInsightPicks();
   if(!cards.length) return `<div style="font-size:.8rem;color:var(--tl)">Not enough priced yet to show insight cards.</div>`;
   return `<div class="ins-gr">${cards.map(c=>`<div class="ic${c.w===2?" w2":""}"><span class="k">${escAttr(c.nm)}</span>${c.draw(d,t)}</div>`).join('')}</div>`;
 }
 function _mbHiddenKey(kind,pid){ return kind+":"+pid; }
-function mbAddSection(key){ const mb=_mbEnsure(); if(mb.sections.indexOf(key)<0){ mb.sections.push(key); try{ _bidSchedule(); }catch(e){} } renderMoodBoard(); }
+function mbAddSection(key){
+  const mb=_mbEnsure(); const isNew=mb.sections.indexOf(key)<0;
+  if(isNew){ mb.sections.push(key); try{ _bidSchedule(); }catch(e){} }
+  renderMoodBoard();
+  if(isNew) _mbSuggestSectionCore(key,false);
+}
 function mbRemoveSection(key){ const mb=_mbEnsure(); mb.sections=mb.sections.filter(k=>k!==key); try{ _bidSchedule(); }catch(e){} renderMoodBoard(); }
 // "Hide" removes a photo from the board display only — it stays fully specified and
 // priced. Un-specifying a real plant or material is Design's job, never a Mood Board click.
@@ -24636,6 +24721,123 @@ function _mbPalette(plants,goods){
   const seen=new Set(), out=[];
   hexes.forEach(h=>{ const u=(""+h).toUpperCase(); if(!seen.has(u)){ seen.add(u); out.push(u); } });
   return out.slice(0,10);
+}
+// ── Color Palette v2 — grouped, sizeable, custom swatches ───────────────────
+// _mbPalette() above stays as the flat "is there any color at all" check used by seeding.
+// The board itself now shows two auto groups (plant bloom colors, goods finish colors —
+// each already a real fact recorded elsewhere, just grouped and labeled here) plus any
+// custom groups the user builds (Wall colors, Tile colors, Veneer colors, etc). A full
+// browsable swatch library ("see swatch options" built from swatches Warwick finds online)
+// is intentionally NOT built here — scoped out as its own feature, see mbSwatchLibraryInfo.
+function _mbPaletteAutoPlant(plants){ const seen=new Set(),out=[]; plants.forEach(x=>{ const h=bloomHexOf(x.p); if(h){ const u=(""+h).toUpperCase(); if(!seen.has(u)){ seen.add(u); out.push(u); } } }); return out.slice(0,12); }
+function _mbPaletteAutoGoods(goods){ const seen=new Set(),out=[]; goods.forEach(x=>{ (x.g.cols||[]).forEach(h=>{ if(h){ const u=(""+h).toUpperCase(); if(!seen.has(u)){ seen.add(u); out.push(u); } } }); }); return out.slice(0,12); }
+function _mbPaletteState(){
+  const mb=_mbEnsure();
+  if(!mb.paletteSize) mb.paletteSize=34;
+  if(!Array.isArray(mb.paletteGroups)) mb.paletteGroups=[];
+  return mb;
+}
+let MB_PALETTE_EDIT=false;
+function mbTogglePaletteEdit(){ MB_PALETTE_EDIT=!MB_PALETTE_EDIT; renderMoodBoard(); }
+function mbSetPaletteSize(v){
+  _mbPaletteState().paletteSize=+v; try{ _bidSchedule(); }catch(e){}
+  const disp=document.getElementById('mb-palsize-disp'); if(disp) disp.textContent=Math.round(+v)+'px';
+  document.querySelectorAll('.mb-swatch').forEach(el=>{ el.style.width=v+'px'; el.style.height=v+'px'; });
+}
+function mbAddPaletteGroup(){
+  const mb=_mbPaletteState();
+  mb.paletteGroups.push({key:'g'+Date.now()+Math.floor(Math.random()*1000),label:'New group',colors:[]});
+  try{ _bidSchedule(); }catch(e){}
+  renderMoodBoard();
+}
+function mbRemovePaletteGroup(key){
+  const mb=_mbPaletteState();
+  mb.paletteGroups=mb.paletteGroups.filter(g=>g.key!==key);
+  try{ _bidSchedule(); }catch(e){}
+  renderMoodBoard();
+}
+function mbRenamePaletteGroup(key,label){
+  const mb=_mbPaletteState(); const g=mb.paletteGroups.find(x=>x.key===key); if(!g) return;
+  g.label=label; try{ _bidSchedule(); }catch(e){}
+}
+function mbAddSwatch(key,hex){
+  const mb=_mbPaletteState(); const g=mb.paletteGroups.find(x=>x.key===key); if(!g) return;
+  const u=(hex||'#CCCCCC').toUpperCase(); if(g.colors.indexOf(u)<0) g.colors.push(u);
+  try{ _bidSchedule(); }catch(e){}
+  renderMoodBoard();
+}
+function mbRemoveSwatch(key,hex){
+  const mb=_mbPaletteState(); const g=mb.paletteGroups.find(x=>x.key===key); if(!g) return;
+  g.colors=g.colors.filter(c=>c!==hex);
+  try{ _bidSchedule(); }catch(e){}
+  renderMoodBoard();
+}
+async function mbSuggestPaletteGroup(key){
+  const mb=_mbPaletteState(); const g=mb.paletteGroups.find(x=>x.key===key); if(!g) return;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return; }
+  const styleKeys=(S.pi&&S.pi.style)||[];
+  const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ")||"this project's";
+  const {plants,goods}=_mbGather();
+  const existing=_mbPaletteAutoPlant(plants).concat(_mbPaletteAutoGoods(goods)).concat(mb.paletteGroups.flatMap(x=>x.colors));
+  const prompt=`Suggest 5 hex colors for a landscape mood board color group called "${g.label}", fitting a "${styleLabels}" design style. Colors already in use elsewhere on this board (harmonize, don't clash): ${existing.length?existing.join(", "):"(none yet)"}.
+Output ONLY a minified JSON array of hex strings, no prose: ["#RRGGBB", ...]`;
+  g._loading=true; renderMoodBoard();
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,temperature:0.5,
+        system:"You are a landscape designer choosing a cohesive color palette. Output only a minified JSON array of hex color strings.",
+        messages:[{role:"user",content:prompt}]})});
+    const d=await r.json();
+    const t=((d.content||[]).filter(x=>x.type==="text").map(x=>x.text).join(""))||"";
+    const a=t.indexOf("["); let arr=null;
+    if(a>=0){ const b=t.lastIndexOf("]"); if(b>a){ try{ arr=JSON.parse(t.slice(a,b+1)); }catch(e){} } }
+    let added=0;
+    (arr||[]).forEach(hex=>{ const u=String(hex||"").trim().toUpperCase(); if(/^#[0-9A-F]{6}$/.test(u) && g.colors.indexOf(u)<0){ g.colors.push(u); added++; } });
+    if(!added) alert("Couldn't find suggestions — try again.");
+  }catch(e){ alert("Couldn't reach the AI service."); }
+  g._loading=false; try{ _bidSchedule(); }catch(e){}
+  renderMoodBoard();
+}
+function mbSwatchLibraryInfo(){ alert("Swatch library — a curated set of real color swatches to browse and add from is planned as its own feature (like the Material Library). For now, build custom swatches by hand with the color picker next to each group."); }
+function _mbPaletteSectionHtml(plants,goods){
+  const mb=_mbPaletteState(); const sz=mb.paletteSize;
+  const swatch=(hex,removable,gkey)=>`<div style="position:relative">
+    <span title="${hex}" class="mb-swatch" style="display:block;width:${sz}px;height:${sz}px;border-radius:8px;background:${hex};border:1px solid var(--br)"></span>
+    ${removable?`<button onclick="mbRemoveSwatch('${gkey}','${hex}')" title="Remove" style="position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:10px;line-height:1;cursor:pointer;padding:0">✕</button>`:''}
+  </div>`;
+  const autoPlant=_mbPaletteAutoPlant(plants), autoGoods=_mbPaletteAutoGoods(goods);
+  const autoGroupHtml=(label,hexes,hint)=>hexes.length?`<div style="margin-bottom:12px">
+      <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:6px">${label}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${hexes.map(h=>swatch(h,false)).join('')}</div>
+    </div>` : (MB_PALETTE_EDIT?`<div style="margin-bottom:12px"><div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:6px">${label}</div><div style="font-size:.75rem;color:var(--tl)">${hint}</div></div>`:'');
+  const customGroupsHtml=(mb.paletteGroups||[]).map(g=>`<div style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:6px;flex-wrap:wrap">
+        ${MB_PALETTE_EDIT
+          ? `<input type="text" value="${escAttr(g.label)}" oninput="mbRenamePaletteGroup('${g.key}',this.value)" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tm);border:1px solid var(--br);border-radius:5px;padding:.15rem .4rem;background:var(--surface2)">`
+          : `<div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl)">${escAttr(g.label)}</div>`}
+        ${MB_PALETTE_EDIT?`<button class="btn" style="padding:.05rem .4rem;font-size:.64rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestPaletteGroup('${g.key}')" ${g._loading?'disabled':''}>${g._loading?'…':'✨ Suggest'}</button>
+             <button class="btn" style="padding:.05rem .4rem;font-size:.64rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbRemovePaletteGroup('${g.key}')">Remove group</button>`:''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${g.colors.map(h=>swatch(h,MB_PALETTE_EDIT,g.key)).join('')}
+        ${MB_PALETTE_EDIT?`<input type="color" onchange="mbAddSwatch('${g.key}',this.value)" title="Add a custom swatch" style="width:${sz}px;height:${sz}px;padding:0;border:1px dashed var(--br);border-radius:8px;cursor:pointer;background:none">`:''}
+        ${!g.colors.length && !MB_PALETTE_EDIT?`<div style="font-size:.75rem;color:var(--tl)">No swatches yet.</div>`:''}
+      </div>
+    </div>`).join('');
+  const editBar=MB_PALETTE_EDIT?`<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--br);flex-wrap:wrap">
+      <span style="font-size:.72rem;color:var(--tl)">Swatch size</span>
+      <input type="range" min="24" max="70" step="1" value="${sz}" oninput="mbSetPaletteSize(this.value)" style="flex:1;max-width:180px">
+      <b id="mb-palsize-disp" style="font-size:.72rem;color:var(--tm)">${sz}px</b>
+      <button class="btn" style="padding:.2rem .55rem;font-size:.7rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="mbAddPaletteGroup()">+ Add group</button>
+      <button class="btn" style="padding:.2rem .55rem;font-size:.7rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbSwatchLibraryInfo()">See swatch options</button>
+    </div>`:'';
+  const nothing = !autoPlant.length && !autoGoods.length && !(mb.paletteGroups||[]).length;
+  return `${editBar}
+    ${autoGroupHtml("Plant colors — from bloom colors on specified plants",autoPlant,"Add plants with bloom colors set to populate this automatically.")}
+    ${autoGroupHtml("Materials &amp; finishes — from specified materials/furnishings",autoGoods,"Add materials or furnishings with swatch colors set to populate this automatically.")}
+    ${customGroupsHtml}
+    ${nothing?`<div style="font-size:.8rem;color:var(--tl)">No colors yet — comes from what's specified, or add your own group above.</div>`:''}`;
 }
 // Both kinds are click-to-frame now, no floating buttons on a small tile — a −/+ pair
 // anchored to a tile this size had nowhere to sit that didn't collide with something else.
@@ -24783,12 +24985,16 @@ function mbFrameSave(){
 // for goods — the exact functions Design and the Price Book use themselves.
 let MB_SUGGEST={}; // { [sectionKey]: {loading, items} }
 function _mbSuggestState(key){ return MB_SUGGEST[key]||(MB_SUGGEST[key]={loading:false,items:[]}); }
-async function mbSuggestSection(key){
+function mbSuggestSection(key){ return _mbSuggestSectionCore(key,true); }
+// verbose=false is used for the auto-suggest-on-add path — it silently no-ops without a
+// worker or a style set yet, instead of popping an alert the moment someone adds a section.
+async function _mbSuggestSectionCore(key,verbose){
   const sec=_mbSectionDefs().find(d=>d.key===key); if(!sec) return;
+  if(sec.group==="palette"||sec.group==="insights") return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
-  if(!ep){ alert("No worker connected."); return; }
+  if(!ep){ if(verbose) alert("No worker connected."); return; }
   const styleKeys=(S.pi&&S.pi.style)||[];
-  if(!styleKeys.length){ alert("Set a design style first — Project Info → Design style & vibe, pick up to 2."); return; }
+  if(!styleKeys.length){ if(verbose) alert("Set a design style first — Project Info → Design style & vibe, pick up to 2."); return; }
   if(sec.group==="plant") return _mbSuggestPlantsFor(sec,styleKeys,ep);
   return _mbSuggestGoodsFor(sec,styleKeys,ep);
 }
@@ -24798,9 +25004,12 @@ async function _mbSuggestPlantsFor(sec,styleKeys,ep){
   const {plants}=_mbGather();
   const already=plants.map(x=>botName(x.p)).filter(Boolean);
   const bud=projBudget();
+  const chars=(S.moodboard&&S.moodboard.wizPlantChar)||[];
+  const charLabels=chars.map(k=>(MB_PLANTCHAR_OPTS.find(o=>o.key===k)||{}).label||k).join(", ");
   st.loading=true; renderMoodBoard();
   const prompt=`Suggest 6 Southern California landscape plants (a mix of shrubs, groundcover, trees, or palms as fits) for a "${styleLabels}" design style.
 Do not repeat anything already used on this project: ${already.length?already.join(", "):"(nothing specified yet)"}.
+${charLabels?`The planting should feel: ${charLabels}.`:""}
 ${bud?`This project has a target budget, so favor common, reasonably priced nursery plants over rare or expensive specimens.`:""}
 Output ONLY a minified JSON array, no prose, no markdown:
 [{"bot":"botanical name","common":"common name","kind":"shrub|tree|palm|gc","reason":"why it fits this style, under 12 words"}]
@@ -24883,6 +25092,35 @@ async function mbAddSectionSuggestion(key,i){
   renderMoodBoard();
 }
 function mbDismissSectionSuggestion(key,i){ _mbSuggestState(key).items.splice(i,1); renderMoodBoard(); }
+// Search & add your own plant — separate from AI suggest. Searches every plant already in
+// the Plant Book (_allPlantsFlat), not the AI — this is for "I already know what I want."
+let MB_PLANTSEARCH={open:false,q:""};
+function mbTogglePlantSearch(){ MB_PLANTSEARCH.open=!MB_PLANTSEARCH.open; MB_PLANTSEARCH.q=""; renderMoodBoard(); }
+function _mbPlantSearchResults(){
+  const q=MB_PLANTSEARCH.q.trim().toLowerCase(); if(!q) return [];
+  const {plants}=_mbGather(); const have=new Set(plants.map(x=>x.kind+":"+x.p.id));
+  return _allPlantsFlat().filter(x=>!have.has(x.kind+":"+x.p.id) &&
+    (((x.p.c||"").toLowerCase().indexOf(q)>=0) || (botName(x.p)||"").toLowerCase().indexOf(q)>=0)).slice(0,20);
+}
+function _mbPlantSearchRowsHtml(res,q){
+  return res.length ? res.map(x=>`<div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;border-bottom:1px solid var(--br)">
+      <div style="flex:1;min-width:0"><div style="font-size:.78rem;font-weight:600">${escAttr(x.p.c||botName(x.p))}</div><div style="font-size:.68rem;color:var(--tl);font-style:italic">${escAttr(botName(x.p))}</div></div>
+      <button class="btn" style="padding:.2rem .5rem;font-size:.7rem;background:var(--gm);color:#fff;border:none;flex:none" onclick="mbAddExistingPlant('${x.kind}','${escAttr(x.p.id)}')">+ Add</button>
+    </div>`).join('') : (q.trim()?`<div style="font-size:.75rem;color:var(--tl);padding:.4rem">No matches in your Plant Book.</div>`:'');
+}
+// Targeted DOM update, not a full renderMoodBoard() — rebuilding #mb-body on every keystroke
+// would blow away the search input and lose focus mid-type.
+function mbPlantSearchInput(v){
+  MB_PLANTSEARCH.q=v;
+  const host=document.getElementById("mb-plantsearch-results"); if(!host) return;
+  host.innerHTML=_mbPlantSearchRowsHtml(_mbPlantSearchResults(),v);
+}
+function mbAddExistingPlant(kind,pid){
+  ensurePlanting();
+  ({shrub:addShrubRow,tree:addTreeRow,palm:addPalmRow,gc:addGcRow}[kind])(0,pid);
+  MB_PLANTSEARCH.open=false; MB_PLANTSEARCH.q="";
+  renderMoodBoard();
+}
 function _mbSuggestSectionHtml(key){
   const st=_mbSuggestState(key);
   if(st.loading) return `<div style="margin-top:10px;font-size:.8rem;color:var(--tm)">✨ Thinking…</div>`;
@@ -24927,6 +25165,7 @@ function _mbSectionBoardHtml(shown){
 }
 function renderMoodBoard(){
   const host=document.getElementById("mb-body"); if(!host) return;
+  mbWizardMaybeOpen();
   _mbSeedSections();
   const mb=_mbEnsure();
   const {plants,goods}=_mbGather();
@@ -24949,13 +25188,13 @@ function renderMoodBoard(){
     const sec=defByKey[key];
     const removeBtn=`<button class="btn" style="margin-left:auto;padding:.15rem .5rem;font-size:.68rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbRemoveSection('${escAttr(sec.key)}')">Remove section</button>`;
     if(sec.key==="palette"){
-      const palette=_mbPalette(plants,goods);
       return `<div class="card" style="margin-bottom:1rem">
         <div style="display:flex;align-items:center;margin-bottom:8px;gap:.5rem;flex-wrap:wrap">
-          <div style="font-size:.85rem;font-weight:600;color:var(--tx)">Color Palette</div>${removeBtn}
+          <div style="font-size:.85rem;font-weight:600;color:var(--tx)">Color Palette</div>
+          <button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:${MB_PALETTE_EDIT?'var(--gd)':'#fff'};color:${MB_PALETTE_EDIT?'#fff':'var(--gm)'};border:1px solid var(--gm)" onclick="mbTogglePaletteEdit()">${MB_PALETTE_EDIT?'Done':'Edit'}</button>
+          ${removeBtn}
         </div>
-        ${palette.length?`<div style="display:flex;gap:6px;flex-wrap:wrap">${palette.map(h=>`<span title="${h}" style="width:34px;height:34px;border-radius:8px;background:${h};border:1px solid var(--br)"></span>`).join('')}</div>`
-          :`<div style="font-size:.8rem;color:var(--tl)">No colors yet — comes from plant bloom colors and material finishes once something's specified.</div>`}
+        ${_mbPaletteSectionHtml(plants,goods)}
       </div>`;
     }
     if(sec.key==="insights"){
@@ -24963,20 +25202,28 @@ function renderMoodBoard(){
         <div style="display:flex;align-items:center;margin-bottom:12px;gap:.5rem;flex-wrap:wrap">
           <div style="font-size:.85rem;font-weight:600;color:var(--tx)">Insights</div>
           <button class="btn" style="padding:.15rem .5rem;font-size:.68rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="mbShuffleInsights()">🎲 Shuffle</button>
+          <button class="btn" style="padding:.15rem .5rem;font-size:.68rem;background:${MB_INSIGHTS_EDIT?'var(--gd)':'#fff'};color:${MB_INSIGHTS_EDIT?'#fff':'var(--gm)'};border:1px solid var(--gm)" onclick="mbInsightsCustomize()">${MB_INSIGHTS_EDIT?'Done':'Customize'}</button>
           ${removeBtn}
         </div>
-        ${_mbInsightSectionHtml()}
+        ${MB_INSIGHTS_EDIT?_mbInsightCustomizeHtml():_mbInsightSectionHtml()}
       </div>`;
     }
     const {shown,hiddenCount}=_mbItemsForSection(sec);
     const sst=_mbSuggestState(sec.key);
+    const searchBtn = sec.key==="plants" ? `<button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:${MB_PLANTSEARCH.open?'var(--gd)':'#fff'};color:${MB_PLANTSEARCH.open?'#fff':'var(--gm)'};border:1px solid var(--gm)" onclick="mbTogglePlantSearch()">🔍 Search &amp; add</button>` : '';
+    const searchHtml = sec.key==="plants" && MB_PLANTSEARCH.open ? `<div style="margin-bottom:10px;border:1px solid var(--br);border-radius:8px;padding:.5rem">
+        <input type="text" placeholder="Search your Plant Book by name…" value="${escAttr(MB_PLANTSEARCH.q)}" oninput="mbPlantSearchInput(this.value)" style="width:100%;padding:.4rem .5rem;font-size:.8rem;border:1px solid var(--br);border-radius:6px;margin-bottom:.4rem;box-sizing:border-box">
+        <div id="mb-plantsearch-results" style="max-height:220px;overflow-y:auto">${_mbPlantSearchRowsHtml(_mbPlantSearchResults(),MB_PLANTSEARCH.q)}</div>
+      </div>` : '';
     return `<div class="card" style="margin-bottom:1rem">
       <div style="display:flex;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:.5rem">
         <div style="font-size:.85rem;font-weight:600;color:var(--tx)">${escAttr(sec.label)} <span style="font-weight:400;color:var(--tl);font-size:.78rem">${shown.length}</span></div>
         ${hiddenCount?`<button class="btn" style="padding:.1rem .5rem;font-size:.68rem;background:#fff;color:var(--tl);border:1px solid var(--br)" onclick="mbUnhideSection('${escAttr(sec.key)}')">${hiddenCount} hidden — show</button>`:''}
+        ${searchBtn}
         <button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestSection('${escAttr(sec.key)}')" ${sst.loading?'disabled':''}>✨ Suggest more</button>
         ${removeBtn}
       </div>
+      ${searchHtml}
       ${_mbSectionBoardHtml(shown)}
       ${_mbSuggestSectionHtml(sec.key)}
     </div>`;
@@ -24986,6 +25233,7 @@ function renderMoodBoard(){
     <div class="card" style="margin-bottom:1rem">
       <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
         <div style="font-size:.78rem;color:var(--tm)">${budgetHtml}</div>
+        <button class="btn" onclick="mbWizardOpen()" style="padding:.3rem .6rem;font-size:.72rem;background:#fff;color:var(--gm);border:1px solid var(--gm)">⚙ Preferences</button>
         <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
           <div style="display:flex;border:1px solid var(--br);border-radius:8px;overflow:hidden">
             ${dispBtn("grid","▦ Grid")}${dispBtn("editorial","▤ Editorial")}${dispBtn("wall","▧ Photo wall")}
