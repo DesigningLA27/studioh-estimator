@@ -5548,7 +5548,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1161</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1162</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -17696,8 +17696,11 @@ function _goodsTree(kind){
     +'<span class="nm">'+esc(lab)+(promo?'<i class="gt-promo">PROMOTED</i>':'')+'</span>'
     +(n==null?'':'<span class="n">'+n+'</span>')+'</button>'; };
 
-  /* One section, one rule. */
-  const band=(title,facet,tally,dot)=>{
+  /* One section, one rule. An optional `child` string (a nested sub-band, already
+     rendered) lands right after the chosen rows and before the unselected rest —
+     directly under the parent it belongs to, not after the whole section, which
+     otherwise reads as a child of whatever row happens to be drawn last. */
+  const band=(title,facet,tally,dot,child)=>{
     const selMap=_gtSel(kind,facet);
     let names=Object.keys(tally).filter(n=>n!=="" && (tally[n]>0 || selMap[n]));
     if(!names.length) return;
@@ -17716,6 +17719,7 @@ function _goodsTree(kind){
     sec(title,kind,facet);
     if(chosen.length){
       chosen.forEach(n=>row(true,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n)));
+      if(child) h+=child;
       if(rest.length) h+='<div class="gt-cut"></div>';
     }
     if(big) h+='<div class="gt-find"><input id="gtq-'+kind+'-'+facet+'" type="search" value="'+esc(GOODS_FQ[key]||"")
@@ -17729,14 +17733,15 @@ function _goodsTree(kind){
       h+='<button class="gt-more" onclick="goodsFacetMore(\''+kind+'\',\''+facet+'\')">Show less</button>';
   };
 
-  // Nest a child band under whichever parent row is picked: same wrap for Furnishings/
-  // Products' Category→Type as for Materials' Group→Category below. Kept out of band()
-  // itself since only these two calls need it — everything else (Brand, Material,
-  // Finish) is one flat level.
-  const nested=(title,facet,tally,dot)=>{
+  // Renders a band in isolation and returns its markup (wrapped for the indent) instead
+  // of appending to h, so the caller can splice it in right after the parent row.
+  const nestedStr=(title,facet,tally,dot)=>{
     const before=h.length;
     band(title,facet,tally,dot);
-    if(h.length>before) h=h.slice(0,before)+'<div class="gt-nest">'+h.slice(before)+'</div>';
+    if(h.length<=before) return '';
+    const piece='<div class="gt-nest">'+h.slice(before)+'</div>';
+    h=h.slice(0,before);
+    return piece;
   };
 
   if(kind==="mat"){
@@ -17745,31 +17750,37 @@ function _goodsTree(kind){
     const counts=matCatCounts();
     const groups=MAT_GROUPS.concat([{id:"other",nm:"Other",cats:[]}])
       .map(g=>({id:g.id,nm:g.nm,n:matGroupCount(g.id,counts)})).filter(g=>g.n>0);
-    if(groups.length){
-      sec("Group","","");
-      row(!MAT_GRP,"matPick('','All')","All",MATERIALS.length,"#B08968");
-      groups.forEach(g=>row(MAT_GRP===g.id,"matPick('"+q(g.id)+"','All')",g.nm,g.n,"#B08968"));
-    }
+    let childHtml='';
     if(MAT_GRP){
       const tally={};
       MATERIALS.forEach(m=>{ if(!m) return; const c=m.cat||"—"; if(matGroupOf(c)!==MAT_GRP) return; tally[c]=(tally[c]||0)+1; });
       const gnm=(groups.find(g=>g.id===MAT_GRP)||{}).nm||"Category";
-      nested(gnm+" categories","cat",tally,"#7C6B98");
+      childHtml=nestedStr(gnm+" categories","cat",tally,"#7C6B98");
+    }
+    if(groups.length){
+      sec("Group","","");
+      row(!MAT_GRP,"matPick('','All')","All",MATERIALS.length,"#B08968");
+      groups.forEach(g=>{
+        row(MAT_GRP===g.id,"matPick('"+q(g.id)+"','All')",g.nm,g.n,"#B08968");
+        if(MAT_GRP===g.id && childHtml){ h+=childHtml; childHtml=''; }
+      });
     }
   }else{
-    band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968");
     // Sub-grouped types (Path Light, Up Light, Wall Sconce…) are sub-categories of
     // whichever Category is picked, not a book-wide list — so Lighting's types never
-    // bleed into Controls', and the section stays hidden until a Category narrows it.
+    // bleed into Controls', and the child band is spliced in right after Lighting's
+    // own row rather than after the whole Category list (Controls included).
+    let childHtml='';
     if(kind==="fur"){
       const catSel=_gtKeys("fur","cat");
       if(catSel.length){
         const tally={};
         _goodsAll("fur").forEach(x=>{ if(catSel.indexOf(x.cat)<0) return; if(x.subcat) tally[x.subcat]=(tally[x.subcat]||0)+1; });
         const title=catSel.length===1?(catSel[0]+" types"):"Type";
-        nested(title,"subcat",tally,"#7C6B98");
+        childHtml=nestedStr(title,"subcat",tally,"#7C6B98");
       }
     }
+    band("Category","cat",_goodsTally(kind,x=>x.cat),"#B08968",childHtml);
   }
   band(kind==="mat"?"Supplier":"Brand","sup",_goodsTally(kind,x=>x.brand||x.sup),"#6d8f5c");
   if(kind==="mat") band("Finish","fin",_goodsTally("mat",x=>(x.fin&&x.fin!=="—")?x.fin:null),"#CFC6B4");
