@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1193</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1194</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24517,9 +24517,99 @@ function _piRenderStyle(){
 // no browsing, no AI suggestions yet. Plants come from S.planting's zones,
 // goods (materials/furnishings/products) come from S.specs. Nothing here is
 // picked separately, so there's no separate "add to board" step to keep in sync.
-let MB_VIEW={disp:"grid",filter:"all"};
+let MB_VIEW={disp:"grid"};
 function mbSetDisp(v){ MB_VIEW.disp=v; renderMoodBoard(); }
-function mbSetFilter(v){ MB_VIEW.filter=v; renderMoodBoard(); }
+// ── Board sections ───────────────────────────────────────────────────────
+// A Mood Board is now user-composed: which sections exist and what's hidden within them
+// is project-scoped state on S.moodboard, never touching the shared Plant Book / goods
+// library. Sections map onto categories the app already has (FUR_CATS/PROD_CATS) — no new
+// item taxonomy, just a user-controlled view over real specified data.
+function _mbEnsure(){
+  if(!S.moodboard || typeof S.moodboard!=="object") S.moodboard={sections:[],hidden:[]};
+  if(!Array.isArray(S.moodboard.sections)) S.moodboard.sections=[];
+  if(!Array.isArray(S.moodboard.hidden)) S.moodboard.hidden=[];
+  return S.moodboard;
+}
+function _mbSectionDefs(){
+  return [
+    {key:"plants",label:"Plants",group:"plant"},
+    {key:"materials",label:"Materials",group:"materials"},
+    {key:"palette",label:"Color Palette",group:"palette"},
+    {key:"insights",label:"Insights",group:"insights"},
+  ].concat(FUR_CATS.map(c=>({key:c,label:c,group:"furnishings",cat:c})))
+   .concat(PROD_CATS.map(c=>({key:c,label:c,group:"products",cat:c})));
+}
+// Reuses the exact cards from the Insights tab (INS_CARDS) — same data, same draw(), same
+// .ic styling — so a stat here always matches Insights exactly, never a second computation
+// that could drift from it. Only client:1 cards are eligible: a Mood Board is client-facing,
+// and margin/internal-only figures never belong there, same rule as everywhere else.
+function _mbInsightData(){ let d=null,t={}; try{ d=_proCardData(); }catch(e){} try{ t=_plantTally(); }catch(e){} return {d,t}; }
+function _mbInsightEligible(d,t){ return d ? INS_CARDS.filter(c=>c.client && !c.need(d,t)) : []; }
+function _mbInsightPicks(){
+  const mb=_mbEnsure(); const {d,t}=_mbInsightData(); const eligible=_mbInsightEligible(d,t);
+  if(!eligible.length) return [];
+  if(!Array.isArray(mb.insightPicks) || !mb.insightPicks.length) _mbShuffleInsightsSilent(eligible);
+  mb.insightPicks=(mb.insightPicks||[]).filter(id=>eligible.some(c=>c.id===id));
+  return mb.insightPicks.map(id=>eligible.find(c=>c.id===id)).filter(Boolean);
+}
+function _mbShuffleInsightsSilent(eligible){
+  const mb=_mbEnsure(); const pool=eligible.slice(); const picks=[]; const n=Math.min(4,eligible.length);
+  while(pool.length && picks.length<n){ picks.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0].id); }
+  mb.insightPicks=picks; try{ saveLocal&&saveLocal(); }catch(e){}
+}
+function mbShuffleInsights(){ const {d,t}=_mbInsightData(); _mbShuffleInsightsSilent(_mbInsightEligible(d,t)); renderMoodBoard(); }
+function _mbInsightSectionHtml(){
+  const {d,t}=_mbInsightData(); const cards=_mbInsightPicks();
+  if(!cards.length) return `<div style="font-size:.8rem;color:var(--tl)">Not enough priced yet to show insight cards.</div>`;
+  return `<div class="ins-gr">${cards.map(c=>`<div class="ic${c.w===2?" w2":""}"><span class="k">${escAttr(c.nm)}</span>${c.draw(d,t)}</div>`).join('')}</div>`;
+}
+function _mbHiddenKey(kind,pid){ return kind+":"+pid; }
+function mbAddSection(key){ const mb=_mbEnsure(); if(mb.sections.indexOf(key)<0){ mb.sections.push(key); try{ saveLocal&&saveLocal(); }catch(e){} } renderMoodBoard(); }
+function mbRemoveSection(key){ const mb=_mbEnsure(); mb.sections=mb.sections.filter(k=>k!==key); try{ saveLocal&&saveLocal(); }catch(e){} renderMoodBoard(); }
+// "Hide" removes a photo from the board display only — it stays fully specified and
+// priced. Un-specifying a real plant or material is Design's job, never a Mood Board click.
+function mbHideItem(kind,pid){ const mb=_mbEnsure(); const k=_mbHiddenKey(kind,pid); if(mb.hidden.indexOf(k)<0){ mb.hidden.push(k); try{ saveLocal&&saveLocal(); }catch(e){} } renderMoodBoard(); }
+function mbUnhideSection(key){
+  const sec=_mbSectionDefs().find(d=>d.key===key); if(!sec) return;
+  const mb=_mbEnsure(); const {plants,goods}=_mbGather(); let keys=[];
+  if(sec.group==="plant") keys=plants.map(x=>_mbHiddenKey("plants",x.p.id));
+  else if(sec.group==="materials") keys=goods.filter(x=>x.type==="materials").map(x=>_mbHiddenKey("materials",x.g.id));
+  else if(sec.group==="furnishings"||sec.group==="products") keys=goods.filter(x=>(x.type==="furnishings"||x.type==="products")&&x.g.cat===sec.cat).map(x=>_mbHiddenKey(x.type,x.g.id));
+  const set=new Set(keys);
+  mb.hidden=mb.hidden.filter(k=>!set.has(k));
+  try{ saveLocal&&saveLocal(); }catch(e){}
+  renderMoodBoard();
+}
+// Items actually specified + photo'd, minus anything hidden, for one section.
+// Items without a photo are still shown, not excluded — a good plant for the design
+// with no photo yet is still worth seeing on the board, as a placeholder that points at
+// where to go add one, not silently dropped (Warwick: "don't rule out plants without
+// images" — a real fit outweighs a temporarily missing photo, and hiding it just makes it
+// invisible to fix).
+function _mbItemsForSection(sec){
+  const {plants,goods}=_mbGather(); const hiddenSet=new Set(_mbEnsure().hidden); const all=[];
+  if(sec.group==="plant"){
+    plants.forEach(x=>{ all.push({kind:"plants",kind0:x.kind,pid:x.p.id,label:x.p.c||botName(x.p),sub:botName(x.p),img:x.p.img||"",obj:x.p}); });
+  } else if(sec.group==="materials"){
+    goods.forEach(x=>{ if(x.type==="materials") all.push({kind:"materials",pid:x.g.id,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img||"",obj:x.g,book:x.book}); });
+  } else if(sec.group==="furnishings"||sec.group==="products"){
+    goods.forEach(x=>{ if((x.type==="furnishings"||x.type==="products")&&x.g.cat===sec.cat) all.push({kind:x.type,pid:x.g.id,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img||"",obj:x.g,book:x.book}); });
+  }
+  const shown=all.filter(x=>!hiddenSet.has(_mbHiddenKey(x.kind,x.pid)));
+  return {shown,hiddenCount:all.length-shown.length};
+}
+// A project's first-ever visit to the Mood Board seeds sections from whatever's already
+// specified, so an existing project shows what it always showed. After that the board is
+// entirely user-controlled — removing a section never comes back on its own just because
+// more got specified in it later; adding it back is a deliberate "+ " click.
+function _mbSeedSections(){
+  const mb=_mbEnsure(); if(mb._seeded) return; mb._seeded=true;
+  const {plants,goods}=_mbGather(); if(!plants.length && !goods.length) return;
+  _mbSectionDefs().forEach(sec=>{
+    if(sec.key==="palette"){ if(_mbPalette(plants,goods).length) mb.sections.push(sec.key); return; }
+    if(_mbItemsForSection(sec).shown.length) mb.sections.push(sec.key);
+  });
+}
 function _mbGather(){
   const plants=[]; const seenP=new Set();
   const zones=(S.planting&&S.planting.zones)||[];
@@ -24552,22 +24642,32 @@ function _mbPalette(plants,goods){
 // Plants open a dedicated modal (imgZoom/imgPanX/imgPanY on the shared plant record — set
 // it here, it's set everywhere the photo appears, same as the Planting Palette report).
 // Goods reuse the existing click-to-frame modal already shipped for Materials/Furnishings.
+// No photo yet: not excluded, shown as a plain placeholder that sends you to go add one —
+// a good fit for the design outweighs a missing photo, and hiding it just makes it
+// invisible to fix.
 function _mbPhotoInner(x){
+  if(!x.img){
+    const goTo = x.kind==="plants" ? `goToPlantInBook('${x.kind0}','${escAttr(x.pid)}')` : `document.querySelector('button.tab[data-view=\\'${x.kind}\\']').click()`;
+    return `<div style="position:absolute;inset:0;background:var(--surface2);display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;padding:.5rem" title="No photo yet — click to add one" onclick="${goTo}">
+      <span style="font-size:.68rem;color:var(--tl);line-height:1.4">No photo yet<br>click to add one</span>
+    </div>`;
+  }
   const type = x.kind==="plants" ? "plant" : "goods";
   const a = x.kind==="plants" ? x.kind0 : x.book;
   return `<div style="position:absolute;inset:0;${_mbShotStyle(x.obj,x.img,"var(--surface2)")};cursor:zoom-in" title="Click to zoom &amp; pan" onclick="mbFrameOpen(event,'${type}','${a}','${escAttr(x.pid)}','${escAttr(x.img)}')"></div>`;
 }
 function _mbTile(x,mode){
+  const hideBtn=`<button onclick="event.stopPropagation();mbHideItem('${x.kind}','${escAttr(x.pid)}')" title="Hide from this board (stays specified)" style="position:absolute;top:7px;right:7px;z-index:3;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.45);color:#fff;font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">✕</button>`;
   if(mode==="wall"){
     return `<div style="border-radius:10px;overflow:hidden;position:relative;aspect-ratio:1;background:var(--surface2)">
-      ${_mbPhotoInner(x)}
+      ${_mbPhotoInner(x)}${hideBtn}
       <div style="position:absolute;left:0;right:0;bottom:0;padding:20px 10px 8px;background:linear-gradient(to top,rgba(0,0,0,.65),transparent);pointer-events:none;z-index:2">
         <div style="color:#fff;font-weight:600;font-size:.8rem;line-height:1.25">${escAttr(x.label)}</div>
       </div>
     </div>`;
   }
   return `<div style="border:1px solid var(--br);border-radius:10px;overflow:hidden;background:var(--card)">
-    <div style="aspect-ratio:1;position:relative">${_mbPhotoInner(x)}</div>
+    <div style="aspect-ratio:1;position:relative">${_mbPhotoInner(x)}${hideBtn}</div>
     <div style="padding:.45rem .55rem">
       <div style="font-weight:600;font-size:.8rem;line-height:1.25">${escAttr(x.label)}</div>
       ${x.sub?`<div style="font-size:.7rem;color:var(--tl);font-style:${x.kind==='plants'?'italic':'normal'}">${escAttr(x.sub)}</div>`:''}
@@ -24761,75 +24861,92 @@ function _mbSuggestHTML(){
     <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:.2rem">${cards}</div>
   </div>`;
 }
-function renderMoodBoard(){
-  const host=document.getElementById("mb-body"); if(!host) return;
-  const {plants,goods}=_mbGather();
-  const totalSpecified=plants.length+goods.length;
-  const suggestBtn=`<button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestPlants()" ${MB_SUGGEST.loading?'disabled':''}>✨ Suggest plants</button>`;
-  if(!totalSpecified){
-    host.innerHTML=`<div class="card" style="margin-bottom:1rem"><p style="font-size:.9rem;color:var(--tm);margin-bottom:.6rem">Nothing to show yet. The Mood Board pulls automatically from what's specified on this project — add plants in <b>Design</b> and attach materials/furnishings/products from the estimate, and they'll show up here.</p>${suggestBtn}</div>${_mbSuggestHTML()}`;
-    return;
-  }
-  const palette=_mbPalette(plants,goods);
-  const bud=projBudget(), grand=_grandNow(), gap=bud?grand-bud:0;
-  const budgetHtml = bud
-    ? `${fmtN(grand)} specified · <b style="color:${gap>0?'#B23F3C':'var(--gm)'}">${gap>0?'+':gap<0?'−':''}${fmtN(Math.abs(gap))}</b> ${gap>0?'over':gap<0?'under':'at'} your ${fmtN(bud)} budget`
-    : `${fmtN(grand)} specified so far · <a href="#" onclick="askProjBudget();return false" style="color:var(--gm)">set a project budget</a> to track against it`;
-
-  // Photo-only: a mood board of blank cards defeats the point, so anything without a
-  // real photo is left off the board entirely rather than shown as a placeholder tile.
-  let items=[];
-  plants.forEach(x=>{ if(x.p.img) items.push({kind:"plants",kind0:x.kind,pid:x.p.id,label:x.p.c||botName(x.p),sub:botName(x.p),img:x.p.img,obj:x.p}); });
-  goods.forEach(x=>{ if(x.g.img) items.push({kind:x.type,pid:x.g.id,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img,obj:x.g,book:x.book}); });
-  const counts={plants:0,materials:0,furnishings:0,products:0}; items.forEach(x=>counts[x.kind]++);
-  if(MB_VIEW.filter!=="all") items=items.filter(x=>x.kind===MB_VIEW.filter);
-
-  if(!items.length){
-    host.innerHTML=`<div class="card" style="margin-bottom:1rem"><p style="font-size:.9rem;color:var(--tm);margin-bottom:.6rem">${totalSpecified} item${totalSpecified>1?'s are':' is'} specified on this project, but none have a photo yet. Add photos in the Plant Book / Materials / Furnishings library and they'll appear here.</p>${suggestBtn}</div>${_mbSuggestHTML()}`;
-    return;
-  }
-
-  const filterBtn=(v,lb)=>`<button class="btn" onclick="mbSetFilter('${v}')" style="padding:.3rem .65rem;font-size:.78rem;${MB_VIEW.filter===v?'background:var(--gm);color:#fff;border-color:var(--gm)':'background:#fff;color:var(--gm);border:1px solid var(--gm)'}">${lb}</button>`;
-  const dispBtn=(v,lb)=>`<button class="btn" onclick="mbSetDisp('${v}')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${MB_VIEW.disp===v?'background:var(--gd);color:#fff':'background:#fff;color:var(--gm)'}">${lb}</button>`;
-
-  let boardHtml;
+function _mbSectionBoardHtml(shown){
+  if(!shown.length) return `<div style="font-size:.8rem;color:var(--tl)">Nothing here yet.</div>`;
   if(MB_VIEW.disp==="editorial"){
-    const chunks=[]; for(let i=0;i<items.length;i+=6) chunks.push(items.slice(i,i+6));
-    boardHtml=chunks.map(ch=>{
+    const chunks=[]; for(let i=0;i<shown.length;i+=6) chunks.push(shown.slice(i,i+6));
+    return chunks.map(ch=>{
       const cells=ch.map((x,i)=>i===0 ? `<div style="grid-row:span 2">${_mbTile(x)}</div>` : _mbTile(x));
       return `<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:10px;margin-bottom:10px">${cells.join('')}</div>`;
     }).join('');
-  } else {
-    const mode=MB_VIEW.disp==="wall"?"wall":"card";
-    boardHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">${items.map(x=>_mbTile(x,mode)).join('')}</div>`;
   }
+  const mode=MB_VIEW.disp==="wall"?"wall":"card";
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">${shown.map(x=>_mbTile(x,mode)).join('')}</div>`;
+}
+function renderMoodBoard(){
+  const host=document.getElementById("mb-body"); if(!host) return;
+  _mbSeedSections();
+  const mb=_mbEnsure();
+  const {plants,goods}=_mbGather();
+  const totalSpecified=plants.length+goods.length;
+  const suggestBtn=`<button class="btn" style="padding:.3rem .7rem;font-size:.78rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestPlants()" ${MB_SUGGEST.loading?'disabled':''}>✨ Suggest plants</button>`;
+  const dispBtn=(v,lb)=>`<button class="btn" onclick="mbSetDisp('${v}')" style="padding:.3rem .6rem;font-size:.78rem;border:none;border-radius:0;${MB_VIEW.disp===v?'background:var(--gd);color:#fff':'background:#fff;color:var(--gm)'}">${lb}</button>`;
+  const bud=projBudget(), grand=_grandNow(), gap=bud?grand-bud:0;
+  const budgetHtml = totalSpecified
+    ? (bud ? `${fmtN(grand)} specified · <b style="color:${gap>0?'#B23F3C':'var(--gm)'}">${gap>0?'+':gap<0?'−':''}${fmtN(Math.abs(gap))}</b> ${gap>0?'over':gap<0?'under':'at'} your ${fmtN(bud)} budget`
+             : `${fmtN(grand)} specified so far · <a href="#" onclick="askProjBudget();return false" style="color:var(--gm)">set a project budget</a> to track against it`)
+    : `Nothing specified on this project yet.`;
+
+  const allDefs=_mbSectionDefs(); const defByKey={}; allDefs.forEach(d=>defByKey[d.key]=d);
+  const onBoard=mb.sections.filter(k=>defByKey[k]);
+  const addable=allDefs.filter(d=>onBoard.indexOf(d.key)<0);
+  const addSectionHtml = addable.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${addable.map(d=>`<button class="btn" onclick="mbAddSection('${escAttr(d.key)}')" style="padding:.25rem .6rem;font-size:.72rem;background:#fff;color:var(--gm);border:1px dashed var(--gm)">+ ${escAttr(d.label)}</button>`).join('')}</div>`
+    : `<div style="font-size:.78rem;color:var(--tl)">Every section is already on the board.</div>`;
+
+  const sectionsHtml = onBoard.map(key=>{
+    const sec=defByKey[key];
+    const removeBtn=`<button class="btn" style="margin-left:auto;padding:.15rem .5rem;font-size:.68rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbRemoveSection('${escAttr(sec.key)}')">Remove section</button>`;
+    if(sec.key==="palette"){
+      const palette=_mbPalette(plants,goods);
+      return `<div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;margin-bottom:8px;gap:.5rem;flex-wrap:wrap">
+          <div style="font-size:.85rem;font-weight:600;color:var(--tx)">Color Palette</div>${removeBtn}
+        </div>
+        ${palette.length?`<div style="display:flex;gap:6px;flex-wrap:wrap">${palette.map(h=>`<span title="${h}" style="width:34px;height:34px;border-radius:8px;background:${h};border:1px solid var(--br)"></span>`).join('')}</div>`
+          :`<div style="font-size:.8rem;color:var(--tl)">No colors yet — comes from plant bloom colors and material finishes once something's specified.</div>`}
+      </div>`;
+    }
+    if(sec.key==="insights"){
+      return `<div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;margin-bottom:12px;gap:.5rem;flex-wrap:wrap">
+          <div style="font-size:.85rem;font-weight:600;color:var(--tx)">Insights</div>
+          <button class="btn" style="padding:.15rem .5rem;font-size:.68rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="mbShuffleInsights()">🎲 Shuffle</button>
+          ${removeBtn}
+        </div>
+        ${_mbInsightSectionHtml()}
+      </div>`;
+    }
+    const {shown,hiddenCount}=_mbItemsForSection(sec);
+    return `<div class="card" style="margin-bottom:1rem">
+      <div style="display:flex;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:.5rem">
+        <div style="font-size:.85rem;font-weight:600;color:var(--tx)">${escAttr(sec.label)} <span style="font-weight:400;color:var(--tl);font-size:.78rem">${shown.length}</span></div>
+        ${hiddenCount?`<button class="btn" style="padding:.1rem .5rem;font-size:.68rem;background:#fff;color:var(--tl);border:1px solid var(--br)" onclick="mbUnhideSection('${escAttr(sec.key)}')">${hiddenCount} hidden — show</button>`:''}
+        ${removeBtn}
+      </div>
+      ${_mbSectionBoardHtml(shown)}
+    </div>`;
+  }).join('');
 
   host.innerHTML=`
     <div class="card" style="margin-bottom:1rem">
       <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
         <div style="font-size:.78rem;color:var(--tm)">${budgetHtml}</div>
-        <div style="margin-left:auto">${suggestBtn}</div>
+        <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
+          ${suggestBtn}
+          <div style="display:flex;border:1px solid var(--br);border-radius:8px;overflow:hidden">
+            ${dispBtn("grid","▦ Grid")}${dispBtn("editorial","▤ Editorial")}${dispBtn("wall","▧ Photo wall")}
+          </div>
+        </div>
       </div>
     </div>
     ${_mbSuggestHTML()}
-    ${palette.length?`<div class="card" style="margin-bottom:1rem">
-      <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:8px">Palette — from bloom colors &amp; specified finishes</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">${palette.map(h=>`<span title="${h}" style="width:34px;height:34px;border-radius:8px;background:${h};border:1px solid var(--br)"></span>`).join('')}</div>
-    </div>`:''}
+    ${sectionsHtml || `<div class="card" style="margin-bottom:1rem"><p style="font-size:.85rem;color:var(--tm)">No sections on this board yet — add one below.</p></div>`}
     <div class="card">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-        ${filterBtn("all","All "+items.length)}
-        ${counts.plants?filterBtn("plants","Plants "+counts.plants):''}
-        ${counts.materials?filterBtn("materials","Materials "+counts.materials):''}
-        ${counts.furnishings?filterBtn("furnishings","Furnishings "+counts.furnishings):''}
-        ${counts.products?filterBtn("products","Products "+counts.products):''}
-        <div style="display:flex;border:1px solid var(--br);border-radius:8px;overflow:hidden;margin-left:auto">
-          ${dispBtn("grid","▦ Grid")}${dispBtn("editorial","▤ Editorial")}${dispBtn("wall","▧ Photo wall")}
-        </div>
-      </div>
-      ${items.length?boardHtml:`<div style="font-size:.85rem;color:var(--tl);padding:1rem">Nothing in this category yet.</div>`}
-      <div style="font-size:.68rem;color:var(--tl);margin-top:.7rem">Click any photo to zoom &amp; pan.</div>
-    </div>`;
+      <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:8px">+ Add a section</div>
+      ${addSectionHtml}
+    </div>
+    ${onBoard.length?`<div style="font-size:.68rem;color:var(--tl);margin-top:.4rem">Click any photo to zoom &amp; pan. The ✕ on a tile hides it from this board without un-specifying it.</div>`:''}`;
 }
 // ── Plant Book, in the Price Book's frame ────────────────────────────────────
 // Tree on the left, list in the middle, inspector on the right — same cards, same pill rows,
