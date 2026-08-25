@@ -4695,7 +4695,7 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   box-shadow:0 12px 28px -8px rgba(0,0,0,.6)}
 @media(hover:none){ .gth .fx{display:grid} }
 /* Framing editor */
-.gfrw{position:fixed;inset:0;z-index:430;background:rgba(10,13,18,.72);display:grid;place-items:center;
+.gfrw{position:fixed;inset:0;z-index:9500;background:rgba(10,13,18,.72);display:grid;place-items:center;
   padding:20px;opacity:0;transition:opacity .16s}
 .gfrw.on{opacity:1}
 .gfrc{width:min(520px,100%);background:var(--card);border:1px solid var(--br);border-radius:16px;
@@ -5548,7 +5548,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1167</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1168</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12102,6 +12102,13 @@ async function goodsFetchImages(book,onlyId){
     let imgs=[];
     try{ const sc=await goodsScrape(row.srcUrl);
       imgs = (sc && !sc.err) ? await goodsVerifyImgs(goodsBestImages(_goodsAllImages(sc),8)) : []; }catch(e){}
+    // Same trap as the web-search path: a genuine product page can still carry a
+    // sidebar of category icons or "shop by type" thumbnails among its images.
+    if(imgs.length){ try{
+      const q=[row.brand||row.sup||"",row.nm].filter(Boolean).join(" ");
+      const flags=await Promise.all(imgs.map(u=>goodsImgMatches(u,q)));
+      imgs=imgs.filter((u,k)=>flags[k]);
+    }catch(e){} }
     if(imgs.length){ row.imgs=imgs; row.img=imgs[0]; _gVerified[row.id]=1;
       try{ book==="materials"?matSave():furSave(); }catch(e){}
       try{ goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
@@ -13420,6 +13427,13 @@ function goodsFrameApply(){
 }
 function goodsFrameReset(){ _gframe.z=100; _gframe.x=50; _gframe.y=50;
   const r=document.getElementById("gfr-zr"); if(r) r.value=100; goodsFrameApply(); }
+// Whichever surface is on screen — the grid, the detail panel, or the item popup —
+// must show a photo edit the moment it's saved, not just after the next navigation.
+function _goodsRepaintAll(book){
+  const kind=book==="materials"?"mat":"fur";
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ if(GL_OPEN) _goodsLbxPaint(); }catch(e){}
+}
 function goodsFrameSave(){
   const row=goodsRow(_gframe.book,_gframe.id); if(!row) return goodsFrameClose();
   row.fr=row.fr||{};
@@ -13427,7 +13441,7 @@ function goodsFrameSave(){
   else row.fr[_gframe.url]={z:Math.round(_gframe.z),x:Math.round(_gframe.x),y:Math.round(_gframe.y)};
   goodsSaveQuiet(_gframe.book);
   goodsFrameClose();
-  try{ _gframe.goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
+  _goodsRepaintAll(_gframe.book);
 }
 // Dragging moves the picture behind a fixed window, so the direction has to be
 // inverted — pulling the image left shows what is to its right.
@@ -13515,7 +13529,7 @@ function _gdragEnd(ev){
   if(!order.length) return;
   x.imgs=order; x.img=order[0]||"";
   goodsSaveQuiet(d.book);
-  try{ d.goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
+  _goodsRepaintAll(d.book);
 }
 try{
   document.addEventListener("pointermove",_gdragMove,{passive:false});
@@ -13531,14 +13545,14 @@ function goodsSetPrimary(book,id,url){
   list.splice(i,1); list.unshift(url);
   x.imgs=list; x.img=url;
   goodsSaveQuiet(book);
-  try{ goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
+  _goodsRepaintAll(book);
 }
 function goodsDropPhoto(book,id,url){
   const x=goodsRow(book,id); if(!x) return;
   const list=goodsImgs(x).filter(u=>u!==url);
   x.imgs=list; x.img=list[0]||"";
   goodsSaveQuiet(book);
-  try{ goodsRepaint(book==="materials"?"mat":"fur"); }catch(e){}
+  _goodsRepaintAll(book);
 }
 // Re-read the page and take everything it offers, so a photo the importer skipped can
 // still be chosen later.
@@ -18850,12 +18864,10 @@ function _goodsLbxHTML(kind,x){
      +'<span class="sp"><button class="gl-nav" onclick="goodsLbxClose()">✕</button></span></div>'
    +'<div class="gl-main">'
      +'<div class="gl-gal">'
-       +'<div class="gl-big">'+(shot
-          ?'<img src="'+escAttr(shot)+'" alt="" width="112" height="112" loading="lazy" decoding="async" onerror="pbImgErr(this)">'
+       +'<div class="gl-big" style="'+(shot?goodsShotStyle(x,shot,"var(--surface2)"):"")+'">'+(shot
+          ?''
           :'<span class="none">no photo</span>')+'</div>'
-       +(imgs.length>1?('<div class="gl-thumbs">'+imgs.slice(0,5).map((u,i)=>
-          '<button class="'+(i===GL_IMG?"on":"")+'" onclick="goodsLbxImg('+i+')">'
-          +'<img src="'+escAttr(u)+'" alt="" width="88" height="74" loading="lazy" decoding="async" onerror="pbImgErr(this)"></button>').join('')+'</div>'):'')
+       +goodsPhotoStripHTML(kind==="mat"?"materials":"furnishings",x)
      +'</div>'
      +'<div class="gl-info">'
        +'<div class="gl-eb">'+esc(x.brand||x.sup||"")+'</div>'
