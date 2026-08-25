@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1189</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1190</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24592,16 +24592,30 @@ function mbFrameOpen(ev,kind,pid){
   _mbFrameRender(); requestAnimationFrame(()=>h.classList.add("on"));
 }
 function mbFrameClose(){ const h=document.getElementById("mbfr"); if(h){ h.classList.remove("on"); setTimeout(()=>{ try{ h.remove(); }catch(e){} },160); } }
+// This one zoom/pan value is used everywhere the photo shows, but not everywhere crops it
+// into the same shape — square on the Mood Board, a wide card (~196x104) on the Planting
+// Palette report. Both live previews below share one state, so dragging or zooming either
+// one moves both, and the framing you land on is one that actually works for each shape it's
+// really used at, instead of a preview that only matches one of them.
+const MB_FRAME_TARGETS=[
+  {id:"mbfr-img",photoId:"mbfr-photo",label:"Mood Board",ratio:"1"},
+  {id:"mbfr-img2",photoId:"mbfr-photo2",label:"Planting Palette report",ratio:"196/104"},
+];
 function _mbFrameRender(){
   const h=document.getElementById("mbfr"); if(!h) return;
   const p=plantDbFind(_mbFrame.kind,_mbFrame.pid); if(!p){ mbFrameClose(); return; }
+  const xform=_imgXform({imgZoom:_mbFrame.z,imgPanX:_mbFrame.x,imgPanY:_mbFrame.y});
+  const boxes=MB_FRAME_TARGETS.map(t=>`<div style="flex:1;min-width:150px">
+      <div style="font-size:.66rem;color:var(--tl);margin-bottom:4px;text-align:center">${t.label}</div>
+      <div id="${t.id}" class="gfri" style="position:relative;overflow:hidden;background:var(--surface2);width:100%;aspect-ratio:${t.ratio};height:auto;margin-top:0"
+        onmousedown="_mbFrameDown(event,'${t.id}')" ontouchstart="_mbFrameDown(event,'${t.id}')">
+        <img id="${t.photoId}" src="${escAttr(p.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;pointer-events:none;${xform}">
+      </div>
+    </div>`).join('');
   h.innerHTML=`<div class="gfrc" onclick="event.stopPropagation()">
     <div class="gfrt">Frame this photo</div>
-    <div class="gfrh">Drag to move it. Zoom in to crop. Shown at the same square shape it appears on the Mood Board.</div>
-    <div id="mbfr-img" class="gfri" style="position:relative;overflow:hidden;background:var(--surface2);width:100%;aspect-ratio:1;height:auto"
-      onmousedown="_mbFrameDown(event)" ontouchstart="_mbFrameDown(event)">
-      <img id="mbfr-photo" src="${escAttr(p.img)}" style="position:absolute;top:50%;left:50%;width:100%;height:auto;display:block;pointer-events:none;${_imgXform({imgZoom:_mbFrame.z,imgPanX:_mbFrame.x,imgPanY:_mbFrame.y})}">
-    </div>
+    <div class="gfrh">Drag either preview to move it, zoom to crop — one framing, previewed at every shape it's actually shown at.</div>
+    <div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">${boxes}</div>
     <div class="gfrz">
       <span>Zoom</span>
       <input id="mbfr-zr" type="range" min="40" max="300" step="1" value="${Math.round(_mbFrame.z*100)}"
@@ -24616,25 +24630,28 @@ function _mbFrameRender(){
 }
 function mbFrameSet(k,v){ _mbFrame[k]= k==='z' ? (+v)/100 : +v; _mbFrameApply(); }
 function _mbFrameApply(){
-  const img=document.getElementById("mbfr-photo"); if(!img) return;
-  img.style.transform=`translate(-50%,-50%) translate(${_mbFrame.x}%,${_mbFrame.y}%) scale(${_mbFrame.z})`;
+  const t=`translate(-50%,-50%) translate(${_mbFrame.x}%,${_mbFrame.y}%) scale(${_mbFrame.z})`;
+  MB_FRAME_TARGETS.forEach(tg=>{ const img=document.getElementById(tg.photoId); if(img) img.style.transform=t; });
   const z=document.getElementById("mbfr-z"); if(z) z.textContent=Math.round(_mbFrame.z*100)+"%";
   const zr=document.getElementById("mbfr-zr"); if(zr) zr.value=Math.round(_mbFrame.z*100);
 }
 function mbFrameReset(){ _mbFrame.z=1; _mbFrame.x=0; _mbFrame.y=0; _mbFrameApply(); }
-function _mbFrameDown(ev){
+function _mbFrameDown(ev,boxId){
   const p=ev.touches?ev.touches[0]:ev;
-  _mbFrame.drag={sx:p.clientX,sy:p.clientY,x:_mbFrame.x,y:_mbFrame.y};
+  _mbFrame.drag={boxId,sx:p.clientX,sy:p.clientY,x:_mbFrame.x,y:_mbFrame.y};
   ev.preventDefault();
 }
 function _mbFrameMove(ev){
   if(!_mbFrame.drag) return;
   const p=ev.touches?ev.touches[0]:ev;
-  const el=document.getElementById("mbfr-img"); if(!el) return;
+  const el=document.getElementById(_mbFrame.drag.boxId); if(!el) return;
   const w=el.clientWidth||160,h=el.clientHeight||w;
+  // This image is positioned with a CSS transform (translate), not background-position —
+  // increasing translateY moves the image DOWN, so the delta adds rather than subtracts,
+  // or the image drifts opposite the finger.
   const over=Math.max(1,_mbFrame.z);
-  _mbFrame.x=Math.max(-120,Math.min(120,_mbFrame.drag.x-(p.clientX-_mbFrame.drag.sx)/w*100/over));
-  _mbFrame.y=Math.max(-120,Math.min(120,_mbFrame.drag.y-(p.clientY-_mbFrame.drag.sy)/h*100/over));
+  _mbFrame.x=Math.max(-120,Math.min(120,_mbFrame.drag.x+(p.clientX-_mbFrame.drag.sx)/w*100/over));
+  _mbFrame.y=Math.max(-120,Math.min(120,_mbFrame.drag.y+(p.clientY-_mbFrame.drag.sy)/h*100/over));
   _mbFrameApply(); if(ev.cancelable) ev.preventDefault();
 }
 function _mbFrameUp(){ _mbFrame.drag=null; }
