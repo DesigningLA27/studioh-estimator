@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1172</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1173</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -17813,10 +17813,15 @@ function _goodsTree(kind){
       if(facet==="matl") return "goodsRenameFacet('"+kind+"','matl','Material','"+q(n)+"')";
       return null;
     };
+    // With "Tap to rename" on (Settings → Master library access, admin only), a plain
+    // tap renames instead of filtering — double-click stays as a second way in, but
+    // doesn't depend on the gesture actually registering on a touch device.
+    const editMode=!!PREFS.railRenameMode;
+    const actOf=n=>{ const rn=renamer(n); return (editMode&&rn)?rn:("goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')"); };
     sec(title,kind,facet);
     if(chosen.length){
       chosen.forEach(n=>{
-        row(true,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n));
+        row(true,actOf(n),n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n));
         // A function child renders once per selected row, right under that row — so
         // when two parents are both selected, each keeps its own children instead of
         // both piling up under whichever row happened to be drawn last.
@@ -17827,7 +17832,7 @@ function _goodsTree(kind){
     }
     if(big) h+='<div class="gt-find"><input id="gtq-'+kind+'-'+facet+'" type="search" value="'+esc(GOODS_FQ[key]||"")
       +'" placeholder="Filter '+names.length+'" oninput="goodsFacetQ(\''+kind+'\',\''+facet+'\',this.value)"></div>';
-    shown.forEach(n=>row(false,"goodsFacetToggle('"+kind+"','"+facet+"','"+q(n)+"')",n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n)));
+    shown.forEach(n=>row(false,actOf(n),n,tally[n]||0,dot,_gtIsPromo(kind,facet,n),renamer(n)));
     if(qs && !shown.length) h+='<div class="gt-none">Nothing matches “'+esc(GOODS_FQ[key])+'”</div>';
     if(!qs && hidden>0)
       h+='<button class="gt-more" onclick="goodsFacetMore(\''+kind+'\',\''+facet+'\')">'
@@ -20839,6 +20844,15 @@ function _stShellDarkSync(){
 }
 function stDefaultQL(i){ PREFS.defaults.ql=+i||0; prefsSave(); _stRender(); }
 function stAutoSample(v){ PREFS.autoSample=(v!=="off"); prefsSave(); _stRender(); }
+// Double-click renames a rail row, but that gesture is easy to miss the target on
+// (the section header sits right above the first row) and unreliable to trigger by
+// double-tap on some touch setups. This makes a plain tap do it instead, as an
+// explicit admin-only mode rather than something to discover by accident.
+function stRailRenameMode(v){
+  PREFS.railRenameMode=(v==="on"); prefsSave(); if(_stOpen) _stRender();
+  try{ goodsRepaint("mat"); }catch(e){}
+  try{ goodsRepaint("fur"); }catch(e){}
+}
 function stGoodsModel(v){ PREFS.defaults.goodsModel=v; prefsSave();
   try{ goodsSetModel(v); }catch(e){}
   if(_stOpen) _stRender(); }
@@ -21006,6 +21020,8 @@ function _stRender(){
           <span>${_hasAdminKey()
             ? `<span class="acc-badge owner">Owner · saves to server</span>`
             : `<span class="acc-badge guest">Guest · read-only</span>`}</span></div>
+        ${_hasAdminKey()?`<div class="st-row"><span class="l">Tap to rename<small>In Materials, Furnishings and Products, a tap on a Category, Brand, Type or Material renames it everywhere instead of filtering by it. Turn off to filter normally — double-click still renames either way.</small></span>
+          ${_stSeg(PREFS.railRenameMode?"on":"off",[{v:"on",nm:"On"},{v:"off",nm:"Off"}],"stRailRenameMode")}</div>`:""}
       </div>
 
       <div class="st-card">
@@ -21171,6 +21187,12 @@ function stSetAdminKey(v){
   try{ if(k) localStorage.setItem("studioh_admin_key",k); else localStorage.removeItem("studioh_admin_key"); }catch(e){}
   if(_stOpen) _stRender();
   try{ _renderPbSync(); }catch(e){}
+  // Signing in/out changes what admin-gated controls a page can show (e.g. the
+  // Materials/Furnishings/Products rail's rename) — whichever of those is already
+  // open was rendered under the OLD key state and won't pick up the change on its
+  // own, so it needs its own repaint here rather than waiting on some unrelated one.
+  try{ goodsRepaint("mat"); }catch(e){}
+  try{ goodsRepaint("fur"); }catch(e){}
   try{ _toast(k?"Signed in — your libraries now save to the server":"Signed out — read-only on this device","#4C7B3D"); }catch(e){}
 }
 function stClearAdminKey(){
