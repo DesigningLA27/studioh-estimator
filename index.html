@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1206</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1207</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25241,16 +25241,19 @@ function _mbWizStepBody(){
   }
   if(step==="colormood"){
     const sel=_mbWizMulti("wizColorMood");
-    const card=o=>{ const on=sel.indexOf(o.key)>=0;
-      return `<div style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:10px;overflow:hidden;background:#fff;cursor:pointer" onclick="mbToggleColorMood('${o.key}')">
-        <div style="display:flex;height:26px">${o.sw.map(h=>`<span style="flex:1;background:${h}"></span>`).join('')}</div>
+    const card=(key,label,sw,onAdd)=>{ const on=sel.indexOf(key)>=0;
+      return `<div style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:10px;overflow:hidden;background:#fff;cursor:pointer" onclick="mbToggleColorMood('${key}')">
+        <div style="display:flex;height:26px">${sw.map(h=>`<span style="flex:1;background:${h}"></span>`).join('')}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;padding:.4rem .5rem;gap:.3rem">
-          <span style="font-size:.74rem;font-weight:${on?'700':'500'};color:${on?'var(--gm)':'var(--tx)'}">${on?'✓ ':''}${o.label}</span>
-          <button type="button" onclick="event.stopPropagation();mbColorMoodAddGroup('${o.key}')" title="Add these colors as an editable palette group" style="font-size:.58rem;padding:.15rem .35rem;background:var(--brand-soft);color:var(--gm);border:1px solid var(--gm);border-radius:6px;white-space:nowrap">+ Palette</button>
+          <span style="font-size:.74rem;font-weight:${on?'700':'500'};color:${on?'var(--gm)':'var(--tx)'}">${on?'✓ ':''}${label}</span>
+          <button type="button" onclick="event.stopPropagation();${onAdd}" title="Add these colors as an editable palette group" style="font-size:.58rem;padding:.15rem .35rem;background:var(--brand-soft);color:var(--gm);border:1px solid var(--gm);border-radius:6px;white-space:nowrap">+ Palette</button>
         </div>
       </div>`; };
-    return {title:"Color palette mood",q:"Pick a direction — click “+ Palette” to add its colors as an editable group; you can adjust them from there anytime.",
-      body:`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${MB_COLORMOOD_OPTS.map(card).join('')}</div>`};
+    if(!_palettePresetsPulled) palettePresetsPull().then(()=>{ if(document.getElementById("mb-wizard-slot")) _mbWizardPanelRender(); });
+    const builtIn=MB_COLORMOOD_OPTS.map(o=>card(o.key,o.label,o.sw,`mbColorMoodAddGroup('${o.key}')`));
+    const presets=(PALETTE_PRESETS||[]).filter(p=>p.colors&&p.colors.length).map(p=>card('preset:'+p.id,escAttr(p.nm),p.colors,`palettePresetUse('${p.id}')`));
+    return {title:"Color palette mood",q:"Pick a direction — click “+ Palette” to add its colors as an editable group; you can adjust them from there anytime. Your own tagged palettes (Swatch Library → Palette Presets) show up here too.",
+      body:`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${builtIn.join('')}${presets.join('')}</div>`};
   }
   // sections
   const defs=_mbSectionDefs(); const on=new Set(mb.sections);
@@ -25290,6 +25293,16 @@ function _mbWizStyleCustom(){ return (S.pi&&S.pi.styleCustom)||""; }
 function _mbWizLabels(field,opts){
   const arr=(S.moodboard&&S.moodboard[field])||[];
   return arr.map(k=>{ const o=opts.find(x=>x.key===k); return o?o.label.replace(/&amp;/g,"&"):k; }).join(", ");
+}
+// wizColorMood can hold a built-in mood key OR "preset:<id>" for a custom Palette
+// Preset picked in the wizard — this resolves both to real label text for the AI prompt,
+// closing the loop Warwick asked for: "name it and tag it for AI to use."
+function _mbWizColorMoodLabels(){
+  const arr=(S.moodboard&&S.moodboard.wizColorMood)||[];
+  return arr.map(k=>{
+    if(k.indexOf("preset:")===0){ const p=PALETTE_PRESETS.find(x=>x&&x.id===k.slice(7)); return p?p.nm+(p.tags&&p.tags.length?` (${p.tags.join(", ")})`:""):""; }
+    const o=MB_COLORMOOD_OPTS.find(x=>x.key===k); return o?o.label.replace(/&amp;/g,"&"):k;
+  }).filter(Boolean).join(", ");
 }
 function _mbWizWaterUseLabel(){
   const mb=S.moodboard||{}; const o=MB_WATERUSE_OPTS.find(x=>x.key===mb.wizWaterUse);
@@ -25528,7 +25541,7 @@ async function mbSuggestPaletteGroup(key){
   const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ")||"this project's";
   const {plants,goods}=_mbGather();
   const existing=_mbPaletteAutoPlant(plants).concat(_mbPaletteAutoGoods(goods)).concat(mb.paletteGroups.flatMap(x=>x.colors));
-  const colorMoodLabels=_mbWizLabels("wizColorMood",MB_COLORMOOD_OPTS);
+  const colorMoodLabels=_mbWizColorMoodLabels();
   const plantColorLabels=_mbWizLabels("wizPlantColors",MB_PLANTCOLOR_OPTS);
   const styleCustom=_mbWizStyleCustom();
   const prompt=`Suggest 5 hex colors for a landscape mood board color group called "${g.label}", fitting a "${styleLabels}" design style. Colors already in use elsewhere on this board (harmonize, don't clash): ${existing.length?existing.join(", "):"(none yet)"}.
@@ -25580,32 +25593,38 @@ async function swatchLibPush(){
   alert("Could not save: "+((d&&d.err)||"unknown")); return false;
 }
 function swatchLibSaveQuiet(){ try{ localStorage.setItem("studioh_swatchlib_v1", JSON.stringify(SWATCH_LIB)); }catch(e){} swatchLibPush(); }
-function swatchLibAdd(hex,nm,cat){
+function swatchLibAdd(hex,nm,cat,tags){
   const u=(hex||"").toUpperCase(); if(!/^#[0-9A-F]{6}$/.test(u)) return;
   if(SWATCH_LIB.some(s=>s&&s.hex===u)) return;
-  SWATCH_LIB.push({id:"sw"+Date.now().toString(36)+Math.floor(Math.random()*1000), hex:u, nm:nm||"", cat:cat||SWATCH_LIB_CATS[0]});
+  SWATCH_LIB.push({id:"sw"+Date.now().toString(36)+Math.floor(Math.random()*1000), hex:u, nm:nm||"", cat:cat||SWATCH_LIB_CATS[0], tags:tags||[]});
   swatchLibSaveQuiet();
 }
 function swatchLibRemove(id){ SWATCH_LIB=SWATCH_LIB.filter(s=>s&&s.id!==id); swatchLibSaveQuiet(); if(document.getElementById("swlib-modal")) _swlibRender(); }
-let SWLIB_CAT="", SWLIB_GROUP="";
+// Adjustable, per Warwick: "hex codes, and can be adjusted" — click a library swatch to
+// recolor it in place rather than delete-and-re-add.
+function swatchLibEdit(id,newHexRaw){
+  const s=SWATCH_LIB.find(x=>x&&x.id===id); if(!s) return;
+  const u=(newHexRaw||"").toUpperCase(); if(!/^#[0-9A-F]{6}$/.test(u)||u===s.hex) return;
+  s.hex=u; swatchLibSaveQuiet(); if(document.getElementById("swlib-modal")) _swlibRender();
+}
+let SWLIB_CAT="", SWLIB_GROUP="", SWLIB_Q="", SWLIB_TAB="swatches";
+function swlibTab(t){ SWLIB_TAB=t; _swlibRender(); }
 function openSwatchLibrary(groupKey){
-  SWLIB_CAT=""; SWLIB_GROUP=groupKey||( _mbPaletteState().paletteGroups[0] && _mbPaletteState().paletteGroups[0].key )||"";
+  SWLIB_CAT=""; SWLIB_Q=""; SWLIB_TAB="swatches";
+  SWLIB_GROUP=groupKey||( _mbPaletteState().paletteGroups[0] && _mbPaletteState().paletteGroups[0].key )||"";
   if(!_swatchLibPulled) swatchLibPull().then(()=>{ if(document.getElementById("swlib-modal")) _swlibRender(); });
+  if(!_palettePresetsPulled) palettePresetsPull().then(()=>{ if(document.getElementById("swlib-modal")) _swlibRender(); });
   let d=document.getElementById("swlib-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="swlib-modal";
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:1rem";
-  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:1.2rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35);max-height:90vh;overflow-y:auto">
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;padding:1.2rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35);max-height:90vh;overflow-y:auto">
       <div style="font-size:1.02rem;font-weight:700;color:var(--gm)">🎨 Color Swatch Library</div>
-      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .7rem;line-height:1.45">Shared across every project — browse by category, add straight into a palette group. Keep building it as you find good swatches.</div>
+      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .7rem;line-height:1.45">Shared across every project — browse by category or tag, add straight into a palette group. Keep building it as you find good swatches or palettes.</div>
+      <div style="display:flex;border:1px solid var(--br);border-radius:8px;overflow:hidden;margin-bottom:10px;width:fit-content">
+        <button onclick="swlibTab('swatches')" style="padding:.3rem .8rem;font-size:.76rem;border:none;background:${SWLIB_TAB==='swatches'?'var(--gd)':'#fff'};color:${SWLIB_TAB==='swatches'?'#fff':'var(--gm)'}">Swatches</button>
+        <button onclick="swlibTab('presets')" style="padding:.3rem .8rem;font-size:.76rem;border:none;background:${SWLIB_TAB==='presets'?'var(--gd)':'#fff'};color:${SWLIB_TAB==='presets'?'#fff':'var(--gm)'}">Palette Presets</button>
+      </div>
+      <input type="text" placeholder="Search by name or tag…" value="${escAttr(SWLIB_Q)}" oninput="swlibSearch(this.value)" style="width:100%;padding:.4rem .55rem;font-size:.8rem;border:1px solid var(--br);border-radius:7px;margin-bottom:10px;box-sizing:border-box">
       <div id="swlib-body"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px;color:var(--tl);font-size:.6rem;text-transform:uppercase;letter-spacing:.05em">
-        <span style="flex:1;height:1px;background:var(--br)"></span>add a swatch<span style="flex:1;height:1px;background:var(--br)"></span>
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input type="color" id="swlib-new-hex" value="#8C6B45" style="width:38px;height:38px;padding:0;border:1px solid var(--br);border-radius:8px;cursor:pointer">
-        <input id="swlib-new-nm" placeholder="Name (optional)" style="flex:1;min-width:120px;padding:.4rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">
-        <select id="swlib-new-cat" style="padding:.4rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">${SWATCH_LIB_CATS.map(c=>`<option>${escAttr(c)}</option>`).join('')}</select>
-        <button class="btn" onclick="_swlibAddNew()" style="padding:.4rem .7rem;font-size:.74rem;font-weight:600;background:var(--gm);color:#fff;border:none;border-radius:7px">+ Add</button>
-      </div>
       <div style="display:flex;justify-content:flex-end;margin-top:14px">
         <button class="btn" onclick="document.getElementById('swlib-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
       </div>
@@ -25615,25 +25634,54 @@ function openSwatchLibrary(groupKey){
 }
 function swlibSetCat(c){ SWLIB_CAT=c; _swlibRender(); }
 function swlibSetGroup(k){ SWLIB_GROUP=k; }
+function swlibSearch(v){ SWLIB_Q=v; _swlibRenderList(); }
+function _swlibMatch(item,q){
+  if(!q) return true;
+  const hay=[item.nm,item.cat].concat(item.tags||[]).filter(Boolean).join(" ").toLowerCase();
+  return hay.indexOf(q.toLowerCase())>=0;
+}
 function _swlibRender(){
   const host=document.getElementById("swlib-body"); if(!host) return;
+  host.innerHTML = SWLIB_TAB==="presets" ? _swlibPresetsHtml() : _swlibSwatchesHtml();
+  _swlibRenderList();
+}
+function _swlibSwatchesHtml(){
   const groups=_mbPaletteState().paletteGroups||[];
   const groupSel = groups.length
     ? `<select id="swlib-group-sel" onchange="swlibSetGroup(this.value)" style="padding:.3rem .5rem;font-size:.76rem;border:1px solid var(--br);border-radius:7px">${groups.map(g=>`<option value="${escAttr(g.key)}" ${g.key===SWLIB_GROUP?"selected":""}>${escAttr(g.label)}</option>`).join('')}</select>`
     : `<span style="font-size:.74rem;color:var(--tl)">Add a custom group in Color Palette → Edit first.</span>`;
   const catChip=(label,val)=>`<button class="btn" onclick="swlibSetCat('${escAttr(val)}')" style="padding:.15rem .5rem;font-size:.68rem;background:${SWLIB_CAT===val?'var(--gd)':'#fff'};color:${SWLIB_CAT===val?'#fff':'var(--tm)'};border:1px solid ${SWLIB_CAT===val?'var(--gd)':'var(--br)'}">${label}</button>`;
-  const filtered = SWLIB_CAT ? SWATCH_LIB.filter(s=>s.cat===SWLIB_CAT) : SWATCH_LIB;
-  host.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <span style="font-size:.7rem;color:var(--tl);text-transform:uppercase">Add to</span>${groupSel}
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">${catChip("All","")}${SWATCH_LIB_CATS.map(c=>catChip(c,c)).join('')}</div>
-    ${filtered.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px">
+    <div id="swlib-list"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px;color:var(--tl);font-size:.6rem;text-transform:uppercase;letter-spacing:.05em">
+      <span style="flex:1;height:1px;background:var(--br)"></span>add a swatch<span style="flex:1;height:1px;background:var(--br)"></span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <input type="color" id="swlib-new-hex" value="#8C6B45" style="width:38px;height:38px;padding:0;border:1px solid var(--br);border-radius:8px;cursor:pointer">
+      <input id="swlib-new-nm" placeholder="Name (optional)" style="flex:1;min-width:110px;padding:.4rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">
+      <input id="swlib-new-tags" placeholder="tags, comma-separated" style="flex:1;min-width:110px;padding:.4rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">
+      <select id="swlib-new-cat" style="padding:.4rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">${SWATCH_LIB_CATS.map(c=>`<option>${escAttr(c)}</option>`).join('')}</select>
+      <button class="btn" onclick="_swlibAddNew()" style="padding:.4rem .7rem;font-size:.74rem;font-weight:600;background:var(--gm);color:#fff;border:none;border-radius:7px">+ Add</button>
+    </div>`;
+}
+function _swlibRenderList(){
+  if(SWLIB_TAB==="presets") return _swlibRenderPresetList();
+  const host=document.getElementById("swlib-list"); if(!host) return;
+  const filtered = SWATCH_LIB.filter(s=>(!SWLIB_CAT||s.cat===SWLIB_CAT) && _swlibMatch(s,SWLIB_Q));
+  host.innerHTML = filtered.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px">
       ${filtered.map(s=>`<div style="text-align:center">
-          <div title="${escAttr(s.nm||s.hex)}" onclick="_swlibUse('${s.id}')" style="width:100%;aspect-ratio:1;border-radius:8px;background:${s.hex};border:1px solid var(--br);cursor:pointer"></div>
+          <div style="position:relative">
+            <span title="${escAttr(s.nm||s.hex)}" onclick="_swlibUse('${s.id}')" style="display:block;width:100%;aspect-ratio:1;border-radius:8px;background:${s.hex};border:1px solid var(--br);cursor:pointer"></span>
+            <input type="color" value="${s.hex}" onchange="swatchLibEdit('${s.id}',this.value)" title="Change this color" style="position:absolute;bottom:-4px;right:-4px;width:16px;height:16px;padding:0;border:1px solid #fff;border-radius:50%;cursor:pointer">
+          </div>
           <div style="font-size:.6rem;color:var(--tl);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(s.nm||s.hex)}</div>
+          ${(s.tags&&s.tags.length)?`<div style="font-size:.55rem;color:var(--gm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.tags.map(escAttr).join(', ')}</div>`:''}
           <button onclick="swatchLibRemove('${s.id}')" title="Remove from library" style="font-size:.55rem;color:var(--tl);background:none;border:none;cursor:pointer;padding:0">remove</button>
         </div>`).join('')}
-    </div>` : `<div style="font-size:.78rem;color:var(--tl)">Nothing here yet — add one below.</div>`}`;
+    </div>` : `<div style="font-size:.78rem;color:var(--tl)">Nothing here yet — add one below.</div>`;
 }
 function _swlibUse(id){
   const s=SWATCH_LIB.find(x=>x&&x.id===id); if(!s) return;
@@ -25648,9 +25696,125 @@ function _swlibAddNew(){
   const hex=(document.getElementById("swlib-new-hex")||{}).value||"";
   const nm=(document.getElementById("swlib-new-nm")||{}).value||"";
   const cat=(document.getElementById("swlib-new-cat")||{}).value||SWATCH_LIB_CATS[0];
-  swatchLibAdd(hex,nm,cat);
+  const tags=((document.getElementById("swlib-new-tags")||{}).value||"").split(",").map(t=>t.trim()).filter(Boolean);
+  swatchLibAdd(hex,nm,cat,tags);
   const nmEl=document.getElementById("swlib-new-nm"); if(nmEl) nmEl.value="";
-  _swlibRender();
+  const tagEl=document.getElementById("swlib-new-tags"); if(tagEl) tagEl.value="";
+  _swlibRenderList();
+}
+// ── Palette Presets ──────────────────────────────────────────────────────
+// A NAMED, TAGGED bundle of hexes — "this Dopely palette, tagged coastal/warm, as one
+// selectable option" (Warwick, from a real palette-generator screenshot). Distinct from
+// individual Swatch Library colors: a preset is a group, not one color, and it shows up
+// as an option in the wizard's Color Palette step right next to the built-in moods
+// (Earth tones, Vibrant & bold, etc), feeding AI suggestions the same way those do.
+let PALETTE_PRESETS=(function(){ try{ const s=localStorage.getItem("studioh_palettepresets_v1"); if(s) return JSON.parse(s); }catch(e){} return null; })() || [];
+let _palettePresetsPulled=false;
+async function palettePresetsPull(force){
+  if(_palettePresetsPulled&&!force) return PALETTE_PRESETS;
+  const d=await _goodsCall({type:"loadgoods",book:"palettepresets"});
+  if(d&&!d.err&&Array.isArray(d.data)){ PALETTE_PRESETS=d.data; _palettePresetsPulled=true;
+    try{ localStorage.setItem("studioh_goods_palettepresets_at", d.savedAt||""); }catch(e){}
+    try{ localStorage.setItem("studioh_palettepresets_v1", JSON.stringify(PALETTE_PRESETS)); }catch(e){}
+  }
+  return PALETTE_PRESETS;
+}
+async function palettePresetsPush(){
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){ alert("No admin key on this device — add it in Settings → Master library access."); return false; }
+  let base=""; try{ base=localStorage.getItem("studioh_goods_palettepresets_at")||""; }catch(e){}
+  const d=await _goodsCall({type:"savegoods",book:"palettepresets",key,data:PALETTE_PRESETS,base,by:"Studio H"});
+  if(d&&!d.err){ try{ localStorage.setItem("studioh_goods_palettepresets_at", d.savedAt||""); }catch(e){} return true; }
+  if(d&&d.stale){ await palettePresetsPull(true); alert("Another device changed Palette Presets while you were editing. It has been reloaded — redo that change."); return false; }
+  alert("Could not save: "+((d&&d.err)||"unknown")); return false;
+}
+function palettePresetsSaveQuiet(){ try{ localStorage.setItem("studioh_palettepresets_v1", JSON.stringify(PALETTE_PRESETS)); }catch(e){} palettePresetsPush(); }
+function palettePresetAdd(nm,tags){
+  const p={id:"pp"+Date.now().toString(36)+Math.floor(Math.random()*1000), nm:nm||"Untitled palette", tags:tags||[], colors:[]};
+  PALETTE_PRESETS.push(p); palettePresetsSaveQuiet();
+  return p;
+}
+function palettePresetRemove(id){ PALETTE_PRESETS=PALETTE_PRESETS.filter(p=>p&&p.id!==id); palettePresetsSaveQuiet(); _swlibRenderList(); }
+function palettePresetRename(id,nm){ const p=PALETTE_PRESETS.find(x=>x&&x.id===id); if(!p) return; p.nm=nm||p.nm; palettePresetsSaveQuiet(); }
+function palettePresetSetTags(id,tagsStr){ const p=PALETTE_PRESETS.find(x=>x&&x.id===id); if(!p) return; p.tags=(tagsStr||"").split(",").map(t=>t.trim()).filter(Boolean); palettePresetsSaveQuiet(); }
+function palettePresetAddColor(id,hexRaw){
+  const p=PALETTE_PRESETS.find(x=>x&&x.id===id); if(!p) return;
+  const u=(hexRaw||"").toUpperCase(); if(!/^#[0-9A-F]{6}$/.test(u)) return;
+  if(p.colors.indexOf(u)<0) p.colors.push(u);
+  palettePresetsSaveQuiet(); _swlibRenderPresetList();
+}
+function palettePresetRemoveColor(id,hex){
+  const p=PALETTE_PRESETS.find(x=>x&&x.id===id); if(!p) return;
+  p.colors=p.colors.filter(c=>c!==hex);
+  palettePresetsSaveQuiet(); _swlibRenderPresetList();
+}
+function palettePresetEditColor(id,oldHex,newHexRaw){
+  const p=PALETTE_PRESETS.find(x=>x&&x.id===id); if(!p) return;
+  const u=(newHexRaw||"").toUpperCase(); const i=p.colors.indexOf(oldHex); if(i<0||u===oldHex) return;
+  if(p.colors.indexOf(u)>=0) p.colors.splice(i,1); else p.colors[i]=u;
+  palettePresetsSaveQuiet(); _swlibRenderPresetList();
+}
+// Seeds a real, editable project palette group from a preset — same machinery as the
+// wizard's built-in mood "+ Palette" (mbColorMoodAddGroup): find-or-create by name, so
+// using the same preset twice on one project just keeps adding to the same group.
+function palettePresetUse(id){
+  const p=PALETTE_PRESETS.find(x=>x&&x.id===id); if(!p||!p.colors.length) return;
+  const mb=_mbPaletteState();
+  let g=mb.paletteGroups.find(x=>x.label===p.nm);
+  if(!g){ g={key:'g'+Date.now()+Math.floor(Math.random()*1000),label:p.nm,colors:[]}; mb.paletteGroups.push(g); }
+  p.colors.forEach(h=>{ if(g.colors.indexOf(h)<0) g.colors.push(h); });
+  if(mb.sections.indexOf("palette")<0) mb.sections.push("palette");
+  try{ _bidSchedule(); }catch(e){}
+  try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){}
+  try{ _toast(`Added "${p.nm}" to your Color Palette`,"#4C7B3D"); }catch(e){}
+}
+let SWLIB_NEWPRESET_ID="";
+function _swlibPresetsHtml(){
+  return `<div id="swlib-list"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px;color:var(--tl);font-size:.6rem;text-transform:uppercase;letter-spacing:.05em">
+      <span style="flex:1;height:1px;background:var(--br)"></span>new palette preset<span style="flex:1;height:1px;background:var(--br)"></span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <input id="swlib-preset-nm" placeholder="Name — e.g. Dopely Warm Coastal" style="flex:2;min-width:150px;padding:.4rem .55rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">
+      <input id="swlib-preset-tags" placeholder="tags, comma-separated" style="flex:1;min-width:120px;padding:.4rem .55rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">
+      <button class="btn" onclick="_swlibPresetCreate()" style="padding:.4rem .7rem;font-size:.74rem;font-weight:600;background:var(--gm);color:#fff;border:none;border-radius:7px">+ Create</button>
+    </div>`;
+}
+function _swlibPresetCreate(){
+  const nm=(document.getElementById("swlib-preset-nm")||{}).value||"";
+  const tags=((document.getElementById("swlib-preset-tags")||{}).value||"").split(",").map(t=>t.trim()).filter(Boolean);
+  if(!nm.trim()){ alert("Give the palette a name first."); return; }
+  const p=palettePresetAdd(nm.trim(),tags);
+  SWLIB_NEWPRESET_ID=p.id;
+  const nmEl=document.getElementById("swlib-preset-nm"); if(nmEl) nmEl.value="";
+  const tagEl=document.getElementById("swlib-preset-tags"); if(tagEl) tagEl.value="";
+  _swlibRenderPresetList();
+}
+function _swlibRenderPresetList(){
+  const host=document.getElementById("swlib-list"); if(!host) return;
+  const filtered=PALETTE_PRESETS.filter(p=>_swlibMatch(p,SWLIB_Q));
+  host.innerHTML = filtered.length ? filtered.map(p=>{
+    const editing = p.id===SWLIB_NEWPRESET_ID;
+    return `<div style="border:1px solid var(--br);border-radius:10px;padding:.6rem .7rem;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <b style="font-size:.82rem;color:var(--tx);flex:1;min-width:100px">${escAttr(p.nm)}</b>
+        ${(p.tags&&p.tags.length)?p.tags.map(t=>`<span style="font-size:.6rem;background:var(--brand-soft);color:var(--gm);padding:.1rem .4rem;border-radius:8px">${escAttr(t)}</span>`).join(''):''}
+        <button class="btn" onclick="palettePresetUse('${p.id}')" style="padding:.15rem .5rem;font-size:.68rem;background:var(--gm);color:#fff;border:none;border-radius:6px">+ Use in project</button>
+        <button onclick="palettePresetRemove('${p.id}')" title="Delete preset" style="font-size:.6rem;color:var(--tl);background:none;border:none;cursor:pointer">delete</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${p.colors.map(h=>`<div style="position:relative">
+            <span title="${h}" style="display:block;width:32px;height:32px;border-radius:7px;background:${h};border:1px solid var(--br)"></span>
+            <input type="color" value="${h}" onchange="palettePresetEditColor('${p.id}','${h}',this.value)" title="Change" style="position:absolute;bottom:-4px;right:-4px;width:14px;height:14px;padding:0;border:1px solid #fff;border-radius:50%;cursor:pointer">
+            <button onclick="palettePresetRemoveColor('${p.id}','${h}')" title="Remove" style="position:absolute;top:-5px;right:-5px;width:14px;height:14px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:9px;cursor:pointer;padding:0;line-height:1">✕</button>
+          </div>`).join('')}
+        <div style="position:relative;width:32px;height:32px">
+          <input type="color" onchange="palettePresetAddColor('${p.id}',this.value)" title="Add a color" style="width:100%;height:100%;padding:0;border:1.5px dashed var(--gm);border-radius:7px;cursor:pointer;background:var(--surface2)">
+          <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:300;color:var(--gm);pointer-events:none">+</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('') : `<div style="font-size:.78rem;color:var(--tl);margin-bottom:8px">No palette presets yet — create one below, then add colors to it.</div>`;
 }
 function _mbPaletteSectionHtml(plants,goods){
   const mb=_mbPaletteState(); const sz=mb.paletteSize;
@@ -25940,7 +26104,7 @@ async function _mbSuggestGoodsFor(sec,styleKeys,ep,query){
   if(!pool.length){ alert("Nothing addable left in your "+sec.label+" library to suggest — everything's already specified, priceless, or missing a rate (set one via \"Wrong trade? Rate\" in the Price Book)."); return; }
   const bud=projBudget(), grand=_grandNow(), remaining=bud?Math.max(0,bud-grand):null;
   const furnRemaining=(()=>{ const fb=furnBudget(); if(!fb) return null; return Math.max(0,fb-grand); })();
-  const colorMoodLabels=_mbWizLabels("wizColorMood",MB_COLORMOOD_OPTS);
+  const colorMoodLabels=_mbWizColorMoodLabels();
   const styleCustom=_mbWizStyleCustom();
   const feelLabel=_mbWizBudgetFeelLabel();
   const goals=S.projGoals||"";
