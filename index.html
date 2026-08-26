@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1220</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1221</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26922,67 +26922,84 @@ async function clDeletePalette(id){
 // Deliberately starts empty. Per GPT's own spec: "never fabricate manufacturer data."
 // This is a real add/search/edit tool so Warwick can populate it with verified colors as
 // he researches each brand — not a placeholder waiting on an AI that would have to guess.
-let CL_MFG_Q="", CL_MFG_BRAND="", CL_MFG_EXPANDED={};
-// Search/chip/expand all update just #cl-mfg-results, never the shell — the shell holds
+let CL_MFG_Q="", CL_MFG_BRAND="";
+// Search/brand-select both update just #cl-mfg-results, never the shell — the shell holds
 // the <input> itself, and a full re-render on every keystroke would tear that input out
 // of the DOM and rebuild it, dropping focus after the first character (caught live:
 // Warwick could only ever get one letter into the search box before it stopped taking input).
 function clMfgSetQuery(v){ CL_MFG_Q=v; _clMfgRenderResults(); }
 function clMfgSetBrand(b){ CL_MFG_BRAND=b; _clMfgRenderResults(); }
-function clMfgToggleExpand(brand){ CL_MFG_EXPANDED[brand]=!CL_MFG_EXPANDED[brand]; _clMfgRenderResults(); }
+// Same card shape as Theme Palettes — swatch on top, name + subtitle below — sized for
+// one color instead of a 14-swatch strip. A null hex (true for all but 7 of 438 entries;
+// most of these are physical fabric/concrete/metal chips with no official digital color)
+// renders as a diagonal hatch with "No hex on file" spelled out, never a blank box that
+// reads as broken or missing data.
+function _mfgColorCardHtml(m){
+  const title=m.color||m.productName||"";
+  const sub=[m.color?m.productName:null,m.category,m.material,m.collection,m.finish].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
+  const swatchStyle=m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 7px,var(--br) 7px,var(--br) 14px)`;
+  return `<div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+      <div style="height:64px;position:relative;${swatchStyle}">
+        ${!m.hex?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:.6rem;font-weight:700;color:var(--tm);background:rgba(255,255,255,.6);padding:0 4px">No hex on file</div>`:''}
+      </div>
+      <div style="padding:.6rem .7rem .65rem;display:flex;flex-direction:column;gap:.3rem">
+        <div style="display:flex;align-items:center;gap:.35rem">
+          <div style="font-weight:700;font-size:.8rem;color:var(--tx);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escAttr(title)}</div>
+          <span onclick="mfgColorRemove('${m.id}')" title="Remove" style="cursor:pointer;color:var(--tl);font-size:.85rem;line-height:1;flex-shrink:0">✕</span>
+        </div>
+        <div style="font-size:.62rem;color:var(--tl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sub.map(escAttr).join(' · ')||'&nbsp;'}</div>
+        ${m.verified?`<span style="align-self:flex-start;font-size:.56rem;color:var(--gm);background:var(--brand-soft);padding:2px 6px;border-radius:7px">verified</span>`:`<span style="align-self:flex-start;font-size:.56rem;color:var(--gold);background:#FBF3E3;padding:2px 6px;border-radius:7px">needs verification</span>`}
+      </div>
+    </div>`;
+}
 function _clMfgRenderResults(){
   const host=document.getElementById("cl-mfg-results"); if(!host) return;
   const q=CL_MFG_Q.trim().toLowerCase();
   const list=MANUFACTURER_COLORS.filter(m=>m && (!q ||
     [m.manufacturer,m.productName,m.category,m.sku,m.color,m.material,m.finish,m.collection,m.colorFamily].filter(Boolean).some(v=>String(v).toLowerCase().indexOf(q)>=0) ||
     (m.tags||[]).some(t=>t.indexOf(q)>=0)));
-  const byMfgAll={}; MANUFACTURER_COLORS.forEach(m=>{ (byMfgAll[m.manufacturer||"Other"]=byMfgAll[m.manufacturer||"Other"]||[]).push(m); });
-  const brandChips=Object.keys(byMfgAll).sort().map(b=>
-    `<span onclick="clMfgSetBrand('${escAttr(CL_MFG_BRAND===b?"":b)}')" style="padding:.32rem .75rem;border-radius:20px;font-size:.72rem;font-weight:600;cursor:pointer;background:${CL_MFG_BRAND===b?'var(--gd)':'#fff'};color:${CL_MFG_BRAND===b?'#fff':'var(--tm)'};border:1px solid ${CL_MFG_BRAND===b?'var(--gd)':'var(--br)'}">${escAttr(b)} <span style="opacity:.75">${byMfgAll[b].length}</span></span>`
-  ).join('');
-  const byMfg={}; list.filter(m=>!CL_MFG_BRAND||m.manufacturer===CL_MFG_BRAND).forEach(m=>{ (byMfg[m.manufacturer||"Other"]=byMfg[m.manufacturer||"Other"]||[]).push(m); });
-  const brandsShown=Object.keys(byMfg).sort();
-  // A single manufacturer selected (or a search narrow enough to leave just one) opens
-  // straight up — otherwise, with 400+ colors across 8 brands, every group starts
-  // collapsed so the page reads as "8 manufacturers" at a glance, not one long scroll.
-  // Same card shape as Theme Palettes — swatch on top, name + subtitle below — sized for
-  // one color instead of a 14-swatch strip. A null hex (true for all but 7 of 438 entries;
-  // most of these are physical fabric/concrete/metal chips with no official digital color)
-  // renders as a diagonal hatch with "No hex on file" spelled out, never a blank box that
-  // reads as broken or missing data.
-  const mfgCardHtml=(m)=>{
-    const title=m.color||m.productName||"";
-    const sub=[m.color?m.productName:null,m.category,m.material,m.collection,m.finish].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
-    const swatchStyle=m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 7px,var(--br) 7px,var(--br) 14px)`;
-    return `<div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
-        <div style="height:64px;position:relative;${swatchStyle}">
-          ${!m.hex?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:.6rem;font-weight:700;color:var(--tm);background:rgba(255,255,255,.6);padding:0 4px">No hex on file</div>`:''}
-        </div>
-        <div style="padding:.6rem .7rem .65rem;display:flex;flex-direction:column;gap:.3rem">
-          <div style="display:flex;align-items:center;gap:.35rem">
-            <div style="font-weight:700;font-size:.8rem;color:var(--tx);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escAttr(title)}</div>
-            <span onclick="mfgColorRemove('${m.id}')" title="Remove" style="cursor:pointer;color:var(--tl);font-size:.85rem;line-height:1;flex-shrink:0">✕</span>
+
+  // Level 2 — one manufacturer selected: a plain card grid of its colors, same shape as
+  // opening a Theme Palette, with the same "← Back" pattern.
+  if(CL_MFG_BRAND){
+    const items=list.filter(m=>m.manufacturer===CL_MFG_BRAND);
+    host.innerHTML=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="btn" onclick="clMfgSetBrand('')" style="padding:.35rem .7rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br);border-radius:8px">← Back</button>
+        <span style="font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;font-size:1.15rem;color:var(--tx)">${escAttr(CL_MFG_BRAND)}</span>
+        <span style="font-size:.72rem;color:var(--gm);background:var(--brand-soft);padding:2px 8px;border-radius:10px;font-weight:600">${items.length}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">${items.map(_mfgColorCardHtml).join('') || `<div style="font-size:.85rem;color:var(--tl)">No colors match.</div>`}</div>`;
+    return;
+  }
+
+  // Level 1 — top level: one card PER MANUFACTURER, exactly like Theme Palettes' own grid
+  // (a preview strip on top, name + count below) instead of a list of rows. Click a card
+  // to drill into that brand. A search narrow enough to leave just one brand jumps straight
+  // to its color grid, same as before.
+  const byMfg={}; list.forEach(m=>{ (byMfg[m.manufacturer||"Other"]=byMfg[m.manufacturer||"Other"]||[]).push(m); });
+  const brands=Object.keys(byMfg).sort();
+  if(q && brands.length===1){ CL_MFG_BRAND=brands[0]; _clMfgRenderResults(); return; }
+  const brandCards=brands.map(brand=>{
+    const items=byMfg[brand];
+    const cells=items.slice(0,6); while(cells.length<6) cells.push(null);
+    const strip=cells.map(m=>{
+      if(!m) return `<span style="flex:1;background:var(--surface2)"></span>`;
+      const bg=m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 5px,var(--br) 5px,var(--br) 10px)`;
+      return `<span style="flex:1;${bg}" title="${escAttr(m.color||m.productName||'')}"></span>`;
+    }).join('');
+    const cats=Array.from(new Set(items.map(m=>m.category||m.material).filter(Boolean))).slice(0,4);
+    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer;display:flex;flex-direction:column" onclick="clMfgSetBrand('${escAttr(brand)}')">
+        <div style="display:flex;height:64px">${strip}</div>
+        <div style="padding:.7rem .8rem .8rem;display:flex;flex-direction:column;gap:.3rem">
+          <div style="display:flex;align-items:center;gap:.4rem">
+            <div style="font-weight:700;font-size:.88rem;color:var(--tx);flex:1">${escAttr(brand)}</div>
+            <span style="font-size:.68rem;color:var(--gm);background:var(--brand-soft);padding:2px 8px;border-radius:10px;font-weight:600;flex-shrink:0">${items.length}</span>
           </div>
-          <div style="font-size:.62rem;color:var(--tl);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sub.map(escAttr).join(' · ')||'&nbsp;'}</div>
-          ${m.verified?`<span style="align-self:flex-start;font-size:.56rem;color:var(--gm);background:var(--brand-soft);padding:2px 6px;border-radius:7px">verified</span>`:`<span style="align-self:flex-start;font-size:.56rem;color:var(--gold);background:#FBF3E3;padding:2px 6px;border-radius:7px">needs verification</span>`}
+          <div style="font-size:.68rem;color:var(--tl);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cats.map(escAttr).join(' · ')}</div>
         </div>
-      </div>`;
-  };
-  const groups=brandsShown.map(brand=>{
-    const expanded = CL_MFG_BRAND===brand || brandsShown.length===1 || !!CL_MFG_EXPANDED[brand];
-    const rows=!expanded ? '' : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:.9rem">${byMfg[brand].map(mfgCardHtml).join('')}</div>`;
-    const collapsible=brandsShown.length>1;
-    return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
-        <div ${collapsible?`onclick="clMfgToggleExpand('${escAttr(brand)}')" style="cursor:pointer;"`:''} style="display:flex;align-items:center;gap:8px;padding:.7rem .9rem;background:var(--brand-soft)">
-          ${collapsible?`<span style="font-size:.7rem;color:var(--gm);transform:rotate(${expanded?90:0}deg);transition:transform .12s;display:inline-block">▶</span>`:''}
-          <span style="font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;font-size:1.05rem;color:var(--tx)">${escAttr(brand)}</span>
-          <span style="font-size:.72rem;color:var(--gm);background:#fff;padding:2px 8px;border-radius:10px;font-weight:600">${byMfg[brand].length}</span>
-        </div>
-        ${rows}
       </div>`;
   }).join('');
-  host.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${brandChips}</div>
-    ${groups || `<div class="card" style="font-size:.8rem;color:var(--tl)">No manufacturer colors match.</div>`}`;
+  host.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px">${brandCards || `<div style="font-size:.85rem;color:var(--tl)">No manufacturer colors match.</div>`}</div>`;
 }
 function _clMfgHtml(){
   return `<div style="font-size:.74rem;color:var(--tm);background:var(--surface2);border-radius:9px;padding:8px 10px;margin-bottom:12px;line-height:1.5">Real manufacturer colors, added as they're researched and verified — never invented. A color without an official published hex still shows its real name and source, marked "needs verification" for the color itself.</div>
@@ -27017,11 +27034,11 @@ function mfgColorAdd(){
     manufacturer:brand.trim(),productName:name.trim(),category:cat.trim(),hex:hex||null,
     verified:!!verified,sourceUrl:source.trim(),tags:[]});
   mfgColorsSaveQuiet();
-  _clRenderShell();
+  _clMfgRenderResults();
 }
 function mfgColorRemove(id){
   MANUFACTURER_COLORS=MANUFACTURER_COLORS.filter(m=>m&&m.id!==id);
-  mfgColorsSaveQuiet(); _clRenderShell();
+  mfgColorsSaveQuiet(); _clMfgRenderResults();
 }
 
 function _mbPaletteSectionHtml(plants,goods){
