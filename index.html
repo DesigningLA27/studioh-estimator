@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1211</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1212</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12625,6 +12625,21 @@ const MAT_PB_NEW={
   "Glass Tile / Mosaic — pool & wet areas":{u:"SF",lo:28,hi:75,std:45},
   "Tile Setting — floors & walls":{u:"SF",lo:14,hi:38,std:22},
 };
+// Furnishings/Products resolve their labor line by exact FUR_CATS category, never a
+// fuzzy keyword guess — no risk of a MAT_PB_MATCH-style collision (a "concrete" material
+// TAG on a decorative item matching a hardscape line meant for pouring an actual slab).
+// Only mapped where an existing Price Book line already means exactly this — the same
+// amenities lines Take-offs already uses for a placed pot/furniture icon (_tkMarkRate),
+// not new invented rates. Categories with no confident match (Fire, Grills & Outdoor
+// Kitchen, Umbrellas & Shade, Accessories) are left unmapped on purpose: a pre-made fire
+// table or grill needs a gas hookup, not a full masonry fireplace/kitchen build, and
+// guessing that wrong is exactly the class of bug this whole guard exists to prevent —
+// those correctly fall through to "needs a rate" until set by hand.
+const FUR_PB_MATCH={
+  "Pottery & Planters": ["amenities","Planter — Set, Waterproof & Plant"],
+  "Seating":            ["amenities","Site Furniture — Allowance (per piece)"],
+  "Tables":             ["amenities","Site Furniture — Allowance (per piece)"],
+};
 function _pbFind(catId,itemName){
   const ci=PB.findIndex(c=>c&&c.id===catId); if(ci<0) return null;
   const items=PB[ci].items||(PB[ci].items=[]);
@@ -12647,6 +12662,28 @@ function matPBLine(m){
   const t=goodsInstallTable();
   const pick = (m.brand&&t.brand[m.brand]) || (m.sup&&t.sup[m.sup]) || null;
   if(pick){ const L=_pbFind(pick.cat,pick.item); if(L) return L; }
+  // The regex table below is a MATERIALS-only heuristic — it matches a surface/finish
+  // keyword ("concrete", "tile", "brick"...) onto a per-SF/LF hardscape installation
+  // line. Furnishings/Products are priced as units, not surfaces being poured or laid,
+  // so a "concrete" material TAG on a decorative item (a cast-concrete bonsai planter,
+  // say) isn't a slab — running it through this table matched a $0 Bonsai pot onto
+  // "Concrete Flatwork" at $2,182/SF, caught live by the price-sanity guard in specAdd()
+  // but confusing to hit at all. No MAT_PB_MATCH rule targets a furniture/pottery/seating
+  // category on purpose, so furnishings never had a legitimate match here — only
+  // accidental keyword collisions. Restricting the table to real materials-array items
+  // removes that collision; a furnishings item with no explicit instLine/brand pick
+  // correctly falls through to "needs a rate" instead of guessing.
+  if(MATERIALS.indexOf(m)<0){
+    const fm=FUR_PB_MATCH[m.cat];
+    // A furnishings item's own price (a $150 pot vs a $5,000 one) is expected to swing
+    // independently of the line's flat placement-labor rate — unlike a materials line,
+    // where "typical" is a full installed $/SF baseline in the same unit as the product's
+    // own price. specAdd()'s 5x sanity check assumes that shared unit; comparing it here
+    // would false-positive on every normally-priced item, so a deterministic category
+    // match (the only way furnishings resolve a line at all — see the comment above) skips it.
+    if(fm){ const L=_pbFind(fm[0],fm[1]); if(L){ L.skipSanity=true; return L; } }
+    return null;
+  }
   const hay=[m.cat,m.nm,m.fin,(m.tags||[]).join(" ")].filter(Boolean).join(" ");
   for(const [re,catId,itemName] of MAT_PB_MATCH){
     if(!re.test(hay)) continue;
@@ -12964,7 +13001,7 @@ function specLineOf(m){
   const cs=S.cats[catId]; if(!cs||!cs.items) return null;
   const idx=cs.items.findIndex(it=>it&&it.n===L.it.n);
   if(idx<0) return null;
-  return {catId, idx, name:L.it.n, u:cs.items[idx].u||"SF"};
+  return {catId, idx, name:L.it.n, u:cs.items[idx].u||"SF", skipSanity:!!L.skipSanity};
 }
 
 // Installed unit cost: the product at the basis you set, plus labour for that trade.
@@ -13007,7 +13044,7 @@ async function specAdd(book,gid){
   // itself may still mismatch other items; this catches the RESULT of any such mismatch,
   // present or future, rather than relying on every matching rule being perfect.
   const typical=+it.std || Math.max(+it.hi||0,(+it.lo||0)*2) || 0;
-  if(typical>0 && inst.total>typical*5){
+  if(!L.skipSanity && typical>0 && inst.total>typical*5){
     const ok=await askDlg({icon:"⚠",
       title:`${fmtN(inst.total)}/${L.u} looks wrong for "${L.name}"`,
       body:`That line typically runs around ${fmtN(typical)}/${L.u}. "${m.nm}" may not actually belong on this line — check the match, or use "Wrong trade? Rate" on the item to pick the right line by hand.`,
