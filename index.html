@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1229</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1230</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26959,11 +26959,10 @@ function _clRenderShell(){
   const host=document.getElementById("cl-shell"); if(!host) return;
   if(CL_STATE.openId){ host.innerHTML=_clDetailHtml(CL_STATE.openId); return; }
   if(CL_STATE.tab==="manufacturer"){
-    host.innerHTML=`${_clTopBarHtml()}
-      <div class="pbk-wrap">
-        <aside class="pbk-tree">${_clLibrarySwitchHtml()}</aside>
-        <div class="pbk-list" style="flex:1">${_clMfgHtml()}</div>
-      </div>`;
+    // _clMfgRenderResults owns the whole three-column wrap now, exactly as
+    // _clBrowseRenderResults does — the right detail panel has to appear and
+    // disappear with the selection, so it cannot live in a shell rendered once.
+    host.innerHTML=`${_clTopBarHtml()}<div id="cl-mfg-results"></div>${_clMfgHtml()}`;
     _clMfgRenderResults();
     return;
   }
@@ -27384,25 +27383,28 @@ async function clDeletePalette(id){
 // Deliberately starts empty. Per GPT's own spec: "never fabricate manufacturer data."
 // This is a real add/search/edit tool so Warwick can populate it with verified colors as
 // he researches each brand — not a placeholder waiting on an AI that would have to guess.
-let CL_MFG_Q="", CL_MFG_BRAND="";
+let CL_MFG_Q="", CL_MFG_BRAND="", CL_MFG_OPEN="";
 // Search/brand-select both update just #cl-mfg-results, never the shell — the shell holds
 // the <input> itself, and a full re-render on every keystroke would tear that input out
 // of the DOM and rebuild it, dropping focus after the first character (caught live:
 // Warwick could only ever get one letter into the search box before it stopped taking input).
 function clMfgSetQuery(v){ CL_MFG_Q=v; _clMfgRenderResults(); }
-function clMfgSetBrand(b){ CL_MFG_BRAND=b; _clMfgRenderResults(); }
+// Changing brand clears the open colour — carrying a selection from one brand into
+// another would leave the detail panel describing something not in the grid.
+function clMfgSetBrand(b){ CL_MFG_BRAND=(CL_MFG_BRAND===b)?"":b; CL_MFG_OPEN=""; _clMfgRenderResults(); }
+function clMfgSelect(id){ CL_MFG_OPEN=id; _clMfgRenderResults(); }
 // Same card shape as Theme Palettes — swatch on top, name + subtitle below — sized for
 // one color instead of a 14-swatch strip. A null hex (true for all but 7 of 438 entries;
 // most of these are physical fabric/concrete/metal chips with no official digital color)
 // renders as a diagonal hatch with "No hex on file" spelled out, never a blank box that
 // reads as broken or missing data.
-function _mfgColorCardHtml(m){
+function _mfgColorCardHtml(m,on){
   const title=m.color||m.productName||"";
   const sub=[m.color?m.productName:null,m.category,m.material,m.collection,m.finish].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
   const swatchStyle=m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 7px,var(--br) 7px,var(--br) 14px)`;
   // Same .pb-cd tile as the Theme Palettes colour grid. A null hex still gets the
   // hatch + "No hex on file" overlay rather than a blank box that reads as broken.
-  return `<div class="pb-cd" style="cursor:default">
+  return `<div class="pb-cd${on?' on':''}" onclick="clMfgSelect('${m.id}')">
       <span class="pb-cdph" style="position:relative;${swatchStyle}">
         ${!m.hex?`<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:.6rem;font-weight:700;color:var(--tm);background:rgba(255,255,255,.6);padding:0 4px">No hex on file</span>`:''}
       </span>
@@ -27413,7 +27415,7 @@ function _mfgColorCardHtml(m){
         ${m.hex?(m.hexApproximate
           ? `<span title="${escAttr((m.hexSource==="swatch_image"?"Approximated by sampling the manufacturer's own swatch photo":"Approximate")+(m.hexConfidence?" · sample confidence: "+m.hexConfidence:"")+(m.hexSourceUrl?"\n"+m.hexSourceUrl:"")+"\nIndicative only — check a physical sample.")}" style="font-size:.56rem;color:var(--gold);background:#FBF3E3;padding:2px 6px;border-radius:7px">≈ ${escAttr(m.hex)}</span>`
           : `<span title="Hex published by the manufacturer" style="font-size:.56rem;color:var(--gm);background:var(--brand-soft);padding:2px 6px;border-radius:7px">${escAttr(m.hex)}</span>`):''}
-        <span onclick="mfgColorRemove('${m.id}')" title="Remove" style="cursor:pointer;color:var(--tl);font-size:.8rem;line-height:1;margin-left:auto">✕</span>
+        <span onclick="event.stopPropagation();mfgColorRemove('${m.id}')" title="Remove" style="cursor:pointer;color:var(--tl);font-size:.8rem;line-height:1;margin-left:auto">✕</span>
       </span>
     </div>`;
 }
@@ -27425,14 +27427,24 @@ function _clMfgRenderResults(){
     (m.tags||[]).some(t=>t.indexOf(q)>=0)));
 
   // Level 2 — one manufacturer selected: its colors in the SAME standard .pb-cards
-  // tile grid the Theme Palettes drill-in uses, so both libraries read identically.
+  // tile grid the Theme Palettes drill-in uses, plus the same right-hand detail
+  // panel, auto-opening the first color so it is never an empty "pick one" state.
   if(CL_MFG_BRAND){
     const items=list.filter(m=>m.manufacturer===CL_MFG_BRAND);
-    host.innerHTML=`<div class="pb-lh">
-        <button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="clMfgSetBrand('')">← All manufacturers</button>
-        ${items.length} color${items.length===1?'':'s'} — ${escAttr(CL_MFG_BRAND)}
-      </div>
-      <div class="pb-cards">${items.map(_mfgColorCardHtml).join('') || `<div class="pbk-empty">No colors match.</div>`}</div>`;
+    let open=items.find(m=>m.id===CL_MFG_OPEN);
+    if(!open && items.length){ open=items[0]; CL_MFG_OPEN=open.id; }
+    if(!open) CL_MFG_OPEN="";
+    host.innerHTML=`<div class="pbk-wrap">
+        <aside class="pbk-tree">${_clLibrarySwitchHtml()}${_clMfgBrandFacetHtml(byMfgOf(list))}</aside>
+        <div class="pbk-list">
+          <div class="pb-lh">
+            <button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="clMfgSetBrand('')">← All manufacturers</button>
+            ${items.length} color${items.length===1?'':'s'} — ${escAttr(CL_MFG_BRAND)}
+          </div>
+          <div class="pb-cards">${items.map(m=>_mfgColorCardHtml(m,m.id===CL_MFG_OPEN)).join('') || `<div class="pbk-empty">No colors match.</div>`}</div>
+        </div>
+        <aside class="pbk-ins">${open?_mfgColorDetailHtml(open):'<div class="pbk-empty">Pick a color to see its details.</div>'}</aside>
+      </div>`;
     return;
   }
 
@@ -27463,16 +27475,89 @@ function _clMfgRenderResults(){
         <i>${cats.map(escAttr).join(' · ')||'&nbsp;'}</i>
       </button>`;
   }).join('');
-  host.innerHTML=`<div class="pb-lh">${brands.length} manufacturer${brands.length===1?'':'s'}</div>
-    <div class="pb-cards cl-themes">${brandCards || `<div class="pbk-empty">No manufacturer colors match.</div>`}</div>`;
+  // No right panel at the top level, same as the theme grid — the cards get the
+  // full width, and there is nothing selected to describe yet.
+  host.innerHTML=`<div class="pbk-wrap">
+      <aside class="pbk-tree">${_clLibrarySwitchHtml()}${_clMfgBrandFacetHtml(byMfg)}</aside>
+      <div class="pbk-list">
+        <div class="pb-lh">${brands.length} manufacturer${brands.length===1?'':'s'}</div>
+        <div class="pb-cards cl-themes">${brandCards || `<div class="pbk-empty">No manufacturer colors match.</div>`}</div>
+      </div>
+    </div>`;
+}
+// Grouping helper so the brand facet can be built from either level's list.
+function byMfgOf(list){ const o={}; list.forEach(m=>{ (o[m.manufacturer||"Other"]=o[m.manufacturer||"Other"]||[]).push(m); }); return o; }
+// Brands as a left-rail facet, mirroring Themes on the other tab — same .pbk-sec
+// header, same 5-then-"Show more" cap, same row shape.
+let CL_MFG_MORE=false;
+function clMfgToggleMore(){ CL_MFG_MORE=!CL_MFG_MORE; _clMfgRenderResults(); }
+function _clMfgBrandFacetHtml(byMfg){
+  const items=Object.keys(byMfg).sort().map(b=>({id:b,name:b,n:byMfg[b].length}));
+  return _clFacetSection("Manufacturers",items,CL_MFG_BRAND?[CL_MFG_BRAND]:[],"clMfgSetBrand","#9B7B3A",CL_MFG_MORE,"clMfgToggleMore");
+}
+// Detail panel for one manufacturer color. Its whole job is showing PROVENANCE —
+// where the hex came from and how much to trust it — because these values range
+// from a manufacturer's own published number to a pixel sampled off their photo,
+// and a swatch alone cannot tell you which you are looking at.
+function _mfgColorDetailHtml(m){
+  const title=m.color||m.productName||"";
+  const swatchStyle=m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 9px,var(--br) 9px,var(--br) 18px)`;
+  const F=(k,v)=>v?`<div class="pbk-f"><span class="k">${k}</span><b style="font-family:inherit;font-weight:600">${escAttr(v)}</b></div>`:'';
+  const SRC_LABEL={published:"Published by the manufacturer",pdf:"Extracted from the manufacturer's PDF colour chart",
+    css:"Read from the manufacturer's own swatch styling",swatch_image:"Sampled from the manufacturer's swatch photo"};
+  let hexHtml;
+  if(!m.hex){
+    hexHtml=`<div class="pbk-f"><span class="k">Hex</span><b style="font-family:inherit;font-weight:600;color:var(--tl)">none on file</b></div>
+      <div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">This manufacturer doesn't publish a digital colour for this one, and no swatch image was available to sample.</div>`;
+  } else {
+    const approx=!!m.hexApproximate;
+    // Entries seeded before hexSource existed carry no source string, but the seed's
+    // own rule was "hex stays null unless the manufacturer publishes a digital value"
+    // — so a non-approximate hex with no recorded source is a published one.
+    const srcKey=m.hexSource||(approx?"":"published");
+    hexHtml=`<div class="pbk-f"><span class="k">Hex</span><b style="color:${approx?'var(--gold)':'var(--gm)'}">${approx?'≈ ':''}${escAttr(m.hex)}</b></div>
+      ${F("Source",SRC_LABEL[srcKey]||srcKey)}
+      ${m.hexConfidence?F("Sample confidence",m.hexConfidence):''}
+      ${approx?`<div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">Approximate — derived from the manufacturer's own imagery, not a published colour standard. Check a physical sample before specifying.</div>`:''}
+      ${m.hexSourceUrl?`<a class="pbk-btn" href="${escAttr(m.hexSourceUrl)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:4px">See the swatch it came from ↗</a>`:''}`;
+  }
+  const dom=(m.dominantColors&&m.dominantColors.length)?`<div class="pbk-eb">Dominant Colours</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:2px 4px 4px">
+        ${m.dominantColors.map(d=>`<div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:46px">
+            <span style="width:34px;height:34px;border-radius:8px;display:block;border:1px solid var(--br);background:${escAttr(d.hex)}"></span>
+            <small style="font-size:9px;color:var(--tl)">${escAttr(d.hex)}${d.pct?'<br>'+d.pct+'%':''}</small>
+          </div>`).join('')}
+      </div>
+      <div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">This one is patterned, so a single hex under-describes it — these are the colours actually present.</div>`:'';
+  return `<span class="pbk-ph" style="display:block;${swatchStyle}"></span>
+    <div class="pbk-hd">${escAttr(title)}<i>${escAttr([m.manufacturer,m.collection].filter(Boolean).join(' · '))}</i></div>
+
+    <div class="pbk-eb">Colour</div>
+    ${hexHtml}
+    ${dom}
+
+    <div class="pbk-eb">Spec</div>
+    ${F("Product",m.color?m.productName:"")}
+    ${F("SKU / code",m.sku||m.code||m.finishCode)}
+    ${F("Category",m.category)}
+    ${F("Material",m.material)}
+    ${F("Finish",m.finish)}
+    ${F("Pattern",m.patternType)}
+    ${F("Colour family",m.colorFamily)}
+    ${m.livingFinish?`<div style="font-size:.7rem;color:var(--gold);padding:2px 6px 4px;line-height:1.5">Living finish — this patinas over time, so the installed colour will keep moving.</div>`:''}
+
+    <div class="pbk-eb">Record</div>
+    <div class="pbk-f"><span class="k">Verified</span><b style="font-family:inherit;font-weight:600;color:${m.verified?'var(--gm)':'var(--gold)'}">${m.verified?'against manufacturer source':'needs verification'}</b></div>
+    ${m.sourceUrl?`<a class="pbk-btn" href="${escAttr(m.sourceUrl)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Open on ${escAttr((function(){try{return new URL(m.sourceUrl).hostname.replace(/^www\./,'');}catch(e){return 'manufacturer site';}})())} ↗</a>`:''}
+
+    <div class="pbk-eb">Actions</div>
+    <button class="pbk-btn gd-del" onclick="mfgColorRemove('${m.id}')">Remove this colour</button>`;
 }
 function _clMfgHtml(){
   // Search lives in the shared top bar now (clTopSearch routes to clMfgSetQuery on
   // this tab) — this used to render its own second search input directly above
   // #cl-mfg-results, which was redundant once the green band got one.
-  return `<div style="font-size:.74rem;color:var(--tm);background:var(--surface2);border-radius:9px;padding:8px 10px;margin-bottom:12px;line-height:1.5">Real manufacturer colors, added as they're researched and verified — never invented. A color without an official published hex still shows its real name and source, marked "needs verification" for the color itself.</div>
-    <div id="cl-mfg-results"></div>
-    <div class="card">
+  return `<div class="card">
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tl);font-weight:700;margin-bottom:8px">Add a manufacturer color</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
         <input id="mfg-new-brand" placeholder="Manufacturer — e.g. Sunbrella" style="flex:1;min-width:140px;padding:.5rem .6rem;font-size:.8rem;border:1px solid var(--br);border-radius:8px">
