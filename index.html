@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1198</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1199</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24633,6 +24633,179 @@ function _piRenderBudget(){
     <textarea class="pf-box" rows="2" placeholder="What is this project trying to achieve for the client?" onchange="piSetGoals(this.value)">${escAttr(S.projGoals||"")}</textarea>
   </div>`;
 }
+// ── Site Elements library ────────────────────────────────────────────────
+// Reference photos of whole design elements (an outdoor kitchen, a pool, a pergola) —
+// not a material finish, not a priced line item, just "here's a good example of this."
+// Shared across every project and every designer, same as Materials/Furnishings/HOA, but
+// deliberately kept OUT of the goods/pricing "book" system (_goodsArr/goodsPush/matSave)
+// since an element has no price and is never specified — it only ever illustrates. Uses
+// the worker's generic loadgoods/savegoods under its own book key ("elements"), mirroring
+// hoaPull/hoaPush exactly rather than touching the materials/furnishings pipeline.
+const ELEMENT_CATS=["Outdoor Kitchen","Pool & Spa","Pergola & Shade","Fire Feature","Water Feature","Patio & Deck","Fireplace","Trellis & Arbor"];
+let SITE_ELEMENTS=(function(){ try{ const s=localStorage.getItem("studioh_elements_v1"); if(s) return JSON.parse(s); }catch(e){} return null; })() || [];
+let _elementsPulled=false;
+async function elementsPull(force){
+  if(_elementsPulled&&!force) return SITE_ELEMENTS;
+  const d=await _goodsCall({type:"loadgoods",book:"elements"});
+  if(d&&!d.err&&Array.isArray(d.data)){ SITE_ELEMENTS=d.data; _elementsPulled=true;
+    try{ localStorage.setItem("studioh_goods_elements_at", d.savedAt||""); }catch(e){}
+    try{ localStorage.setItem("studioh_elements_v1", JSON.stringify(SITE_ELEMENTS)); }catch(e){}
+  }
+  return SITE_ELEMENTS;
+}
+async function elementsPush(){
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){ alert("No admin key on this device — add it in Settings → Master library access."); return false; }
+  let base=""; try{ base=localStorage.getItem("studioh_goods_elements_at")||""; }catch(e){}
+  const d=await _goodsCall({type:"savegoods",book:"elements",key,data:SITE_ELEMENTS,base,by:"Studio H"});
+  if(d&&!d.err){ try{ localStorage.setItem("studioh_goods_elements_at", d.savedAt||""); }catch(e){} return true; }
+  if(d&&d.stale){ await elementsPull(true); alert("Another device changed the Site Elements library while you were editing. It has been reloaded — redo that change."); try{ renderMoodBoard(); }catch(e){} return false; }
+  alert("Could not save: "+((d&&d.err)||"unknown")); return false;
+}
+function elementsSaveQuiet(){ try{ localStorage.setItem("studioh_elements_v1", JSON.stringify(SITE_ELEMENTS)); }catch(e){} elementsPush(); }
+let MB_ELCAT_FILTER="";
+function mbElCatFilter(cat){ MB_ELCAT_FILTER=cat; try{ renderMoodBoard(); }catch(e){} }
+function elementRemove(id){
+  SITE_ELEMENTS=SITE_ELEMENTS.filter(e=>e&&e.id!==id);
+  elementsSaveQuiet();
+  try{ renderMoodBoard(); }catch(e){}
+}
+// AI generation, generalized from aiPlantImage's pipeline (_genImageOne/_fetchTo512/
+// _uploadImageR2/_ensureR2 are all plant-agnostic already — only the prompt differs).
+async function aiElementImage(prompt){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return {ok:false,err:"No worker"};
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){ key=_adminKey(); if(!key) return {ok:false,err:"No key"}; }
+  if(!(await _ensureR2())) return {ok:false, err:R2_DOWN_MSG};
+  try{
+    const g=await _genImageOne(ep,key,prompt,null,"4:3"); if(!g.ok) return {ok:false,err:g.err};
+    let small=null; try{ small=await _fetchTo512(g.url); }catch(e){}
+    let stored=small||g.url;
+    if(small){ const up=await _uploadImageR2("elem_"+Date.now().toString(36),small);
+      if(up.ok && up.url){ let served=false; for(let a=0;a<3 && !served;a++){ served=await _imgLoads(up.url); } stored=up.url; }
+    }
+    return {ok:true,url:stored};
+  }catch(e){ return {ok:false,err:(e&&e.message)||"error"}; }
+}
+// ── Add-element modal — same three ways in as the plant reference uploader (drag &
+// drop, paste a link via the worker's imgproxy, ⌘V paste), plus AI-generate. A parallel,
+// independent implementation rather than refactoring _paimg* into a shared component —
+// that code just shipped and is verified; duplicating a small amount of UI glue is safer
+// than reworking it under the same session.
+let _elemImg=null;
+function openElementAdd(){
+  _elemImg=null;
+  let d=document.getElementById("elem-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="elem-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:1.2rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35);max-height:90vh;overflow-y:auto">
+      <div style="font-size:1.02rem;font-weight:700;color:var(--gm)">＋ Add a Site Element</div>
+      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .7rem;line-height:1.45">Reference photos of whole design elements — outdoor kitchens, pools, pergolas — shared across every project, used to build Mood Boards.</div>
+      <div style="display:flex;gap:.6rem;margin-bottom:.6rem;flex-wrap:wrap">
+        <label style="flex:1;min-width:160px;font-size:.7rem;color:var(--tl);text-transform:uppercase">Name<input id="elem-nm" placeholder="e.g. Modern outdoor kitchen" style="display:block;width:100%;margin-top:4px;padding:.45rem .55rem;border:1px solid var(--br);border-radius:8px;font-size:.82rem;box-sizing:border-box;text-transform:none;color:var(--tx)"></label>
+        <label style="width:170px;font-size:.7rem;color:var(--tl);text-transform:uppercase">Category<select id="elem-cat" style="display:block;width:100%;margin-top:4px;padding:.45rem .55rem;border:1px solid var(--br);border-radius:8px;font-size:.82rem;text-transform:none;color:var(--tx)">${ELEMENT_CATS.map(c=>`<option>${escAttr(c)}</option>`).join('')}</select></label>
+      </div>
+      <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.3rem">Photo</div>
+      <div id="elem-imgslot" style="background:#F4F9F5;border:1px solid #D7E7DA;border-radius:10px;padding:.7rem .8rem;margin-bottom:.6rem">${_elemUploaderHtml()}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin:10px 0;color:var(--tl);font-size:.6rem;text-transform:uppercase;letter-spacing:.05em">
+        <span style="flex:1;height:1px;background:var(--br)"></span>or generate one<span style="flex:1;height:1px;background:var(--br)"></span>
+      </div>
+      <input id="elem-prompt" placeholder="Describe it — style, materials, setting…" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.5rem;box-sizing:border-box">
+      <button id="elem-gen-btn" class="btn" onclick="elementGenerate()" style="width:100%;padding:.5rem;font-size:.8rem;background:#fff;color:var(--gm);border:1px dashed var(--gm);font-weight:600;margin-bottom:.3rem">✨ Generate with AI (~$0.08)</button>
+      <div id="elem-gen-status" style="font-size:.74rem;color:var(--tm);min-height:1.1rem;margin-bottom:.2rem"></div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
+        <button class="btn" onclick="document.getElementById('elem-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+        <button class="btn" onclick="elementSaveNew()" style="padding:.45rem 1.1rem;font-size:.82rem;background:var(--gm);color:#fff;border:none;font-weight:600">Add to library</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+}
+function _elemUploaderHtml(){
+  return `<div id="elem-drop" tabindex="0" ondragover="_elemDragOver(event)" ondragleave="_elemDragLeave(event)" ondrop="_elemDrop(event)" onclick="document.getElementById('elem-file').click()" style="border:1.5px dashed var(--gm);border-radius:9px;background:#fff;padding:14px 10px;text-align:center;cursor:pointer">
+      <div style="font-size:.78rem;font-weight:600;color:var(--gm)">Drop an image, or press ⌘V to paste</div>
+      <div style="font-size:.66rem;color:var(--tm);margin-top:2px">or click to browse your files</div>
+      <input id="elem-file" type="file" accept="image/*" style="display:none" onchange="_elemFileInput(this)">
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin:8px 0;color:var(--tl);font-size:.6rem;text-transform:uppercase;letter-spacing:.05em">
+      <span style="flex:1;height:1px;background:#D7E7DA"></span>or paste a link<span style="flex:1;height:1px;background:#D7E7DA"></span>
+    </div>
+    <div style="display:flex;gap:6px">
+      <input id="elem-url" placeholder="https://…jpg" style="flex:1;min-width:0;font-size:.76rem;padding:.4rem .5rem;border:1px solid var(--br);border-radius:7px">
+      <button class="btn" onclick="_elemUrlAdd()" style="padding:.4rem .7rem;font-size:.72rem;font-weight:600;background:var(--gm);color:#fff;border:none;border-radius:7px;flex-shrink:0">Add</button>
+    </div>`;
+}
+function _elemApplyImg(url){
+  _elemImg=url;
+  const host=document.getElementById("elem-imgslot"); if(!host) return;
+  host.innerHTML=`<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--br);border-radius:9px;padding:7px 9px">
+    <img src="${url}" style="width:52px;height:52px;object-fit:cover;border-radius:7px;flex-shrink:0">
+    <div style="flex:1;min-width:0"><div style="font-size:.72rem;font-weight:600;color:var(--gm)">✓ Photo set</div></div>
+    <button class="btn" onclick="_elemClearImg()" style="font-size:.64rem;padding:.15rem .5rem;background:#fff;border:1px solid #B23F3C;color:#B23F3C;border-radius:6px;flex-shrink:0">Remove</button>
+  </div>`;
+}
+function _elemClearImg(){ _elemImg=null; const host=document.getElementById("elem-imgslot"); if(host) host.innerHTML=_elemUploaderHtml(); }
+async function _elemAcceptFile(f){
+  if(!f || !/^image\//.test(f.type||"")){ alert("That's not an image file."); return; }
+  try{ const du=await _downscaleImage(f,1024,0.85); _elemApplyImg(du); }
+  catch(e){ alert("Couldn't read that photo."); }
+}
+async function _elemFileInput(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(f) await _elemAcceptFile(f); }
+function _elemDragOver(ev){ ev.preventDefault(); const el=ev.currentTarget; el.style.background="#EAF3EA"; el.style.boxShadow="inset 0 0 0 2px var(--gm)"; }
+function _elemDragLeave(ev){ const el=ev.currentTarget; el.style.background="#fff"; el.style.boxShadow="none"; }
+async function _elemDrop(ev){
+  ev.preventDefault(); const el=ev.currentTarget; el.style.background="#fff"; el.style.boxShadow="none";
+  const f=ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+  if(f && /^image\//.test(f.type||"")) return _elemAcceptFile(f);
+  const url=(ev.dataTransfer && (ev.dataTransfer.getData("text/uri-list")||ev.dataTransfer.getData("text/plain")))||"";
+  if(url){ const input=document.getElementById("elem-url"); if(input) input.value=url; return _elemUrlAdd(); }
+}
+async function _elemUrlAdd(){
+  const input=document.getElementById("elem-url");
+  const url=(input&&input.value||"").trim(); if(!url) return;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ alert("No worker connected."); return; }
+  if(input) input.disabled=true;
+  try{
+    const b=await _satBase64ViaWorker(ep,url);
+    _elemApplyImg("data:"+(b.media_type||"image/jpeg")+";base64,"+b.data);
+  }catch(e){ alert("Couldn't fetch that image — try saving it and uploading the file instead."); if(input) input.disabled=false; }
+}
+function _elemPasteHandler(ev){
+  if(!document.getElementById("elem-modal")) return;
+  const items=(ev.clipboardData && ev.clipboardData.items)||[];
+  for(let i=0;i<items.length;i++){
+    if(items[i].type && items[i].type.indexOf("image/")===0){
+      const f=items[i].getAsFile(); if(!f) continue;
+      ev.preventDefault(); _elemAcceptFile(f); return;
+    }
+  }
+}
+try{ document.addEventListener("paste",_elemPasteHandler); }catch(e){}
+async function elementGenerate(){
+  const nm=((document.getElementById("elem-nm")||{}).value||"").trim();
+  const cat=(document.getElementById("elem-cat")||{}).value||ELEMENT_CATS[0];
+  const custom=((document.getElementById("elem-prompt")||{}).value||"").trim();
+  const styleKeys=(S.pi&&S.pi.style)||[];
+  const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ");
+  const prompt=`A high-quality photorealistic landscape architecture reference photo of a ${cat}${nm?` — ${nm}`:""}.${styleLabels?` In a "${styleLabels}" design style.`:""}${custom?` ${custom}.`:""} Professional architectural photography, natural daylight, no people, no text or watermarks.`;
+  const btn=document.getElementById("elem-gen-btn"); if(btn) btn.disabled=true;
+  const st=document.getElementById("elem-gen-status"); if(st){ st.textContent="Generating… (10–20 sec)"; st.style.color="var(--tm)"; }
+  const r=await aiElementImage(prompt);
+  if(r.ok){ _elemApplyImg(r.url); if(st){ st.textContent="✓ Done"; st.style.color="var(--gm)"; } }
+  else if(st){ st.textContent="Failed: "+(r.err||"error"); st.style.color="#B23F3C"; }
+  if(btn) btn.disabled=false;
+}
+async function elementSaveNew(){
+  const nm=((document.getElementById("elem-nm")||{}).value||"").trim();
+  const cat=(document.getElementById("elem-cat")||{}).value||ELEMENT_CATS[0];
+  if(!nm){ alert("Give it a name."); return; }
+  if(!_elemImg){ alert("Add a photo first — upload, paste, or generate one."); return; }
+  let img=_elemImg;
+  if(/^data:/.test(img)){ const up=await _uploadImageR2("elem_"+Date.now().toString(36),img); if(up.ok && up.url) img=up.url; }
+  SITE_ELEMENTS.push({id:"elem"+Date.now().toString(36)+Math.floor(Math.random()*1000), nm, cat, img, addedAt:new Date().toISOString()});
+  elementsSaveQuiet();
+  const m=document.getElementById("elem-modal"); if(m) m.remove();
+  try{ renderMoodBoard(); }catch(e){}
+}
 // ── Mood Board intake wizard ─────────────────────────────────────────────
 // Built to the approved mockup (moodboard_mockup.html, screen 02): a multi-step wizard
 // with a step rail, living INLINE in the Mood Board's own top bar (#mb-wizard-slot, a
@@ -24680,16 +24853,32 @@ const MB_PLANTCOLOR_OPTS=[
   {key:"blue",label:"Blue",sw:"#5C86B0"},
   {key:"silver",label:"Silver / gray foliage",sw:"#B7BDB2"},
 ];
+// Each mood carries real swatches, not just a label — you see the direction before
+// picking it, and "+ Palette" below seeds those exact colors as a real, editable group
+// in the Color Palette section (mbColorMoodAddGroup), same swatch-editing machinery
+// already built there (resize, remove, add-your-own, AI-suggest).
 const MB_COLORMOOD_OPTS=[
-  {key:"earth",label:"Earth tones"},
-  {key:"vibrant",label:"Vibrant &amp; bold"},
-  {key:"combo",label:"A combination of both"},
-  {key:"blues",label:"Cool blues"},
-  {key:"neutral",label:"Warm neutrals"},
-  {key:"mono",label:"Monochrome"},
-  {key:"summer",label:"Bright / summer"},
-  {key:"winter",label:"Muted / winter"},
+  {key:"earth",label:"Earth tones",sw:["#8C6B45","#B08B5E","#6B7A4F","#4A3B2A"]},
+  {key:"vibrant",label:"Vibrant &amp; bold",sw:["#D9432E","#F0A400","#1E88A8","#7C3AAD"]},
+  {key:"combo",label:"A combination of both",sw:["#8C6B45","#D9432E","#6B7A4F","#1E88A8"]},
+  {key:"blues",label:"Cool blues",sw:["#2E4A63","#5E86A0","#8FB4C4","#B7CFC0"]},
+  {key:"neutral",label:"Warm neutrals",sw:["#E8DCC5","#C9B79A","#A98B5E","#8A7458"]},
+  {key:"mono",label:"Monochrome",sw:["#2A2A2A","#6B6B6B","#A8A8A8","#E5E5E5"]},
+  {key:"summer",label:"Bright / summer",sw:["#F2C744","#4FB0A5","#EF7A5A","#8FC93A"]},
+  {key:"winter",label:"Muted / winter",sw:["#5E6A73","#8FA0A8","#B7C4C9","#E0E4E2"]},
 ];
+function mbColorMoodAddGroup(key){
+  const o=MB_COLORMOOD_OPTS.find(x=>x.key===key); if(!o||!o.sw) return;
+  const mb=_mbPaletteState();
+  const label=o.label.replace(/&amp;/g,"&");
+  let g=mb.paletteGroups.find(x=>x.label===label);
+  if(!g){ g={key:'g'+Date.now()+Math.floor(Math.random()*1000),label,colors:[]}; mb.paletteGroups.push(g); }
+  o.sw.forEach(h=>{ const u=h.toUpperCase(); if(g.colors.indexOf(u)<0) g.colors.push(u); });
+  if(mb.sections.indexOf("palette")<0) mb.sections.push("palette");
+  try{ _bidSchedule(); }catch(e){}
+  _mbWizardPanelRender();
+  try{ _toast(`Added "${label}" to your Color Palette — adjust it anytime from that section.`,"#4C7B3D"); }catch(e){}
+}
 function _mbWizSteps(){
   return [
     {key:"style",label:"Style"},
@@ -24806,8 +24995,16 @@ function _mbWizStepBody(){
   }
   if(step==="colormood"){
     const sel=_mbWizMulti("wizColorMood");
-    return {title:"Color palette mood",q:"The overall direction for the board's Color Palette section.",
-      body:`<div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">${MB_COLORMOOD_OPTS.map(o=>_mbWizChip(o.label,sel.indexOf(o.key)>=0,`mbToggleColorMood('${o.key}')`)).join('')}</div>`};
+    const card=o=>{ const on=sel.indexOf(o.key)>=0;
+      return `<div style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:10px;overflow:hidden;background:#fff;cursor:pointer" onclick="mbToggleColorMood('${o.key}')">
+        <div style="display:flex;height:26px">${o.sw.map(h=>`<span style="flex:1;background:${h}"></span>`).join('')}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:.4rem .5rem;gap:.3rem">
+          <span style="font-size:.74rem;font-weight:${on?'700':'500'};color:${on?'var(--gm)':'var(--tx)'}">${on?'✓ ':''}${o.label}</span>
+          <button type="button" onclick="event.stopPropagation();mbColorMoodAddGroup('${o.key}')" title="Add these colors as an editable palette group" style="font-size:.58rem;padding:.15rem .35rem;background:var(--brand-soft);color:var(--gm);border:1px solid var(--gm);border-radius:6px;white-space:nowrap">+ Palette</button>
+        </div>
+      </div>`; };
+    return {title:"Color palette mood",q:"Pick a direction — click “+ Palette” to add its colors as an editable group; you can adjust them from there anytime.",
+      body:`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${MB_COLORMOOD_OPTS.map(card).join('')}</div>`};
   }
   // sections
   const defs=_mbSectionDefs(); const on=new Set(mb.sections);
@@ -24874,13 +25071,19 @@ function _mbEnsure(){
   if(!Array.isArray(S.moodboard.hidden)) S.moodboard.hidden=[];
   return S.moodboard;
 }
+// A curated subset of the real Materials categories (MAT_GROUPS) worth their own board
+// section — the client-visible finish materials, not invisible prep/substrate ones
+// (Base & aggregate, Geotextile, etc never belong on a Mood Board).
+const MAT_MB_CATS=["Paving","Tile","Veneer"];
 function _mbSectionDefs(){
   return [
     {key:"plants",label:"Plants",group:"plant"},
     {key:"materials",label:"Materials",group:"materials"},
     {key:"palette",label:"Color Palette",group:"palette"},
     {key:"insights",label:"Insights",group:"insights"},
-  ].concat(FUR_CATS.map(c=>({key:c,label:c,group:"furnishings",cat:c})))
+    {key:"siteelements",label:"Site Elements",group:"siteelements"},
+  ].concat(MAT_MB_CATS.map(c=>({key:"mat_"+c,label:c,group:"materials",cat:c})))
+   .concat(FUR_CATS.map(c=>({key:c,label:c,group:"furnishings",cat:c})))
    .concat(PROD_CATS.map(c=>({key:c,label:c,group:"products",cat:c})));
 }
 // Reuses the exact cards from the Insights tab (INS_CARDS) — same data, same draw(), same
@@ -24943,8 +25146,9 @@ function mbUnhideSection(key){
   const sec=_mbSectionDefs().find(d=>d.key===key); if(!sec) return;
   const mb=_mbEnsure(); const {plants,goods}=_mbGather(); let keys=[];
   if(sec.group==="plant") keys=plants.map(x=>_mbHiddenKey("plants",x.p.id));
-  else if(sec.group==="materials") keys=goods.filter(x=>x.type==="materials").map(x=>_mbHiddenKey("materials",x.g.id));
+  else if(sec.group==="materials") keys=goods.filter(x=>x.type==="materials"&&(!sec.cat||x.g.cat===sec.cat)).map(x=>_mbHiddenKey("materials",x.g.id));
   else if(sec.group==="furnishings"||sec.group==="products") keys=goods.filter(x=>(x.type==="furnishings"||x.type==="products")&&x.g.cat===sec.cat).map(x=>_mbHiddenKey(x.type,x.g.id));
+  else if(sec.group==="siteelements") keys=(SITE_ELEMENTS||[]).map(e=>_mbHiddenKey("elements",e.id));
   const set=new Set(keys);
   mb.hidden=mb.hidden.filter(k=>!set.has(k));
   try{ _bidSchedule(); }catch(e){}
@@ -24961,9 +25165,11 @@ function _mbItemsForSection(sec){
   if(sec.group==="plant"){
     plants.forEach(x=>{ all.push({kind:"plants",kind0:x.kind,pid:x.p.id,label:x.p.c||botName(x.p),sub:botName(x.p),img:x.p.img||"",obj:x.p}); });
   } else if(sec.group==="materials"){
-    goods.forEach(x=>{ if(x.type==="materials") all.push({kind:"materials",pid:x.g.id,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img||"",obj:x.g,book:x.book}); });
+    goods.forEach(x=>{ if(x.type==="materials"&&(!sec.cat||x.g.cat===sec.cat)) all.push({kind:"materials",pid:x.g.id,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img||"",obj:x.g,book:x.book}); });
   } else if(sec.group==="furnishings"||sec.group==="products"){
     goods.forEach(x=>{ if((x.type==="furnishings"||x.type==="products")&&x.g.cat===sec.cat) all.push({kind:x.type,pid:x.g.id,label:x.g.nm||"",sub:[x.g.cat,x.g.fin].filter(Boolean).join(" · "),img:x.g.img||"",obj:x.g,book:x.book}); });
+  } else if(sec.group==="siteelements"){
+    (SITE_ELEMENTS||[]).forEach(e=>{ all.push({kind:"elements",pid:e.id,label:e.nm||"",sub:e.cat||"",img:e.img||"",obj:e}); });
   }
   const shown=all.filter(x=>!hiddenSet.has(_mbHiddenKey(x.kind,x.pid)));
   return {shown,hiddenCount:all.length-shown.length};
@@ -25139,6 +25345,14 @@ function _mbPaletteSectionHtml(plants,goods){
 // a good fit for the design outweighs a missing photo, and hiding it just makes it
 // invisible to fix.
 function _mbPhotoInner(x){
+  if(x.kind==="elements"){
+    // A shared reference-image library, not a project spec — no crop/zoom framing (yet;
+    // every item already carries its own well-composed photo), and "no photo" can't
+    // actually happen since elementSaveNew() requires one before it'll add a row.
+    return x.img
+      ? `<div style="position:absolute;inset:0;background-image:url('${escAttr(x.img)}');background-size:cover;background-position:center"></div>`
+      : `<div style="position:absolute;inset:0;background:var(--surface2);display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;padding:.5rem" title="No photo — click to remove" onclick="elementRemove('${escAttr(x.pid)}')"><span style="font-size:.68rem;color:var(--tl)">No photo</span></div>`;
+  }
   if(!x.img){
     const goTo = x.kind==="plants" ? `goToPlantInBook('${x.kind0}','${escAttr(x.pid)}')` : `document.querySelector('button.tab[data-view=\\'${x.kind}\\']').click()`;
     return `<div style="position:absolute;inset:0;background:var(--surface2);display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;padding:.5rem" title="No photo yet — click to add one" onclick="${goTo}">
@@ -25281,7 +25495,7 @@ function mbSuggestSection(key){ return _mbSuggestSectionCore(key,true); }
 // worker or a style set yet, instead of popping an alert the moment someone adds a section.
 async function _mbSuggestSectionCore(key,verbose){
   const sec=_mbSectionDefs().find(d=>d.key===key); if(!sec) return;
-  if(sec.group==="palette"||sec.group==="insights") return;
+  if(sec.group==="palette"||sec.group==="insights"||sec.group==="siteelements") return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep){ if(verbose) alert("No worker connected."); return; }
   const styleKeys=(S.pi&&S.pi.style)||[];
@@ -25342,7 +25556,7 @@ async function _mbSuggestGoodsFor(sec,styleKeys,ep){
   const specifiedIds=new Set(projSpecs().map(s=>s.gid));
   const book = sec.group==="materials" ? "materials" : "furnishings";
   const lib = book==="materials" ? MATERIALS : FURNISHINGS;
-  const pool = (lib||[]).filter(g=>g && !specifiedIds.has(g.id) && (sec.group==="materials" ? true : g.cat===sec.cat));
+  const pool = (lib||[]).filter(g=>g && !specifiedIds.has(g.id) && (sec.cat ? g.cat===sec.cat : true));
   if(!pool.length){ alert("Nothing left in your "+sec.label+" library to suggest — everything's already specified, or the library's empty."); return; }
   const bud=projBudget(), grand=_grandNow(), remaining=bud?Math.max(0,bud-grand):null;
   const furnRemaining=(()=>{ const fb=furnBudget(); if(!fb) return null; return Math.max(0,fb-grand); })();
@@ -25477,6 +25691,7 @@ function _mbSectionBoardHtml(shown){
 function renderMoodBoard(){
   const host=document.getElementById("mb-body"); if(!host) return;
   mbWizardMaybeOpen();
+  if(!_elementsPulled){ elementsPull().then(()=>{ try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){} }); }
   _mbSeedSections();
   const mb=_mbEnsure();
   const {plants,goods}=_mbGather();
@@ -25517,6 +25732,20 @@ function renderMoodBoard(){
           ${removeBtn}
         </div>
         ${MB_INSIGHTS_EDIT?_mbInsightCustomizeHtml():_mbInsightSectionHtml()}
+      </div>`;
+    }
+    if(sec.key==="siteelements"){
+      const {shown}=_mbItemsForSection(sec);
+      const filtered = MB_ELCAT_FILTER ? shown.filter(x=>x.sub===MB_ELCAT_FILTER) : shown;
+      const catChip=(label,val)=>`<button class="btn" onclick="mbElCatFilter('${escAttr(val)}')" style="padding:.1rem .5rem;font-size:.66rem;background:${MB_ELCAT_FILTER===val?'var(--gd)':'#fff'};color:${MB_ELCAT_FILTER===val?'#fff':'var(--tm)'};border:1px solid ${MB_ELCAT_FILTER===val?'var(--gd)':'var(--br)'}">${label}</button>`;
+      return `<div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:.5rem">
+          <div style="font-size:.85rem;font-weight:600;color:var(--tx)">Site Elements <span style="font-weight:400;color:var(--tl);font-size:.78rem">${shown.length}</span></div>
+          <button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:var(--gm);color:#fff;border:none" onclick="openElementAdd()">＋ Add element</button>
+          ${removeBtn}
+        </div>
+        ${shown.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">${catChip("All","")}${ELEMENT_CATS.map(c=>catChip(c,c)).join('')}</div>`:''}
+        ${filtered.length?_mbSectionBoardHtml(filtered):`<div style="font-size:.8rem;color:var(--tl)">No elements in the shared library yet — add the first one.</div>`}
       </div>`;
     }
     const {shown,hiddenCount}=_mbItemsForSection(sec);
