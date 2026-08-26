@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1202</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1203</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12593,8 +12593,18 @@ const MAT_PB_MATCH=[
   [/brick/i,                     "paving", "Brick Paving"],
   [/concrete/i,                  "paving", "Concrete Flatwork"],
   [/\btile\b/i,                  "paving", "Tile Setting — floors & walls"],
+  // veneer|wall and decking both used to name no specific item — itemName:null falls
+  // through to _pbFind's "no item given, take index 0" branch, which is fine ONLY when
+  // the regex genuinely can't match anything but that exact material. A bare /deck/i
+  // matched "Deck Collection" (a teak FURNITURE set) onto the FIRST "Wood, Metal & Glass"
+  // line, applying its lump-sum price as $/SF across 1,164 SF — a $6.77M pricing error,
+  // caught live. Tightened to the fuller word so real decking materials ("Hardwood
+  // Decking", "Composite Decking") still match while a furniture "Deck Collection"
+  // doesn't, and pointed at the specific line instead of "whatever is item 0 today".
+  // veneer|wall is left broad — specAdd()'s own price-sanity check below is the general
+  // backstop for this whole match table, not just this one rule.
   [/veneer|wall/i,               "walls",  null],
-  [/deck/i,                      "woodMetal", null],
+  [/decking/i,                   "woodMetal", "Hardwood Decking (Ipe/Teak)"],
 ];
 // Lines the built-in book does not carry, added the first time something needs them.
 const MAT_PB_NEW={
@@ -12974,6 +12984,22 @@ async function specAdd(book,gid){
   }
   const it=S.cats[L.catId].items[L.idx];
   const inst=specInstalled(m);
+  // Sanity check against the line's own typical range. Root cause found live: a
+  // furnishings item named "Deck Collection" (a teak furniture set) fuzzy-matched by
+  // the stray word "deck" onto the "Hardwood Decking (Ipe/Teak)" hardscape line
+  // (MAT_PB_MATCH's /deck/i rule picks the FIRST item in that whole category, not a
+  // real decking match) — its lump-sum furniture price got applied as $/SF across 1,164
+  // SF, a $6.77M error that pushed the whole project to $7.5M. The keyword-matching rule
+  // itself may still mismatch other items; this catches the RESULT of any such mismatch,
+  // present or future, rather than relying on every matching rule being perfect.
+  const typical=+it.std || Math.max(+it.hi||0,(+it.lo||0)*2) || 0;
+  if(typical>0 && inst.total>typical*5){
+    const ok=await askDlg({icon:"⚠",
+      title:`${fmtN(inst.total)}/${L.u} looks wrong for "${L.name}"`,
+      body:`That line typically runs around ${fmtN(typical)}/${L.u}. "${m.nm}" may not actually belong on this line — check the match, or use "Wrong trade? Rate" on the item to pick the right line by hand.`,
+      actions:["Cancel",`Use it anyway — ${fmtN(inst.total)}/${L.u}`]});
+    if(ok!==1) return false;
+  }
   let seeded=0;
   if(!(+it.q>0)){
     try{ const A=matAreaAuto(m); seeded=(+m.areaSF>0)?Math.round(+m.areaSF):(A&&A.sf?A.sf:0); }catch(e){}
@@ -20232,7 +20258,7 @@ const INS_CARDS=[
   need:d=>d.grand>0?"":"Nothing priced yet",
   draw:d=>{ const pv=+(S.pi&&S.pi.propValue)||0;
     if(!pv) return `<span class="s">Enter the property's estimated value and this shows the landscape budget as a share of it — typically 5–15%.</span>
-      <span><input class="ins-in" type="number" placeholder="3,200,000" onchange="insSetPropValue(this.value)"> <b style="font-size:12px;color:var(--tm)">est. value</b></span>`;
+      <span><input class="ins-in" type="number" placeholder="3,200,000" onclick="event.stopPropagation()" onchange="event.stopPropagation();insSetPropValue(this.value)"> <b style="font-size:12px;color:var(--tm)">est. value</b></span>`;
     const pct=d.grand/pv*100, LO=0,HI=20,B1=5,B2=15;
     const pin=Math.max(0,Math.min(100,((pct-LO)/(HI-LO))*100));
     const zc=pct<B1?"var(--v-low)":pct>B2?"var(--v-high)":"var(--v-ok)";
@@ -25469,6 +25495,17 @@ function mbRemoveSwatch(key,hex){
   try{ _bidSchedule(); }catch(e){}
   renderMoodBoard();
 }
+// Click a swatch to change its color in place, rather than remove-then-re-add.
+function mbEditSwatch(key,oldHex,newHexRaw){
+  const mb=_mbPaletteState(); const g=mb.paletteGroups.find(x=>x.key===key); if(!g) return;
+  const newHex=(newHexRaw||"").toUpperCase();
+  const i=g.colors.indexOf(oldHex); if(i<0) return;
+  if(newHex===oldHex) return;
+  if(g.colors.indexOf(newHex)>=0) g.colors.splice(i,1);   // would-be duplicate — just drop the old one
+  else g.colors[i]=newHex;
+  try{ _bidSchedule(); }catch(e){}
+  renderMoodBoard();
+}
 async function mbSuggestPaletteGroup(key){
   const mb=_mbPaletteState(); const g=mb.paletteGroups.find(x=>x.key===key); if(!g) return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
@@ -25603,9 +25640,13 @@ function _swlibAddNew(){
 }
 function _mbPaletteSectionHtml(plants,goods){
   const mb=_mbPaletteState(); const sz=mb.paletteSize;
+  // Editable only for custom-group swatches in Edit mode — the auto groups (Plant
+  // colors, Materials & finishes) are derived from real bloom/finish colors recorded
+  // elsewhere, not a stored value of their own, so there's nothing here to edit.
   const swatch=(hex,removable,gkey)=>`<div style="position:relative">
-    <span title="${hex}" class="mb-swatch" style="display:block;width:${sz}px;height:${sz}px;border-radius:8px;background:${hex};border:1px solid var(--br)"></span>
-    ${removable?`<button onclick="mbRemoveSwatch('${gkey}','${hex}')" title="Remove" style="position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:10px;line-height:1;cursor:pointer;padding:0">✕</button>`:''}
+    <span title="${hex}" class="mb-swatch" style="display:block;width:${sz}px;height:${sz}px;border-radius:8px;background:${hex};border:1px solid var(--br)${removable?';cursor:pointer':''}"></span>
+    ${removable?`<input type="color" value="${hex}" onchange="mbEditSwatch('${gkey}','${hex}',this.value)" title="Click to change this color" style="position:absolute;inset:0;width:${sz}px;height:${sz}px;opacity:0;cursor:pointer;border:none;padding:0;z-index:1">`:''}
+    ${removable?`<button onclick="event.stopPropagation();mbRemoveSwatch('${gkey}','${hex}')" title="Remove" style="position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:10px;line-height:1;cursor:pointer;padding:0;z-index:2">✕</button>`:''}
   </div>`;
   const autoPlant=_mbPaletteAutoPlant(plants), autoGoods=_mbPaletteAutoGoods(goods);
   const autoGroupHtml=(label,hexes,hint)=>hexes.length?`<div style="margin-bottom:12px">
@@ -25622,7 +25663,10 @@ function _mbPaletteSectionHtml(plants,goods){
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         ${g.colors.map(h=>swatch(h,MB_PALETTE_EDIT,g.key)).join('')}
-        ${MB_PALETTE_EDIT?`<input type="color" onchange="mbAddSwatch('${g.key}',this.value)" title="Add a custom swatch" style="width:${sz}px;height:${sz}px;padding:0;border:1px dashed var(--br);border-radius:8px;cursor:pointer;background:none">`:''}
+        ${MB_PALETTE_EDIT?`<div style="position:relative;width:${sz}px;height:${sz}px">
+            <input type="color" onchange="mbAddSwatch('${g.key}',this.value)" title="Add a new swatch" style="width:100%;height:100%;padding:0;border:1.5px dashed var(--gm);border-radius:8px;cursor:pointer;background:var(--surface2)">
+            <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${Math.max(14,sz*.4)}px;font-weight:300;color:var(--gm);pointer-events:none">+</span>
+          </div>`:''}
         ${!g.colors.length && !MB_PALETTE_EDIT?`<div style="font-size:.75rem;color:var(--tl)">No swatches yet.</div>`:''}
       </div>
     </div>`).join('');
@@ -25797,17 +25841,28 @@ function _mbSuggestState(key){ return MB_SUGGEST[key]||(MB_SUGGEST[key]={loading
 function mbSuggestSection(key){ return _mbSuggestSectionCore(key,true); }
 // verbose=false is used for the auto-suggest-on-add path — it silently no-ops without a
 // worker or a style set yet, instead of popping an alert the moment someone adds a section.
-async function _mbSuggestSectionCore(key,verbose){
+async function _mbSuggestSectionCore(key,verbose,query){
   const sec=_mbSectionDefs().find(d=>d.key===key); if(!sec) return;
   if(sec.group==="palette"||sec.group==="insights"||sec.group==="siteelements") return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep){ if(verbose) alert("No worker connected."); return; }
   const styleKeys=(S.pi&&S.pi.style)||[];
-  if(!styleKeys.length){ if(verbose) alert("Set a design style first — Project Info → Design style & vibe, pick up to 2."); return; }
-  if(sec.group==="plant") return _mbSuggestPlantsFor(sec,styleKeys,ep);
-  return _mbSuggestGoodsFor(sec,styleKeys,ep);
+  if(!styleKeys.length && !query){ if(verbose) alert("Set a design style first — Project Info → Design style & vibe, pick up to 2 — or type what you're looking for instead."); return; }
+  if(sec.group==="plant") return _mbSuggestPlantsFor(sec,styleKeys,ep,query);
+  return _mbSuggestGoodsFor(sec,styleKeys,ep,query);
 }
-async function _mbSuggestPlantsFor(sec,styleKeys,ep){
+// A typed request ("find me some blue glass tile under $35/sf") runs ALONGSIDE the
+// auto style/wizard-driven "Suggest more" — Warwick: "i don't understand why it can't
+// have both type types" — both write into the same suggestion strip via the same
+// _mbSuggestState, they're just two different ways to fill it.
+let MB_QUERY={};
+function mbSetQuery(key,v){ MB_QUERY[key]=v; }
+function mbQuerySuggest(key){
+  const q=(MB_QUERY[key]||"").trim();
+  if(!q){ alert("Type what you're looking for first."); return; }
+  return _mbSuggestSectionCore(key,true,q);
+}
+async function _mbSuggestPlantsFor(sec,styleKeys,ep,query){
   const st=_mbSuggestState(sec.key);
   const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ");
   const {plants}=_mbGather();
@@ -25831,6 +25886,7 @@ ${styleCustom?`Also lean into this custom style direction: "${styleCustom}".`:""
 ${feelLabel?`Budget feel: ${feelLabel}.`:""}
 ${goals?`Project goals, for context: ${goals}`:""}
 ${bud?`This project has a target budget, so favor common, reasonably priced nursery plants over rare or expensive specimens.`:""}
+${query?`The designer specifically asked for: "${query}" — prioritize matching this request exactly over the general style/wizard context above.`:""}
 Output ONLY a minified JSON array, no prose, no markdown:
 [{"bot":"botanical name","common":"common name","kind":"shrub|tree|palm|gc","reason":"why it fits this style, under 12 words"}]
 Never invent a species that doesn't exist. Real, commonly available nursery plants only.`;
@@ -25854,14 +25910,20 @@ Never invent a species that doesn't exist. Real, commonly available nursery plan
   }catch(e){ alert("Couldn't reach the AI service."); }
   st.loading=false; renderMoodBoard();
 }
-async function _mbSuggestGoodsFor(sec,styleKeys,ep){
+async function _mbSuggestGoodsFor(sec,styleKeys,ep,query){
   const st=_mbSuggestState(sec.key);
   const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ");
   const specifiedIds=new Set(projSpecs().map(s=>s.gid));
   const book = sec.group==="materials" ? "materials" : "furnishings";
   const lib = book==="materials" ? MATERIALS : FURNISHINGS;
-  const pool = (lib||[]).filter(g=>g && !specifiedIds.has(g.id) && (sec.cat ? g.cat===sec.cat : true));
-  if(!pool.length){ alert("Nothing left in your "+sec.label+" library to suggest — everything's already specified, or the library's empty."); return; }
+  // Must actually be addable — same two checks specAdd() itself makes (a real price,
+  // a resolvable estimate line). Warwick: "almost all of the suggested seating options
+  // didn't add. none of the tables." — the AI was suggesting real library items that had
+  // never had a "Wrong trade? Rate" set, so every one of those Add clicks failed with
+  // "No estimate line matches this product yet." Filtering here means a suggestion is
+  // never offered unless clicking + Add will actually work.
+  const pool = (lib||[]).filter(g=>g && !specifiedIds.has(g.id) && (sec.cat ? g.cat===sec.cat : true) && goodsEstPrice(g) && specLineOf(g));
+  if(!pool.length){ alert("Nothing addable left in your "+sec.label+" library to suggest — everything's already specified, priceless, or missing a rate (set one via \"Wrong trade? Rate\" in the Price Book)."); return; }
   const bud=projBudget(), grand=_grandNow(), remaining=bud?Math.max(0,bud-grand):null;
   const furnRemaining=(()=>{ const fb=furnBudget(); if(!fb) return null; return Math.max(0,fb-grand); })();
   const colorMoodLabels=_mbWizLabels("wizColorMood",MB_COLORMOOD_OPTS);
@@ -25875,6 +25937,7 @@ ${colorMoodLabels?`Overall color mood for the project: ${colorMoodLabels}.`:""}
 ${styleCustom?`Also lean into this custom style direction: "${styleCustom}".`:""}
 ${feelLabel?`Budget feel: ${feelLabel}.`:""}
 ${goals?`Project goals, for context: ${goals}`:""}
+${query?`The designer specifically typed this request: "${query}" — parse it for anything concrete (material/finish keywords, a price ceiling like "under $35/sf") and match against the real name/finish/price columns above; prioritize matching this over the general style/wizard context.`:""}
 Never pick anything outside this list — these are the only real, in-stock options.
 Catalog:
 ${catalog}
@@ -25932,10 +25995,14 @@ function _mbPlantSearchResults(){
     (((x.p.c||"").toLowerCase().indexOf(q)>=0) || (botName(x.p)||"").toLowerCase().indexOf(q)>=0)).slice(0,20);
 }
 function _mbPlantSearchRowsHtml(res,q){
-  return res.length ? res.map(x=>`<div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;border-bottom:1px solid var(--br)">
+  return res.length ? res.map(x=>{
+    const ph=x.p.img?`background-image:url('${escAttr(x.p.img)}');background-size:cover;background-position:center`:`background:var(--surface2)`;
+    return `<div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;border-bottom:1px solid var(--br)">
+      <div style="width:36px;height:36px;border-radius:6px;flex:none;${ph}"></div>
       <div style="flex:1;min-width:0"><div style="font-size:.78rem;font-weight:600">${escAttr(x.p.c||botName(x.p))}</div><div style="font-size:.68rem;color:var(--tl);font-style:italic">${escAttr(botName(x.p))}</div></div>
       <button class="btn" style="padding:.2rem .5rem;font-size:.7rem;background:var(--gm);color:#fff;border:none;flex:none" onclick="mbAddExistingPlant('${x.kind}','${escAttr(x.p.id)}')">+ Add</button>
-    </div>`).join('') : (q.trim()?`<div style="font-size:.75rem;color:var(--tl);padding:.4rem">No matches in your Plant Book.</div>`:'');
+    </div>`;
+  }).join('') : (q.trim()?`<div style="font-size:.75rem;color:var(--tl);padding:.4rem">No matches in your Plant Book.</div>`:'');
 }
 // Targeted DOM update, not a full renderMoodBoard() — rebuilding #mb-body on every keystroke
 // would blow away the search input and lose focus mid-type.
@@ -25948,6 +26015,49 @@ function mbAddExistingPlant(kind,pid){
   ensurePlanting();
   ({shrub:addShrubRow,tree:addTreeRow,palm:addPalmRow,gc:addGcRow}[kind])(0,pid);
   MB_PLANTSEARCH.open=false; MB_PLANTSEARCH.q="";
+  renderMoodBoard();
+}
+// Search & add your own material/furnishing/product — same "I already know what I
+// want" gap Plants had, now closed here too, images included so you can actually see
+// what you're picking (Warwick: "again, like planting, i need to see the images").
+let MB_GOODSEARCH={open:false,q:"",sectionKey:""};
+function mbToggleGoodsSearch(sectionKey){
+  if(MB_GOODSEARCH.open && MB_GOODSEARCH.sectionKey===sectionKey) MB_GOODSEARCH.open=false;
+  else { MB_GOODSEARCH.open=true; MB_GOODSEARCH.sectionKey=sectionKey; MB_GOODSEARCH.q=""; }
+  renderMoodBoard();
+}
+function _mbGoodsSearchResults(sec){
+  const q=(MB_GOODSEARCH.q||"").trim().toLowerCase(); if(!q) return [];
+  const specifiedIds=new Set(projSpecs().map(s=>s.gid));
+  const book = sec.group==="materials" ? "materials" : "furnishings";
+  const lib = book==="materials" ? MATERIALS : FURNISHINGS;
+  return (lib||[]).filter(g=>g && !specifiedIds.has(g.id) && (sec.cat?g.cat===sec.cat:true) &&
+    ((g.nm||"").toLowerCase().indexOf(q)>=0 || (g.cat||"").toLowerCase().indexOf(q)>=0 || (g.fin||"").toLowerCase().indexOf(q)>=0)
+  ).slice(0,24).map(g=>({g,book}));
+}
+function _mbGoodsSearchRowsHtml(sec,q){
+  const res=_mbGoodsSearchResults(sec);
+  if(!res.length) return (q||"").trim() ? `<div style="font-size:.75rem;color:var(--tl);padding:.4rem">No matches in your ${escAttr(sec.label)} library.</div>` : '';
+  return res.map(({g,book})=>{
+    const ph=g.img?`background-image:url('${escAttr(g.img)}');background-size:cover;background-position:center`:`background:var(--surface2)`;
+    const addable=!!(goodsEstPrice(g) && specLineOf(g));
+    return `<div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;border-bottom:1px solid var(--br)">
+      <div style="width:36px;height:36px;border-radius:6px;flex:none;${ph}"></div>
+      <div style="flex:1;min-width:0"><div style="font-size:.78rem;font-weight:600">${escAttr(g.nm||"")}</div><div style="font-size:.68rem;color:var(--tl)">${escAttr([g.cat,g.fin].filter(Boolean).join(" · "))}</div></div>
+      ${addable
+        ? `<button class="btn" style="padding:.2rem .5rem;font-size:.7rem;background:var(--gm);color:#fff;border:none;flex:none" onclick="mbAddExistingGoods('${book}','${escAttr(g.id)}')">+ Add</button>`
+        : `<span title="No estimate line set yet — use &quot;Wrong trade? Rate&quot; in the Price Book" style="font-size:.6rem;color:var(--tl);flex:none;text-align:right;max-width:70px">needs a rate</span>`}
+    </div>`;
+  }).join('');
+}
+function mbGoodsSearchInput(v){
+  MB_GOODSEARCH.q=v;
+  const host=document.getElementById("mb-goodsearch-results"); if(!host) return;
+  const sec=_mbSectionDefs().find(d=>d.key===MB_GOODSEARCH.sectionKey); if(!sec) return;
+  host.innerHTML=_mbGoodsSearchRowsHtml(sec,v);
+}
+async function mbAddExistingGoods(book,gid){
+  await specAdd(book,gid);
   renderMoodBoard();
 }
 function _mbSuggestSectionHtml(key){
@@ -26055,11 +26165,24 @@ function renderMoodBoard(){
     }
     const {shown,hiddenCount}=_mbItemsForSection(sec);
     const sst=_mbSuggestState(sec.key);
-    const searchBtn = sec.key==="plants" ? `<button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:${MB_PLANTSEARCH.open?'var(--gd)':'#fff'};color:${MB_PLANTSEARCH.open?'#fff':'var(--gm)'};border:1px solid var(--gm)" onclick="mbTogglePlantSearch()">🔍 Search &amp; add</button>` : '';
-    const searchHtml = sec.key==="plants" && MB_PLANTSEARCH.open ? `<div style="margin-bottom:10px;border:1px solid var(--br);border-radius:8px;padding:.5rem">
-        <input type="text" placeholder="Search your Plant Book by name…" value="${escAttr(MB_PLANTSEARCH.q)}" oninput="mbPlantSearchInput(this.value)" style="width:100%;padding:.4rem .5rem;font-size:.8rem;border:1px solid var(--br);border-radius:6px;margin-bottom:.4rem;box-sizing:border-box">
-        <div id="mb-plantsearch-results" style="max-height:220px;overflow-y:auto">${_mbPlantSearchRowsHtml(_mbPlantSearchResults(),MB_PLANTSEARCH.q)}</div>
-      </div>` : '';
+    const isPlant=sec.group==="plant";
+    const searchOpen = isPlant ? MB_PLANTSEARCH.open : (MB_GOODSEARCH.open && MB_GOODSEARCH.sectionKey===sec.key);
+    const searchBtn = `<button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:${searchOpen?'var(--gd)':'#fff'};color:${searchOpen?'#fff':'var(--gm)'};border:1px solid var(--gm)" onclick="${isPlant?'mbTogglePlantSearch()':`mbToggleGoodsSearch('${escAttr(sec.key)}')`}">🔍 Search &amp; add</button>`;
+    const searchHtml = !searchOpen ? '' : isPlant
+      ? `<div style="margin-bottom:10px;border:1px solid var(--br);border-radius:8px;padding:.5rem">
+          <input type="text" placeholder="Search your Plant Book by name…" value="${escAttr(MB_PLANTSEARCH.q)}" oninput="mbPlantSearchInput(this.value)" style="width:100%;padding:.4rem .5rem;font-size:.8rem;border:1px solid var(--br);border-radius:6px;margin-bottom:.4rem;box-sizing:border-box">
+          <div id="mb-plantsearch-results" style="max-height:220px;overflow-y:auto">${_mbPlantSearchRowsHtml(_mbPlantSearchResults(),MB_PLANTSEARCH.q)}</div>
+        </div>`
+      : `<div style="margin-bottom:10px;border:1px solid var(--br);border-radius:8px;padding:.5rem">
+          <input type="text" placeholder="Search your ${escAttr(sec.label)} library by name…" value="${escAttr(MB_GOODSEARCH.q)}" oninput="mbGoodsSearchInput(this.value)" style="width:100%;padding:.4rem .5rem;font-size:.8rem;border:1px solid var(--br);border-radius:6px;margin-bottom:.4rem;box-sizing:border-box">
+          <div id="mb-goodsearch-results" style="max-height:220px;overflow-y:auto">${_mbGoodsSearchRowsHtml(sec,MB_GOODSEARCH.q)}</div>
+        </div>`;
+    // Both input types side by side, on purpose — auto "Suggest more" (style/wizard-driven)
+    // and a typed request both write into the same suggestion strip below.
+    const queryHtml=`<div style="display:flex;gap:6px;margin-bottom:10px">
+        <input type="text" placeholder='Or type what you want — e.g. "blue glass tile under $35/sf"' value="${escAttr(MB_QUERY[sec.key]||'')}" oninput="mbSetQuery('${escAttr(sec.key)}',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();mbQuerySuggest('${escAttr(sec.key)}');}" style="flex:1;padding:.35rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">
+        <button class="btn" onclick="mbQuerySuggest('${escAttr(sec.key)}')" style="padding:.35rem .7rem;font-size:.72rem;font-weight:600;background:var(--gold);color:#fff;border:none;border-radius:7px;flex-shrink:0" ${sst.loading?'disabled':''}>Find</button>
+      </div>`;
     return `<div class="card" style="margin-bottom:1rem">
       <div style="display:flex;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:.5rem">
         <div style="font-size:.85rem;font-weight:600;color:var(--tx)">${escAttr(sec.label)} <span style="font-weight:400;color:var(--tl);font-size:.78rem">${shown.length}</span></div>
@@ -26069,6 +26192,7 @@ function renderMoodBoard(){
         ${removeBtn}
       </div>
       ${searchHtml}
+      ${queryHtml}
       ${_mbSectionBoardHtml(shown)}
       ${_mbSuggestSectionHtml(sec.key)}
       ${_mbInspirationStripHtml(sec.key)}
