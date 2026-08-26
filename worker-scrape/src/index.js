@@ -423,11 +423,40 @@ function collectImages(html, finalUrl, product, meta) {
       .forEach(x => push(typeof x === "string" ? x : (x && x.url)));
   }
   ["og:image", "og:image:secure_url", "twitter:image"].forEach(k => meta[k] && push(meta[k]));
+  // Some product pages (tuuci.com is one) put a sitewide "featured" carousel in the
+  // header/nav — identical markup on every single page, regardless of product — ahead
+  // of the actual product content in DOM order. A plain "first <img> on the page" scan
+  // grabs that shared chrome instead of the product's own photo. <main> is the standard
+  // HTML5 landmark for "the page's actual content," so when a page declares one, search
+  // inside it first and only fall back to the whole page if that comes up empty — this
+  // never narrows anything on a page that has no <main>, so it can't regress a supplier
+  // that already worked.
+  const mainMatch = html.match(/<main[\s>][\s\S]*?<\/main>/i);
+  const mainHtml = mainMatch ? mainMatch[0] : "";
+  // Same site: the actual per-product lifestyle photo isn't in an <img> at all — it's
+  // only linked from a "download this image" / social-share anchor. Read those as image
+  // candidates too, scoped to <main> so a footer's own image links (badges, social
+  // icons) don't leak in — push() already filters those out by filename anyway.
+  const hrefRe = /<a\b[^>]*\bhref=["']([^"']+\.(?:jpe?g|png|webp|avif)(?:\?[^"']*)?)["'][^>]*>/gi;
+  let hm;
+  const hrefScope = mainHtml || html;
+  while ((hm = hrefRe.exec(hrefScope)) && imgs.length < 14) push(hm[1]);
   const re = /<img[^>]+>/gi;
   let m;
-  while ((m = re.exec(html)) && imgs.length < 14) {
+  const imgScope = mainHtml || html;
+  while ((m = re.exec(imgScope)) && imgs.length < 14) {
     const src = (m[0].match(/(?:data-srcset|data-src|srcset|src)=["']([^"']+)["']/i) || [])[1];
     if (src) push(src.split(/[,\s]/)[0]);
+  }
+  // <main> came up with nothing usable (a supplier that doesn't declare one, or whose
+  // real content sits outside it) — fall back to the unscoped whole-page scan exactly
+  // as before, so nothing that used to work stops working.
+  if (mainHtml && !imgs.length) {
+    while ((hm = hrefRe.exec(html)) && imgs.length < 14) push(hm[1]);
+    while ((m = re.exec(html)) && imgs.length < 14) {
+      const src = (m[0].match(/(?:data-srcset|data-src|srcset|src)=["']([^"']+)["']/i) || [])[1];
+      if (src) push(src.split(/[,\s]/)[0]);
+    }
   }
   return imgs.slice(0, 10);
 }
