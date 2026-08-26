@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1196</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1197</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6200,6 +6200,7 @@ function algoRecalc(){
     </div>
     </div><!-- /pinfo-block -->
     <div id="pinfo-style-slot" style="margin-top:1.25rem"></div>
+    <div id="pinfo-budget-slot" style="margin-top:1.25rem"></div>
     <div id="pinfo-siteintel-slot" style="margin-top:1.25rem"></div>
     <div id="pinfo-sitedims-slot" style="margin-top:1.25rem"></div>
     <div id="pinfo-refcards"></div>
@@ -6340,7 +6341,9 @@ function algoRecalc(){
   <div class="card" style="margin-bottom:1rem">
     <div class="sct" style="font-size:1.25rem;display:flex;align-items:center;gap:8px">Mood Board
       <button type="button" class="ihint" data-tip="Assembled automatically from what's already specified on this project — the plants in your Design plan, and the materials/furnishings/products attached to the estimate. Nothing here is picked separately." onclick="showTip(this,event)" aria-label="More information">i</button>
+      <button class="btn" id="mb-wiz-togglebtn" onclick="mbWizardToggle()" style="margin-left:auto;padding:.3rem .65rem;font-size:.72rem;background:#fff;color:var(--gm);border:1px solid var(--gm)">⚙ Preferences &amp; wizard</button>
     </div>
+    <div id="mb-wizard-slot"></div>
   </div>
   <div id="mb-body"></div>
 </div>
@@ -7726,6 +7729,7 @@ document.querySelectorAll(".tab").forEach(btn=>{
     if(S.view==="projectinfo"){
       try{ _renderPInfoCards(); }catch(e){}
       try{ _piRenderStyle(); }catch(e){}
+      try{ _piRenderBudget(); }catch(e){}
       // the map was laid out while hidden, so it needs a nudge once it has a size
       try{ if(typeof map!=="undefined"&&map&&window.google&&google.maps){
         setTimeout(()=>{ try{ google.maps.event.trigger(map,"resize"); }catch(_){}} ,60); } }catch(e){}
@@ -9935,6 +9939,7 @@ function _buildSampleProject(){
   setv("pro-lot-sf",S.proLotSize); setv("pro-footprint-sf",S.homeSF); setv("pro-driveway-sf",S.dwySF);
   setv("pi-client",S.pi.client); setv("pi-project",S.pi.project); setv("pi-address",S.pi.address);
   try{ _piRenderStyle(); }catch(e){}
+  try{ _piRenderBudget(); }catch(e){}
   const dwycb=document.getElementById("pro-dwy-include"); if(dwycb) dwycb.checked=false;
   try{ updateProSiteDims(); }catch(e){}
   try{ buildProCats(); }catch(e){}                        // builders below need their containers
@@ -24501,75 +24506,273 @@ function piToggleStyle(key){
   try{ _bidSchedule(); }catch(e){}
   _piRenderStyle();
 }
+function piSetStyleCustom(v){ S.pi=S.pi||{}; S.pi.styleCustom=v||""; try{ _bidSchedule(); }catch(e){} }
 function _piRenderStyle(){
   const host=document.getElementById("pinfo-style-slot"); if(!host) return;
   const sel=(S.pi&&S.pi.style)||[];
   host.innerHTML=`<div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:9px">Design style &amp; vibe <span style="color:var(--tm);text-transform:none;letter-spacing:0">— pick up to 2; drives Mood Board and plant suggestions</span></div>
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
     ${MB_STYLES.map(s=>{ const on=sel.indexOf(s.key)>=0; return `<div onclick="piToggleStyle('${s.key}')" style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:10px;padding:10px 8px;text-align:center;cursor:pointer;background:${on?'var(--brand-soft)':'var(--surface2)'}">
       <div style="height:30px;border-radius:6px;margin-bottom:6px;background:${s.grad}"></div>
       <div style="font-size:.74rem;font-weight:500;color:var(--tx)">${s.label}</div>
     </div>`; }).join('')}
+  </div>
+  <label class="pf-fld"><span class="pf-lbl">Or describe your own style, for AI</span><span class="pf-box"><input value="${escAttr((S.pi&&S.pi.styleCustom)||'')}" placeholder="e.g. warm minimalist with reclaimed timber accents" onchange="piSetStyleCustom(this.value)"></span></label>`;
+}
+// ── Budget & goals — feeds the Mood Board wizard/AI, but lives here since it's real
+// project-level fact, not mood-board-scoped (same reasoning as Design style above).
+function furnBudget(){ const v=+(S&&S.furnBudget); return (isFinite(v)&&v>0)?v:0; }
+function setFurnBudget(v){
+  const n=Math.max(0, Math.round(+String(v).replace(/[^0-9.]/g,"")||0));
+  if(n) S.furnBudget=n; else delete S.furnBudget;
+  try{ _bidSchedule(); }catch(e){}
+}
+function piSetBudgetFeel(key){ S.budgetFeel = (S.budgetFeel===key ? "" : key); try{ _bidSchedule(); }catch(e){} }
+function piSetGoals(v){ S.projGoals=v||""; try{ _bidSchedule(); }catch(e){} }
+const MB_BUDGETFEEL_OPTS=[
+  {key:"frugal",label:"Frugal — save where possible"},
+  {key:"balanced",label:"Balanced"},
+  {key:"splurge",label:"Splurge on a few hero pieces"},
+];
+function _piRenderBudget(){
+  const host=document.getElementById("pinfo-budget-slot"); if(!host) return;
+  const feel=S.budgetFeel||"";
+  host.innerHTML=`<div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin-bottom:9px">Budget &amp; goals <span style="color:var(--tm);text-transform:none;letter-spacing:0">— keeps AI suggestions in range</span></div>
+  <div class="pf-grid c3" style="margin-bottom:10px">
+    <label class="pf-fld"><span class="pf-lbl">Overall project budget</span><span class="pf-box"><input value="${projBudget()?fmtN(projBudget()):''}" placeholder="$225,000" onchange="setProjBudget(this.value);_piRenderBudget()"></span></label>
+    <label class="pf-fld"><span class="pf-lbl">Furnishings &amp; decor budget</span><span class="pf-box"><input value="${furnBudget()?fmtN(furnBudget()):''}" placeholder="$18,000" onchange="setFurnBudget(this.value);_piRenderBudget()"></span></label>
+    <div class="pf-fld"><span class="pf-lbl">Feel</span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px">
+        ${MB_BUDGETFEEL_OPTS.map(o=>`<button type="button" onclick="piSetBudgetFeel('${o.key}');_piRenderBudget()" style="border:1px solid ${feel===o.key?'var(--gm)':'var(--br)'};border-radius:20px;padding:.3rem .7rem;font-size:.72rem;background:${feel===o.key?'var(--gm)':'#fff'};color:${feel===o.key?'#fff':'var(--tm)'};cursor:pointer">${o.label}</button>`).join('')}
+      </div>
+    </div>
+  </div>
+  <div class="pf-fld"><span class="pf-lbl">Project goals — one paragraph, AI reads this too</span>
+    <textarea class="pf-box" rows="2" placeholder="What is this project trying to achieve for the client?" onchange="piSetGoals(this.value)">${escAttr(S.projGoals||"")}</textarea>
   </div>`;
 }
 // ── Mood Board intake wizard ─────────────────────────────────────────────
-// Pops once per project on first-ever visit to the tab (mb.wizardSeen), skippable, always
-// re-openable from the "Preferences" link in the board's own toolbar. Style reuses
-// S.pi.style / piToggleStyle directly — no duplicate storage, same field Project Info's
-// own style tiles read and write. Plant character is new (S.moodboard.wizPlantChar) and
-// feeds straight into _mbSuggestPlantsFor's prompt, closing the loop Warwick described:
-// suggestions driven by "the question wizard, the estimate, and the other colors/materials."
+// Built to the approved mockup (moodboard_mockup.html, screen 02): a multi-step wizard
+// with a step rail, living INLINE in the Mood Board's own top bar (#mb-wizard-slot, a
+// stable slot outside #mb-body so it survives every renderMoodBoard() repaint) — not a
+// floating modal. Pops open automatically on a project's first-ever visit (mb.wizardSeen),
+// skippable, always reopenable via the toggle button next to the "Mood Board" title.
+// Nine steps cover both halves Warwick asked for: three (style/budget/goals) write to
+// real Project-Info-level fields (S.pi.style, S.budget, S.furnBudget, S.budgetFeel,
+// S.projGoals) — Project Info stays the one source of truth, same pattern as style tiles
+// already used; the other six are Mood-Board-scoped (S.moodboard.wiz*) and feed straight
+// into the AI prompts (_mbSuggestPlantsFor, _mbSuggestGoodsFor, mbSuggestPaletteGroup).
 const MB_PLANTCHAR_OPTS=[
   {key:"lush",label:"Lush &amp; layered"},
-  {key:"drought",label:"Drought-tolerant"},
-  {key:"formal",label:"Formal &amp; structured"},
+  {key:"structural",label:"Structural &amp; architectural"},
+  {key:"formal",label:"Formal &amp; clipped"},
   {key:"naturalistic",label:"Naturalistic &amp; wild"},
-  {key:"colorful",label:"Colorful &amp; blooming"},
-  {key:"lowmaint",label:"Low-maintenance"},
+  {key:"grasses",label:"Grasses &amp; movement"},
   {key:"native",label:"California native"},
   {key:"tropical",label:"Tropical &amp; bold"},
+  {key:"lowmaint",label:"Low-maintenance"},
 ];
-function mbTogglePlantChar(key){
-  const mb=_mbEnsure(); mb.wizPlantChar=mb.wizPlantChar||[];
-  const i=mb.wizPlantChar.indexOf(key);
-  if(i>=0) mb.wizPlantChar.splice(i,1); else mb.wizPlantChar.push(key);
+const MB_WATERUSE_OPTS=[
+  {key:"verylow",label:"Very low — natives &amp; succulents"},
+  {key:"low",label:"Low — drought-tolerant Mediterranean"},
+  {key:"moderate",label:"Moderate — mixed planting"},
+  {key:"ample",label:"Ample — lush &amp; tropical"},
+];
+const MB_PLANTTYPE_OPTS=[
+  {key:"grasses",label:"Ornamental grasses"},
+  {key:"succulents",label:"Succulents &amp; cacti"},
+  {key:"lowwater",label:"Low-water shrubs"},
+  {key:"tropical",label:"Broadleaf &amp; tropical foliage"},
+  {key:"vines",label:"Vines &amp; climbers"},
+  {key:"gc",label:"Groundcovers"},
+  {key:"flowering",label:"Flowering perennials"},
+  {key:"treepalm",label:"Trees &amp; palms"},
+];
+const MB_PLANTCOLOR_OPTS=[
+  {key:"white",label:"White",sw:"#F5F3EC"},
+  {key:"yellow",label:"Yellow",sw:"#E8C84A"},
+  {key:"orange",label:"Orange",sw:"#D97D3D"},
+  {key:"red",label:"Red",sw:"#B23F3C"},
+  {key:"pink",label:"Pink",sw:"#DC9BB0"},
+  {key:"purple",label:"Purple",sw:"#8E5AA8"},
+  {key:"blue",label:"Blue",sw:"#5C86B0"},
+  {key:"silver",label:"Silver / gray foliage",sw:"#B7BDB2"},
+];
+const MB_COLORMOOD_OPTS=[
+  {key:"earth",label:"Earth tones"},
+  {key:"vibrant",label:"Vibrant &amp; bold"},
+  {key:"combo",label:"A combination of both"},
+  {key:"blues",label:"Cool blues"},
+  {key:"neutral",label:"Warm neutrals"},
+  {key:"mono",label:"Monochrome"},
+  {key:"summer",label:"Bright / summer"},
+  {key:"winter",label:"Muted / winter"},
+];
+function _mbWizSteps(){
+  return [
+    {key:"style",label:"Style"},
+    {key:"budget",label:"Budget"},
+    {key:"goals",label:"Goals"},
+    {key:"character",label:"Plant character"},
+    {key:"wateruse",label:"Water use"},
+    {key:"types",label:"Plant types"},
+    {key:"plantcolors",label:"Plant colors"},
+    {key:"colormood",label:"Color palette"},
+    {key:"sections",label:"Board sections"},
+  ];
+}
+function _mbWizMulti(field){ const mb=_mbEnsure(); mb[field]=mb[field]||[]; return mb[field]; }
+function mbTogglePlantChar(key){ _mbWizToggleMulti("wizPlantChar",key); }
+function mbTogglePlantType(key){ _mbWizToggleMulti("wizPlantTypes",key); }
+function mbTogglePlantColorWiz(key){ _mbWizToggleMulti("wizPlantColors",key); }
+function mbToggleColorMood(key){ _mbWizToggleMulti("wizColorMood",key); }
+function _mbWizToggleMulti(field,key){
+  const arr=_mbWizMulti(field); const i=arr.indexOf(key);
+  if(i>=0) arr.splice(i,1); else arr.push(key);
   try{ _bidSchedule(); }catch(e){}
-  _mbWizardRender();
+  _mbWizardPanelRender();
 }
-function mbToggleStyleWiz(key){ piToggleStyle(key); _mbWizardRender(); }
+function mbSetWaterUse(key){
+  const mb=_mbEnsure(); mb.wizWaterUse=(mb.wizWaterUse===key?"":key);
+  try{ _bidSchedule(); }catch(e){}
+  _mbWizardPanelRender();
+}
+function mbToggleStyleWiz(key){ piToggleStyle(key); _mbWizardPanelRender(); }
+function mbSetStyleCustomWiz(v){ piSetStyleCustom(v); }
+function mbSetProjBudgetWiz(v){ setProjBudget(v); _mbWizardPanelRender(); }
+function mbSetFurnBudgetWiz(v){ setFurnBudget(v); _mbWizardPanelRender(); }
+function mbSetBudgetFeelWiz(key){ piSetBudgetFeel(key); _mbWizardPanelRender(); }
+function mbSetGoalsWiz(v){ piSetGoals(v); }
+// Board sections is the wizard's own step, but it must never fork from the real +/− Section
+// controls the board itself uses — reuse mbAddSection/mbRemoveSection exactly, so auto-
+// suggest-on-add and everything else that hangs off those still fires from here too.
+function mbWizToggleSection(key){
+  const mb=_mbEnsure();
+  if(mb.sections.indexOf(key)>=0) mbRemoveSection(key); else mbAddSection(key);
+  _mbWizardPanelRender();
+}
+let MB_WIZ_OPEN=false, MB_WIZ_STEP=0;
+function mbWizGoStep(i){ MB_WIZ_STEP=Math.max(0,Math.min(i,_mbWizSteps().length-1)); _mbWizardPanelRender(); }
+function mbWizNext(){ mbWizGoStep(MB_WIZ_STEP+1); }
+function mbWizBack(){ mbWizGoStep(MB_WIZ_STEP-1); }
+function mbWizardToggle(){ MB_WIZ_OPEN=!MB_WIZ_OPEN; if(MB_WIZ_OPEN) MB_WIZ_STEP=0; _mbWizardPanelRender(); }
+function mbWizardOpen(){ MB_WIZ_OPEN=true; MB_WIZ_STEP=0; _mbWizardPanelRender(); }
+function mbWizardClose(){ MB_WIZ_OPEN=false; _mbWizardPanelRender(); }
 function mbWizardMaybeOpen(){
-  const mb=_mbEnsure(); if(mb.wizardSeen) return;
+  const mb=_mbEnsure();
+  if(mb.wizardSeen){ _mbWizardPanelRender(); return; }
   mb.wizardSeen=true; try{ _bidSchedule(); }catch(e){}
-  mbWizardOpen();
+  MB_WIZ_OPEN=true; MB_WIZ_STEP=0;
+  _mbWizardPanelRender();
 }
-function mbWizardOpen(){
-  let h=document.getElementById("mbwiz"); if(!h){ h=document.createElement("div"); h.id="mbwiz"; h.className="gfrw";
-    h.addEventListener("click",e=>{ if(e.target===h) mbWizardClose(); });
-    document.body.appendChild(h); }
-  _mbWizardRender(); requestAnimationFrame(()=>h.classList.add("on"));
+function _mbWizChip(label,on,onclick,sw){
+  return `<button type="button" onclick="${onclick}" style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:20px;padding:.35rem .85rem;font-size:.78rem;background:${on?'var(--gm)':'#fff'};color:${on?'#fff':'var(--tm)'};cursor:pointer;display:inline-flex;align-items:center;gap:6px">${sw?`<span style="width:10px;height:10px;border-radius:50%;background:${sw};border:1px solid rgba(0,0,0,.15);flex:none"></span>`:''}${label}</button>`;
 }
-function mbWizardClose(){ const h=document.getElementById("mbwiz"); if(h){ h.classList.remove("on"); setTimeout(()=>{ try{ h.remove(); }catch(e){} },160); } try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){} }
-function _mbWizardRender(){
-  const h=document.getElementById("mbwiz"); if(!h) return;
-  const sel=(S.pi&&S.pi.style)||[];
-  const mb=_mbEnsure(); const chars=mb.wizPlantChar||[];
-  h.innerHTML=`<div class="gfrc" onclick="event.stopPropagation()" style="max-width:480px">
-    <div class="gfrt">A few quick questions</div>
-    <div class="gfrh">Answer what you know, skip the rest — you can always come back and edit these from the Preferences link at the top of the Mood Board. These bias the AI's suggestions for this project.</div>
-    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin:12px 0 8px">Design style — pick up to 2</div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
-      ${MB_STYLES.map(s=>{ const on=sel.indexOf(s.key)>=0; return `<div onclick="mbToggleStyleWiz('${s.key}')" style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:8px;padding:7px 5px;text-align:center;cursor:pointer;background:${on?'var(--brand-soft)':'var(--surface2)'}">
-        <div style="height:22px;border-radius:5px;margin-bottom:4px;background:${s.grad}"></div>
-        <div style="font-size:.66rem;font-weight:500;color:var(--tx)">${s.label}</div>
-      </div>`; }).join('')}
+function _mbWizStepBody(){
+  const step=_mbWizSteps()[MB_WIZ_STEP].key;
+  const mb=_mbEnsure();
+  if(step==="style"){
+    const sel=(S.pi&&S.pi.style)||[];
+    return {title:"Design style",q:"Pick up to 2 — drives every AI suggestion on this board.",
+      body:`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+        ${MB_STYLES.map(s=>{ const on=sel.indexOf(s.key)>=0; return `<div onclick="mbToggleStyleWiz('${s.key}')" style="border:1px solid ${on?'var(--gm)':'var(--br)'};border-radius:8px;padding:7px 5px;text-align:center;cursor:pointer;background:${on?'var(--brand-soft)':'var(--surface2)'}">
+          <div style="height:22px;border-radius:5px;margin-bottom:4px;background:${s.grad}"></div>
+          <div style="font-size:.66rem;font-weight:500;color:var(--tx)">${s.label}</div>
+        </div>`; }).join('')}
+      </div>
+      <label style="display:block;font-size:.72rem;color:var(--tm)">Or describe your own style, for AI
+        <input value="${escAttr((S.pi&&S.pi.styleCustom)||'')}" placeholder="e.g. warm minimalist with reclaimed timber accents" onchange="mbSetStyleCustomWiz(this.value)" style="width:100%;margin-top:5px;padding:.4rem .55rem;font-size:.82rem;border:1px solid var(--br);border-radius:7px;box-sizing:border-box">
+      </label>`};
+  }
+  if(step==="budget"){
+    const feel=S.budgetFeel||"";
+    return {title:"Budget",q:"If it's already set in Project Info it's filled in below — otherwise enter it here.",
+      body:`<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+        <label style="font-size:.72rem;color:var(--tm)">Overall project budget<br>
+          <input value="${projBudget()?fmtN(projBudget()):''}" placeholder="$225,000" onchange="mbSetProjBudgetWiz(this.value)" style="margin-top:5px;padding:.4rem .55rem;font-size:.82rem;border:1px solid var(--br);border-radius:7px;min-width:180px"></label>
+        <label style="font-size:.72rem;color:var(--tm)">Furnishings &amp; decor budget<br>
+          <input value="${furnBudget()?fmtN(furnBudget()):''}" placeholder="$18,000" onchange="mbSetFurnBudgetWiz(this.value)" style="margin-top:5px;padding:.4rem .55rem;font-size:.82rem;border:1px solid var(--br);border-radius:7px;min-width:180px"></label>
+      </div>
+      <div style="font-size:.72rem;color:var(--tm);margin-bottom:6px">Feel</div>
+      <div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">
+        ${MB_BUDGETFEEL_OPTS.map(o=>_mbWizChip(o.label,feel===o.key,`mbSetBudgetFeelWiz('${o.key}')`)).join('')}
+      </div>`};
+  }
+  if(step==="goals"){
+    return {title:"Project goals",q:"One paragraph — the AI reads this alongside the estimate and everything else here.",
+      body:`<textarea onchange="mbSetGoalsWiz(this.value)" placeholder="What is this project trying to achieve for the client?" style="width:100%;min-height:90px;padding:.6rem .7rem;font-size:.85rem;border:1px solid var(--br);border-radius:9px;box-sizing:border-box;font-family:inherit">${escAttr(S.projGoals||"")}</textarea>`};
+  }
+  if(step==="character"){
+    const chars=_mbWizMulti("wizPlantChar");
+    return {title:"What should the planting feel like?",q:"Pick as many as fit — steers plant & color suggestions.",
+      body:`<div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">${MB_PLANTCHAR_OPTS.map(o=>_mbWizChip(o.label,chars.indexOf(o.key)>=0,`mbTogglePlantChar('${o.key}')`)).join('')}</div>`};
+  }
+  if(step==="wateruse"){
+    const cur=mb.wizWaterUse||"";
+    return {title:"Water use",q:"How thirsty should the planting be?",
+      body:`<div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">${MB_WATERUSE_OPTS.map(o=>_mbWizChip(o.label,cur===o.key,`mbSetWaterUse('${o.key}')`)).join('')}</div>`};
+  }
+  if(step==="types"){
+    const sel=_mbWizMulti("wizPlantTypes");
+    return {title:"Plant types",q:"What kinds of plants should the AI reach for?",
+      body:`<div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">${MB_PLANTTYPE_OPTS.map(o=>_mbWizChip(o.label,sel.indexOf(o.key)>=0,`mbTogglePlantType('${o.key}')`)).join('')}</div>`};
+  }
+  if(step==="plantcolors"){
+    const sel=_mbWizMulti("wizPlantColors");
+    return {title:"Plant colors",q:"Bloom &amp; foliage colors to lean into.",
+      body:`<div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">${MB_PLANTCOLOR_OPTS.map(o=>_mbWizChip(o.label,sel.indexOf(o.key)>=0,`mbTogglePlantColorWiz('${o.key}')`,o.sw)).join('')}</div>`};
+  }
+  if(step==="colormood"){
+    const sel=_mbWizMulti("wizColorMood");
+    return {title:"Color palette mood",q:"The overall direction for the board's Color Palette section.",
+      body:`<div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">${MB_COLORMOOD_OPTS.map(o=>_mbWizChip(o.label,sel.indexOf(o.key)>=0,`mbToggleColorMood('${o.key}')`)).join('')}</div>`};
+  }
+  // sections
+  const defs=_mbSectionDefs(); const on=new Set(mb.sections);
+  return {title:"Which sections do you want to show?",q:"Toggle any section on or off the board — same as the +/− controls below.",
+    body:`<div class="chiprow" style="display:flex;flex-wrap:wrap;gap:8px">${defs.map(d=>_mbWizChip(escAttr(d.label),on.has(d.key),`mbWizToggleSection('${escAttr(d.key)}')`)).join('')}</div>`};
+}
+function _mbWizardPanelRender(){
+  const btn=document.getElementById("mb-wiz-togglebtn");
+  if(btn) btn.textContent = MB_WIZ_OPEN ? "✕ Close" : "⚙ Preferences & wizard";
+  const slot=document.getElementById("mb-wizard-slot"); if(!slot) return;
+  if(!MB_WIZ_OPEN){ slot.innerHTML=""; return; }
+  const steps=_mbWizSteps(); const cur=_mbWizStepBody();
+  const last=MB_WIZ_STEP===steps.length-1, first=MB_WIZ_STEP===0;
+  slot.innerHTML=`<div style="display:flex;gap:22px;margin-top:16px;flex-wrap:wrap">
+    <div style="width:170px;flex-shrink:0;display:flex;flex-direction:column;gap:3px">
+      ${steps.map((s,i)=>{ const on=i===MB_WIZ_STEP, done=i<MB_WIZ_STEP;
+        return `<div onclick="mbWizGoStep(${i})" style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-radius:8px;font-size:.76rem;cursor:pointer;background:${on?'var(--brand-soft)':'transparent'}">
+          <span style="width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.62rem;flex-shrink:0;background:${done?'var(--gl)':on?'var(--gm)':'var(--br)'};color:${done||on?'#fff':'var(--tl)'}">${done?'✓':i+1}</span>
+          <span style="color:${on?'var(--tx)':'var(--tl)'};font-weight:${on?'600':'400'}">${s.label}</span>
+        </div>`; }).join('')}
     </div>
-    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl);margin:14px 0 8px">What should the planting feel like?</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px">
-      ${MB_PLANTCHAR_OPTS.map(o=>{ const on=chars.indexOf(o.key)>=0; return `<button class="btn" onclick="mbTogglePlantChar('${o.key}')" style="padding:.3rem .65rem;font-size:.74rem;border-radius:20px;background:${on?'var(--gd)':'#fff'};color:${on?'#fff':'var(--gm)'};border:1px solid var(--gm)">${o.label}</button>`; }).join('')}
+    <div style="flex:1;min-width:280px;border:1px solid var(--br);border-radius:12px;padding:18px 22px;background:var(--surface2)">
+      <div style="font-weight:600;font-size:1.02rem;color:var(--tx);margin-bottom:4px">${cur.title}</div>
+      <div style="color:var(--tm);font-size:.8rem;margin-bottom:14px">${cur.q}</div>
+      ${cur.body}
+      <div style="display:flex;justify-content:space-between;margin-top:18px">
+        <button class="btn" onclick="${first?'mbWizardClose()':'mbWizBack()'}" style="padding:.35rem .8rem;font-size:.78rem;background:#fff;color:var(--tm);border:1px solid var(--br)">${first?'Skip / Done':'← Back'}</button>
+        <button class="btn" onclick="${last?'mbWizardClose()':'mbWizNext()'}" style="padding:.35rem .8rem;font-size:.78rem;background:var(--gm);color:#fff;border:1px solid var(--gm)">${last?'Done':'Continue →'}</button>
+      </div>
     </div>
-    <div class="askb" style="margin-top:16px">
-      <button class="c" onclick="mbWizardClose()">Skip / Done</button>
-    </div></div>`;
+  </div>`;
+}
+// Turns wizard answers into prompt-ready text — one place, reused by every AI call
+// (_mbSuggestPlantsFor, _mbSuggestGoodsFor, mbSuggestPaletteGroup) so a new question
+// only has to be wired to the prompts once.
+function _mbWizStyleCustom(){ return (S.pi&&S.pi.styleCustom)||""; }
+function _mbWizLabels(field,opts){
+  const arr=(S.moodboard&&S.moodboard[field])||[];
+  return arr.map(k=>{ const o=opts.find(x=>x.key===k); return o?o.label.replace(/&amp;/g,"&"):k; }).join(", ");
+}
+function _mbWizWaterUseLabel(){
+  const mb=S.moodboard||{}; const o=MB_WATERUSE_OPTS.find(x=>x.key===mb.wizWaterUse);
+  return o?o.label.replace(/&amp;/g,"&"):"";
+}
+function _mbWizBudgetFeelLabel(){
+  const o=MB_BUDGETFEEL_OPTS.find(x=>x.key===S.budgetFeel);
+  return o?o.label:"";
 }
 // ── Mood Board ────────────────────────────────────────────────────────────
 // Phase 1: assembled entirely from what's already specified on THIS project —
@@ -24780,7 +24983,13 @@ async function mbSuggestPaletteGroup(key){
   const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ")||"this project's";
   const {plants,goods}=_mbGather();
   const existing=_mbPaletteAutoPlant(plants).concat(_mbPaletteAutoGoods(goods)).concat(mb.paletteGroups.flatMap(x=>x.colors));
+  const colorMoodLabels=_mbWizLabels("wizColorMood",MB_COLORMOOD_OPTS);
+  const plantColorLabels=_mbWizLabels("wizPlantColors",MB_PLANTCOLOR_OPTS);
+  const styleCustom=_mbWizStyleCustom();
   const prompt=`Suggest 5 hex colors for a landscape mood board color group called "${g.label}", fitting a "${styleLabels}" design style. Colors already in use elsewhere on this board (harmonize, don't clash): ${existing.length?existing.join(", "):"(none yet)"}.
+${colorMoodLabels?`Overall color mood for the project: ${colorMoodLabels}.`:""}
+${plantColorLabels?`The planting already leans toward these colors, for context: ${plantColorLabels}.`:""}
+${styleCustom?`Also lean into this custom style direction: "${styleCustom}".`:""}
 Output ONLY a minified JSON array of hex strings, no prose: ["#RRGGBB", ...]`;
   g._loading=true; renderMoodBoard();
   try{
@@ -25004,12 +25213,23 @@ async function _mbSuggestPlantsFor(sec,styleKeys,ep){
   const {plants}=_mbGather();
   const already=plants.map(x=>botName(x.p)).filter(Boolean);
   const bud=projBudget();
-  const chars=(S.moodboard&&S.moodboard.wizPlantChar)||[];
-  const charLabels=chars.map(k=>(MB_PLANTCHAR_OPTS.find(o=>o.key===k)||{}).label||k).join(", ");
+  const charLabels=_mbWizLabels("wizPlantChar",MB_PLANTCHAR_OPTS);
+  const waterLabel=_mbWizWaterUseLabel();
+  const typeLabels=_mbWizLabels("wizPlantTypes",MB_PLANTTYPE_OPTS);
+  const colorLabels=_mbWizLabels("wizPlantColors",MB_PLANTCOLOR_OPTS);
+  const styleCustom=_mbWizStyleCustom();
+  const feelLabel=_mbWizBudgetFeelLabel();
+  const goals=S.projGoals||"";
   st.loading=true; renderMoodBoard();
   const prompt=`Suggest 6 Southern California landscape plants (a mix of shrubs, groundcover, trees, or palms as fits) for a "${styleLabels}" design style.
 Do not repeat anything already used on this project: ${already.length?already.join(", "):"(nothing specified yet)"}.
 ${charLabels?`The planting should feel: ${charLabels}.`:""}
+${waterLabel?`Water use: ${waterLabel}.`:""}
+${typeLabels?`Favor these plant types where they fit: ${typeLabels}.`:""}
+${colorLabels?`Favor bloom/foliage colors: ${colorLabels}.`:""}
+${styleCustom?`Also lean into this custom style direction: "${styleCustom}".`:""}
+${feelLabel?`Budget feel: ${feelLabel}.`:""}
+${goals?`Project goals, for context: ${goals}`:""}
 ${bud?`This project has a target budget, so favor common, reasonably priced nursery plants over rare or expensive specimens.`:""}
 Output ONLY a minified JSON array, no prose, no markdown:
 [{"bot":"botanical name","common":"common name","kind":"shrub|tree|palm|gc","reason":"why it fits this style, under 12 words"}]
@@ -25043,9 +25263,18 @@ async function _mbSuggestGoodsFor(sec,styleKeys,ep){
   const pool = (lib||[]).filter(g=>g && !specifiedIds.has(g.id) && (sec.group==="materials" ? true : g.cat===sec.cat));
   if(!pool.length){ alert("Nothing left in your "+sec.label+" library to suggest — everything's already specified, or the library's empty."); return; }
   const bud=projBudget(), grand=_grandNow(), remaining=bud?Math.max(0,bud-grand):null;
+  const furnRemaining=(()=>{ const fb=furnBudget(); if(!fb) return null; return Math.max(0,fb-grand); })();
+  const colorMoodLabels=_mbWizLabels("wizColorMood",MB_COLORMOOD_OPTS);
+  const styleCustom=_mbWizStyleCustom();
+  const feelLabel=_mbWizBudgetFeelLabel();
+  const goals=S.projGoals||"";
   st.loading=true; renderMoodBoard();
   const catalog=pool.slice(0,80).map(g=>`${g.id}|${g.nm}|${g.cat||""}|${g.fin||""}|$${goodsEstPrice(g)||"?"}`).join("\n");
-  const prompt=`From this real product catalog (id|name|category|finish|price), pick up to 6 that best fit a "${styleLabels}" design style${remaining!=null?`, staying mindful this project has roughly $${Math.round(remaining)} left in its budget`:""}.
+  const prompt=`From this real product catalog (id|name|category|finish|price), pick up to 6 that best fit a "${styleLabels}" design style${remaining!=null?`, staying mindful this project has roughly $${Math.round(remaining)} left in its overall budget`:""}${furnRemaining!=null?` (roughly $${Math.round(furnRemaining)} left specifically in the furnishings & decor budget)`:""}.
+${colorMoodLabels?`Overall color mood for the project: ${colorMoodLabels}.`:""}
+${styleCustom?`Also lean into this custom style direction: "${styleCustom}".`:""}
+${feelLabel?`Budget feel: ${feelLabel}.`:""}
+${goals?`Project goals, for context: ${goals}`:""}
 Never pick anything outside this list — these are the only real, in-stock options.
 Catalog:
 ${catalog}
@@ -25233,7 +25462,6 @@ function renderMoodBoard(){
     <div class="card" style="margin-bottom:1rem">
       <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
         <div style="font-size:.78rem;color:var(--tm)">${budgetHtml}</div>
-        <button class="btn" onclick="mbWizardOpen()" style="padding:.3rem .6rem;font-size:.72rem;background:#fff;color:var(--gm);border:1px solid var(--gm)">⚙ Preferences</button>
         <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
           <div style="display:flex;border:1px solid var(--br);border-radius:8px;overflow:hidden">
             ${dispBtn("grid","▦ Grid")}${dispBtn("editorial","▤ Editorial")}${dispBtn("wall","▧ Photo wall")}
@@ -42762,6 +42990,7 @@ function restoreBid(bid){ if(!bid||!bid.S){ alert("That doesn't look like a save
   setv("pro-lot-sf",S.proLotSize||S.lotSize); setv("pro-footprint-sf",S.homeSF); setv("pro-driveway-sf",S.dwySF);
   setv("pi-client",S.pi&&S.pi.client); setv("pi-project",S.pi&&S.pi.project); setv("pi-address",S.pi&&S.pi.address);
   try{ _piRenderStyle(); }catch(e){}
+  try{ _piRenderBudget(); }catch(e){}
   try{ if(S.pi&&S.pi.address) resolveAddress(S.pi.address); }catch(e){}   // reopened project — bring its map back
   try{ updateProSiteDims(); }catch(e){}
   try{ buildProCats(); }catch(e){}
