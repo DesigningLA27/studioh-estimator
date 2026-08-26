@@ -5551,7 +5551,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1222</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1223</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26796,38 +26796,80 @@ function clSetTab(t){ CL_STATE.tab=t; CL_STATE.q=""; CL_STATE.openId="";
 // rebuilds it, dropping focus after the first character (same bug, same fix, as
 // Manufacturer Colors' search — see [[color-library-roadmap]]).
 function clSetQuery(v){ CL_STATE.q=v; _clBrowseRenderResults(); }
+// Routes the one shared top-bar search box to whichever tab is live — Theme Palettes
+// and Manufacturer Colors keep their own separate query state and results containers.
+function clTopSearch(v){ if(CL_STATE.tab==="manufacturer") clMfgSetQuery(v); else clSetQuery(v); }
 function clToggleFavOnly(){ CL_STATE.favOnly=!CL_STATE.favOnly;
   const b=document.getElementById("cl-fav-btn"); if(b) b.classList.toggle("on",CL_STATE.favOnly); // the button itself lives in the static shell, so a plain re-render of #cl-browse-results alone would leave it showing the old state
   _clBrowseRenderResults(); }
 function clOpen(id){ CL_STATE.tab="theme"; CL_STATE.openId=id; _clRenderShell(); }
 function clBack(){ CL_STATE.openId=""; _clRenderShell(); }
+// Both quick-filter dropdowns close the same way as every other .mddm menu in this
+// app — an outside click. They're new ids, so the existing mat/fur listener (scoped
+// to its own ids) doesn't cover them.
+document.addEventListener("click",()=>{
+  document.getElementById("cl-tagdd")?.classList.remove("open");
+  document.getElementById("cl-filtersdd")?.classList.remove("open");
+});
 
 function renderColorLibrary(){
   if(!_colorPalettesPulled) colorPalettesPull().then(()=>{ if(document.getElementById("view-colorlibrary")&&document.getElementById("view-colorlibrary").classList.contains("active")) _clRenderShell(); });
   if(!_mfgColorsPulled) mfgColorsPull().then(()=>{ if(CL_STATE.tab==="manufacturer") _clRenderShell(); });
   const host=document.getElementById("cl-body"); if(!host) return;
-  host.innerHTML=`
-    <div class="card" style="margin-bottom:1rem">
-      <div style="font-size:1.25rem;font-weight:700;color:var(--tx);font-family:'Cormorant Garamond',Georgia,serif;margin-bottom:.2rem">🎨 Color Library</div>
-      <div style="font-size:.8rem;color:var(--tm)">Studio H theme palettes, manufacturer colors, and every project's palette — search, edit, and adjust in one place.</div>
-    </div>
-    <div class="card" style="margin-bottom:1rem">
-      <div style="display:flex;background:var(--surface2);border-radius:10px;padding:3px;gap:2px;max-width:480px">
-        ${_clTabBtn("theme","Theme Palettes")}${_clTabBtn("manufacturer","Manufacturer Colors")}
-      </div>
-    </div>
-    <div id="cl-shell"></div>`;
+  host.innerHTML=`<div id="cl-shell"></div>`;
   _clRenderShell();
 }
-function _clTabBtn(t,label){
-  const on=CL_STATE.tab===t;
-  return `<button onclick="clSetTab('${t}')" style="flex:1;border:none;background:${on?'#fff':'transparent'};color:${on?'var(--gd)':'var(--tm)'};font-weight:600;font-size:.8rem;padding:.5rem;border-radius:8px;cursor:pointer;${on?'box-shadow:0 1px 3px rgba(0,0,0,.1)':''}">${label}</button>`;
+// One .pbk-tree row per tab, at the top of the left rail — the same place Materials
+// puts Category, not a separate card above the green band. Static per shell build:
+// clicking it is a full clSetTab()->renderColorLibrary() navigation, never a partial
+// re-render, so it doesn't need the same staleness handling as the filter chips below.
+function _clLibrarySwitchHtml(){
+  return `<div class="pbk-sec"><span>Library</span></div>
+    <button class="pbk-tr${CL_STATE.tab==="theme"?' on':''}" onclick="clSetTab('theme')"><span class="dot" style="background:#9B7B3A"></span><span class="nm">Theme Palettes</span></button>
+    <button class="pbk-tr${CL_STATE.tab==="manufacturer"?' on':''}" onclick="clSetTab('manufacturer')"><span class="dot" style="background:#9B7B3A"></span><span class="nm">Manufacturer Colors</span></button>`;
+}
+// One green band for both tabs — title, live count, the one search box (routed by
+// clTopSearch), and — Theme Palettes only — the Tags/Filters quick-menus plus
+// Favorites/Start blank. Manufacturer Colors keeps its own brand-card drill-down
+// below, so it doesn't need those.
+function _clTopBarHtml(){
+  const isTheme=CL_STATE.tab==="theme";
+  const count=isTheme
+    ? `${_clAllColorEntries().length} colors across ${COLOR_PALETTES.filter(p=>p&&!p.archived).length} themes`
+    : `${MANUFACTURER_COLORS.length} colors across ${new Set(MANUFACTURER_COLORS.map(m=>m.manufacturer)).size} manufacturers`;
+  const qVal=isTheme?CL_STATE.q:CL_MFG_Q;
+  return `<div class="mat-h">
+      <span><b>Color Library</b><small>${count}</small></span>
+      <span class="sp">
+        <span class="gsearch"><span class="mag">${mi("zoom")}</span><input type="text" placeholder="Search colors, ${isTheme?'themes':'manufacturers'}, tags…" value="${escAttr(qVal)}" oninput="clTopSearch(this.value)"></span>
+      </span>
+      <span style="display:flex;align-items:center;gap:10px;flex:none;flex-wrap:wrap">
+        ${isTheme?`<span class="mdd">
+            <button id="cl-tags-chip" class="mchip${CL_STATE.tagFilter?' on':''}" onclick="event.stopPropagation();document.getElementById('cl-tagdd').classList.toggle('open')">${mi("list")}Tags${mi("chev")}</button>
+            <div class="mddm" id="cl-tagdd"><div id="cl-tagdd-body">${_clTagMenuBody()}</div></div>
+          </span>
+          <span class="mdd">
+            <button id="cl-filters-chip" class="mchip${_clActiveFilterCount()?' on':''}" onclick="event.stopPropagation();document.getElementById('cl-filtersdd').classList.toggle('open')">${mi("sliders")}Filters${mi("chev")}</button>
+            <div class="mddm" id="cl-filtersdd" style="width:230px"><div id="cl-filtersdd-body">${_clFiltersMenuBody()}</div></div>
+          </span>
+          <button id="cl-fav-btn" class="mchip${CL_STATE.favOnly?' on':''}" onclick="clToggleFavOnly()">★ Favorites</button>
+          <button class="mchip" onclick="clCreateBlank()">+ Start blank</button>`:''}
+      </span>
+    </div>`;
 }
 function _clRenderShell(){
   const host=document.getElementById("cl-shell"); if(!host) return;
-  if(CL_STATE.tab==="manufacturer"){ host.innerHTML=_clMfgHtml(); _clMfgRenderResults(); return; }
   if(CL_STATE.openId){ host.innerHTML=_clDetailHtml(CL_STATE.openId); return; }
-  host.innerHTML=_clBrowseHtml();
+  if(CL_STATE.tab==="manufacturer"){
+    host.innerHTML=`${_clTopBarHtml()}
+      <div class="pbk-wrap">
+        <aside class="pbk-tree">${_clLibrarySwitchHtml()}</aside>
+        <div class="pbk-list" style="flex:1">${_clMfgHtml()}</div>
+      </div>`;
+    _clMfgRenderResults();
+    return;
+  }
+  host.innerHTML=`${_clTopBarHtml()}<div id="cl-browse-results"></div>`;
   _clBrowseRenderResults();
 }
 function clCreateBlank(){ const p=colorPaletteCreateBlank(); clOpen(p.id); }
@@ -26836,11 +26878,12 @@ function clCreateBlank(){ const p=colorPaletteCreateBlank(); clOpen(p.id); }
 // Same three-column pattern as Materials/Furnishings/Products (.pbk-tree left
 // filter rail, .pbk-list middle grid, .pbk-ins right detail panel — same CSS
 // classes, not reinvented ones) instead of the old flat grid of 71 palette
-// cards. What's browsable here is every individual COLOR (994 of them — 71
-// palettes × 14 canonical swatches each), filterable by which Theme it
-// belongs to and by that theme's Tags, matching how Category/Brand facet the
-// Materials book. Picking a theme (or landing here at all) auto-opens its
-// first color on the right — never an empty "pick one" state.
+// cards. Two levels, same shape as Manufacturer Colors' own brand drill-down:
+// with no theme chosen and nothing searched, the grid shows one card per THEME
+// (a multi-color strip, so you can read the whole palette at a glance — not a
+// single flat swatch, which reads as "just one color" and loses the point).
+// Picking a theme (sidebar row or card) drills into its 994 individual colors
+// and auto-opens the first one on the right — never an empty "pick one" state.
 function _clAllColorEntries(){
   const out=[];
   COLOR_PALETTES.forEach(p=>{
@@ -26875,10 +26918,38 @@ function _clTagFacets(){
   return Object.keys(tally).map(t=>({id:t,name:t,n:tally[t]})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name));
 }
 function clSetThemeFilter(pid){ CL_STATE.themeFilter=(CL_STATE.themeFilter===pid)?"":pid; _clBrowseRenderResults(); }
-function clSetTagFilter(tag){ CL_STATE.tagFilter=(CL_STATE.tagFilter===tag)?"":tag; _clBrowseRenderResults(); }
+function clSetTagFilter(tag){ CL_STATE.tagFilter=(CL_STATE.tagFilter===tag)?"":tag; _clBrowseRenderResults();
+  document.getElementById("cl-tagdd")?.classList.remove("open"); }
 function clToggleThemeMore(){ CL_STATE.themeMore=!CL_STATE.themeMore; _clBrowseRenderResults(); }
 function clToggleTagMore(){ CL_STATE.tagMore=!CL_STATE.tagMore; _clBrowseRenderResults(); }
 function clSelectColor(pid,key){ CL_STATE.openPid=pid; CL_STATE.openKey=key; _clBrowseRenderResults(); }
+function clClearAllFilters(){
+  CL_STATE.themeFilter=""; CL_STATE.tagFilter=""; CL_STATE.favOnly=false;
+  document.getElementById("cl-filtersdd")?.classList.remove("open");
+  _clBrowseRenderResults();
+}
+function _clActiveFilterCount(){ return (CL_STATE.themeFilter?1:0)+(CL_STATE.tagFilter?1:0)+(CL_STATE.favOnly?1:0); }
+// The Tags quick-menu — same .mddm/.tagl/.it shape as the Materials tag picker,
+// wired to this feature's own single-select tag filter rather than the shared
+// goods tag vocabulary (colors aren't tagged from that list).
+function _clTagMenuBody(){
+  const list=_clTagFacets();
+  return `<div class="hd">Filter by tag</div>
+    <div class="tagl">${list.length?list.map(t=>`<div class="it${CL_STATE.tagFilter===t.id?' on':''}" onclick="event.stopPropagation();clSetTagFilter('${escAttr(t.id)}')">${escAttr(t.name)} <span style="opacity:.55">(${t.n})</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No tags yet.</div>`}</div>
+    ${CL_STATE.tagFilter?`<div class="ft"><span onclick="event.stopPropagation();clSetTagFilter('${escAttr(CL_STATE.tagFilter)}')">Clear</span></div>`:''}`;
+}
+// The Filters quick-menu — a summary of everything currently narrowing the grid
+// (which the sidebar already holds individually) with a one-click way to drop any
+// one of them, or all of them, matching the "Filters" chip's job in Materials.
+function _clFiltersMenuBody(){
+  const chips=[];
+  if(CL_STATE.themeFilter){ const p=colorPaletteFind(CL_STATE.themeFilter); if(p) chips.push({label:"Theme: "+p.name, act:`clSetThemeFilter('${p.id}')`}); }
+  if(CL_STATE.tagFilter) chips.push({label:"Tag: "+CL_STATE.tagFilter, act:`clSetTagFilter('${escAttr(CL_STATE.tagFilter)}')`});
+  if(CL_STATE.favOnly) chips.push({label:"Favorites only", act:"clToggleFavOnly()"});
+  return `<div class="hd">Active filters</div>
+    <div class="tagl">${chips.length?chips.map(c=>`<div class="it on" style="display:flex;justify-content:space-between;gap:8px" onclick="event.stopPropagation();${c.act}">${escAttr(c.label)}<span style="opacity:.6">✕</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No filters applied.</div>`}</div>
+    ${chips.length?`<div class="ft"><span onclick="event.stopPropagation();clClearAllFilters()">Clear all</span></div>`:''}`;
+}
 // Same shape as the real facet rail: a .pbk-sec header, up to 5 rows (the
 // selected one always shown even past the cap), then "Show N more"/"Show less".
 function _clFacetSection(title,items,selectedId,onClick,dotColor,moreOpen,onMoreClick){
@@ -26894,43 +26965,63 @@ function _clFacetSection(title,items,selectedId,onClick,dotColor,moreOpen,onMore
     ${hidden>0?`<button class="gt-more" onclick="${onMoreClick}()">Show ${hidden} more</button>`:''}
     ${hidden<=0&&moreOpen&&rest.length>CAP?`<button class="gt-more" onclick="${onMoreClick}()">Show less</button>`:''}`;
 }
+// Top level (no theme chosen, nothing searched): one card per theme, a strip of up
+// to 6 of its colors so it actually reads as "a sense of that theme" — not the old
+// single-swatch tile, which was one color standing in for a whole 14-color palette.
+function _clThemeCardHtml(p){
+  const cells=CANON_KEYS.slice(0,6).map(k=>p.sw&&p.sw[k]?p.sw[k][1]:null);
+  const strip=cells.map(hex=>`<span style="flex:1;background:${hex||'var(--surface2)'}"></span>`).join('');
+  return `<button class="pb-cd" onclick="clSetThemeFilter('${p.id}')">
+      <span style="display:flex;height:92px;border-radius:15px 15px 0 0;overflow:hidden">${strip}</span>
+      <b>${escAttr(p.name)}</b><i>${(p.tags||[]).slice(0,3).map(escAttr).join(' · ')||'&nbsp;'}</i>
+    </button>`;
+}
+// Drilled in (a theme picked, or a search running): one card per individual color.
 function _clColorCardHtml(c,on){
   return `<button class="pb-cd${on?' on':''}" onclick="clSelectColor('${c.pid}','${c.canonKey}')">
       <span class="pb-cdph" style="background:${c.hex}"></span>
       <b>${escAttr(c.name)}</b><i>${escAttr(c.pname)}</i>
     </button>`;
 }
-function _clBrowseHtml(){
-  return `<div class="mat-h">
-      <span class="sp">
-        <span class="gsearch"><span class="mag">${mi("zoom")}</span><input type="text" placeholder="Search colors, themes, tags…" value="${escAttr(CL_STATE.q)}" oninput="clSetQuery(this.value)"></span>
-      </span>
-      <span class="sp-grp">
-        <button id="cl-fav-btn" class="mchip${CL_STATE.favOnly?' on':''}" onclick="clToggleFavOnly()">★ Favorites</button>
-        <button class="mchip" onclick="clCreateBlank()">+ Start blank</button>
-      </span>
-    </div>
-    <div id="cl-browse-results"></div>`;
-}
 function _clBrowseRenderResults(){
   const host=document.getElementById("cl-browse-results"); if(!host) return;
-  const list=_clBrowseFiltered();
-  let open=list.find(c=>c.pid===CL_STATE.openPid && c.canonKey===CL_STATE.openKey);
-  if(!open && list.length){ open=list[0]; CL_STATE.openPid=open.pid; CL_STATE.openKey=open.canonKey; }
-  if(!open){ CL_STATE.openPid=""; CL_STATE.openKey=""; }
-  const themeName=CL_STATE.themeFilter ? ((colorPaletteFind(CL_STATE.themeFilter)||{}).name||"") : "";
-  const cards=list.map(c=>_clColorCardHtml(c, !!(open && c.pid===open.pid && c.canonKey===open.canonKey))).join('');
+  const q=CL_STATE.q.trim();
+  const themeLevel=!CL_STATE.themeFilter && !q;
+  let cardsHtml,headerHtml,open=null;
+  if(themeLevel){
+    const themes=COLOR_PALETTES.filter(p=>p&&!p.archived&&(!CL_STATE.favOnly||p.favorite)).sort((a,b)=>a.name.localeCompare(b.name));
+    cardsHtml=themes.map(_clThemeCardHtml).join('') || `<div class="pbk-empty">No themes match.</div>`;
+    headerHtml=`${themes.length} theme${themes.length===1?'':'s'}`;
+  } else {
+    const list=_clBrowseFiltered();
+    open=list.find(c=>c.pid===CL_STATE.openPid && c.canonKey===CL_STATE.openKey);
+    if(!open && list.length){ open=list[0]; CL_STATE.openPid=open.pid; CL_STATE.openKey=open.canonKey; }
+    if(!open){ CL_STATE.openPid=""; CL_STATE.openKey=""; }
+    const themeName=CL_STATE.themeFilter ? ((colorPaletteFind(CL_STATE.themeFilter)||{}).name||"") : "";
+    cardsHtml=list.map(c=>_clColorCardHtml(c, !!(open && c.pid===open.pid && c.canonKey===open.canonKey))).join('') || `<div class="pbk-empty">No colors match.</div>`;
+    headerHtml=`${list.length} color${list.length===1?'':'s'}${themeName?' in '+escAttr(themeName):(q?' matching “'+escAttr(q)+'”':'')}`;
+    if(CL_STATE.themeFilter) headerHtml=`<button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="clSetThemeFilter('${CL_STATE.themeFilter}')">← All themes</button> ${headerHtml}`;
+  }
   host.innerHTML=`<div class="pbk-wrap">
       <aside class="pbk-tree">
+        ${_clLibrarySwitchHtml()}
         ${_clFacetSection("Themes",_clThemeFacets(),CL_STATE.themeFilter,"clSetThemeFilter","#B08968",CL_STATE.themeMore,"clToggleThemeMore")}
         ${_clFacetSection("Tags",_clTagFacets(),CL_STATE.tagFilter,"clSetTagFilter","#6d8f5c",CL_STATE.tagMore,"clToggleTagMore")}
       </aside>
       <div class="pbk-list">
-        <div class="pb-lh">${list.length} color${list.length===1?'':'s'}${themeName?' in '+escAttr(themeName):''}</div>
-        <div class="pb-cards">${cards || `<div class="pbk-empty">No colors match.</div>`}</div>
+        <div class="pb-lh">${headerHtml}</div>
+        <div class="pb-cards">${cardsHtml}</div>
       </div>
-      <aside class="pbk-ins">${open?_clColorDetailHtml(open):`<div class="pbk-empty">Pick a color to see its details.</div>`}</aside>
+      <aside class="pbk-ins">${(!themeLevel&&open)?_clColorDetailHtml(open):`<div class="pbk-empty">${themeLevel?'Pick a theme to see its colors.':'Pick a color to see its details.'}</div>`}</aside>
     </div>`;
+  // The chips and dropdown bodies above live in the static top bar, not in this
+  // container — patch them directly so they don't show stale state (same fix as
+  // the Favorites button) whenever a sidebar click lands here instead.
+  const favBtn=document.getElementById("cl-fav-btn"); if(favBtn) favBtn.classList.toggle("on",CL_STATE.favOnly);
+  const tagsChip=document.getElementById("cl-tags-chip"); if(tagsChip) tagsChip.classList.toggle("on",!!CL_STATE.tagFilter);
+  const tagddBody=document.getElementById("cl-tagdd-body"); if(tagddBody) tagddBody.innerHTML=_clTagMenuBody();
+  const filtersChip=document.getElementById("cl-filters-chip"); if(filtersChip) filtersChip.classList.toggle("on",_clActiveFilterCount()>0);
+  const filtersddBody=document.getElementById("cl-filtersdd-body"); if(filtersddBody) filtersddBody.innerHTML=_clFiltersMenuBody();
 }
 // AI similar-colors suggestions — cached in memory per (palette, canon key)
 // so re-opening the same color doesn't spend another call. Deliberately asks
@@ -27148,8 +27239,10 @@ function _clMfgRenderResults(){
   host.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px">${brandCards || `<div style="font-size:.85rem;color:var(--tl)">No manufacturer colors match.</div>`}</div>`;
 }
 function _clMfgHtml(){
+  // Search lives in the shared top bar now (clTopSearch routes to clMfgSetQuery on
+  // this tab) — this used to render its own second search input directly above
+  // #cl-mfg-results, which was redundant once the green band got one.
   return `<div style="font-size:.74rem;color:var(--tm);background:var(--surface2);border-radius:9px;padding:8px 10px;margin-bottom:12px;line-height:1.5">Real manufacturer colors, added as they're researched and verified — never invented. A color without an official published hex still shows its real name and source, marked "needs verification" for the color itself.</div>
-    <input type="text" placeholder="Search manufacturer, product, category…" value="${escAttr(CL_MFG_Q)}" oninput="clMfgSetQuery(this.value)" style="width:100%;padding:.55rem .8rem;font-size:.85rem;border:1px solid var(--br);border-radius:9px;background:var(--surface2);margin-bottom:10px;box-sizing:border-box">
     <div id="cl-mfg-results"></div>
     <div class="card">
       <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tl);font-weight:700;margin-bottom:8px">Add a manufacturer color</div>
