@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1212</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1213</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26429,29 +26429,12 @@ function mbDismissSectionSuggestion(key,i){ _mbSuggestState(key).items.splice(i,
 // Search & add your own plant — separate from AI suggest. Searches every plant already in
 // the Plant Book (_allPlantsFlat), not the AI — this is for "I already know what I want."
 let MB_PLANTSEARCH={open:false,q:""};
-function mbTogglePlantSearch(){ MB_PLANTSEARCH.open=!MB_PLANTSEARCH.open; MB_PLANTSEARCH.q=""; renderMoodBoard(); }
+function mbPlantSearchOpen(){ MB_PLANTSEARCH.open=true; MB_PLANTSEARCH.q=""; MB_SEARCH_CAT=""; _mbSearchOpenModal(); }
 function _mbPlantSearchResults(){
   const q=MB_PLANTSEARCH.q.trim().toLowerCase(); if(!q) return [];
   const {plants}=_mbGather(); const have=new Set(plants.map(x=>x.kind+":"+x.p.id));
   return _allPlantsFlat().filter(x=>!have.has(x.kind+":"+x.p.id) &&
     (((x.p.c||"").toLowerCase().indexOf(q)>=0) || (botName(x.p)||"").toLowerCase().indexOf(q)>=0)).slice(0,20);
-}
-function _mbPlantSearchRowsHtml(res,q){
-  return res.length ? res.map(x=>{
-    const ph=x.p.img?`background-image:url('${escAttr(x.p.img)}');background-size:cover;background-position:center`:`background:var(--surface2)`;
-    return `<div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;border-bottom:1px solid var(--br)">
-      <div style="width:36px;height:36px;border-radius:6px;flex:none;${ph}"></div>
-      <div style="flex:1;min-width:0"><div style="font-size:.78rem;font-weight:600">${escAttr(x.p.c||botName(x.p))}</div><div style="font-size:.68rem;color:var(--tl);font-style:italic">${escAttr(botName(x.p))}</div></div>
-      <button class="btn" style="padding:.2rem .5rem;font-size:.7rem;background:var(--gm);color:#fff;border:none;flex:none" onclick="mbAddExistingPlant('${x.kind}','${escAttr(x.p.id)}')">+ Add</button>
-    </div>`;
-  }).join('') : (q.trim()?`<div style="font-size:.75rem;color:var(--tl);padding:.4rem">No matches in your Plant Book.</div>`:'');
-}
-// Targeted DOM update, not a full renderMoodBoard() — rebuilding #mb-body on every keystroke
-// would blow away the search input and lose focus mid-type.
-function mbPlantSearchInput(v){
-  MB_PLANTSEARCH.q=v;
-  const host=document.getElementById("mb-plantsearch-results"); if(!host) return;
-  host.innerHTML=_mbPlantSearchRowsHtml(_mbPlantSearchResults(),v);
 }
 function mbAddExistingPlant(kind,pid){
   ensurePlanting();
@@ -26463,10 +26446,11 @@ function mbAddExistingPlant(kind,pid){
 // want" gap Plants had, now closed here too, images included so you can actually see
 // what you're picking (Warwick: "again, like planting, i need to see the images").
 let MB_GOODSEARCH={open:false,q:"",sectionKey:""};
-function mbToggleGoodsSearch(sectionKey){
-  if(MB_GOODSEARCH.open && MB_GOODSEARCH.sectionKey===sectionKey) MB_GOODSEARCH.open=false;
-  else { MB_GOODSEARCH.open=true; MB_GOODSEARCH.sectionKey=sectionKey; MB_GOODSEARCH.q=""; }
-  renderMoodBoard();
+function mbGoodsSearchOpen(sectionKey){
+  MB_GOODSEARCH.open=true; MB_GOODSEARCH.sectionKey=sectionKey; MB_GOODSEARCH.q="";
+  const sec=_mbSectionDefs().find(d=>d.key===sectionKey);
+  MB_SEARCH_CAT=(sec&&sec.cat)||"";
+  _mbSearchOpenModal();
 }
 function _mbGoodsSearchResults(sec){
   const q=(MB_GOODSEARCH.q||"").trim().toLowerCase(); if(!q) return [];
@@ -26477,30 +26461,140 @@ function _mbGoodsSearchResults(sec){
     ((g.nm||"").toLowerCase().indexOf(q)>=0 || (g.cat||"").toLowerCase().indexOf(q)>=0 || (g.fin||"").toLowerCase().indexOf(q)>=0)
   ).slice(0,24).map(g=>({g,book}));
 }
-function _mbGoodsSearchRowsHtml(sec,q){
-  const res=_mbGoodsSearchResults(sec);
-  if(!res.length) return (q||"").trim() ? `<div style="font-size:.75rem;color:var(--tl);padding:.4rem">No matches in your ${escAttr(sec.label)} library.</div>` : '';
-  return res.map(({g,book})=>{
-    const ph=g.img?`background-image:url('${escAttr(g.img)}');background-size:cover;background-position:center`:`background:var(--surface2)`;
-    const addable=!!(goodsEstPrice(g) && specLineOf(g));
-    return `<div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;border-bottom:1px solid var(--br)">
-      <div style="width:36px;height:36px;border-radius:6px;flex:none;${ph}"></div>
-      <div style="flex:1;min-width:0"><div style="font-size:.78rem;font-weight:600">${escAttr(g.nm||"")}</div><div style="font-size:.68rem;color:var(--tl)">${escAttr([g.cat,g.fin].filter(Boolean).join(" · "))}</div></div>
-      ${addable
-        ? `<button class="btn" style="padding:.2rem .5rem;font-size:.7rem;background:var(--gm);color:#fff;border:none;flex:none" onclick="mbAddExistingGoods('${book}','${escAttr(g.id)}')">+ Add</button>`
-        : `<span title="No estimate line set yet — use &quot;Wrong trade? Rate&quot; in the Price Book" style="font-size:.6rem;color:var(--tl);flex:none;text-align:right;max-width:70px">needs a rate</span>`}
-    </div>`;
-  }).join('');
-}
-function mbGoodsSearchInput(v){
-  MB_GOODSEARCH.q=v;
-  const host=document.getElementById("mb-goodsearch-results"); if(!host) return;
-  const sec=_mbSectionDefs().find(d=>d.key===MB_GOODSEARCH.sectionKey); if(!sec) return;
-  host.innerHTML=_mbGoodsSearchRowsHtml(sec,v);
-}
 async function mbAddExistingGoods(book,gid){
   await specAdd(book,gid);
   renderMoodBoard();
+}
+// ── Search & Add — popup redesign ────────────────────────────────────────
+// Replaced the old thin inline results row under each section — Warwick, live: "results
+// come up, but the images are too small, and i can't click to add... a legit popup search
+// tool with larger cards." One shared modal, reused for every goods section AND plants —
+// approved mockup: https://claude.ai/code/artifact/d3ee3d82-9b3f-4d38-b28a-333d5f8cd5d2
+let MB_SEARCH_CAT="";
+function mbSearchClose(){
+  MB_GOODSEARCH.open=false; MB_PLANTSEARCH.open=false;
+  const d=document.getElementById("mbsearch-modal"); if(d) d.remove();
+}
+function _mbSearchCatList(){
+  if(MB_PLANTSEARCH.open) return [];
+  const sec=_mbSectionDefs().find(d=>d.key===MB_GOODSEARCH.sectionKey); if(!sec) return [];
+  if(sec.group==="materials") return MAT_MB_CATS;
+  if(sec.group==="products") return PROD_CATS;
+  return FUR_CATS;
+}
+function mbSearchSetCat(c){ MB_SEARCH_CAT=c; _mbSearchRenderResults(); }
+function _mbSearchOpenModal(){
+  let d=document.getElementById("mbsearch-modal"); if(d) d.remove();
+  d=document.createElement("div"); d.id="mbsearch-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10004;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.addEventListener("click",e=>{ if(e.target===d) mbSearchClose(); });
+  document.body.appendChild(d);
+  _mbSearchRenderShell();
+}
+function _mbSearchRenderShell(){
+  const host=document.getElementById("mbsearch-modal"); if(!host) return;
+  const isPlant=MB_PLANTSEARCH.open;
+  const sec=isPlant?null:_mbSectionDefs().find(d=>d.key===MB_GOODSEARCH.sectionKey);
+  const libLabel = isPlant ? "Plant Book" : (sec&&sec.group==="materials"?"Materials":sec&&sec.group==="products"?"Products":"Furnishings");
+  const title = isPlant ? "Add a plant" : `Add to ${escAttr(sec?sec.label:"section")}`;
+  const cats=_mbSearchCatList();
+  const chip=(label,val)=>`<span onclick="mbSearchSetCat('${escAttr(val)}')" style="padding:.32rem .75rem;border-radius:20px;font-size:.72rem;font-weight:500;cursor:pointer;background:${MB_SEARCH_CAT===val?'var(--gd)':'#fff'};color:${MB_SEARCH_CAT===val?'#fff':'var(--tm)'};border:1px solid ${MB_SEARCH_CAT===val?'var(--gd)':'var(--br)'}">${label}</span>`;
+  host.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:920px;width:100%;box-shadow:0 20px 50px -20px rgba(0,0,0,.4);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:1rem 1.2rem .8rem;border-bottom:1px solid var(--br);flex:none">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.7rem">
+          <div>
+            <div style="font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;font-size:1.2rem;color:var(--tx)">${title}</div>
+            <div style="font-size:.72rem;color:var(--tm);margin-top:.1rem">Search your ${escAttr(libLabel)} library</div>
+          </div>
+          <button onclick="mbSearchClose()" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--br);background:var(--surface2);color:var(--tl);display:flex;align-items:center;justify-content:center;font-size:.8rem;cursor:pointer;flex-shrink:0">✕</button>
+        </div>
+        <div style="position:relative;margin-bottom:${cats.length?'.7rem':'0'}">
+          <span style="position:absolute;left:.85rem;top:50%;transform:translateY(-50%);color:var(--tl);font-size:.9rem">🔍</span>
+          <input id="mbsearch-input" type="text" placeholder="Search by name${isPlant?'':', brand, or finish'}…" value="${escAttr(isPlant?MB_PLANTSEARCH.q:MB_GOODSEARCH.q)}" oninput="mbSearchInput(this.value)" style="width:100%;padding:.7rem 1rem .7rem 2.5rem;border:1px solid var(--br);border-radius:11px;background:var(--surface2);font-size:.92rem;color:var(--tx);box-sizing:border-box">
+        </div>
+        ${cats.length?`<div style="display:flex;gap:.4rem;flex-wrap:wrap">${chip("All","")}${cats.map(c=>chip(c,c)).join('')}</div>`:''}
+      </div>
+      <div id="mbsearch-body" style="padding:1.1rem 1.2rem 1.4rem;overflow-y:auto;flex:1"></div>
+    </div>`;
+  _mbSearchRenderResults();
+  const inp=document.getElementById("mbsearch-input"); if(inp) inp.focus();
+}
+function mbSearchInput(v){
+  if(MB_PLANTSEARCH.open) MB_PLANTSEARCH.q=v; else MB_GOODSEARCH.q=v;
+  _mbSearchRenderResults();
+}
+function _mbSearchEmptyHtml(icon,msg){
+  return `<div style="text-align:center;padding:3rem 1rem;color:var(--tm)">
+      <div style="font-size:2rem;margin-bottom:.6rem;opacity:.5">${icon}</div>${escAttr(msg)}
+    </div>`;
+}
+function _mbSearchCardHtml(img,name,sub,priceLabel,actionHtml){
+  const ph=img?`background-image:url('${escAttr(img)}');background-size:cover;background-position:center`:`background:var(--surface2)`;
+  return `<div style="border:1px solid var(--br);border-radius:13px;overflow:hidden;background:var(--card);display:flex;flex-direction:column">
+      <div style="aspect-ratio:1;position:relative;${ph}">
+        ${priceLabel?`<span style="position:absolute;bottom:6px;left:6px;background:rgba(31,36,28,.72);color:#fff;font-size:.62rem;font-weight:600;padding:2px 7px;border-radius:7px">${escAttr(priceLabel)}</span>`:''}
+      </div>
+      <div style="padding:.6rem .65rem .7rem;display:flex;flex-direction:column;gap:.3rem;flex:1">
+        <div style="font-size:.78rem;font-weight:700;color:var(--tx);line-height:1.25">${escAttr(name)}</div>
+        <div style="font-size:.68rem;color:var(--tl);line-height:1.2">${escAttr(sub)}</div>
+        <div style="flex:1"></div>
+        ${actionHtml}
+      </div>
+    </div>`;
+}
+function _mbSearchRenderResults(){
+  const host=document.getElementById("mbsearch-body"); if(!host) return;
+  if(MB_PLANTSEARCH.open) return _mbSearchRenderPlantResults(host);
+  return _mbSearchRenderGoodsResults(host);
+}
+function _mbSearchRenderPlantResults(host){
+  const q=MB_PLANTSEARCH.q.trim();
+  if(!q){ host.innerHTML=_mbSearchEmptyHtml("🌿","Start typing to search your Plant Book"); return; }
+  const res=_mbPlantSearchResults();
+  if(!res.length){ host.innerHTML=`<div style="font-size:.82rem;color:var(--tl);padding:2rem 1rem;text-align:center">No matches in your Plant Book.</div>`; return; }
+  host.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px">${res.map(x=>
+      _mbSearchCardHtml(x.p.img, x.p.c||botName(x.p), botName(x.p), '',
+        `<button class="btn" onclick="mbAddExistingPlant('${x.kind}','${escAttr(x.p.id)}');mbSearchClose();" style="width:100%;padding:.45rem;border-radius:8px;border:none;background:var(--gm);color:#fff;font-size:.76rem;font-weight:700;cursor:pointer">+ Add</button>`)
+    ).join('')}</div>`;
+}
+// A "materials" item without a matched trade line can be fixed on the spot — the picker
+// is fully wired for materials (renderMaterials, goodsSaveQuiet("materials")). Furnishings
+// don't get the same live button: matPickLine() opens for a furnishings item too, but the
+// apply/save path underneath (matApplyLine/matNewLine/matApplyLineBrand) is matFind()-only
+// (materials array) and would silently no-op — a button that looks like it works but
+// doesn't is worse than the honest "needs a rate" label. Flagged as a follow-up, not
+// guessed at here.
+function mbSearchSetRate(gid){
+  matPickLine(gid);
+  const watch=()=>{
+    if(document.getElementById("mline")){ requestAnimationFrame(watch); return; }
+    if(document.getElementById("mbsearch-modal")) _mbSearchRenderResults();
+  };
+  requestAnimationFrame(watch);
+}
+function _mbSearchRenderGoodsResults(host){
+  const sec=_mbSectionDefs().find(d=>d.key===MB_GOODSEARCH.sectionKey);
+  if(!sec){ host.innerHTML=''; return; }
+  const libName = sec.group==="materials"?"Materials":sec.group==="products"?"Products":"Furnishings";
+  const q=(MB_GOODSEARCH.q||"").trim();
+  if(!q){ host.innerHTML=_mbSearchEmptyHtml(sec.group==="products"?"💡":sec.group==="materials"?"🧱":"🛋️", `Start typing to search your ${libName} library`); return; }
+  const secForSearch=Object.assign({},sec,{cat:MB_SEARCH_CAT||null});
+  const res=_mbGoodsSearchResults(secForSearch);
+  if(!res.length){ host.innerHTML=`<div style="font-size:.82rem;color:var(--tl);padding:2rem 1rem;text-align:center">No matches${MB_SEARCH_CAT?` in ${escAttr(MB_SEARCH_CAT)}`:''}.</div>`; return; }
+  host.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px">${res.map(({g,book})=>{
+      const hasPrice=!!goodsEstPrice(g), hasLine=!!specLineOf(g), addable=hasPrice&&hasLine;
+      const price=hasPrice?fmtN(goodsEstPrice(g))+(book==="materials"?"/"+(g.u||"SF"):" ea"):'';
+      // Two different reasons an item can't be added yet, told apart rather than lumped
+      // into one "needs a rate" — the item itself has no price at all (fix that in the
+      // library, out of scope for this popup) vs. it has a price but no trade line is
+      // matched (fixable right here, materials only — see mbSearchSetRate's comment).
+      let action;
+      if(addable) action=`<button class="btn" onclick="mbAddExistingGoods('${book}','${escAttr(g.id)}');mbSearchClose();" style="width:100%;padding:.45rem;border-radius:8px;border:none;background:var(--gm);color:#fff;font-size:.76rem;font-weight:700;cursor:pointer">+ Add</button>`;
+      else if(!hasPrice) action=`<span title="Add a price for this item in the Materials/Furnishings library first" style="display:block;text-align:center;padding:.4rem;border-radius:8px;background:var(--surface2);color:var(--tl);font-size:.64rem;font-weight:600">No price set yet</span>`;
+      else if(book==="materials") action=`<button class="btn" onclick="mbSearchSetRate('${escAttr(g.id)}')" style="width:100%;padding:.4rem;border-radius:8px;border:1px dashed var(--gold);background:var(--brand-soft);color:var(--gold);font-size:.66rem;font-weight:700;line-height:1.3;cursor:pointer">Needs a trade line · Set rate →</button>`;
+      else action=`<span title="No estimate line set yet — use &quot;Wrong trade? Rate&quot; on this item in the Furnishings library" style="display:block;text-align:center;padding:.4rem;border-radius:8px;background:var(--surface2);color:var(--tl);font-size:.64rem;font-weight:600">Needs a trade line</span>`;
+      return _mbSearchCardHtml(g.img,g.nm,[g.cat,g.fin].filter(Boolean).join(" · "),price,action);
+    }).join('')}</div>`;
 }
 // "add to mood board" from the library's own detail view — Warwick: "a button in the
 // detail popup for products, plants and materials could be added still... unless there
@@ -26618,17 +26712,7 @@ function renderMoodBoard(){
     const {shown,hiddenCount}=_mbItemsForSection(sec);
     const sst=_mbSuggestState(sec.key);
     const isPlant=sec.group==="plant";
-    const searchOpen = isPlant ? MB_PLANTSEARCH.open : (MB_GOODSEARCH.open && MB_GOODSEARCH.sectionKey===sec.key);
-    const searchBtn = `<button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:${searchOpen?'var(--gd)':'#fff'};color:${searchOpen?'#fff':'var(--gm)'};border:1px solid var(--gm)" onclick="${isPlant?'mbTogglePlantSearch()':`mbToggleGoodsSearch('${escAttr(sec.key)}')`}">🔍 Search &amp; add</button>`;
-    const searchHtml = !searchOpen ? '' : isPlant
-      ? `<div style="margin-bottom:10px;border:1px solid var(--br);border-radius:8px;padding:.5rem">
-          <input type="text" placeholder="Search your Plant Book by name…" value="${escAttr(MB_PLANTSEARCH.q)}" oninput="mbPlantSearchInput(this.value)" style="width:100%;padding:.4rem .5rem;font-size:.8rem;border:1px solid var(--br);border-radius:6px;margin-bottom:.4rem;box-sizing:border-box">
-          <div id="mb-plantsearch-results" style="max-height:220px;overflow-y:auto">${_mbPlantSearchRowsHtml(_mbPlantSearchResults(),MB_PLANTSEARCH.q)}</div>
-        </div>`
-      : `<div style="margin-bottom:10px;border:1px solid var(--br);border-radius:8px;padding:.5rem">
-          <input type="text" placeholder="Search your ${escAttr(sec.label)} library by name…" value="${escAttr(MB_GOODSEARCH.q)}" oninput="mbGoodsSearchInput(this.value)" style="width:100%;padding:.4rem .5rem;font-size:.8rem;border:1px solid var(--br);border-radius:6px;margin-bottom:.4rem;box-sizing:border-box">
-          <div id="mb-goodsearch-results" style="max-height:220px;overflow-y:auto">${_mbGoodsSearchRowsHtml(sec,MB_GOODSEARCH.q)}</div>
-        </div>`;
+    const searchBtn = `<button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="${isPlant?'mbPlantSearchOpen()':`mbGoodsSearchOpen('${escAttr(sec.key)}')`}">🔍 Search &amp; add</button>`;
     // Both input types side by side, on purpose — auto "Suggest more" (style/wizard-driven)
     // and a typed request both write into the same suggestion strip below.
     const queryHtml=`<div style="display:flex;gap:6px;margin-bottom:10px">
@@ -26643,7 +26727,6 @@ function renderMoodBoard(){
         <button class="btn" style="padding:.15rem .55rem;font-size:.68rem;background:#fff;color:var(--gold);border:1px solid var(--gold)" onclick="mbSuggestSection('${escAttr(sec.key)}')" ${sst.loading?'disabled':''}>✨ Suggest more</button>
         ${removeBtn}
       </div>
-      ${searchHtml}
       ${queryHtml}
       ${_mbSectionBoardHtml(shown)}
       ${_mbSuggestSectionHtml(sec.key)}
