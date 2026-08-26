@@ -54,6 +54,11 @@ export default {
 
     try {
       if (body.type === "scrape")   return json(await scrapeOne(body.url));
+      // Same as "scrape" but for a page you actually want EVERY photo from — a
+      // portfolio project page, not a single-product listing. "scrape" caps at 10
+      // deliberately (one hero photo is the point there); this raises that cap without
+      // touching the default so every existing caller keeps its current behavior.
+      if (body.type === "scrapeall") return json(await scrapeOne(body.url, Math.min(+body.limit || 60, 100)));
       if (body.type === "discover") return json(await discover(body.url, Math.min(+body.limit || 60, 3000)));
       if (body.type === "pricelook") return json(await priceLook(body));
       // A supplier that refuses a crawler will still publish a catalogue and a price
@@ -178,7 +183,7 @@ async function getHtml(url) {
   return { html: (await r.text()).slice(0, 1500000), finalUrl: r.url || url };
 }
 
-async function scrapeOne(url) {
+async function scrapeOne(url, imgLimit) {
   url = String(url || "").trim();
   if (!/^https?:\/\//i.test(url)) return { ok: false, error: "bad url", url };
 
@@ -192,7 +197,7 @@ async function scrapeOne(url) {
   const product = ld.find(isProduct) || null;
 
   const meta = collectMeta(html);
-  const images = collectImages(html, finalUrl, product, meta);
+  const images = collectImages(html, finalUrl, product, meta, imgLimit);
   const docs = collectDocs(html, finalUrl);
 
   return {
@@ -408,7 +413,9 @@ function collectMeta(html) {
   }
   return meta;
 }
-function collectImages(html, finalUrl, product, meta) {
+function collectImages(html, finalUrl, product, meta, limit) {
+  limit = limit || 10;
+  const scanCap = limit + 4;   // a little slack for junk filtered out by push()
   const imgs = [];
   const abs = u => { try { return new URL(u, finalUrl).href; } catch (e) { return null; } };
   const push = u => {
@@ -440,11 +447,11 @@ function collectImages(html, finalUrl, product, meta) {
   const hrefRe = /<a\b[^>]*\bhref=["']([^"']+\.(?:jpe?g|png|webp|avif)(?:\?[^"']*)?)["'][^>]*>/gi;
   let hm;
   const hrefScope = mainHtml || html;
-  while ((hm = hrefRe.exec(hrefScope)) && imgs.length < 14) push(hm[1]);
+  while ((hm = hrefRe.exec(hrefScope)) && imgs.length < scanCap) push(hm[1]);
   const re = /<img[^>]+>/gi;
   let m;
   const imgScope = mainHtml || html;
-  while ((m = re.exec(imgScope)) && imgs.length < 14) {
+  while ((m = re.exec(imgScope)) && imgs.length < scanCap) {
     const src = (m[0].match(/(?:data-srcset|data-src|srcset|src)=["']([^"']+)["']/i) || [])[1];
     if (src) push(src.split(/[,\s]/)[0]);
   }
@@ -452,13 +459,13 @@ function collectImages(html, finalUrl, product, meta) {
   // real content sits outside it) — fall back to the unscoped whole-page scan exactly
   // as before, so nothing that used to work stops working.
   if (mainHtml && !imgs.length) {
-    while ((hm = hrefRe.exec(html)) && imgs.length < 14) push(hm[1]);
-    while ((m = re.exec(html)) && imgs.length < 14) {
+    while ((hm = hrefRe.exec(html)) && imgs.length < scanCap) push(hm[1]);
+    while ((m = re.exec(html)) && imgs.length < scanCap) {
       const src = (m[0].match(/(?:data-srcset|data-src|srcset|src)=["']([^"']+)["']/i) || [])[1];
       if (src) push(src.split(/[,\s]/)[0]);
     }
   }
-  return imgs.slice(0, 10);
+  return imgs.slice(0, limit);
 }
 // Spec sheets, warranties, install guides, usage charts — the documents a designer
 // actually needs at CD stage and cannot get from a product photo. Link text is kept as
