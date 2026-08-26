@@ -5551,7 +5551,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1224</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1225</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26788,9 +26788,9 @@ function colorPaletteClearRoleOverride(id,roleKey){
 
 // ── UI state ──────────────────────────────────────────────────────────────
 let CL_STATE={tab:"theme",q:"",favOnly:false,openId:"",archivedShown:false,
-  themeFilter:"",tagFilter:"",themeMore:false,tagMore:false,openPid:"",openKey:""};
+  themeFilter:"",tagFilter:"",appFilter:"",themeMore:false,tagMore:false,appMore:false,openPid:"",openKey:""};
 function clSetTab(t){ CL_STATE.tab=t; CL_STATE.q=""; CL_STATE.openId="";
-  CL_STATE.themeFilter=""; CL_STATE.tagFilter=""; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
+  CL_STATE.themeFilter=""; CL_STATE.tagFilter=""; CL_STATE.appFilter=""; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
 // Targeted at #cl-browse-results, never the shell — the shell holds the search <input>
 // itself, and re-rendering it on every keystroke tears the input out of the DOM and
 // rebuilds it, dropping focus after the first character (same bug, same fix, as
@@ -26838,12 +26838,15 @@ function _clTopBarHtml(){
     ? `${_clAllColorEntries().length} colors across ${COLOR_PALETTES.filter(p=>p&&!p.archived).length} themes`
     : `${MANUFACTURER_COLORS.length} colors across ${new Set(MANUFACTURER_COLORS.map(m=>m.manufacturer)).size} manufacturers`;
   const qVal=isTheme?CL_STATE.q:CL_MFG_Q;
+  // Everything after the title lives in ONE .sp row — same structure as the real
+  // Materials bar (search + its quick-menu chips are siblings inside a single
+  // .sp, not the search in its own row with chips below it). .sp carries
+  // flex:1 1 100% so it claims the row under the title; splitting the chips
+  // into a second span outside .sp put them on their own line underneath.
   return `<div class="mat-h">
       <span><b>Color Library</b><small>${count}</small></span>
       <span class="sp">
         <span class="gsearch"><span class="mag">${mi("zoom")}</span><input type="text" placeholder="Search colors, ${isTheme?'themes':'manufacturers'}, tags…" value="${escAttr(qVal)}" oninput="clTopSearch(this.value)"></span>
-      </span>
-      <span style="display:flex;align-items:center;gap:10px;flex:none;flex-wrap:wrap">
         ${isTheme?`<span class="mdd">
             <button id="cl-tags-chip" class="mchip${CL_STATE.tagFilter?' on':''}" onclick="event.stopPropagation();document.getElementById('cl-tagdd').classList.toggle('open')">${mi("list")}Tags${mi("chev")}</button>
             <div class="mddm" id="cl-tagdd"><div id="cl-tagdd-body">${_clTagMenuBody()}</div></div>
@@ -26884,13 +26887,73 @@ function clCreateBlank(){ const p=colorPaletteCreateBlank(); clOpen(p.id); }
 // single flat swatch, which reads as "just one color" and loses the point).
 // Picking a theme (sidebar row or card) drills into its 994 individual colors
 // and auto-opens the first one on the right — never an empty "pick one" state.
+// Roughly categorizes a hex into a color family / temperature / saturation band —
+// computed live from the value itself, never stored or invented. Every one of the
+// 994 colors gets real, consistent tags this way without hand-tagging or guessing.
+// Hue + CHROMA + lightness, not HSL's own saturation — HSL's s divides chroma by
+// (2-max-min) near white or (max+min) near black, so it shoots toward 100% for any
+// color that's merely near a lightness extreme, even a barely-tinted off-white like
+// "Sun-Washed Plaster" (#EEE3D0), which came out "vibrant orange" under HSL-s before
+// this fix. Chroma (max-min, no lightness normalization) stays low for exactly the
+// pale/near-neutral colors that dominate this library's WALL/TRIM/PAVING swatches,
+// and only climbs for colors that are genuinely bold — which is what "how vivid does
+// this actually look" needs.
+function _hexToHCL(hex){
+  const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return {h:0,c:0,l:0};
+  const n=parseInt(m[1],16);
+  const r=((n>>16)&255)/255, g=((n>>8)&255)/255, b=(n&255)/255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b), l=(max+min)/2, c=max-min;
+  let h=0;
+  if(c>0){
+    if(max===r) h=(g-b)/c+(g<b?6:0);
+    else if(max===g) h=(b-r)/c+2;
+    else h=(r-g)/c+4;
+    h*=60;
+  }
+  return {h,c,l};
+}
+function _colorFamily(h,c,l){
+  if(l>=0.90 && c<0.10) return "white";
+  if(l<=0.14) return "black";
+  if(c<0.06) return "gray";
+  if(c<0.22 && h>=20 && h<60){
+    if(l>0.80) return "cream";
+    if(l>0.60) return "beige";
+    if(l>0.40) return "taupe";
+    return "brown";
+  }
+  if(h<15||h>=345) return "red";
+  if(h<35) return "terracotta";
+  if(h<50) return "orange";
+  if(h<65) return "yellow";
+  if(h<95) return c<0.18?"olive":"green";
+  if(h<160) return "green";
+  if(h<190) return "teal";
+  if(h<225) return "aqua";
+  if(h<255) return "blue";
+  if(h<290) return "purple";
+  return "pink";
+}
+function _colorTemperature(h,c){ if(c<0.05) return "neutral"; return (h<70||h>=330)?"warm":"cool"; }
+function _colorSatBand(c){ if(c<0.10) return "muted"; if(c<0.25) return "medium"; return "vibrant"; }
+function colorAutoTags(hex){ const {h,c,l}=_hexToHCL(hex); return {family:_colorFamily(h,c,l),temperature:_colorTemperature(h,c),saturation:_colorSatBand(c)}; }
+// The reverse of COLOR_ROLE_DEFAULT_CANON — every detailed application role that
+// defaults to a given canon key, built once. Lets a color's card/detail show what
+// it's actually FOR (e.g. the WALL swatch → "Wall plaster, Wall paint, Field tile"),
+// not just its bare canon label.
+const CANON_APPLICATIONS={}; CANON_KEYS.forEach(k=>CANON_APPLICATIONS[k]=[]);
+Object.keys(COLOR_ROLE_DEFAULT_CANON).forEach(role=>{
+  const canon=COLOR_ROLE_DEFAULT_CANON[role]; if(CANON_APPLICATIONS[canon]) CANON_APPLICATIONS[canon].push(role);
+});
 function _clAllColorEntries(){
   const out=[];
   COLOR_PALETTES.forEach(p=>{
     if(!p||p.archived) return;
     CANON_KEYS.forEach(k=>{
       const sw=p.sw&&p.sw[k]; if(!sw) return;
-      out.push({pid:p.id,pname:p.name,ptags:p.tags||[],pfav:!!p.favorite,canonKey:k,name:sw[0],hex:(sw[1]||"").toUpperCase()});
+      const hex=(sw[1]||"").toUpperCase();
+      out.push({pid:p.id,pname:p.name,ptags:p.tags||[],pfav:!!p.favorite,canonKey:k,name:sw[0],hex,
+        autoTags:colorAutoTags(hex),apps:CANON_APPLICATIONS[k]||[]});
     });
   });
   return out;
@@ -26901,8 +26964,10 @@ function _clBrowseFiltered(){
     (!CL_STATE.favOnly || c.pfav) &&
     (!CL_STATE.themeFilter || c.pid===CL_STATE.themeFilter) &&
     (!CL_STATE.tagFilter || c.ptags.indexOf(CL_STATE.tagFilter)>=0) &&
+    (!CL_STATE.appFilter || c.canonKey===COLOR_ROLE_DEFAULT_CANON[CL_STATE.appFilter]) &&
     (!q || c.name.toLowerCase().indexOf(q)>=0 || c.pname.toLowerCase().indexOf(q)>=0 ||
-     c.hex.toLowerCase().indexOf(q)>=0 || c.ptags.some(t=>t.indexOf(q)>=0))
+     c.hex.toLowerCase().indexOf(q)>=0 || c.ptags.some(t=>t.indexOf(q)>=0) ||
+     c.autoTags.family.indexOf(q)>=0 || c.autoTags.temperature.indexOf(q)>=0)
   );
 }
 function _clThemeFacets(){
@@ -26917,18 +26982,32 @@ function _clTagFacets(){
     (p.tags||[]).forEach(t=>{ tally[t]=(tally[t]||0)+n; }); });
   return Object.keys(tally).map(t=>({id:t,name:t,n:tally[t]})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name));
 }
+// Flattened in the spec's own group order (Architecture, Paving, Natural Stone…)
+// rather than alphabetized — that order is already meaningful, grouping roles
+// that belong together, and re-sorting would scatter them across the list.
+function _clAppFacets(){
+  const themes=COLOR_PALETTES.filter(p=>p && !p.archived && (!CL_STATE.favOnly || p.favorite));
+  const out=[];
+  COLOR_ROLE_GROUPS.forEach(g=>g.roles.forEach(r=>{
+    const canon=COLOR_ROLE_DEFAULT_CANON[r];
+    out.push({id:r,name:COLOR_ROLE_LABELS[r]||r,n:themes.filter(p=>p.sw&&p.sw[canon]).length});
+  }));
+  return out;
+}
 function clSetThemeFilter(pid){ CL_STATE.themeFilter=(CL_STATE.themeFilter===pid)?"":pid; _clBrowseRenderResults(); }
 function clSetTagFilter(tag){ CL_STATE.tagFilter=(CL_STATE.tagFilter===tag)?"":tag; _clBrowseRenderResults();
   document.getElementById("cl-tagdd")?.classList.remove("open"); }
+function clSetAppFilter(role){ CL_STATE.appFilter=(CL_STATE.appFilter===role)?"":role; _clBrowseRenderResults(); }
 function clToggleThemeMore(){ CL_STATE.themeMore=!CL_STATE.themeMore; _clBrowseRenderResults(); }
 function clToggleTagMore(){ CL_STATE.tagMore=!CL_STATE.tagMore; _clBrowseRenderResults(); }
+function clToggleAppMore(){ CL_STATE.appMore=!CL_STATE.appMore; _clBrowseRenderResults(); }
 function clSelectColor(pid,key){ CL_STATE.openPid=pid; CL_STATE.openKey=key; _clBrowseRenderResults(); }
 function clClearAllFilters(){
-  CL_STATE.themeFilter=""; CL_STATE.tagFilter=""; CL_STATE.favOnly=false;
+  CL_STATE.themeFilter=""; CL_STATE.tagFilter=""; CL_STATE.appFilter=""; CL_STATE.favOnly=false;
   document.getElementById("cl-filtersdd")?.classList.remove("open");
   _clBrowseRenderResults();
 }
-function _clActiveFilterCount(){ return (CL_STATE.themeFilter?1:0)+(CL_STATE.tagFilter?1:0)+(CL_STATE.favOnly?1:0); }
+function _clActiveFilterCount(){ return (CL_STATE.themeFilter?1:0)+(CL_STATE.tagFilter?1:0)+(CL_STATE.appFilter?1:0)+(CL_STATE.favOnly?1:0); }
 // The Tags quick-menu — same .mddm/.tagl/.it shape as the Materials tag picker,
 // wired to this feature's own single-select tag filter rather than the shared
 // goods tag vocabulary (colors aren't tagged from that list).
@@ -26945,6 +27024,7 @@ function _clFiltersMenuBody(){
   const chips=[];
   if(CL_STATE.themeFilter){ const p=colorPaletteFind(CL_STATE.themeFilter); if(p) chips.push({label:"Theme: "+p.name, act:`clSetThemeFilter('${p.id}')`}); }
   if(CL_STATE.tagFilter) chips.push({label:"Tag: "+CL_STATE.tagFilter, act:`clSetTagFilter('${escAttr(CL_STATE.tagFilter)}')`});
+  if(CL_STATE.appFilter) chips.push({label:"Application: "+(COLOR_ROLE_LABELS[CL_STATE.appFilter]||CL_STATE.appFilter), act:`clSetAppFilter('${escAttr(CL_STATE.appFilter)}')`});
   if(CL_STATE.favOnly) chips.push({label:"Favorites only", act:"clToggleFavOnly()"});
   return `<div class="hd">Active filters</div>
     <div class="tagl">${chips.length?chips.map(c=>`<div class="it on" style="display:flex;justify-content:space-between;gap:8px" onclick="event.stopPropagation();${c.act}">${escAttr(c.label)}<span style="opacity:.6">✕</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No filters applied.</div>`}</div>
@@ -26969,16 +27049,12 @@ function _clFacetSection(title,items,selectedId,onClick,dotColor,moreOpen,onMore
 // of WALL/TRIM/PAVING/STONE) sit low, a saturated accent (POOL_TILE, ACCENT, BLOOM)
 // sits high. Used to widen a theme card's bolder colors instead of giving every one
 // of its 14 swatches identical width — otherwise two very different themes whose
-// first several swatches are both "beige/gray/tan" read as the same card.
-function _hexSaturation(hex){
-  const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return 0;
-  const n=parseInt(m[1],16);
-  const r=((n>>16)&255)/255, g=((n>>8)&255)/255, b=(n&255)/255;
-  const max=Math.max(r,g,b), min=Math.min(r,g,b);
-  if(max===min) return 0;
-  const l=(max+min)/2, d=max-min;
-  return l>0.5 ? d/(2-max-min) : d/(max+min);
-}
+// first several swatches are both "beige/gray/tan" read as the same card. Reuses
+// _hexToHCL's chroma rather than HSL's own saturation, which reads a pale, barely-
+// tinted off-white as ~47% "saturated" (it divides chroma by closeness to the
+// lightness extreme) — chroma alone stays low for exactly the near-neutral colors
+// this library is full of, and only climbs for colors that are actually bold.
+function _hexSaturation(hex){ return _hexToHCL(hex).c; }
 // Top level (no theme chosen, nothing searched): one card per theme, ALL 14 of its
 // colors in a strip — not a 6-color slice, which cut every card off right before the
 // pool/fabric/accent/foliage/bloom swatches that actually give a theme its character,
@@ -26990,21 +27066,27 @@ function _clThemeCardHtml(p){
     return `<span style="flex:${w.toFixed(2)} 1 0;background:${hex||'var(--surface2)'}"></span>`;
   }).join('');
   return `<button class="pb-cd" onclick="clSetThemeFilter('${p.id}')">
-      <span style="display:flex;height:92px;border-radius:15px 15px 0 0;overflow:hidden">${strip}</span>
+      <span style="display:flex;height:52px;border-radius:15px 15px 0 0;overflow:hidden">${strip}</span>
       <b>${escAttr(p.name)}</b><i>${(p.tags||[]).slice(0,3).map(escAttr).join(' · ')||'&nbsp;'}</i>
     </button>`;
 }
-// Drilled in (a theme picked, or a search running): one card per individual color.
-function _clColorCardHtml(c,on){
+// Drilled in (a theme picked, a search running, or an Application/Tag narrowing
+// across themes): one card per individual color. Subtitle adapts to what's
+// actually useful given the current filter — inside one theme every card already
+// shares that theme's name (shown once in the header above), so the canon
+// role/application reads better there; browsing across themes the theme name is
+// what actually differs card to card, so that's what shows instead.
+function _clColorCardHtml(c,on,showTheme){
+  const sub=showTheme ? c.pname : (CANON_LABELS[c.canonKey]||"");
   return `<button class="pb-cd${on?' on':''}" onclick="clSelectColor('${c.pid}','${c.canonKey}')">
       <span class="pb-cdph" style="background:${c.hex}"></span>
-      <b>${escAttr(c.name)}</b><i>${escAttr(c.pname)}</i>
+      <b>${escAttr(c.name)}</b><i>${escAttr(sub)}</i>
     </button>`;
 }
 function _clBrowseRenderResults(){
   const host=document.getElementById("cl-browse-results"); if(!host) return;
   const q=CL_STATE.q.trim();
-  const themeLevel=!CL_STATE.themeFilter && !q;
+  const themeLevel=!CL_STATE.themeFilter && !CL_STATE.appFilter && !q;
   let cardsHtml,headerHtml,open=null;
   if(themeLevel){
     const themes=COLOR_PALETTES.filter(p=>p&&!p.archived&&(!CL_STATE.favOnly||p.favorite)).sort((a,b)=>a.name.localeCompare(b.name));
@@ -27016,15 +27098,26 @@ function _clBrowseRenderResults(){
     if(!open && list.length){ open=list[0]; CL_STATE.openPid=open.pid; CL_STATE.openKey=open.canonKey; }
     if(!open){ CL_STATE.openPid=""; CL_STATE.openKey=""; }
     const themeName=CL_STATE.themeFilter ? ((colorPaletteFind(CL_STATE.themeFilter)||{}).name||"") : "";
-    cardsHtml=list.map(c=>_clColorCardHtml(c, !!(open && c.pid===open.pid && c.canonKey===open.canonKey))).join('') || `<div class="pbk-empty">No colors match.</div>`;
-    headerHtml=`${list.length} color${list.length===1?'':'s'}${themeName?' in '+escAttr(themeName):(q?' matching “'+escAttr(q)+'”':'')}`;
-    if(CL_STATE.themeFilter) headerHtml=`<button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="clSetThemeFilter('${CL_STATE.themeFilter}')">← All themes</button> ${headerHtml}`;
+    const appName=CL_STATE.appFilter ? (COLOR_ROLE_LABELS[CL_STATE.appFilter]||CL_STATE.appFilter) : "";
+    // Inside one theme, every card already shares that theme's name (in the header) —
+    // show the canon role instead. Comparing across themes (an Application/Tag/search),
+    // the theme name is what actually differs card to card.
+    cardsHtml=list.map(c=>_clColorCardHtml(c, !!(open && c.pid===open.pid && c.canonKey===open.canonKey), !CL_STATE.themeFilter)).join('') || `<div class="pbk-empty">No colors match.</div>`;
+    headerHtml=`${list.length} color${list.length===1?'':'s'}`
+      +(themeName?' in '+escAttr(themeName):'')
+      +(appName?(themeName?' · ':' for ')+escAttr(appName):'')
+      +(!themeName&&!appName&&q?' matching “'+escAttr(q)+'”':'');
+    if(CL_STATE.themeFilter||CL_STATE.appFilter){
+      const backAct=CL_STATE.themeFilter?`clSetThemeFilter('${CL_STATE.themeFilter}')`:`clSetAppFilter('${CL_STATE.appFilter}')`;
+      headerHtml=`<button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="${backAct}">← All ${CL_STATE.themeFilter?'themes':'colors'}</button> ${headerHtml}`;
+    }
   }
   host.innerHTML=`<div class="pbk-wrap">
       <aside class="pbk-tree">
         ${_clLibrarySwitchHtml()}
         ${_clFacetSection("Themes",_clThemeFacets(),CL_STATE.themeFilter,"clSetThemeFilter","#B08968",CL_STATE.themeMore,"clToggleThemeMore")}
         ${_clFacetSection("Tags",_clTagFacets(),CL_STATE.tagFilter,"clSetTagFilter","#6d8f5c",CL_STATE.tagMore,"clToggleTagMore")}
+        ${_clFacetSection("Applications",_clAppFacets(),CL_STATE.appFilter,"clSetAppFilter","#6B7FA3",CL_STATE.appMore,"clToggleAppMore")}
       </aside>
       <div class="pbk-list">
         <div class="pb-lh">${headerHtml}</div>
@@ -27104,6 +27197,12 @@ function _clColorDetailHtml(c){
     <div class="pbk-f"><span class="k">Hex</span><b>${c.hex}</b></div>
     <div class="pbk-f"><span class="k">Theme</span><b style="font-family:inherit;font-weight:600">${escAttr(p.name)}</b></div>
     <div class="pbk-f"><span class="k">Role</span><b style="font-family:inherit;font-weight:600">${escAttr(CANON_LABELS[c.canonKey])}</b></div>
+    <div class="pbk-f"><span class="k">Family</span><b style="font-family:inherit;font-weight:600;text-transform:capitalize">${escAttr(c.autoTags.family)}</b></div>
+    <div class="pbk-f"><span class="k">Temperature</span><b style="font-family:inherit;font-weight:600;text-transform:capitalize">${escAttr(c.autoTags.temperature)}</b></div>
+    <div class="pbk-f"><span class="k">Saturation</span><b style="font-family:inherit;font-weight:600;text-transform:capitalize">${escAttr(c.autoTags.saturation)}</b></div>
+
+    <div class="pbk-eb">Applications</div>
+    <div class="pbk-tags">${c.apps.length?c.apps.map(r=>`<span style="cursor:pointer${CL_STATE.appFilter===r?';background:var(--gm);color:#fff':''}" onclick="clSetAppFilter('${escAttr(r)}')">${escAttr(COLOR_ROLE_LABELS[r]||r)}</span>`).join(''):'<span>No application maps here by default</span>'}</div>
 
     <div class="pbk-eb">Other Themes With This Color</div>
     <div class="pbk-tags">${otherThemes.length?otherThemes.map(o=>`<span style="cursor:pointer" onclick="clSetThemeFilter('${o.pid}');clSelectColor('${o.pid}','${o.canonKey}')">${escAttr(o.pname)}</span>`).join(''):'<span>None — unique to this theme</span>'}</div>
