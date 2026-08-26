@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1201</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1202</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24711,6 +24711,9 @@ function openElementAdd(){
         <label style="flex:1;min-width:160px;font-size:.7rem;color:var(--tl);text-transform:uppercase">Name<input id="elem-nm" placeholder="e.g. Modern outdoor kitchen" style="display:block;width:100%;margin-top:4px;padding:.45rem .55rem;border:1px solid var(--br);border-radius:8px;font-size:.82rem;box-sizing:border-box;text-transform:none;color:var(--tx)"></label>
         <label style="width:170px;font-size:.7rem;color:var(--tl);text-transform:uppercase">Category<select id="elem-cat" style="display:block;width:100%;margin-top:4px;padding:.45rem .55rem;border:1px solid var(--br);border-radius:8px;font-size:.82rem;text-transform:none;color:var(--tx)">${ELEMENT_CATS.map(c=>`<option>${escAttr(c)}</option>`).join('')}</select></label>
       </div>
+      <label style="display:block;font-size:.7rem;color:var(--tl);text-transform:uppercase;margin-bottom:.6rem">Tags <span style="text-transform:none;color:var(--tm)">— comma-separated, for searching this and other free-form references</span>
+        <input id="elem-tags" placeholder="e.g. tuscan, limestone, client favorite" style="display:block;width:100%;margin-top:4px;padding:.45rem .55rem;border:1px solid var(--br);border-radius:8px;font-size:.82rem;box-sizing:border-box;text-transform:none;color:var(--tx)">
+      </label>
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.3rem">Photo</div>
       <div id="elem-imgslot" style="background:#F4F9F5;border:1px solid #D7E7DA;border-radius:10px;padding:.7rem .8rem;margin-bottom:.6rem">${_elemUploaderHtml()}</div>
       <div style="display:flex;align-items:center;gap:8px;margin:10px 0;color:var(--tl);font-size:.6rem;text-transform:uppercase;letter-spacing:.05em">
@@ -24918,7 +24921,7 @@ async function studiohImportCommit(){
         const dataUrl="data:"+(b.media_type||"image/jpeg")+";base64,"+b.data;
         const up=await _uploadImageR2("elem_"+Date.now().toString(36)+Math.floor(Math.random()*1000),dataUrl);
         const img=(up.ok&&up.url)?up.url:dataUrl;
-        SITE_ELEMENTS.push({id:"elem"+Date.now().toString(36)+Math.floor(Math.random()*1000),nm:x.nm||x.proj,cat:x.cat||ELEMENT_CATS[0],img,src:x.url,proj:x.proj,addedAt:new Date().toISOString()});
+        SITE_ELEMENTS.push({id:"elem"+Date.now().toString(36)+Math.floor(Math.random()*1000),nm:x.nm||x.proj,cat:x.cat||ELEMENT_CATS[0],tags:[x.proj],img,src:x.url,proj:x.proj,addedAt:new Date().toISOString()});
         added++;
       }catch(e){}
       done++; setSt();
@@ -24932,14 +24935,82 @@ async function studiohImportCommit(){
 async function elementSaveNew(){
   const nm=((document.getElementById("elem-nm")||{}).value||"").trim();
   const cat=(document.getElementById("elem-cat")||{}).value||ELEMENT_CATS[0];
+  const tags=((document.getElementById("elem-tags")||{}).value||"").split(",").map(t=>t.trim()).filter(Boolean);
   if(!nm){ alert("Give it a name."); return; }
   if(!_elemImg){ alert("Add a photo first — upload, paste, or generate one."); return; }
   let img=_elemImg;
   if(/^data:/.test(img)){ const up=await _uploadImageR2("elem_"+Date.now().toString(36),img); if(up.ok && up.url) img=up.url; }
-  SITE_ELEMENTS.push({id:"elem"+Date.now().toString(36)+Math.floor(Math.random()*1000), nm, cat, img, addedAt:new Date().toISOString()});
+  SITE_ELEMENTS.push({id:"elem"+Date.now().toString(36)+Math.floor(Math.random()*1000), nm, cat, tags, img, addedAt:new Date().toISOString()});
   elementsSaveQuiet();
   const m=document.getElementById("elem-modal"); if(m) m.remove();
   try{ renderMoodBoard(); }catch(e){}
+}
+// ── Inspiration ───────────────────────────────────────────────────────────
+// "When presenting a conceptual plan, a designer adds inspiration images around the
+// design itself — if there's a pool, similar-style pool photos, so the client
+// understands the design intent." One Mood Board, not a second board — inspiration is
+// a layer on the sections that are already there. WHICH library images are pinned to
+// WHICH section is project-scoped (S.moodboard.inspiration); the images themselves are
+// the shared SITE_ELEMENTS library, searchable by name/category/tag, not just category —
+// this is also why Site Elements grew a free-form `tags` field alongside its categories.
+function _mbInspIds(sectionKey){ const mb=_mbEnsure(); mb.inspiration=mb.inspiration||{}; mb.inspiration[sectionKey]=mb.inspiration[sectionKey]||[]; return mb.inspiration[sectionKey]; }
+function mbInspPin(sectionKey,elemId){
+  const ids=_mbInspIds(sectionKey); if(ids.indexOf(elemId)<0) ids.push(elemId);
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderMoodBoard(); }catch(e){}
+}
+function mbInspUnpin(sectionKey,elemId){
+  const ids=_mbInspIds(sectionKey); const i=ids.indexOf(elemId); if(i>=0) ids.splice(i,1);
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderMoodBoard(); }catch(e){}
+}
+let MB_INSP_SECTION="", MB_INSP_Q="";
+function openInspirationPicker(sectionKey){
+  MB_INSP_SECTION=sectionKey; MB_INSP_Q="";
+  if(!_elementsPulled) elementsPull().then(()=>{ if(document.getElementById("insp-modal")) _inspPickerRender(); });
+  let d=document.getElementById("insp-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="insp-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;padding:1.2rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35);max-height:90vh;display:flex;flex-direction:column">
+      <div style="font-size:1.02rem;font-weight:700;color:var(--gm)">💡 Add inspiration</div>
+      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .6rem">Reference images to show alongside this section — search the shared library by name, category or tag. Click to pin or unpin.</div>
+      <input id="insp-q" placeholder="Search…" oninput="mbInspSearch(this.value)" style="width:100%;padding:.45rem .55rem;border:1px solid var(--br);border-radius:8px;font-size:.82rem;margin-bottom:.6rem;box-sizing:border-box">
+      <div id="insp-results" style="overflow-y:auto;flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:.6rem">
+        <button class="btn" onclick="document.getElementById('insp-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+  _inspPickerRender();
+}
+function mbInspSearch(v){ MB_INSP_Q=v; _inspPickerRender(); }
+function _inspPickerRender(){
+  const host=document.getElementById("insp-results"); if(!host) return;
+  const q=(MB_INSP_Q||"").trim().toLowerCase();
+  const pool=(SITE_ELEMENTS||[]).filter(e=>{
+    if(!q) return true;
+    const hay=[e.nm,e.cat,e.proj].concat(e.tags||[]).filter(Boolean).join(" ").toLowerCase();
+    return hay.indexOf(q)>=0;
+  });
+  const pinned=new Set(_mbInspIds(MB_INSP_SECTION));
+  host.innerHTML = pool.length ? pool.map(e=>`<div onclick="${pinned.has(e.id)?'mbInspUnpin':'mbInspPin'}('${escAttr(MB_INSP_SECTION)}','${escAttr(e.id)}');_inspPickerRender()" style="cursor:pointer;border:2px solid ${pinned.has(e.id)?'var(--gm)':'transparent'};border-radius:8px;overflow:hidden;position:relative">
+      <div style="aspect-ratio:1;background-image:url('${escAttr(e.img)}');background-size:cover;background-position:center"></div>
+      <div style="font-size:.6rem;padding:.2rem .3rem;background:#fff;color:var(--tm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(e.nm||e.cat)}</div>
+      ${pinned.has(e.id)?'<span style="position:absolute;top:4px;right:4px;background:var(--gm);color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center">✓</span>':''}
+    </div>`).join('') : `<div style="grid-column:1/-1;font-size:.78rem;color:var(--tl)">Nothing matches — try a different word, or add photos to Site Elements first.</div>`;
+}
+function _mbInspirationStripHtml(sectionKey){
+  const ids=_mbInspIds(sectionKey);
+  const items=ids.map(id=>(SITE_ELEMENTS||[]).find(e=>e&&e.id===id)).filter(Boolean);
+  return `<div style="margin-top:10px;border-top:1px dashed var(--br);padding-top:8px">
+    <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:6px">
+      <span style="font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;color:var(--tl)">💡 Inspiration</span>
+      <button class="btn" onclick="openInspirationPicker('${escAttr(sectionKey)}')" style="padding:.1rem .45rem;font-size:.62rem;background:#fff;color:var(--gm);border:1px dashed var(--gm)">+ Add</button>
+    </div>
+    ${items.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${items.map(e=>`<div style="position:relative;width:56px;height:56px">
+        <div title="${escAttr(e.nm||e.cat)}" style="width:100%;height:100%;border-radius:7px;background-image:url('${escAttr(e.img)}');background-size:cover;background-position:center"></div>
+        <button onclick="mbInspUnpin('${escAttr(sectionKey)}','${escAttr(e.id)}')" title="Unpin" style="position:absolute;top:-5px;right:-5px;width:16px;height:16px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:9px;cursor:pointer;line-height:1;padding:0">✕</button>
+      </div>`).join('')}</div>` : `<div style="font-size:.68rem;color:var(--tl)">None pinned — add a few similar references for the client.</div>`}
+  </div>`;
 }
 // ── Mood Board intake wizard ─────────────────────────────────────────────
 // Built to the approved mockup (moodboard_mockup.html, screen 02): a multi-step wizard
@@ -26000,6 +26071,7 @@ function renderMoodBoard(){
       ${searchHtml}
       ${_mbSectionBoardHtml(shown)}
       ${_mbSuggestSectionHtml(sec.key)}
+      ${_mbInspirationStripHtml(sec.key)}
     </div>`;
   }).join('');
 
