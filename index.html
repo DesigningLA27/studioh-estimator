@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1231</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1232</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26851,6 +26851,53 @@ const DAVIS_MORTAR={
   "MC88":{h:"#474B4A",n:"88",v:{"lightest":"#838B93","light":"#4A484D","medium":"#474B4A","dark":"#343936"}},
   "MC89":{h:"#444847",n:"89",v:{"lightest":"#7A8288","light":"#46474D","medium":"#444847","dark":"#262E2C"}}
 };
+// ── Kornegay Design ───────────────────────────────────────────────────────
+// Kornegay publishes no hex. Their colour-palette PDF turned out to hold the nine
+// swatches as embedded JPEGs, not vector fills — checked rather than assumed: the
+// PDF's 889 vector paths are only table rules and type. So these are sampled from
+// those official swatch rasters (median of the central crop), which is why they
+// load hexApproximate. Sampling quality is the best of any brand here (std dev
+// 4-10) and label-to-swatch mapping is certain from the 3x3 grid geometry.
+// Kornegay's own card says it is "just for ideas" and to select from hard samples.
+const KORNEGAY_PDF="https://kornegaydesign.com/wp-content/uploads/2024/09/kornegay-concrete-color-palette.pdf";
+const KORNEGAY_HEX={
+  "Ash White":["#E2DEDB","good"],
+  "Dune":["#AE9F9A","medium"],
+  "Graphite (Iron Oxide)":["#595552","medium"],
+  "Natural Gray":["#BEBAB1","good"],
+  "Palomino":["#B58226","good"],
+  "Sandstone":["#C5B18F","good"],
+  "Silver Smoke (Iron Oxide)":["#8D8986","good"],
+  "Terra Cotta":["#C76E43","good"],
+  "Willow Green":["#A3B697","good"]
+};
+// Seven Kornegay names are also Davis Colors names. That is a NAME correspondence
+// and nothing more: our research found no mention of Davis anywhere on Kornegay's
+// site, and a finished architectural-concrete planter would not match a raw pigment
+// chip anyway (cement, aggregate, dose, surface treatment, curing all move it). So
+// the link is recorded as a cross-reference to look at, never as a shared value,
+// and the records stay entirely separate.
+function _davisNameTwin(n){
+  if(DAVIS_HEX[n]) return n;
+  const squashed=n.replace(/\s+/g,"");                 // "Silver Smoke" -> "Silversmoke"
+  return Object.keys(DAVIS_HEX).find(k=>k.replace(/\s+/g,"").toLowerCase()===squashed.toLowerCase())||null;
+}
+function _mfgApplyKornegayHex(){
+  let n=0;
+  MANUFACTURER_COLORS.forEach(m=>{
+    if(!m || m.manufacturer!=="Kornegay Design") return;
+    const rec=KORNEGAY_HEX[m.productName]; if(!rec) return;
+    m.material=m.material||"Architectural Concrete";
+    const twin=_davisNameTwin(m.productName);
+    if(twin){ m.relatedByName={manufacturer:"Davis Colors",color:twin,hex:DAVIS_HEX[twin][0]}; }
+    if(m.hex) return;
+    m.hex=rec[0]; m.hexApproximate=true; m.hexSource="swatch_image";
+    m.hexConfidence=rec[1]; m.hexSourceUrl=KORNEGAY_PDF;
+    m.verificationStatus="VERIFIED_COLOR_NAME_ESTIMATED_HEX";
+    n++;
+  });
+  return n;
+}
 const DAVIS_SRC="https://www.daviscolors.com/concrete-colors/";
 function _mfgApplyDavisHex(){
   let n=0;
@@ -26925,7 +26972,7 @@ let MANUFACTURER_COLORS=(function(){ try{ const s=localStorage.getItem("studioh_
 // Also against the localStorage copy, not just the pull: that cache is what renders
 // first (and all that renders at all when offline), so without this the swatches
 // stay blank until the network round-trip lands.
-_mfgApplyStepstoneHex(); _mfgApplyDavisHex();
+_mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex();
 let _mfgColorsPulled=false;
 async function mfgColorsPull(force){
   if(_mfgColorsPulled&&!force) return MANUFACTURER_COLORS;
@@ -26933,7 +26980,7 @@ async function mfgColorsPull(force){
   if(d&&!d.err&&Array.isArray(d.data)){
     MANUFACTURER_COLORS=d.data.length?d.data:MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m));
     _mfgColorsPulled=true;
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex();
     try{ localStorage.setItem("studioh_goods_mfgcolors_at", d.savedAt||""); }catch(e){}
     try{ localStorage.setItem("studioh_mfgcolors_v1", JSON.stringify(MANUFACTURER_COLORS)); }catch(e){}
     if(!d.data.length) mfgColorsSaveQuiet(); // first-ever pull, empty on the server — seed it once with real researched data
@@ -26946,7 +26993,7 @@ async function mfgColorsPull(force){
     // real published or hand-corrected value saved there always wins over this.
   } else if(!MANUFACTURER_COLORS.length){
     MANUFACTURER_COLORS=MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m)); // offline fallback
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex();
   }
   return MANUFACTURER_COLORS;
 }
@@ -27020,9 +27067,10 @@ function colorPaletteClearRoleOverride(id,roleKey){
 // not a single string. "Pick a theme" used to mean exactly one; Warwick wants to
 // pick several at once ("select multiple tags, or applications, or themes").
 let CL_STATE={tab:"theme",q:"",favOnly:false,openId:"",archivedShown:false,
-  themeFilter:[],tagFilter:[],appFilter:[],themeMore:false,tagMore:false,appMore:false,openPid:"",openKey:""};
+  themeFilter:[],tagFilter:[],appFilter:[],familyFilter:[],
+  themeMore:false,tagMore:false,appMore:false,familyMore:false,openPid:"",openKey:""};
 function clSetTab(t){ CL_STATE.tab=t; CL_STATE.q=""; CL_STATE.openId="";
-  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
+  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.familyFilter=[]; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
 // Targeted at #cl-browse-results, never the shell — the shell holds the search <input>
 // itself, and re-rendering it on every keystroke tears the input out of the DOM and
 // rebuilds it, dropping focus after the first character (same bug, same fix, as
@@ -27266,6 +27314,7 @@ function _clBrowseFiltered(){
     (!CL_STATE.themeFilter.length || CL_STATE.themeFilter.indexOf(c.pid)>=0) &&
     (!CL_STATE.tagFilter.length || CL_STATE.tagFilter.some(t=>c.ptags.indexOf(t)>=0)) &&
     (!CL_STATE.appFilter.length || CL_STATE.appFilter.some(r=>c.canonKey===COLOR_ROLE_DEFAULT_CANON[r])) &&
+    (!CL_STATE.familyFilter.length || CL_STATE.familyFilter.indexOf(c.autoTags.family)>=0) &&
     (!q || c.name.toLowerCase().indexOf(q)>=0 || c.pname.toLowerCase().indexOf(q)>=0 ||
      c.hex.toLowerCase().indexOf(q)>=0 || c.ptags.some(t=>t.indexOf(q)>=0) ||
      c.autoTags.family.indexOf(q)>=0 || c.autoTags.temperature.indexOf(q)>=0)
@@ -27299,6 +27348,16 @@ function _clArrToggle(arr,v){ const i=arr.indexOf(v); if(i>=0) arr.splice(i,1); 
 function clSetThemeFilter(pid){ _clArrToggle(CL_STATE.themeFilter,pid); _clBrowseRenderResults(); }
 function clSetTagFilter(tag){ _clArrToggle(CL_STATE.tagFilter,tag); _clBrowseRenderResults(); }
 function clSetAppFilter(role){ _clArrToggle(CL_STATE.appFilter,role); _clBrowseRenderResults(); }
+function clSetFamilyFilter(f){ _clArrToggle(CL_STATE.familyFilter,f); _clBrowseRenderResults(); }
+function clToggleFamilyMore(){ CL_STATE.familyMore=!CL_STATE.familyMore; _clBrowseRenderResults(); }
+// Colour families are computed from each hex, not stored — so the facet is built
+// by tallying what the 994 colours actually are, and a family with no colours in
+// it simply never appears rather than sitting there as a dead row.
+function _clFamilyFacets(){
+  const t={};
+  _clAllColorEntries().forEach(c=>{ if(CL_STATE.favOnly&&!c.pfav) return; t[c.autoTags.family]=(t[c.autoTags.family]||0)+1; });
+  return Object.keys(t).map(f=>({id:f,name:f,n:t[f]})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name));
+}
 // A deterministic single jump — used by "Other Themes With This Color" and similar
 // "go look at exactly this" links, which should replace the selection rather than
 // add to whatever multi-select is already active.
@@ -27308,11 +27367,11 @@ function clToggleTagMore(){ CL_STATE.tagMore=!CL_STATE.tagMore; _clBrowseRenderR
 function clToggleAppMore(){ CL_STATE.appMore=!CL_STATE.appMore; _clBrowseRenderResults(); }
 function clSelectColor(pid,key){ CL_STATE.openPid=pid; CL_STATE.openKey=key; _clBrowseRenderResults(); }
 function clClearAllFilters(){
-  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.favOnly=false;
+  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.familyFilter=[]; CL_STATE.favOnly=false;
   document.getElementById("cl-filtersdd")?.classList.remove("open");
   _clBrowseRenderResults();
 }
-function _clActiveFilterCount(){ return CL_STATE.themeFilter.length+CL_STATE.tagFilter.length+CL_STATE.appFilter.length+(CL_STATE.favOnly?1:0); }
+function _clActiveFilterCount(){ return CL_STATE.themeFilter.length+CL_STATE.tagFilter.length+CL_STATE.appFilter.length+CL_STATE.familyFilter.length+(CL_STATE.favOnly?1:0); }
 // The Tags quick-menu — same .mddm/.tagl/.it shape as the Materials tag picker,
 // wired to this feature's own multi-select tag filter rather than the shared
 // goods tag vocabulary (colors aren't tagged from that list).
@@ -27330,6 +27389,7 @@ function _clFiltersMenuBody(){
   CL_STATE.themeFilter.forEach(pid=>{ const p=colorPaletteFind(pid); if(p) chips.push({label:"Theme: "+p.name, act:`clSetThemeFilter('${p.id}')`}); });
   CL_STATE.tagFilter.forEach(t=>chips.push({label:"Tag: "+t, act:`clSetTagFilter('${escAttr(t)}')`}));
   CL_STATE.appFilter.forEach(r=>chips.push({label:"Application: "+(COLOR_ROLE_LABELS[r]||r), act:`clSetAppFilter('${escAttr(r)}')`}));
+  CL_STATE.familyFilter.forEach(f=>chips.push({label:"Colour: "+f, act:`clSetFamilyFilter('${escAttr(f)}')`}));
   if(CL_STATE.favOnly) chips.push({label:"Favorites only", act:"clToggleFavOnly()"});
   return `<div class="hd">Active filters</div>
     <div class="tagl">${chips.length?chips.map(c=>`<div class="it on" style="display:flex;justify-content:space-between;gap:8px" onclick="event.stopPropagation();${c.act}">${escAttr(c.label)}<span style="opacity:.6">✕</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No filters applied.</div>`}</div>
@@ -27392,7 +27452,7 @@ function _clColorCardHtml(c,on,showTheme){
 function _clBrowseRenderResults(){
   const host=document.getElementById("cl-browse-results"); if(!host) return;
   const q=CL_STATE.q.trim();
-  const anyFilter=CL_STATE.themeFilter.length||CL_STATE.tagFilter.length||CL_STATE.appFilter.length||q;
+  const anyFilter=CL_STATE.themeFilter.length||CL_STATE.tagFilter.length||CL_STATE.appFilter.length||CL_STATE.familyFilter.length||q;
   const themeLevel=!anyFilter;
   let cardsHtml,headerHtml,open=null;
   if(themeLevel){
@@ -27427,6 +27487,7 @@ function _clBrowseRenderResults(){
         ${_clFacetSection("Themes",_clThemeFacets(),CL_STATE.themeFilter,"clSetThemeFilter","#B08968",CL_STATE.themeMore,"clToggleThemeMore")}
         ${_clFacetSection("Tags",_clTagFacets(),CL_STATE.tagFilter,"clSetTagFilter","#6d8f5c",CL_STATE.tagMore,"clToggleTagMore")}
         ${_clFacetSection("Applications",_clAppFacets(),CL_STATE.appFilter,"clSetAppFilter","#6B7FA3",CL_STATE.appMore,"clToggleAppMore")}
+        ${_clFacetSection("Colour family",_clFamilyFacets(),CL_STATE.familyFilter,"clSetFamilyFilter","#A3729B",CL_STATE.familyMore,"clToggleFamilyMore")}
       </aside>
       <div class="pbk-list">
         <div class="pb-lh">${headerHtml}</div>
@@ -27714,7 +27775,8 @@ function _mfgMatches(m,q){
 function _clMfgRenderResults(){
   const host=document.getElementById("cl-mfg-results"); if(!host) return;
   const q=CL_MFG_Q.trim().toLowerCase();
-  const list=MANUFACTURER_COLORS.filter(m=>_mfgMatches(m,q));
+  const list=MANUFACTURER_COLORS.filter(m=>_mfgMatches(m,q)
+    && (!CL_MFG_FAM.length || (m.hex && CL_MFG_FAM.indexOf(colorAutoTags(m.hex).family)>=0)));
 
   // Level 2 — one manufacturer selected: its colors in the SAME standard .pb-cards
   // tile grid the Theme Palettes drill-in uses, plus the same right-hand detail
@@ -27783,12 +27845,40 @@ let CL_MFG_MORE=false;
 function clMfgToggleMore(){ CL_MFG_MORE=!CL_MFG_MORE; _clMfgRenderResults(); }
 function _clMfgBrandFacetHtml(byMfg){
   const items=Object.keys(byMfg).sort().map(b=>({id:b,name:b,n:byMfg[b].length}));
-  return _clFacetSection("Manufacturers",items,CL_MFG_BRAND?[CL_MFG_BRAND]:[],"clMfgSetBrand","#9B7B3A",CL_MFG_MORE,"clMfgToggleMore");
+  return _clFacetSection("Manufacturers",items,CL_MFG_BRAND?[CL_MFG_BRAND]:[],"clMfgSetBrand","#9B7B3A",CL_MFG_MORE,"clMfgToggleMore")
+    +_clMfgFamilyFacetHtml();
+}
+// Colour-family facet on this tab too, so the computed tags are filterable and not
+// only typeable. Scoped to the brand in view when one is open — inside Davis you
+// want Davis's families, not every brand's.
+let CL_MFG_FAM=[], CL_MFG_FAM_MORE=false;
+function clMfgSetFamily(f){ _clArrToggle(CL_MFG_FAM,f); _clMfgRenderResults(); }
+function clMfgToggleFamMore(){ CL_MFG_FAM_MORE=!CL_MFG_FAM_MORE; _clMfgRenderResults(); }
+function _clMfgFamilyFacetHtml(){
+  const t={};
+  MANUFACTURER_COLORS.forEach(m=>{ if(!m||!m.hex) return;
+    if(CL_MFG_BRAND && m.manufacturer!==CL_MFG_BRAND) return;
+    const f=colorAutoTags(m.hex).family; t[f]=(t[f]||0)+1; });
+  const items=Object.keys(t).map(f=>({id:f,name:f,n:t[f]})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name));
+  if(!items.length) return '';
+  return _clFacetSection("Colour family",items,CL_MFG_FAM,"clMfgSetFamily","#A3729B",CL_MFG_FAM_MORE,"clMfgToggleFamMore");
 }
 // Detail panel for one manufacturer color. Its whole job is showing PROVENANCE —
 // where the hex came from and how much to trust it — because these values range
 // from a manufacturer's own published number to a pixel sampled off their photo,
 // and a swatch alone cannot tell you which you are looking at.
+// The computed colour tags, shown as pills so they read as tags rather than as
+// spec fields — and clickable, so a tag is a way to find more like it, not just a
+// label. Labelled as Studio H metadata: these are derived from the hex and are
+// never manufacturer terminology.
+function _mfgTagPillsHtml(m){
+  if(!m.hex) return '';
+  const t=colorAutoTags(m.hex), {l}=_hexToHCL(m.hex);
+  const tags=[t.family,t.temperature,t.saturation,(l>0.66?"light":l<0.33?"dark":"mid-tone")];
+  return `<div class="pbk-eb">Colour tags</div>
+    <div class="pbk-tags">${tags.map(x=>`<span style="cursor:pointer;text-transform:capitalize" title="Search the library for this" onclick="clMfgSetQuery('${escAttr(x)}');const i=document.querySelector('#view-colorlibrary .gsearch input');if(i)i.value='${escAttr(x)}'">${escAttr(x)}</span>`).join('')}</div>
+    <div style="font-size:.68rem;color:var(--tl);padding:2px 6px 4px;line-height:1.45">Studio H search tags, worked out from the colour itself — not ${escAttr(m.manufacturer||"the manufacturer")}'s own terms.</div>`;
+}
 function _mfgColorDetailHtml(m){
   const title=m.color||m.productName||"";
   const swatchStyle=m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 9px,var(--br) 9px,var(--br) 18px)`;
@@ -27848,11 +27938,18 @@ function _mfgColorDetailHtml(m){
     ${F("Colour family",m.colorFamily)}
     ${m.livingFinish?`<div style="font-size:.7rem;color:var(--gold);padding:2px 6px 4px;line-height:1.5">Living finish — this patinas over time, so the installed colour will keep moving.</div>`:''}
 
-    ${m.material==="Integral Concrete"||m.category==="Concrete"?`<div style="font-size:.7rem;color:var(--tm);padding:6px 8px;line-height:1.5;background:var(--surface2);border-radius:9px;margin:6px 3px">Digital colour is a design reference only. Actual concrete colour varies with cement, aggregate, mix design, finishing, curing and field conditions. Verify final selections with an actual manufacturer sample and/or project mockup.</div>`:''}
+    ${_mfgTagPillsHtml(m)}
+    ${m.relatedByName?`<div class="pbk-eb">Also a ${escAttr(m.relatedByName.manufacturer)} name</div>
+      <div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:11px;padding:7px 10px;margin-bottom:5px">
+        <span style="width:26px;height:26px;border-radius:7px;flex:none;border:1px solid var(--br);background:${escAttr(m.relatedByName.hex)}"></span>
+        <span style="flex:1;font-size:11px"><b>${escAttr(m.relatedByName.color)}</b><br><small style="color:var(--tl)">${escAttr(m.relatedByName.hex)}</small></span>
+      </div>
+      <div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">Same colour NAME, not a confirmed formulation link — and a finished planter wouldn't match a raw pigment chip regardless. Shown as a cross-reference only.</div>`:''}
+    ${/concrete/i.test(m.material||m.category||"")?`<div style="font-size:.7rem;color:var(--tm);padding:6px 8px;line-height:1.5;background:var(--surface2);border-radius:9px;margin:6px 3px">Digital colour is a design reference only. ${/architectural/i.test(m.material||"")?"Architectural concrete colour and texture vary with cement, aggregate, pigment, mix design, surface treatment, curing, lighting and manufacturing conditions.":"Actual concrete colour varies with cement, aggregate, mix design, finishing, curing and field conditions."} Verify final selections with an actual ${escAttr(m.manufacturer||"manufacturer")} sample${/architectural/i.test(m.material||"")?"":" and/or project mockup"}.</div>`:''}
 
     <div class="pbk-eb">Record</div>
     ${m.verificationStatus==="NEEDS_COLOR_DATA"?`<div class="pbk-f"><span class="k">Status</span><b style="font-family:inherit;font-weight:600;color:var(--gold)">needs colour data</b></div>`:''}
-    <div class="pbk-f"><span class="k">Verified</span><b style="font-family:inherit;font-weight:600;color:${m.verified?'var(--gm)':'var(--gold)'}">${m.verified?'against manufacturer source':'needs verification'}</b></div>
+    <div class="pbk-f"><span class="k">Verified</span><b style="font-family:inherit;font-weight:600;color:${m.verified?'var(--gm)':'var(--gold)'}">${m.verified?(m.hexApproximate?'colour name yes · hex approximated':'against manufacturer source'):'needs verification'}</b></div>
     ${m.sourceUrl?`<a class="pbk-btn" href="${escAttr(m.sourceUrl)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Open on ${escAttr((function(){try{return new URL(m.sourceUrl).hostname.replace(/^www\./,'');}catch(e){return 'manufacturer site';}})())} ↗</a>`:''}
 
     <div class="pbk-eb">Actions</div>
