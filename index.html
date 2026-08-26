@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1199</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1200</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24641,7 +24641,10 @@ function _piRenderBudget(){
 // since an element has no price and is never specified — it only ever illustrates. Uses
 // the worker's generic loadgoods/savegoods under its own book key ("elements"), mirroring
 // hoaPull/hoaPush exactly rather than touching the materials/furnishings pipeline.
-const ELEMENT_CATS=["Outdoor Kitchen","Pool & Spa","Pergola & Shade","Fire Feature","Water Feature","Patio & Deck","Fireplace","Trellis & Arbor"];
+// Walls, pilasters, steps and built-in benches are constructed assemblies, not a
+// material finish (Materials is for the surface/finish itself) — they live here as
+// illustrative "here's a good example of this" references, same as a pool or pergola.
+const ELEMENT_CATS=["Outdoor Kitchen","Pool & Spa","Pergola & Shade","Fire Feature","Water Feature","Patio & Deck","Fireplace","Trellis & Arbor","Wall","Pilaster","Steps","Built-in Bench"];
 let SITE_ELEMENTS=(function(){ try{ const s=localStorage.getItem("studioh_elements_v1"); if(s) return JSON.parse(s); }catch(e){} return null; })() || [];
 let _elementsPulled=false;
 async function elementsPull(force){
@@ -25224,7 +25227,7 @@ function _mbPaletteAutoPlant(plants){ const seen=new Set(),out=[]; plants.forEac
 function _mbPaletteAutoGoods(goods){ const seen=new Set(),out=[]; goods.forEach(x=>{ (x.g.cols||[]).forEach(h=>{ if(h){ const u=(""+h).toUpperCase(); if(!seen.has(u)){ seen.add(u); out.push(u); } } }); }); return out.slice(0,12); }
 function _mbPaletteState(){
   const mb=_mbEnsure();
-  if(!mb.paletteSize) mb.paletteSize=34;
+  if(!mb.paletteSize) mb.paletteSize=70;
   if(!Array.isArray(mb.paletteGroups)) mb.paletteGroups=[];
   return mb;
 }
@@ -25296,7 +25299,105 @@ Output ONLY a minified JSON array of hex strings, no prose: ["#RRGGBB", ...]`;
   g._loading=false; try{ _bidSchedule(); }catch(e){}
   renderMoodBoard();
 }
-function mbSwatchLibraryInfo(){ alert("Swatch library — a curated set of real color swatches to browse and add from is planned as its own feature (like the Material Library). For now, build custom swatches by hand with the color picker next to each group."); }
+// ── Color Swatch Library ─────────────────────────────────────────────────
+// A shared, growing set of real color swatches ("keep building to nice color swatches"),
+// browsable by category and added into any project's palette group with one click. Same
+// independent-book pattern as Site Elements/HOA — a swatch is a color, never priced or
+// specified, so it stays out of the materials/furnishings pricing pipeline entirely.
+const SWATCH_LIB_CATS=["Stone & Stucco","Wood & Timber","Metal & Fixtures","Paint & Trim","Tile & Ceramic","Foliage & Bloom"];
+let SWATCH_LIB=(function(){ try{ const s=localStorage.getItem("studioh_swatchlib_v1"); if(s) return JSON.parse(s); }catch(e){} return null; })() || [];
+let _swatchLibPulled=false;
+async function swatchLibPull(force){
+  if(_swatchLibPulled&&!force) return SWATCH_LIB;
+  const d=await _goodsCall({type:"loadgoods",book:"swatches"});
+  if(d&&!d.err&&Array.isArray(d.data)){ SWATCH_LIB=d.data; _swatchLibPulled=true;
+    try{ localStorage.setItem("studioh_goods_swatches_at", d.savedAt||""); }catch(e){}
+    try{ localStorage.setItem("studioh_swatchlib_v1", JSON.stringify(SWATCH_LIB)); }catch(e){}
+  }
+  return SWATCH_LIB;
+}
+async function swatchLibPush(){
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){ alert("No admin key on this device — add it in Settings → Master library access."); return false; }
+  let base=""; try{ base=localStorage.getItem("studioh_goods_swatches_at")||""; }catch(e){}
+  const d=await _goodsCall({type:"savegoods",book:"swatches",key,data:SWATCH_LIB,base,by:"Studio H"});
+  if(d&&!d.err){ try{ localStorage.setItem("studioh_goods_swatches_at", d.savedAt||""); }catch(e){} return true; }
+  if(d&&d.stale){ await swatchLibPull(true); alert("Another device changed the Swatch Library while you were editing. It has been reloaded — redo that change."); return false; }
+  alert("Could not save: "+((d&&d.err)||"unknown")); return false;
+}
+function swatchLibSaveQuiet(){ try{ localStorage.setItem("studioh_swatchlib_v1", JSON.stringify(SWATCH_LIB)); }catch(e){} swatchLibPush(); }
+function swatchLibAdd(hex,nm,cat){
+  const u=(hex||"").toUpperCase(); if(!/^#[0-9A-F]{6}$/.test(u)) return;
+  if(SWATCH_LIB.some(s=>s&&s.hex===u)) return;
+  SWATCH_LIB.push({id:"sw"+Date.now().toString(36)+Math.floor(Math.random()*1000), hex:u, nm:nm||"", cat:cat||SWATCH_LIB_CATS[0]});
+  swatchLibSaveQuiet();
+}
+function swatchLibRemove(id){ SWATCH_LIB=SWATCH_LIB.filter(s=>s&&s.id!==id); swatchLibSaveQuiet(); if(document.getElementById("swlib-modal")) _swlibRender(); }
+let SWLIB_CAT="", SWLIB_GROUP="";
+function openSwatchLibrary(groupKey){
+  SWLIB_CAT=""; SWLIB_GROUP=groupKey||( _mbPaletteState().paletteGroups[0] && _mbPaletteState().paletteGroups[0].key )||"";
+  if(!_swatchLibPulled) swatchLibPull().then(()=>{ if(document.getElementById("swlib-modal")) _swlibRender(); });
+  let d=document.getElementById("swlib-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="swlib-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:1.2rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35);max-height:90vh;overflow-y:auto">
+      <div style="font-size:1.02rem;font-weight:700;color:var(--gm)">🎨 Color Swatch Library</div>
+      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .7rem;line-height:1.45">Shared across every project — browse by category, add straight into a palette group. Keep building it as you find good swatches.</div>
+      <div id="swlib-body"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px;color:var(--tl);font-size:.6rem;text-transform:uppercase;letter-spacing:.05em">
+        <span style="flex:1;height:1px;background:var(--br)"></span>add a swatch<span style="flex:1;height:1px;background:var(--br)"></span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input type="color" id="swlib-new-hex" value="#8C6B45" style="width:38px;height:38px;padding:0;border:1px solid var(--br);border-radius:8px;cursor:pointer">
+        <input id="swlib-new-nm" placeholder="Name (optional)" style="flex:1;min-width:120px;padding:.4rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">
+        <select id="swlib-new-cat" style="padding:.4rem .5rem;font-size:.78rem;border:1px solid var(--br);border-radius:7px">${SWATCH_LIB_CATS.map(c=>`<option>${escAttr(c)}</option>`).join('')}</select>
+        <button class="btn" onclick="_swlibAddNew()" style="padding:.4rem .7rem;font-size:.74rem;font-weight:600;background:var(--gm);color:#fff;border:none;border-radius:7px">+ Add</button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px">
+        <button class="btn" onclick="document.getElementById('swlib-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+  _swlibRender();
+}
+function swlibSetCat(c){ SWLIB_CAT=c; _swlibRender(); }
+function swlibSetGroup(k){ SWLIB_GROUP=k; }
+function _swlibRender(){
+  const host=document.getElementById("swlib-body"); if(!host) return;
+  const groups=_mbPaletteState().paletteGroups||[];
+  const groupSel = groups.length
+    ? `<select id="swlib-group-sel" onchange="swlibSetGroup(this.value)" style="padding:.3rem .5rem;font-size:.76rem;border:1px solid var(--br);border-radius:7px">${groups.map(g=>`<option value="${escAttr(g.key)}" ${g.key===SWLIB_GROUP?"selected":""}>${escAttr(g.label)}</option>`).join('')}</select>`
+    : `<span style="font-size:.74rem;color:var(--tl)">Add a custom group in Color Palette → Edit first.</span>`;
+  const catChip=(label,val)=>`<button class="btn" onclick="swlibSetCat('${escAttr(val)}')" style="padding:.15rem .5rem;font-size:.68rem;background:${SWLIB_CAT===val?'var(--gd)':'#fff'};color:${SWLIB_CAT===val?'#fff':'var(--tm)'};border:1px solid ${SWLIB_CAT===val?'var(--gd)':'var(--br)'}">${label}</button>`;
+  const filtered = SWLIB_CAT ? SWATCH_LIB.filter(s=>s.cat===SWLIB_CAT) : SWATCH_LIB;
+  host.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-size:.7rem;color:var(--tl);text-transform:uppercase">Add to</span>${groupSel}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">${catChip("All","")}${SWATCH_LIB_CATS.map(c=>catChip(c,c)).join('')}</div>
+    ${filtered.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px">
+      ${filtered.map(s=>`<div style="text-align:center">
+          <div title="${escAttr(s.nm||s.hex)}" onclick="_swlibUse('${s.id}')" style="width:100%;aspect-ratio:1;border-radius:8px;background:${s.hex};border:1px solid var(--br);cursor:pointer"></div>
+          <div style="font-size:.6rem;color:var(--tl);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(s.nm||s.hex)}</div>
+          <button onclick="swatchLibRemove('${s.id}')" title="Remove from library" style="font-size:.55rem;color:var(--tl);background:none;border:none;cursor:pointer;padding:0">remove</button>
+        </div>`).join('')}
+    </div>` : `<div style="font-size:.78rem;color:var(--tl)">Nothing here yet — add one below.</div>`}`;
+}
+function _swlibUse(id){
+  const s=SWATCH_LIB.find(x=>x&&x.id===id); if(!s) return;
+  if(!SWLIB_GROUP){ alert("Add a custom group in Color Palette → Edit first, then come back."); return; }
+  const g=_mbPaletteState().paletteGroups.find(x=>x.key===SWLIB_GROUP); if(!g) return;
+  if(g.colors.indexOf(s.hex)<0) g.colors.push(s.hex);
+  try{ _bidSchedule(); }catch(e){}
+  try{ if(document.getElementById("mb-body")) renderMoodBoard(); }catch(e){}
+  try{ _toast(`Added to "${g.label}"`,"#4C7B3D"); }catch(e){}
+}
+function _swlibAddNew(){
+  const hex=(document.getElementById("swlib-new-hex")||{}).value||"";
+  const nm=(document.getElementById("swlib-new-nm")||{}).value||"";
+  const cat=(document.getElementById("swlib-new-cat")||{}).value||SWATCH_LIB_CATS[0];
+  swatchLibAdd(hex,nm,cat);
+  const nmEl=document.getElementById("swlib-new-nm"); if(nmEl) nmEl.value="";
+  _swlibRender();
+}
 function _mbPaletteSectionHtml(plants,goods){
   const mb=_mbPaletteState(); const sz=mb.paletteSize;
   const swatch=(hex,removable,gkey)=>`<div style="position:relative">
@@ -25324,10 +25425,10 @@ function _mbPaletteSectionHtml(plants,goods){
     </div>`).join('');
   const editBar=MB_PALETTE_EDIT?`<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--br);flex-wrap:wrap">
       <span style="font-size:.72rem;color:var(--tl)">Swatch size</span>
-      <input type="range" min="24" max="70" step="1" value="${sz}" oninput="mbSetPaletteSize(this.value)" style="flex:1;max-width:180px">
+      <input type="range" min="24" max="140" step="1" value="${sz}" oninput="mbSetPaletteSize(this.value)" style="flex:1;max-width:180px">
       <b id="mb-palsize-disp" style="font-size:.72rem;color:var(--tm)">${sz}px</b>
       <button class="btn" style="padding:.2rem .55rem;font-size:.7rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" onclick="mbAddPaletteGroup()">+ Add group</button>
-      <button class="btn" style="padding:.2rem .55rem;font-size:.7rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="mbSwatchLibraryInfo()">See swatch options</button>
+      <button class="btn" style="padding:.2rem .55rem;font-size:.7rem;background:#fff;color:var(--tm);border:1px solid var(--br)" onclick="openSwatchLibrary()">🎨 See swatch options</button>
     </div>`:'';
   const nothing = !autoPlant.length && !autoGoods.length && !(mb.paletteGroups||[]).length;
   return `${editBar}
