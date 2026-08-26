@@ -5551,7 +5551,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1225</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1226</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26787,10 +26787,13 @@ function colorPaletteClearRoleOverride(id,roleKey){
 }
 
 // ── UI state ──────────────────────────────────────────────────────────────
+// Themes/Tags/Applications are all multi-select — an array of chosen ids each,
+// not a single string. "Pick a theme" used to mean exactly one; Warwick wants to
+// pick several at once ("select multiple tags, or applications, or themes").
 let CL_STATE={tab:"theme",q:"",favOnly:false,openId:"",archivedShown:false,
-  themeFilter:"",tagFilter:"",appFilter:"",themeMore:false,tagMore:false,appMore:false,openPid:"",openKey:""};
+  themeFilter:[],tagFilter:[],appFilter:[],themeMore:false,tagMore:false,appMore:false,openPid:"",openKey:""};
 function clSetTab(t){ CL_STATE.tab=t; CL_STATE.q=""; CL_STATE.openId="";
-  CL_STATE.themeFilter=""; CL_STATE.tagFilter=""; CL_STATE.appFilter=""; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
+  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
 // Targeted at #cl-browse-results, never the shell — the shell holds the search <input>
 // itself, and re-rendering it on every keystroke tears the input out of the DOM and
 // rebuilds it, dropping focus after the first character (same bug, same fix, as
@@ -26848,7 +26851,7 @@ function _clTopBarHtml(){
       <span class="sp">
         <span class="gsearch"><span class="mag">${mi("zoom")}</span><input type="text" placeholder="Search colors, ${isTheme?'themes':'manufacturers'}, tags…" value="${escAttr(qVal)}" oninput="clTopSearch(this.value)"></span>
         ${isTheme?`<span class="mdd">
-            <button id="cl-tags-chip" class="mchip${CL_STATE.tagFilter?' on':''}" onclick="event.stopPropagation();document.getElementById('cl-tagdd').classList.toggle('open')">${mi("list")}Tags${mi("chev")}</button>
+            <button id="cl-tags-chip" class="mchip${CL_STATE.tagFilter.length?' on':''}" onclick="event.stopPropagation();document.getElementById('cl-tagdd').classList.toggle('open')">${mi("list")}Tags${mi("chev")}</button>
             <div class="mddm" id="cl-tagdd"><div id="cl-tagdd-body">${_clTagMenuBody()}</div></div>
           </span>
           <span class="mdd">
@@ -26958,13 +26961,18 @@ function _clAllColorEntries(){
   });
   return out;
 }
+// Multi-select: a color matches only if it's IN every facet that has a
+// selection (AND across Themes/Tags/Applications), and for a facet with more
+// than one thing picked, matching ANY of them is enough (OR within a facet) —
+// standard faceted-filter semantics ("Alpine or Amalfi" narrowed further by
+// "coastal or warm").
 function _clBrowseFiltered(){
   const q=CL_STATE.q.trim().toLowerCase();
   return _clAllColorEntries().filter(c=>
     (!CL_STATE.favOnly || c.pfav) &&
-    (!CL_STATE.themeFilter || c.pid===CL_STATE.themeFilter) &&
-    (!CL_STATE.tagFilter || c.ptags.indexOf(CL_STATE.tagFilter)>=0) &&
-    (!CL_STATE.appFilter || c.canonKey===COLOR_ROLE_DEFAULT_CANON[CL_STATE.appFilter]) &&
+    (!CL_STATE.themeFilter.length || CL_STATE.themeFilter.indexOf(c.pid)>=0) &&
+    (!CL_STATE.tagFilter.length || CL_STATE.tagFilter.some(t=>c.ptags.indexOf(t)>=0)) &&
+    (!CL_STATE.appFilter.length || CL_STATE.appFilter.some(r=>c.canonKey===COLOR_ROLE_DEFAULT_CANON[r])) &&
     (!q || c.name.toLowerCase().indexOf(q)>=0 || c.pname.toLowerCase().indexOf(q)>=0 ||
      c.hex.toLowerCase().indexOf(q)>=0 || c.ptags.some(t=>t.indexOf(q)>=0) ||
      c.autoTags.family.indexOf(q)>=0 || c.autoTags.temperature.indexOf(q)>=0)
@@ -26994,51 +27002,56 @@ function _clAppFacets(){
   }));
   return out;
 }
-function clSetThemeFilter(pid){ CL_STATE.themeFilter=(CL_STATE.themeFilter===pid)?"":pid; _clBrowseRenderResults(); }
-function clSetTagFilter(tag){ CL_STATE.tagFilter=(CL_STATE.tagFilter===tag)?"":tag; _clBrowseRenderResults();
-  document.getElementById("cl-tagdd")?.classList.remove("open"); }
-function clSetAppFilter(role){ CL_STATE.appFilter=(CL_STATE.appFilter===role)?"":role; _clBrowseRenderResults(); }
+function _clArrToggle(arr,v){ const i=arr.indexOf(v); if(i>=0) arr.splice(i,1); else arr.push(v); }
+function clSetThemeFilter(pid){ _clArrToggle(CL_STATE.themeFilter,pid); _clBrowseRenderResults(); }
+function clSetTagFilter(tag){ _clArrToggle(CL_STATE.tagFilter,tag); _clBrowseRenderResults(); }
+function clSetAppFilter(role){ _clArrToggle(CL_STATE.appFilter,role); _clBrowseRenderResults(); }
+// A deterministic single jump — used by "Other Themes With This Color" and similar
+// "go look at exactly this" links, which should replace the selection rather than
+// add to whatever multi-select is already active.
+function clJumpTheme(pid,key){ CL_STATE.themeFilter=[pid]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.q=""; clSelectColor(pid,key); }
 function clToggleThemeMore(){ CL_STATE.themeMore=!CL_STATE.themeMore; _clBrowseRenderResults(); }
 function clToggleTagMore(){ CL_STATE.tagMore=!CL_STATE.tagMore; _clBrowseRenderResults(); }
 function clToggleAppMore(){ CL_STATE.appMore=!CL_STATE.appMore; _clBrowseRenderResults(); }
 function clSelectColor(pid,key){ CL_STATE.openPid=pid; CL_STATE.openKey=key; _clBrowseRenderResults(); }
 function clClearAllFilters(){
-  CL_STATE.themeFilter=""; CL_STATE.tagFilter=""; CL_STATE.appFilter=""; CL_STATE.favOnly=false;
+  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.favOnly=false;
   document.getElementById("cl-filtersdd")?.classList.remove("open");
   _clBrowseRenderResults();
 }
-function _clActiveFilterCount(){ return (CL_STATE.themeFilter?1:0)+(CL_STATE.tagFilter?1:0)+(CL_STATE.appFilter?1:0)+(CL_STATE.favOnly?1:0); }
+function _clActiveFilterCount(){ return CL_STATE.themeFilter.length+CL_STATE.tagFilter.length+CL_STATE.appFilter.length+(CL_STATE.favOnly?1:0); }
 // The Tags quick-menu — same .mddm/.tagl/.it shape as the Materials tag picker,
-// wired to this feature's own single-select tag filter rather than the shared
+// wired to this feature's own multi-select tag filter rather than the shared
 // goods tag vocabulary (colors aren't tagged from that list).
 function _clTagMenuBody(){
   const list=_clTagFacets();
   return `<div class="hd">Filter by tag</div>
-    <div class="tagl">${list.length?list.map(t=>`<div class="it${CL_STATE.tagFilter===t.id?' on':''}" onclick="event.stopPropagation();clSetTagFilter('${escAttr(t.id)}')">${escAttr(t.name)} <span style="opacity:.55">(${t.n})</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No tags yet.</div>`}</div>
-    ${CL_STATE.tagFilter?`<div class="ft"><span onclick="event.stopPropagation();clSetTagFilter('${escAttr(CL_STATE.tagFilter)}')">Clear</span></div>`:''}`;
+    <div class="tagl">${list.length?list.map(t=>`<div class="it${CL_STATE.tagFilter.indexOf(t.id)>=0?' on':''}" onclick="event.stopPropagation();clSetTagFilter('${escAttr(t.id)}')">${escAttr(t.name)} <span style="opacity:.55">(${t.n})</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No tags yet.</div>`}</div>
+    ${CL_STATE.tagFilter.length?`<div class="ft"><span onclick="event.stopPropagation();CL_STATE.tagFilter=[];_clBrowseRenderResults()">Clear</span></div>`:''}`;
 }
 // The Filters quick-menu — a summary of everything currently narrowing the grid
 // (which the sidebar already holds individually) with a one-click way to drop any
 // one of them, or all of them, matching the "Filters" chip's job in Materials.
 function _clFiltersMenuBody(){
   const chips=[];
-  if(CL_STATE.themeFilter){ const p=colorPaletteFind(CL_STATE.themeFilter); if(p) chips.push({label:"Theme: "+p.name, act:`clSetThemeFilter('${p.id}')`}); }
-  if(CL_STATE.tagFilter) chips.push({label:"Tag: "+CL_STATE.tagFilter, act:`clSetTagFilter('${escAttr(CL_STATE.tagFilter)}')`});
-  if(CL_STATE.appFilter) chips.push({label:"Application: "+(COLOR_ROLE_LABELS[CL_STATE.appFilter]||CL_STATE.appFilter), act:`clSetAppFilter('${escAttr(CL_STATE.appFilter)}')`});
+  CL_STATE.themeFilter.forEach(pid=>{ const p=colorPaletteFind(pid); if(p) chips.push({label:"Theme: "+p.name, act:`clSetThemeFilter('${p.id}')`}); });
+  CL_STATE.tagFilter.forEach(t=>chips.push({label:"Tag: "+t, act:`clSetTagFilter('${escAttr(t)}')`}));
+  CL_STATE.appFilter.forEach(r=>chips.push({label:"Application: "+(COLOR_ROLE_LABELS[r]||r), act:`clSetAppFilter('${escAttr(r)}')`}));
   if(CL_STATE.favOnly) chips.push({label:"Favorites only", act:"clToggleFavOnly()"});
   return `<div class="hd">Active filters</div>
     <div class="tagl">${chips.length?chips.map(c=>`<div class="it on" style="display:flex;justify-content:space-between;gap:8px" onclick="event.stopPropagation();${c.act}">${escAttr(c.label)}<span style="opacity:.6">✕</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No filters applied.</div>`}</div>
     ${chips.length?`<div class="ft"><span onclick="event.stopPropagation();clClearAllFilters()">Clear all</span></div>`:''}`;
 }
-// Same shape as the real facet rail: a .pbk-sec header, up to 5 rows (the
-// selected one always shown even past the cap), then "Show N more"/"Show less".
-function _clFacetSection(title,items,selectedId,onClick,dotColor,moreOpen,onMoreClick){
+// Same shape as the real facet rail: a .pbk-sec header, up to 5 rows (every
+// selected one always shown even past the cap, however many are picked), then
+// "Show N more"/"Show less".
+function _clFacetSection(title,items,selectedIds,onClick,dotColor,moreOpen,onMoreClick){
   const CAP=5;
-  const chosen=items.filter(x=>x.id===selectedId);
-  const rest=items.filter(x=>x.id!==selectedId);
+  const chosen=items.filter(x=>selectedIds.indexOf(x.id)>=0);
+  const rest=items.filter(x=>selectedIds.indexOf(x.id)<0);
   const shown=moreOpen?rest:rest.slice(0,Math.max(0,CAP-chosen.length));
   const hidden=rest.length-shown.length;
-  const row=x=>`<button class="pbk-tr${x.id===selectedId?' on':''}" onclick="${onClick}('${escAttr(x.id)}')"><span class="dot" style="background:${dotColor}"></span><span class="nm">${escAttr(x.name)}</span><span class="n">${x.n}</span></button>`;
+  const row=x=>`<button class="pbk-tr${selectedIds.indexOf(x.id)>=0?' on':''}" onclick="${onClick}('${escAttr(x.id)}')"><span class="dot" style="background:${dotColor}"></span><span class="nm">${escAttr(x.name)}</span><span class="n">${x.n}</span></button>`;
   return `<div class="pbk-sec"><span>${escAttr(title)}</span></div>
     ${!items.length?`<div style="font-size:.72rem;color:var(--tl);padding:4px 10px 8px">None yet.</div>`:''}
     ${chosen.map(row).join('')}${shown.map(row).join('')}
@@ -27086,7 +27099,8 @@ function _clColorCardHtml(c,on,showTheme){
 function _clBrowseRenderResults(){
   const host=document.getElementById("cl-browse-results"); if(!host) return;
   const q=CL_STATE.q.trim();
-  const themeLevel=!CL_STATE.themeFilter && !CL_STATE.appFilter && !q;
+  const anyFilter=CL_STATE.themeFilter.length||CL_STATE.tagFilter.length||CL_STATE.appFilter.length||q;
+  const themeLevel=!anyFilter;
   let cardsHtml,headerHtml,open=null;
   if(themeLevel){
     const themes=COLOR_PALETTES.filter(p=>p&&!p.archived&&(!CL_STATE.favOnly||p.favorite)).sort((a,b)=>a.name.localeCompare(b.name));
@@ -27097,20 +27111,22 @@ function _clBrowseRenderResults(){
     open=list.find(c=>c.pid===CL_STATE.openPid && c.canonKey===CL_STATE.openKey);
     if(!open && list.length){ open=list[0]; CL_STATE.openPid=open.pid; CL_STATE.openKey=open.canonKey; }
     if(!open){ CL_STATE.openPid=""; CL_STATE.openKey=""; }
-    const themeName=CL_STATE.themeFilter ? ((colorPaletteFind(CL_STATE.themeFilter)||{}).name||"") : "";
-    const appName=CL_STATE.appFilter ? (COLOR_ROLE_LABELS[CL_STATE.appFilter]||CL_STATE.appFilter) : "";
-    // Inside one theme, every card already shares that theme's name (in the header) —
-    // show the canon role instead. Comparing across themes (an Application/Tag/search),
-    // the theme name is what actually differs card to card.
-    cardsHtml=list.map(c=>_clColorCardHtml(c, !!(open && c.pid===open.pid && c.canonKey===open.canonKey), !CL_STATE.themeFilter)).join('') || `<div class="pbk-empty">No colors match.</div>`;
-    headerHtml=`${list.length} color${list.length===1?'':'s'}`
-      +(themeName?' in '+escAttr(themeName):'')
-      +(appName?(themeName?' · ':' for ')+escAttr(appName):'')
-      +(!themeName&&!appName&&q?' matching “'+escAttr(q)+'”':'');
-    if(CL_STATE.themeFilter||CL_STATE.appFilter){
-      const backAct=CL_STATE.themeFilter?`clSetThemeFilter('${CL_STATE.themeFilter}')`:`clSetAppFilter('${CL_STATE.appFilter}')`;
-      headerHtml=`<button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="${backAct}">← All ${CL_STATE.themeFilter?'themes':'colors'}</button> ${headerHtml}`;
-    }
+    const themeNames=CL_STATE.themeFilter.map(pid=>(colorPaletteFind(pid)||{}).name).filter(Boolean);
+    const appNames=CL_STATE.appFilter.map(r=>COLOR_ROLE_LABELS[r]||r);
+    // Inside exactly one theme, every card already shares that theme's name (in
+    // the header) — show the canon role instead. Comparing across themes (2+
+    // themes picked, or an Application/Tag/search), the theme name is what
+    // actually differs card to card.
+    cardsHtml=list.map(c=>_clColorCardHtml(c, !!(open && c.pid===open.pid && c.canonKey===open.canonKey), themeNames.length!==1)).join('') || `<div class="pbk-empty">No colors match.</div>`;
+    const frags=[];
+    if(themeNames.length===1) frags.push(themeNames[0]);
+    else if(themeNames.length>1) frags.push(themeNames.length+" themes");
+    if(appNames.length===1) frags.push(appNames[0]);
+    else if(appNames.length>1) frags.push(appNames.length+" applications");
+    if(CL_STATE.tagFilter.length) frags.push(CL_STATE.tagFilter.join(", "));
+    if(q) frags.push('“'+q+'”');
+    headerHtml=`${list.length} color${list.length===1?'':'s'}${frags.length?' — '+frags.map(escAttr).join(' · '):''}`;
+    headerHtml=`<button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="CL_STATE.q='';const si=document.querySelector('#view-colorlibrary .gsearch input');if(si)si.value='';clClearAllFilters()">← Clear filters</button> ${headerHtml}`;
   }
   host.innerHTML=`<div class="pbk-wrap">
       <aside class="pbk-tree">
@@ -27123,13 +27139,13 @@ function _clBrowseRenderResults(){
         <div class="pb-lh">${headerHtml}</div>
         <div class="pb-cards">${cardsHtml}</div>
       </div>
-      <aside class="pbk-ins">${(!themeLevel&&open)?_clColorDetailHtml(open):`<div class="pbk-empty">${themeLevel?'Pick a theme to see its colors.':'Pick a color to see its details.'}</div>`}</aside>
+      ${themeLevel?'':`<aside class="pbk-ins">${open?_clColorDetailHtml(open):'<div class="pbk-empty">Pick a color to see its details.</div>'}</aside>`}
     </div>`;
   // The chips and dropdown bodies above live in the static top bar, not in this
   // container — patch them directly so they don't show stale state (same fix as
   // the Favorites button) whenever a sidebar click lands here instead.
   const favBtn=document.getElementById("cl-fav-btn"); if(favBtn) favBtn.classList.toggle("on",CL_STATE.favOnly);
-  const tagsChip=document.getElementById("cl-tags-chip"); if(tagsChip) tagsChip.classList.toggle("on",!!CL_STATE.tagFilter);
+  const tagsChip=document.getElementById("cl-tags-chip"); if(tagsChip) tagsChip.classList.toggle("on",!!CL_STATE.tagFilter.length);
   const tagddBody=document.getElementById("cl-tagdd-body"); if(tagddBody) tagddBody.innerHTML=_clTagMenuBody();
   const filtersChip=document.getElementById("cl-filters-chip"); if(filtersChip) filtersChip.classList.toggle("on",_clActiveFilterCount()>0);
   const filtersddBody=document.getElementById("cl-filtersdd-body"); if(filtersddBody) filtersddBody.innerHTML=_clFiltersMenuBody();
@@ -27202,17 +27218,17 @@ function _clColorDetailHtml(c){
     <div class="pbk-f"><span class="k">Saturation</span><b style="font-family:inherit;font-weight:600;text-transform:capitalize">${escAttr(c.autoTags.saturation)}</b></div>
 
     <div class="pbk-eb">Applications</div>
-    <div class="pbk-tags">${c.apps.length?c.apps.map(r=>`<span style="cursor:pointer${CL_STATE.appFilter===r?';background:var(--gm);color:#fff':''}" onclick="clSetAppFilter('${escAttr(r)}')">${escAttr(COLOR_ROLE_LABELS[r]||r)}</span>`).join(''):'<span>No application maps here by default</span>'}</div>
+    <div class="pbk-tags">${c.apps.length?c.apps.map(r=>`<span style="cursor:pointer${CL_STATE.appFilter.indexOf(r)>=0?';background:var(--gm);color:#fff':''}" onclick="clSetAppFilter('${escAttr(r)}')">${escAttr(COLOR_ROLE_LABELS[r]||r)}</span>`).join(''):'<span>No application maps here by default</span>'}</div>
 
     <div class="pbk-eb">Other Themes With This Color</div>
-    <div class="pbk-tags">${otherThemes.length?otherThemes.map(o=>`<span style="cursor:pointer" onclick="clSetThemeFilter('${o.pid}');clSelectColor('${o.pid}','${o.canonKey}')">${escAttr(o.pname)}</span>`).join(''):'<span>None — unique to this theme</span>'}</div>
+    <div class="pbk-tags">${otherThemes.length?otherThemes.map(o=>`<span style="cursor:pointer" onclick="clJumpTheme('${o.pid}','${o.canonKey}')">${escAttr(o.pname)}</span>`).join(''):'<span>None — unique to this theme</span>'}</div>
 
     <div class="pbk-eb">Similar Colors</div>
     ${aiHtml}
 
     <div class="pbk-eb">Actions</div>
     <button class="pbk-btn" onclick="clOpen('${c.pid}')">Open full palette editor</button>
-    <button class="pbk-btn" onclick="const np=colorPaletteDuplicate('${c.pid}'); clSetThemeFilter(np.id); clSelectColor(np.id,'${c.canonKey}')">Duplicate this theme</button>`;
+    <button class="pbk-btn" onclick="const np=colorPaletteDuplicate('${c.pid}'); clJumpTheme(np.id,'${c.canonKey}')">Duplicate this theme</button>`;
 }
 
 function _clDetailHtml(id){
