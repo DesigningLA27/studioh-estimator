@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1235</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1236</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27804,7 +27804,36 @@ function _mfgApplySunbrellaHex(){
       // vs name "White" in collection "Canvas"), and the SKU is the thing actually
       // specified on a schedule.
       Object.keys(fields).forEach(k=>{ if(k==="hex"&&ex.hex) return; if(fields[k]!=null&&ex[k]==null) ex[k]=fields[k]; });
-      if(!ex.hex){ ex.hex=fields.hex; ex.hexApproximate=true; ex.hexSource="swatch_image"; ex.hexConfidence=fields.hexConfidence; ex.hexSourceUrl=fields.hexSourceUrl; n++; }
+      // A value sampled from Sunbrella's own swatch photo genuinely outranks an
+      // unsourced estimate, so it DOES replace one — this is an upgrade in
+      // provenance, not an overwrite of something better. Only ever in that
+      // direction: a published or already-sampled value is never touched. The
+      // superseded number is kept on the record so the change is auditable.
+      const legacyEstimate = ex.hex && (ex.hexSource==="unconfirmed" || !MFG_HEX_TIERS[ex.hexSource]);
+      if(legacyEstimate && fields.hex){
+        const same = fields.hex.toUpperCase()===String(ex.hex).toUpperCase();
+        if(same){
+          // The unsourced value and the independently sampled one agree exactly, so
+          // the number is corroborated and no longer merely "from a list" — it earns
+          // the sampled label. Same logic as the Davis cross-check: agreement between
+          // two independent routes is evidence, and the record should say so.
+          ex.hexSource="swatch_image"; ex.hexApproximate=true;
+          ex.hexConfidence=fields.hexConfidence; ex.hexSourceUrl=fields.hexSourceUrl;
+          ex.hexNote="Independently confirmed: sampling Sunbrella's own swatch photo produced this same value.";
+        } else {
+          // They disagree, and a value sampled from the manufacturer's own imagery
+          // outranks an unsourced one. The superseded number stays on the record so
+          // the change is auditable rather than silent.
+          ex.supersededHex=ex.hex;
+          ex.hexNote="Was "+ex.hex+" from the original colour list; replaced by a value sampled from Sunbrella's own swatch photo.";
+          ex.hex=fields.hex; ex.hexApproximate=true; ex.hexSource="swatch_image";
+          ex.hexConfidence=fields.hexConfidence; ex.hexSourceUrl=fields.hexSourceUrl;
+        }
+        n++;
+      } else if(!ex.hex){
+        ex.hex=fields.hex; ex.hexApproximate=true; ex.hexSource="swatch_image";
+        ex.hexConfidence=fields.hexConfidence; ex.hexSourceUrl=fields.hexSourceUrl; n++;
+      }
     } else {
       MANUFACTURER_COLORS.push(Object.assign({id:"mc-sb-"+sku,manufacturer:"Sunbrella",
         productName:r[0],sku,category:"Fabric",material:"Fabric",verified:true,
@@ -27812,6 +27841,57 @@ function _mfgApplySunbrellaHex(){
         sourceUrl:"https://www.sunbrella.com/"},fields));
       n++;
     }
+  });
+  return n;
+}
+// ── Sunbrella Canvas — the 11 not in the live catalogue ───────────────────
+// Warwick supplied a 57-colour Canvas list; 46 of them we already hold with hexes
+// sampled from Sunbrella's own swatch photography, and those are left untouched —
+// a sampled value beats a recalled one. These 11 are the remainder.
+//
+// Their absence is itself a finding: the sweep that produced the other 221 walked
+// Sunbrella's own XML sitemap of 997 live product URLs, and none of these appeared
+// in it. Several (Heather Beige, Raffia, Vellum) are long-standing classic Canvas
+// colours, so the likely explanation is that they are retired rather than that the
+// sweep missed them. They are recorded as real colours with catalogueStatus
+// "unverified" until that is checked, because a discontinued colour still matters
+// to an existing project.
+//
+// The hexes came from a supplied list, not from Sunbrella, and load "unconfirmed"
+// accordingly. Only one carries a SKU; the rest are NEEDS_SKU_VERIFICATION rather
+// than being given an invented one.
+const SUNBRELLA_CANVAS_EXTRA=[
+  ["Canvas Harvest","","#B18B55"],
+  ["Canvas Heather Beige","","#B9AA91"],
+  ["Canvas Hot Pink","","#C84F78"],
+  ["Canvas Persimmon","","#C46B4E"],
+  ["Canvas Raffia","","#C3AF8B"],
+  ["Canvas Raven Black","","#343536"],
+  ["Canvas Teak","","#756451"],
+  ["Canvas Vellum","","#DDD2BA"],
+  ["Canvas Cyan","56105-0000","#36A6B2"],
+  ["Canvas Tamale","","#B95B42"],
+  ["Canvas Flint","","#747671"]
+];
+function _mfgApplySunbrellaExtra(){
+  let n=0;
+  const have={};
+  MANUFACTURER_COLORS.forEach(m=>{ if(m&&m.manufacturer==="Sunbrella"){
+    have[(m.productName||"").toLowerCase()]=1;
+    if(m.sku) have[m.sku.toLowerCase()]=1; } });
+  SUNBRELLA_CANVAS_EXTRA.forEach(r=>{
+    const[name,sku,hex]=r;
+    // Never duplicate one we already hold, under either its name or its SKU.
+    if(have[name.toLowerCase()] || have[name.replace(/^Canvas /,"").toLowerCase()] || (sku&&have[sku.toLowerCase()])) return;
+    MANUFACTURER_COLORS.push({id:"mc-sbx-"+name.toLowerCase().replace(/[^a-z0-9]+/g,"-"),
+      manufacturer:"Sunbrella",productName:name,sku:sku||null,collection:"Canvas",
+      category:"Upholstery",material:"Solution-Dyed Acrylic",patternType:"solid",
+      hex,hexApproximate:true,hexSource:"unconfirmed",
+      hexNote:"Supplied colour list, not sampled from a Sunbrella swatch. Sunbrella publishes no hex.",
+      catalogueStatus:"unverified — not found in Sunbrella's current sitemap; may be discontinued",
+      verificationStatus:sku?"":"NEEDS_SKU_VERIFICATION",
+      verified:false,sourceUrl:"https://www.sunbrella.com/"});
+    n++;
   });
   return n;
 }
@@ -27957,7 +28037,7 @@ let MANUFACTURER_COLORS=(function(){ try{ const s=localStorage.getItem("studioh_
 // Also against the localStorage copy, not just the pull: that cache is what renders
 // first (and all that renders at all when offline), so without this the swatches
 // stay blank until the network round-trip lands.
-_mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
+_mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
 let _mfgColorsPulled=false;
 async function mfgColorsPull(force){
   if(_mfgColorsPulled&&!force) return MANUFACTURER_COLORS;
@@ -27965,7 +28045,7 @@ async function mfgColorsPull(force){
   if(d&&!d.err&&Array.isArray(d.data)){
     MANUFACTURER_COLORS=d.data.length?d.data:MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m));
     _mfgColorsPulled=true;
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
     try{ localStorage.setItem("studioh_goods_mfgcolors_at", d.savedAt||""); }catch(e){}
     try{ localStorage.setItem("studioh_mfgcolors_v1", JSON.stringify(MANUFACTURER_COLORS)); }catch(e){}
     if(!d.data.length) mfgColorsSaveQuiet(); // first-ever pull, empty on the server — seed it once with real researched data
@@ -27978,7 +28058,7 @@ async function mfgColorsPull(force){
     // real published or hand-corrected value saved there always wins over this.
   } else if(!MANUFACTURER_COLORS.length){
     MANUFACTURER_COLORS=MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m)); // offline fallback
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
   }
   return MANUFACTURER_COLORS;
 }
