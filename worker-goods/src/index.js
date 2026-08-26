@@ -20,7 +20,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-const BOOKS = { materials: "materials_v1", furnishings: "furnishings_v1", hoa: "hoa_v1", elements: "elements_v1", swatches: "swatches_v1", palettepresets: "palettepresets_v1" };
+const BOOKS = { materials: "materials_v1", furnishings: "furnishings_v1", hoa: "hoa_v1", elements: "elements_v1", swatches: "swatches_v1", palettepresets: "palettepresets_v1", colorpalettes: "colorpalettes_v1", mfgcolors: "mfgcolors_v1" };
 // Every saved project also leaves a small digest here — address, phase, totals, the
 // plant palette, the pool and pergola specs. Whole projects are megabytes and live in
 // the bid store; this is the ~2KB summary that makes them searchable and answerable
@@ -255,7 +255,7 @@ export default {
       // Submit — no key. Deliberately open.
       if (b.type === "submit") {
         const book = String(b.book || "").toLowerCase();
-        if (["materials", "furnishings", "plants", "hoa", "elements", "swatches", "palettepresets"].indexOf(book) < 0) return json({ ok: false, error: "unknown book" }, 400);
+        if (["materials", "furnishings", "plants", "hoa", "elements", "swatches", "palettepresets", "colorpalettes", "mfgcolors"].indexOf(book) < 0) return json({ ok: false, error: "unknown book" }, 400);
         if (!b.item || typeof b.item !== "object") return json({ ok: false, error: "nothing submitted" }, 400);
         const kind = (b.kind === "fix") ? "fix" : "add";
 
