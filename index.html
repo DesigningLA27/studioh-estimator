@@ -5550,7 +5550,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1219</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1220</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26755,7 +26755,7 @@ function colorPaletteToggleArchive(id){
 }
 function colorPaletteToggleFavorite(id){
   const p=colorPaletteFind(id); if(!p) return; p.favorite=!p.favorite; colorPalettesSaveQuiet();
-  _clRenderShell();
+  if(document.getElementById("cl-grid-results")) _clGridRenderResults(); else _clRenderShell();
 }
 function colorPaletteRename(id,name){
   const p=colorPaletteFind(id); if(!p) return; p.name=(name||p.name).trim()||p.name; colorPalettesSaveQuiet();
@@ -26788,8 +26788,12 @@ function colorPaletteClearRoleOverride(id,roleKey){
 // ── UI state ──────────────────────────────────────────────────────────────
 let CL_STATE={tab:"theme",q:"",favOnly:false,openId:"",archivedShown:false};
 function clSetTab(t){ CL_STATE.tab=t; CL_STATE.q=""; CL_STATE.openId=""; renderColorLibrary(); }
-function clSetQuery(v){ CL_STATE.q=v; _clRenderShell(); }
-function clToggleFavOnly(){ CL_STATE.favOnly=!CL_STATE.favOnly; _clRenderShell(); }
+// Targeted at #cl-grid-results, never the shell — the shell holds the search <input>
+// itself, and re-rendering it on every keystroke tears the input out of the DOM and
+// rebuilds it, dropping focus after the first character (same bug, same fix, as
+// Manufacturer Colors' search — see [[color-library-roadmap]]).
+function clSetQuery(v){ CL_STATE.q=v; _clGridRenderResults(); }
+function clToggleFavOnly(){ CL_STATE.favOnly=!CL_STATE.favOnly; _clGridRenderResults(); }
 function clOpen(id){ CL_STATE.tab="theme"; CL_STATE.openId=id; _clRenderShell(); }
 function clBack(){ CL_STATE.openId=""; _clRenderShell(); }
 
@@ -26819,6 +26823,7 @@ function _clRenderShell(){
   if(CL_STATE.tab==="manufacturer"){ host.innerHTML=_clMfgHtml(); _clMfgRenderResults(); return; }
   if(CL_STATE.openId){ host.innerHTML=_clDetailHtml(CL_STATE.openId); return; }
   host.innerHTML=_clGridHtml();
+  _clGridRenderResults();
 }
 function _clFiltered(){
   const q=CL_STATE.q.trim().toLowerCase();
@@ -26828,7 +26833,8 @@ function _clFiltered(){
      CANON_KEYS.some(k=>p.sw[k] && p.sw[k][0].toLowerCase().indexOf(q)>=0))
   );
 }
-function _clGridHtml(){
+function _clGridRenderResults(){
+  const host=document.getElementById("cl-grid-results"); if(!host) return;
   const list=_clFiltered();
   const cards=list.map(p=>{
     const strip=CANON_KEYS.map(k=>`<span style="flex:1;background:${p.sw[k][1]}" title="${escAttr(CANON_LABELS[k])}: ${escAttr(p.sw[k][0])}"></span>`).join('');
@@ -26843,12 +26849,15 @@ function _clGridHtml(){
         </div>
       </div>`;
   }).join('');
+  host.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px">${cards || `<div style="font-size:.85rem;color:var(--tl)">No palettes match.</div>`}</div>`;
+}
+function _clGridHtml(){
   return `<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <input type="text" placeholder="Search by name, tag, or color…" value="${escAttr(CL_STATE.q)}" oninput="clSetQuery(this.value)" style="flex:1;min-width:220px;padding:.55rem .8rem;font-size:.85rem;border:1px solid var(--br);border-radius:9px;background:var(--surface2)">
       <button class="btn" onclick="clToggleFavOnly()" style="padding:.45rem .8rem;font-size:.78rem;font-weight:600;background:${CL_STATE.favOnly?'var(--gd)':'#fff'};color:${CL_STATE.favOnly?'#fff':'var(--tm)'};border:1px solid ${CL_STATE.favOnly?'var(--gd)':'var(--br)'};border-radius:9px">★ Favorites</button>
       <button class="btn" onclick="clCreateBlank()" style="padding:.45rem .8rem;font-size:.78rem;font-weight:600;background:#fff;color:var(--gm);border:1px solid var(--gm);border-radius:9px">+ Start blank</button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px">${cards || `<div style="font-size:.85rem;color:var(--tl)">No palettes match.</div>`}</div>`;
+    <div id="cl-grid-results"></div>`;
 }
 function clCreateBlank(){ const p=colorPaletteCreateBlank(); clOpen(p.id); }
 
