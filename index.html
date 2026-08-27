@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1242</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1243</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29190,6 +29190,30 @@ function _mfgSearchBlob(m){
   // about the WATER, while "give me a warm beige aggregate" is about the MATERIAL,
   // and an earth-toned aggregate routinely produces blue water.
   if(m.waterColorFamily) parts.push("water "+String(m.waterColorFamily).replace(/_/g," "));
+  // Variation is a real spec attribute for handcrafted material, and designers ask
+  // for it in both directions ("lots of variation" vs "keep it uniform"), so both
+  // the rating and words for it are searchable.
+  if(m.variationRating){ parts.push(m.variationRating);
+    const v=String(m.variationRating).toUpperCase();
+    if(v==="V3"||v==="V4") parts.push("high variation variable random");
+    if(v==="V1"||v==="V2") parts.push("uniform low variation consistent"); }
+  if(m.colorType) parts.push(m.colorType);
+  // Index EVERY dominant colour, not just the representative one. Required for
+  // multi-colour material: a Flash tile of terracotta + cream + brown has a
+  // representative hex that is none of those, so "cream" would never find it if only
+  // the average were indexed. Tested: before this, "arto cream" returned nothing for
+  // a Flash whose second-largest colour is cream.
+  if(Array.isArray(m.dominantColors)){
+    m.dominantColors.forEach(d=>{ if(!d||!d.hex) return;
+      const dt=colorAutoTags(d.hex);
+      parts.push(d.hex, dt.family, dt.temperature);
+      if(dt.family==="beige"||dt.family==="cream") parts.push("buff tan");
+      if(dt.family==="taupe") parts.push("beige greige tan");
+      if(dt.family==="terracotta") parts.push("clay");
+    });
+  }
+  if(Array.isArray(m.applications)) parts.push(m.applications.join(" ").replace(/_/g," "));
+  if(Array.isArray(m.compatibleCollections)) parts.push(m.compatibleCollections.join(" "));
   if(m.texture) parts.push(m.texture);
   if(m.description) parts.push(String(m.description).slice(0,300));
   m._sblobHex=m.hex;
@@ -29208,7 +29232,8 @@ function _clMfgRenderResults(){
     && (!CL_MFG_FAM.length || (m.hex && CL_MFG_FAM.indexOf(colorAutoTags(m.hex).family)>=0))
     && (!CL_MFG_GRP.length || (m.hex && CL_MFG_GRP.indexOf(colorGroupOf(m.hex))>=0))
     && (!CL_MFG_COLL.length || CL_MFG_COLL.indexOf(m.collection)>=0)
-    && (!CL_MFG_WATER.length || CL_MFG_WATER.indexOf(m.waterColorFamily)>=0));
+    && (!CL_MFG_WATER.length || CL_MFG_WATER.indexOf(m.waterColorFamily)>=0)
+    && (!CL_MFG_VAR.length || CL_MFG_VAR.indexOf(m.variationRating)>=0));
 
   // Level 2 — one manufacturer selected: its colors in the SAME standard .pb-cards
   // tile grid the Theme Palettes drill-in uses, plus the same right-hand detail
@@ -29290,7 +29315,8 @@ function clMfgToggleMore(){ CL_MFG_MORE=!CL_MFG_MORE; _clMfgRenderResults(); }
 function _clMfgBrandFacetHtml(byMfg){
   const items=Object.keys(byMfg).sort().map(b=>({id:b,name:b,n:byMfg[b].length}));
   return _clFacetSection("Manufacturers",items,CL_MFG_BRAND?[CL_MFG_BRAND]:[],"clMfgSetBrand","#9B7B3A",CL_MFG_MORE,"clMfgToggleMore")
-    +_clMfgCollFacetHtml()+_clMfgGroupFacetHtml()+_clMfgWaterFacetHtml()+_clMfgFamilyFacetHtml();
+    +_clMfgCollFacetHtml()+_clMfgGroupFacetHtml()+_clMfgWaterFacetHtml()
+    +_clMfgVarFacetHtml()+_clMfgFamilyFacetHtml();
 }
 // Colour-family facet on this tab too, so the computed tags are filterable and not
 // only typeable. Scoped to the brand in view when one is open — inside Davis you
@@ -29320,6 +29346,24 @@ function _clMfgCollFacetHtml(){
 let CL_MFG_WATER=[], CL_MFG_WATER_MORE=false;
 function clMfgSetWater(w){ _clArrToggle(CL_MFG_WATER,w); _clMfgRenderResults(); }
 function clMfgToggleWaterMore(){ CL_MFG_WATER_MORE=!CL_MFG_WATER_MORE; _clMfgRenderResults(); }
+// Variation facet — only shows for brands that actually publish ratings, so it
+// stays invisible for the fabric and metal brands where it means nothing. Ordered
+// V1..V4, never by count: the ordering IS the information (uniform to random).
+let CL_MFG_VAR=[], CL_MFG_VAR_MORE=false;
+function clMfgSetVar(v){ _clArrToggle(CL_MFG_VAR,v); _clMfgRenderResults(); }
+function clMfgToggleVarMore(){ CL_MFG_VAR_MORE=!CL_MFG_VAR_MORE; _clMfgRenderResults(); }
+const VARIATION_ORDER=["V1","V2","V3","V4"];
+function _clMfgVarFacetHtml(){
+  const t={};
+  MANUFACTURER_COLORS.forEach(m=>{ if(!m||!m.variationRating) return;
+    if(CL_MFG_BRAND && m.manufacturer!==CL_MFG_BRAND) return;
+    t[m.variationRating]=(t[m.variationRating]||0)+1; });
+  const known=VARIATION_ORDER.filter(v=>t[v]).map(v=>({id:v,name:v,n:t[v]}));
+  const other=Object.keys(t).filter(v=>VARIATION_ORDER.indexOf(v)<0).sort().map(v=>({id:v,name:v,n:t[v]}));
+  const items=known.concat(other);
+  if(!items.length) return '';
+  return _clFacetSection("Variation",items,CL_MFG_VAR,"clMfgSetVar","#8A6E4B",CL_MFG_VAR_MORE,"clMfgToggleVarMore");
+}
 function _clMfgWaterFacetHtml(){
   const t={};
   MANUFACTURER_COLORS.forEach(m=>{ if(!m||!m.waterColorFamily) return;
@@ -29474,7 +29518,9 @@ function _mfgColorDetailHtml(m){
             <small style="font-size:9px;color:var(--tl)">${escAttr(d.hex)}${d.pct?'<br>'+d.pct+'%':''}</small>
           </div>`).join('')}
       </div>
-      <div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">${/solid/i.test(m.patternType||"")?"These are the colours the weave actually mixes — the single hex above is their average.":"This one is patterned, so a single hex under-describes it — these are the colours actually present."}</div>`:'';
+      <div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">${/flash|blend/i.test(m.colorType||"")
+        ? "This is a "+escAttr(m.colorType)+" colour, so the single hex above is an average of colours that are all genuinely present and none of which it equals. Read these."
+        : (/solid/i.test(m.patternType||"")?"These are the colours the weave actually mixes — the single hex above is their average.":"This one is patterned, so a single hex under-describes it — these are the colours actually present.")}</div>`:'';
   return `<span class="pbk-ph" style="display:block;${swatchStyle}"></span>
     <div class="pbk-hd">${escAttr(title)}<i>${escAttr([m.manufacturer,m.collection].filter(Boolean).join(' · '))}</i></div>
 
@@ -29511,6 +29557,13 @@ function _mfgColorDetailHtml(m){
       <div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">Published by the manufacturer.</div>`:''}
     ${F("Colour family",m.colorFamily)}
     ${F("Texture",m.texture)}
+    ${F("Colour type",m.colorType&&m.colorType!=="unverified"?m.colorType:"")}
+    ${m.variationRating?`<div class="pbk-f"><span class="k">Variation</span><b>${escAttr(m.variationRating)}</b></div>
+      ${m.variationDescription?`<div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">${escAttr(m.manufacturer||"The manufacturer")}'s own definition: ${escAttr(m.variationDescription)}</div>`:''}`:''}
+    ${Array.isArray(m.compatibleCollections)&&m.compatibleCollections.length?`<div class="pbk-f stack"><span class="k">Offered in</span><b style="font-family:inherit;font-weight:600">${m.compatibleCollections.map(escAttr).join(", ")}</b></div>`:''}
+    ${Array.isArray(m.applications)&&m.applications.length?`<div class="pbk-eb">Rated for</div>
+      <div class="pbk-tags">${m.applications.map(a=>`<span>${escAttr(String(a).replace(/_/g," "))}</span>`).join('')}</div>
+      <div style="font-size:.68rem;color:var(--tl);padding:2px 6px 4px;line-height:1.45">Only what the manufacturer's own product data supports — absence here doesn't mean unsuitable, it means unconfirmed.</div>`:''}
     ${F("Availability",m.availabilityStatus)}
     ${m.regionalAvailability?`<div style="font-size:.7rem;color:var(--gold);padding:2px 6px 4px;line-height:1.5">${escAttr(m.regionalAvailability)}</div>`:''}
     ${m.pantone?`<div class="pbk-f"><span class="k">Pantone</span><b style="color:var(--gm)">${escAttr(m.pantone)}</b></div>
@@ -29524,6 +29577,7 @@ function _mfgColorDetailHtml(m){
         <span style="flex:1;font-size:11px"><b>${escAttr(m.relatedByName.color)}</b><br><small style="color:var(--tl)">${escAttr(m.relatedByName.hex)}</small></span>
       </div>
       <div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">Same colour NAME, not a confirmed formulation link — and a finished planter wouldn't match a raw pigment chip regardless. Shown as a cross-reference only.</div>`:''}
+    ${/handcrafted|thin.?brick|concrete.?(tile|paver|coping)|terracotta|clay|ceramic/i.test((m.materialType||"")+" "+(m.material||""))?`<div style="font-size:.7rem;color:var(--tm);padding:6px 8px;line-height:1.5;background:var(--surface2);border-radius:9px;margin:6px 3px">Digital colours here are design references. Handcrafted material varies naturally in colour and texture, and grout, sealer, installation, weathering and manufacturing variation all change the installed appearance. ${m.displayCondition==="unsealed_reference"?"These swatches are an UNSEALED reference. ":""}Verify final selections against current physical ${escAttr(m.manufacturer||"manufacturer")} samples.</div>`:''}
     ${/pool.?finish|aggregate/i.test((m.category||"")+" "+(m.material||""))?`<div style="font-size:.7rem;color:var(--tm);padding:6px 8px;line-height:1.5;background:var(--surface2);border-radius:9px;margin:6px 3px">Pool finish and water colours shown here are approximate. Actual appearance varies with the natural aggregate itself, installation, pool depth, lighting, shade, surroundings, water conditions and time of day. Verify final selections against current ${escAttr(m.manufacturer||"manufacturer")} samples and installed-pool references.</div>`:''}
     ${/concrete/i.test(m.material||m.category||"")?`<div style="font-size:.7rem;color:var(--tm);padding:6px 8px;line-height:1.5;background:var(--surface2);border-radius:9px;margin:6px 3px">Digital colour is a design reference only. ${/architectural/i.test(m.material||"")?"Architectural concrete colour and texture vary with cement, aggregate, pigment, mix design, surface treatment, curing, lighting and manufacturing conditions.":"Actual concrete colour varies with cement, aggregate, mix design, finishing, curing and field conditions."} Verify final selections with an actual ${escAttr(m.manufacturer||"manufacturer")} sample${/architectural/i.test(m.material||"")?"":" and/or project mockup"}.</div>`:''}
 
