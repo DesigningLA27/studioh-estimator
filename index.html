@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1248</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1249</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -21851,7 +21851,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   const pick=await askDlg({title:"Publish your pricing?",
@@ -27813,7 +27813,11 @@ const LIGHTING_HEX={
 // published" fallback was dressing them in the green published treatment. An
 // estimate must never render as a published value, so anything untiered is treated
 // as unconfirmed and the original note is preserved rather than discarded.
-const MFG_HEX_TIERS={published:1,pdf:1,css:1,swatch_image:1,unconfirmed:1};
+// "manual" is a first-class tier, not an absence of one: a value Warwick corrected by
+// eye against a physical sample is BETTER evidence than a pixel sampled off the
+// manufacturer's photography, and the panel says so rather than lumping it in with
+// the approximations.
+const MFG_HEX_TIERS={published:1,pdf:1,css:1,swatch_image:1,unconfirmed:1,manual:1};
 // TUUCI publishes its frame finishes as "<Name> Powder Coat" (image alt
 // "Powder Coat_<Name>"), but our seed also carried a bare-name Frame/Metal record
 // for each of the same eight. Those stayed permanently empty because a name-keyed
@@ -27927,6 +27931,48 @@ const PT_RAMP_NOTE="PebbleTec artwork, not photography and not the sample chip: 
 // Per [[image-framing-roadmap]] this is global today; it becomes per-user when real
 // accounts exist.
 let MFG_FRAME=(function(){ try{ return JSON.parse(localStorage.getItem("studioh_mfgframe_v1")||"{}")||{}; }catch(e){ return {}; } })();
+let MFG_EDIT=(function(){ try{ return JSON.parse(localStorage.getItem("studioh_mfgedit_v1")||"{}")||{}; }catch(e){ return {}; } })();
+function mfgEditSaveStore(){
+  try{ localStorage.setItem("studioh_mfgedit_v1",JSON.stringify(MFG_EDIT)); }catch(e){}
+  try{ _saveConfigSilent(); }catch(e){}
+}
+// Applied LAST, after every auto-fill and after provenance normalisation, so a hand
+// correction always wins and can never be quietly re-derived. Same reasoning as
+// framing for why this lives in its own small store rather than being pushed with
+// the ~1150 derived records.
+function _mfgApplyEdits(){
+  let n=0;
+  MANUFACTURER_COLORS.forEach(m=>{
+    if(!m||!m.id) return;
+    const e=MFG_EDIT[m.id]; if(!e||!e.hex) return;
+    // Keep the sourced value so "revert" means something concrete.
+    if(e.wasHex && !m.sourcedHex) m.sourcedHex=e.wasHex;
+    if(e.wasSource && !m.sourcedHexSource) m.sourcedHexSource=e.wasSource;
+    m.hex=e.hex; m.hexSource="manual"; m.hexApproximate=false;
+    m.hexConfidence=null; m.hexEditedAt=e.at||null;
+    n++;
+  });
+  return n;
+}
+function mfgHexEditSet(id,hex){
+  const m=MANUFACTURER_COLORS.find(x=>x&&x.id===id); if(!m) return false;
+  const u=String(hex||"").trim().toUpperCase();
+  if(!/^#[0-9A-F]{6}$/.test(u)) return false;
+  MFG_EDIT[id]={hex:u,
+    wasHex:(MFG_EDIT[id]&&MFG_EDIT[id].wasHex)||m.sourcedHex||m.hex||null,
+    wasSource:(MFG_EDIT[id]&&MFG_EDIT[id].wasSource)||m.sourcedHexSource||m.hexSource||null,
+    at:new Date().toISOString().slice(0,10)};
+  mfgEditSaveStore(); _mfgApplyEdits();
+  return true;
+}
+function mfgHexEditRevert(id){
+  const m=MANUFACTURER_COLORS.find(x=>x&&x.id===id); if(!m) return;
+  const e=MFG_EDIT[id];
+  if(e){ if(e.wasHex){ m.hex=e.wasHex; m.hexSource=e.wasSource||"unconfirmed";
+      m.hexApproximate=e.wasSource!=="published"&&e.wasSource!=="manual"; }
+    delete MFG_EDIT[id]; mfgEditSaveStore(); }
+  delete m.hexEditedAt; delete m.sourcedHex; delete m.sourcedHexSource;
+}
 function mfgFrameSaveStore(){
   try{ localStorage.setItem("studioh_mfgframe_v1",JSON.stringify(MFG_FRAME)); }catch(e){}
   // Rides the existing shared-config sync. _saveConfigSilent no-ops without an admin
@@ -28607,7 +28653,7 @@ let MANUFACTURER_COLORS=(function(){ try{ const s=localStorage.getItem("studioh_
 // Also against the localStorage copy, not just the pull: that cache is what renders
 // first (and all that renders at all when offline), so without this the swatches
 // stay blank until the network round-trip lands.
-_mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgApplyArto(); _mfgApplyPebbleTec(); _mfgApplyPebbleTecWater(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance(); _mfgApplyFrames();
+_mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgApplyArto(); _mfgApplyPebbleTec(); _mfgApplyPebbleTecWater(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance(); _mfgApplyFrames(); _mfgApplyEdits();
 let _mfgColorsPulled=false;
 async function mfgColorsPull(force){
   if(_mfgColorsPulled&&!force) return MANUFACTURER_COLORS;
@@ -28615,7 +28661,7 @@ async function mfgColorsPull(force){
   if(d&&!d.err&&Array.isArray(d.data)){
     MANUFACTURER_COLORS=d.data.length?d.data:MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m));
     _mfgColorsPulled=true;
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgApplyArto(); _mfgApplyPebbleTec(); _mfgApplyPebbleTecWater(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance(); _mfgApplyFrames();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgApplyArto(); _mfgApplyPebbleTec(); _mfgApplyPebbleTecWater(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance(); _mfgApplyFrames(); _mfgApplyEdits();
     try{ localStorage.setItem("studioh_goods_mfgcolors_at", d.savedAt||""); }catch(e){}
     try{ localStorage.setItem("studioh_mfgcolors_v1", JSON.stringify(MANUFACTURER_COLORS)); }catch(e){}
     if(!d.data.length) mfgColorsSaveQuiet(); // first-ever pull, empty on the server — seed it once with real researched data
@@ -28628,7 +28674,7 @@ async function mfgColorsPull(force){
     // real published or hand-corrected value saved there always wins over this.
   } else if(!MANUFACTURER_COLORS.length){
     MANUFACTURER_COLORS=MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m)); // offline fallback
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgApplyArto(); _mfgApplyPebbleTec(); _mfgApplyPebbleTecWater(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance(); _mfgApplyFrames();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgApplyArto(); _mfgApplyPebbleTec(); _mfgApplyPebbleTecWater(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance(); _mfgApplyFrames(); _mfgApplyEdits();
   }
   return MANUFACTURER_COLORS;
 }
@@ -29763,6 +29809,81 @@ function mfgPatternFill(m){
   }
   return null;
 }
+// ── Editing a manufacturer colour by hand ─────────────────────────────────
+// Reuses the framing modal's shell (.gfrw/.gfrc/.askb) so it looks and behaves like
+// the framing dialog rather than introducing a third modal idiom. Two ways in, both
+// asked for: the swatch and the hex row.
+let _mhx={id:"",hex:"",orig:""};
+function mfgHexOpen(ev,id){
+  if(ev){ ev.stopPropagation(); }
+  const m=MANUFACTURER_COLORS.find(x=>x&&x.id===id); if(!m) return;
+  _mhx={id,hex:(m.hex||"#CCCCCC").toUpperCase(),
+        orig:(m.sourcedHex||m.hex||"").toUpperCase()};
+  let host=document.getElementById("mhx");
+  if(!host){ host=document.createElement("div"); host.id="mhx"; host.className="gfrw";
+    host.addEventListener("click",e=>{ if(e.target===host) mfgHexClose(); });
+    document.body.appendChild(host); }
+  mfgHexRender(); requestAnimationFrame(()=>host.classList.add("on"));
+}
+function mfgHexClose(){ const h=document.getElementById("mhx");
+  if(h){ h.classList.remove("on"); setTimeout(()=>{ try{ h.remove(); }catch(e){} },160); } }
+function mfgHexInput(v){
+  let s=String(v||"").trim();
+  if(s && s[0]!=="#") s="#"+s;
+  _mhx.hex=s.toUpperCase();
+  const ok=/^#[0-9A-F]{6}$/.test(_mhx.hex);
+  const sw=document.getElementById("mhx-sw"); if(sw&&ok) sw.style.background=_mhx.hex;
+  const pick=document.getElementById("mhx-pick"); if(pick&&ok) pick.value=_mhx.hex;
+  const txt=document.getElementById("mhx-txt"); if(txt&&txt.value!==_mhx.hex) txt.value=_mhx.hex;
+  const btn=document.getElementById("mhx-save");
+  if(btn){ btn.disabled=!ok; btn.style.opacity=ok?"1":".45"; }
+  const warn=document.getElementById("mhx-warn");
+  if(warn) warn.textContent=ok?"":"Needs six hex digits, e.g. #3E8EA6.";
+}
+function mfgHexSave(){
+  if(!mfgHexEditSet(_mhx.id,_mhx.hex)) return;
+  mfgHexClose(); try{ _clMfgRenderResults(); }catch(e){}
+}
+function mfgHexRevert(){
+  mfgHexEditRevert(_mhx.id);
+  mfgHexClose(); try{ _clMfgRenderResults(); }catch(e){}
+}
+function mfgHexRender(){
+  const host=document.getElementById("mhx"); if(!host) return;
+  const m=MANUFACTURER_COLORS.find(x=>x&&x.id===_mhx.id)||{};
+  const edited=!!MFG_EDIT[_mhx.id];
+  const SRC={published:"published by the manufacturer",pdf:"extracted from their PDF chart",
+    css:"read from their own swatch styling",swatch_image:"sampled from their swatch photo",
+    unconfirmed:"from a supplied list, unconfirmed",manual:"your correction"};
+  host.innerHTML=`<div class="gfrc" onclick="event.stopPropagation()">
+    <div class="gfrt">Adjust this colour</div>
+    <div class="gfrh">${escAttr(m.productName||"")} — ${escAttr(m.manufacturer||"")}. Your value is stored as your correction and kept separate from what the manufacturer publishes, so it is always clear which is which.</div>
+    <div style="display:flex;align-items:center;gap:12px;margin:4px 0 10px">
+      <span id="mhx-sw" style="width:78px;height:78px;border-radius:12px;flex:none;border:1px solid var(--br);background:${escAttr(_mhx.hex)}"></span>
+      <span style="flex:1;min-width:0">
+        <input id="mhx-txt" value="${escAttr(_mhx.hex)}" oninput="mfgHexInput(this.value)" spellcheck="false"
+          style="width:100%;box-sizing:border-box;font:700 15px ui-monospace,Menlo,monospace;padding:.5rem .6rem;border:1px solid var(--br);border-radius:9px;background:var(--surface2);color:var(--tx)">
+        <span style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <input id="mhx-pick" type="color" value="${/^#[0-9A-F]{6}$/.test(_mhx.hex)?_mhx.hex:"#CCCCCC"}"
+            oninput="mfgHexInput(this.value)"
+            style="width:44px;height:32px;padding:0;border:1px solid var(--br);border-radius:8px;background:none;cursor:pointer">
+          <small style="font-size:11px;color:var(--tm)">or pick from the wheel</small>
+        </span>
+        <small id="mhx-warn" style="display:block;font-size:11px;color:#B23F3C;margin-top:6px"></small>
+      </span>
+    </div>
+    ${_mhx.orig?`<div style="font-size:11.5px;color:var(--tm);background:var(--surface2);border-radius:9px;padding:8px 10px;line-height:1.5;margin-bottom:4px">
+      Manufacturer-sourced value: <b style="font-family:ui-monospace,Menlo,monospace">${escAttr(_mhx.orig)}</b>
+      ${m.sourcedHexSource||m.hexSource?` — ${escAttr(SRC[m.sourcedHexSource||m.hexSource]||(m.sourcedHexSource||m.hexSource))}`:""}.
+      ${edited?"Revert puts this back.":""}
+    </div>`:''}
+    <div class="askb">
+      ${edited?`<button class="c" onclick="mfgHexRevert()">Revert to source</button>`:''}
+      <button class="c" onclick="mfgHexClose()">Cancel</button>
+      <button class="o" id="mhx-save" onclick="mfgHexSave()">Save colour</button>
+    </div></div>`;
+  mfgHexInput(_mhx.hex);
+}
 function _mfgTagPillsHtml(m){
   if(!m.hex) return '';
   const t=colorAutoTags(m.hex), {l}=_hexToHCL(m.hex);
@@ -29782,10 +29903,12 @@ function _mfgColorDetailHtml(m){
   const F=(k,v)=>v?`<div class="pbk-f"><span class="k">${k}</span><b style="font-family:inherit;font-weight:600">${escAttr(v)}</b></div>`:'';
   const SRC_LABEL={published:"Published by the manufacturer",pdf:"Extracted from the manufacturer's PDF colour chart",
     css:"Read from the manufacturer's own swatch styling",swatch_image:"Sampled from the manufacturer's swatch photo",
-    unconfirmed:"From a supplied list — not yet confirmed at source"};
+    unconfirmed:"From a supplied list — not yet confirmed at source",
+    manual:"Your own correction"};
   const SRC_NOTE={
     swatch_image:"Approximate — derived from the manufacturer's own imagery, not a published colour standard. Check a physical sample before specifying.",
-    unconfirmed:"This came from a colour list rather than from the manufacturer's own site, so treat it as indicative until it is confirmed at source."};
+    unconfirmed:"This came from a colour list rather than from the manufacturer's own site, so treat it as indicative until it is confirmed at source.",
+    manual:"You set this by hand, so it overrides what was measured or supplied. It survives every future data refresh until you revert it."};
   let hexHtml;
   if(!m.hex){
     hexHtml=`<div class="pbk-f"><span class="k">Hex</span><b style="font-family:inherit;font-weight:600;color:var(--tl)">none on file</b></div>
@@ -29799,7 +29922,7 @@ function _mfgColorDetailHtml(m){
   // future path. Defaults to unconfirmed rather than published: guessing "published"
   // about an unknown value is the one wrong answer here.
   const srcKey=MFG_HEX_TIERS[m.hexSource]?m.hexSource:"unconfirmed";
-    hexHtml=`<div class="pbk-f"><span class="k">Hex</span><b style="color:${approx?'var(--gold)':'var(--gm)'}">${approx?'≈ ':''}${escAttr(m.hex)}</b></div>
+    hexHtml=`<div class="pbk-f${_hasAdminKey()?' pbk-tap':''}"${_hasAdminKey()?` onclick="mfgHexOpen(event,'${m.id}')" title="Click to adjust this colour"`:''}><span class="k">Hex</span><b style="color:${srcKey==="manual"?'var(--gm)':(approx?'var(--gold)':'var(--gm)')}">${approx?'≈ ':''}${escAttr(m.hex)}</b>${_hasAdminKey()?'<span class="pen">✎</span>':''}</div>
       ${F("Source",SRC_LABEL[srcKey]||srcKey)}
       ${m.hexConfidence?F("Sample confidence",m.hexConfidence):''}
       ${SRC_NOTE[srcKey]?`<div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">${SRC_NOTE[srcKey]}</div>`:''}
@@ -29831,6 +29954,7 @@ function _mfgColorDetailHtml(m){
         : (/solid/i.test(m.patternType||"")?"These are the colours the weave actually mixes — the single hex above is their average.":"This one is patterned, so a single hex under-describes it — these are the colours actually present.")}</div>`:'';
   return `<span class="pbk-ph" style="display:block;${swatchStyle}"></span>
     ${(_cimg&&_hasAdminKey())?`<button class="pbk-btn" onclick="goodsFrameOpen(event,'mfgcolors','${m.id}','${escAttr(_cimg)}')" style="margin-top:-4px">Frame this photo — zoom &amp; pan</button>`:''}
+    ${_hasAdminKey()?`<button class="pbk-btn" onclick="mfgHexOpen(event,'${m.id}')">Adjust the colour${m.hexSource==="manual"?" — edited":""}</button>`:''}
     ${_cimg&&m.swatchImageUrl&&_cimg!==m.swatchImageUrl?`<div style="font-size:.68rem;color:var(--tl);padding:2px 6px 4px;line-height:1.45">Showing the installed pool. The aggregate material swatch is further down under Colour.</div>`:''}
     <div class="pbk-hd">${escAttr(title)}<i>${escAttr([m.manufacturer,m.collection].filter(Boolean).join(' · '))}</i></div>
 
