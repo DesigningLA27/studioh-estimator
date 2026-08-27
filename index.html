@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1239</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1240</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28361,10 +28361,11 @@ function colorPaletteClearRoleOverride(id,roleKey){
 // not a single string. "Pick a theme" used to mean exactly one; Warwick wants to
 // pick several at once ("select multiple tags, or applications, or themes").
 let CL_STATE={tab:"theme",q:"",favOnly:false,openId:"",archivedShown:false,
-  themeFilter:[],tagFilter:[],appFilter:[],familyFilter:[],
-  themeMore:false,tagMore:false,appMore:false,familyMore:false,openPid:"",openKey:""};
+  themeFilter:[],tagFilter:[],appFilter:[],familyFilter:[],groupFilter:[],
+  themeMore:false,tagMore:false,appMore:false,familyMore:false,groupMore:false,
+  sortBy:"colour",openPid:"",openKey:""};
 function clSetTab(t){ CL_STATE.tab=t; CL_STATE.q=""; CL_STATE.openId="";
-  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.familyFilter=[]; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
+  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.familyFilter=[]; CL_STATE.groupFilter=[]; CL_STATE.openPid=""; CL_STATE.openKey=""; renderColorLibrary(); }
 // Targeted at #cl-browse-results, never the shell — the shell holds the search <input>
 // itself, and re-rendering it on every keystroke tears the input out of the DOM and
 // rebuilds it, dropping focus after the first character (same bug, same fix, as
@@ -28510,6 +28511,53 @@ function _colorFamily(h,c,l){
 function _colorTemperature(h,c){ if(c<0.05) return "neutral"; return (h<70||h>=330)?"warm":"cool"; }
 function _colorSatBand(c){ if(c<0.10) return "muted"; if(c<0.25) return "medium"; return "vibrant"; }
 function colorAutoTags(hex){ const {h,c,l}=_hexToHCL(hex); return {family:_colorFamily(h,c,l),temperature:_colorTemperature(h,c),saturation:_colorSatBand(c)}; }
+// ── Big colour groups + sorting by colour ─────────────────────────────────
+// The fine-grained families (17 of them: taupe, cream, aqua, terracotta...) are
+// useful once you are close, but they are too many to scan and they scatter things
+// that belong together — terracotta, orange and red all read as "the warm reds" to
+// someone picking a cushion. So every family rolls up into one of eight big groups,
+// and nothing is left ungrouped.
+const COLOR_GROUP_OF={
+  red:"Reds", terracotta:"Reds", pink:"Reds",
+  orange:"Oranges", yellow:"Yellows",
+  green:"Greens", olive:"Greens",
+  teal:"Blues", aqua:"Blues", blue:"Blues",
+  purple:"Purples",
+  cream:"Neutrals", beige:"Neutrals", taupe:"Neutrals", white:"Neutrals",
+  gray:"Greys", black:"Greys",
+  brown:"Browns"
+};
+// Fixed display order — spectrum first, then the neutrals that would otherwise
+// dominate the top of a count-sorted list (this library is mostly greys and beiges).
+const COLOR_GROUP_ORDER=["Reds","Oranges","Yellows","Greens","Blues","Purples","Browns","Neutrals","Greys"];
+function colorGroupOf(hex){
+  if(!hex) return null;
+  return COLOR_GROUP_OF[colorAutoTags(hex).family]||"Neutrals";
+}
+// Sort key that puts similar colours next to each other. Hue is the primary axis so
+// all the reds sit together, then blues, and so on — but hue is meaningless once
+// chroma approaches zero (the hue of a near-grey is numerical noise, which is
+// exactly why an unsorted grid looks random). So near-neutrals are pulled out into
+// their own block at the end, ordered light-to-dark, where they read as a ramp.
+function colorSortKey(hex){
+  if(!hex) return [99,0,0];                 // no colour: park at the end
+  const g=colorGroupOf(hex);
+  const gi=COLOR_GROUP_ORDER.indexOf(g);
+  const {h:hue,l}=_hexToHCL(hex);
+  // GROUP is the primary axis, deliberately — so the sort and the Colour facet
+  // always agree and each group is exactly one contiguous block. Sorting on raw hue
+  // instead broke that: family is classified by lightness first, so a very dark red
+  // is family "black" (group Greys) yet still has a red hue, and hue-first sorting
+  // scattered such colours through the reds. That produced 175 blocks across 9
+  // groups — visibly the "random" ordering this was meant to fix.
+  if(g==="Neutrals"||g==="Greys") return [gi, -l, 0];   // read as a light-to-dark ramp
+  return [gi, (hue+20)%360, -l];            // rotate so reds lead, not split at 0/360
+}
+function colorSortCmp(a,b){
+  const ka=colorSortKey(a), kb=colorSortKey(b);
+  for(let i=0;i<ka.length;i++){ if(ka[i]!==kb[i]) return ka[i]-kb[i]; }
+  return 0;
+}
 // ── Perceptual colour distance ────────────────────────────────────────────
 // Matching a concrete pigment to a design colour has to work the way an eye
 // does, not the way a number does: #808080 and #708090 are close in RGB but
@@ -28609,6 +28657,7 @@ function _clBrowseFiltered(){
     (!CL_STATE.tagFilter.length || CL_STATE.tagFilter.some(t=>c.ptags.indexOf(t)>=0)) &&
     (!CL_STATE.appFilter.length || CL_STATE.appFilter.some(r=>c.canonKey===COLOR_ROLE_DEFAULT_CANON[r])) &&
     (!CL_STATE.familyFilter.length || CL_STATE.familyFilter.indexOf(c.autoTags.family)>=0) &&
+    (!CL_STATE.groupFilter.length || CL_STATE.groupFilter.indexOf(colorGroupOf(c.hex))>=0) &&
     (!q || c.name.toLowerCase().indexOf(q)>=0 || c.pname.toLowerCase().indexOf(q)>=0 ||
      c.hex.toLowerCase().indexOf(q)>=0 || c.ptags.some(t=>t.indexOf(q)>=0) ||
      c.autoTags.family.indexOf(q)>=0 || c.autoTags.temperature.indexOf(q)>=0)
@@ -28643,6 +28692,17 @@ function clSetThemeFilter(pid){ _clArrToggle(CL_STATE.themeFilter,pid); _clBrows
 function clSetTagFilter(tag){ _clArrToggle(CL_STATE.tagFilter,tag); _clBrowseRenderResults(); }
 function clSetAppFilter(role){ _clArrToggle(CL_STATE.appFilter,role); _clBrowseRenderResults(); }
 function clSetFamilyFilter(f){ _clArrToggle(CL_STATE.familyFilter,f); _clBrowseRenderResults(); }
+function clSetGroupFilter(g){ _clArrToggle(CL_STATE.groupFilter,g); _clBrowseRenderResults(); }
+function clToggleGroupMore(){ CL_STATE.groupMore=!CL_STATE.groupMore; _clBrowseRenderResults(); }
+function clSetSort(v){ CL_STATE.sortBy=v; _clBrowseRenderResults(); }
+// Groups in spectrum order, not by count — a count sort would put Greys and
+// Neutrals on top every time and bury the colours you are actually hunting for.
+function _clGroupFacets(){
+  const t={};
+  _clAllColorEntries().forEach(c=>{ if(CL_STATE.favOnly&&!c.pfav) return;
+    const g=colorGroupOf(c.hex); if(g) t[g]=(t[g]||0)+1; });
+  return COLOR_GROUP_ORDER.filter(g=>t[g]).map(g=>({id:g,name:g,n:t[g]}));
+}
 function clToggleFamilyMore(){ CL_STATE.familyMore=!CL_STATE.familyMore; _clBrowseRenderResults(); }
 // Colour families are computed from each hex, not stored — so the facet is built
 // by tallying what the 994 colours actually are, and a family with no colours in
@@ -28661,11 +28721,11 @@ function clToggleTagMore(){ CL_STATE.tagMore=!CL_STATE.tagMore; _clBrowseRenderR
 function clToggleAppMore(){ CL_STATE.appMore=!CL_STATE.appMore; _clBrowseRenderResults(); }
 function clSelectColor(pid,key){ CL_STATE.openPid=pid; CL_STATE.openKey=key; _clBrowseRenderResults(); }
 function clClearAllFilters(){
-  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.familyFilter=[]; CL_STATE.favOnly=false;
+  CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.familyFilter=[]; CL_STATE.groupFilter=[]; CL_STATE.favOnly=false;
   document.getElementById("cl-filtersdd")?.classList.remove("open");
   _clBrowseRenderResults();
 }
-function _clActiveFilterCount(){ return CL_STATE.themeFilter.length+CL_STATE.tagFilter.length+CL_STATE.appFilter.length+CL_STATE.familyFilter.length+(CL_STATE.favOnly?1:0); }
+function _clActiveFilterCount(){ return CL_STATE.themeFilter.length+CL_STATE.tagFilter.length+CL_STATE.appFilter.length+CL_STATE.familyFilter.length+CL_STATE.groupFilter.length+(CL_STATE.favOnly?1:0); }
 // The Tags quick-menu — same .mddm/.tagl/.it shape as the Materials tag picker,
 // wired to this feature's own multi-select tag filter rather than the shared
 // goods tag vocabulary (colors aren't tagged from that list).
@@ -28684,6 +28744,7 @@ function _clFiltersMenuBody(){
   CL_STATE.tagFilter.forEach(t=>chips.push({label:"Tag: "+t, act:`clSetTagFilter('${escAttr(t)}')`}));
   CL_STATE.appFilter.forEach(r=>chips.push({label:"Application: "+(COLOR_ROLE_LABELS[r]||r), act:`clSetAppFilter('${escAttr(r)}')`}));
   CL_STATE.familyFilter.forEach(f=>chips.push({label:"Colour: "+f, act:`clSetFamilyFilter('${escAttr(f)}')`}));
+  CL_STATE.groupFilter.forEach(g=>chips.push({label:"Group: "+g, act:`clSetGroupFilter('${escAttr(g)}')`}));
   if(CL_STATE.favOnly) chips.push({label:"Favorites only", act:"clToggleFavOnly()"});
   return `<div class="hd">Active filters</div>
     <div class="tagl">${chips.length?chips.map(c=>`<div class="it on" style="display:flex;justify-content:space-between;gap:8px" onclick="event.stopPropagation();${c.act}">${escAttr(c.label)}<span style="opacity:.6">✕</span></div>`).join(''):`<div class="it" style="color:var(--tl);cursor:default">No filters applied.</div>`}</div>
@@ -28746,7 +28807,7 @@ function _clColorCardHtml(c,on,showTheme){
 function _clBrowseRenderResults(){
   const host=document.getElementById("cl-browse-results"); if(!host) return;
   const q=CL_STATE.q.trim();
-  const anyFilter=CL_STATE.themeFilter.length||CL_STATE.tagFilter.length||CL_STATE.appFilter.length||CL_STATE.familyFilter.length||q;
+  const anyFilter=CL_STATE.themeFilter.length||CL_STATE.tagFilter.length||CL_STATE.appFilter.length||CL_STATE.familyFilter.length||CL_STATE.groupFilter.length||q;
   const themeLevel=!anyFilter;
   let cardsHtml,headerHtml,open=null;
   if(themeLevel){
@@ -28755,6 +28816,11 @@ function _clBrowseRenderResults(){
     headerHtml=`${themes.length} theme${themes.length===1?'':'s'}`;
   } else {
     const list=_clBrowseFiltered();
+    // Default to colour order so similar colours sit together. Canon order is kept
+    // as an option because inside ONE theme the role sequence (wall, trim, paving...)
+    // is itself meaningful and re-sorting it by hue throws that away.
+    if(CL_STATE.sortBy==="colour") list.sort((a,b)=>colorSortCmp(a.hex,b.hex));
+    else if(CL_STATE.sortBy==="name") list.sort((a,b)=>a.name.localeCompare(b.name));
     open=list.find(c=>c.pid===CL_STATE.openPid && c.canonKey===CL_STATE.openKey);
     if(!open && list.length){ open=list[0]; CL_STATE.openPid=open.pid; CL_STATE.openKey=open.canonKey; }
     if(!open){ CL_STATE.openPid=""; CL_STATE.openKey=""; }
@@ -28781,10 +28847,17 @@ function _clBrowseRenderResults(){
         ${_clFacetSection("Themes",_clThemeFacets(),CL_STATE.themeFilter,"clSetThemeFilter","#B08968",CL_STATE.themeMore,"clToggleThemeMore")}
         ${_clFacetSection("Tags",_clTagFacets(),CL_STATE.tagFilter,"clSetTagFilter","#6d8f5c",CL_STATE.tagMore,"clToggleTagMore")}
         ${_clFacetSection("Applications",_clAppFacets(),CL_STATE.appFilter,"clSetAppFilter","#6B7FA3",CL_STATE.appMore,"clToggleAppMore")}
-        ${_clFacetSection("Colour family",_clFamilyFacets(),CL_STATE.familyFilter,"clSetFamilyFilter","#A3729B",CL_STATE.familyMore,"clToggleFamilyMore")}
+        ${_clFacetSection("Colour",_clGroupFacets(),CL_STATE.groupFilter,"clSetGroupFilter","#C0704F",CL_STATE.groupMore,"clToggleGroupMore")}
+        ${_clFacetSection("Shade",_clFamilyFacets(),CL_STATE.familyFilter,"clSetFamilyFilter","#A3729B",CL_STATE.familyMore,"clToggleFamilyMore")}
       </aside>
       <div class="pbk-list">
-        <div class="pb-lh">${headerHtml}</div>
+        <div class="pb-lh">${headerHtml}
+          ${themeLevel?'':`<select class="pb-sort" onchange="clSetSort(this.value)">
+            <option value="colour"${CL_STATE.sortBy==="colour"?" selected":""}>Sort: by colour</option>
+            <option value="role"${CL_STATE.sortBy==="role"?" selected":""}>Sort: by role</option>
+            <option value="name"${CL_STATE.sortBy==="name"?" selected":""}>Sort: A–Z</option>
+          </select>`}
+        </div>
         <div class="pb-cards${themeLevel?' cl-themes':''}">${cardsHtml}</div>
       </div>
       ${themeLevel?'':`<aside class="pbk-ins">${open?_clColorDetailHtml(open):'<div class="pbk-empty">Pick a color to see its details.</div>'}</aside>`}
@@ -29073,13 +29146,20 @@ function _clMfgRenderResults(){
   const host=document.getElementById("cl-mfg-results"); if(!host) return;
   const q=CL_MFG_Q.trim().toLowerCase();
   const list=MANUFACTURER_COLORS.filter(m=>_mfgMatches(m,q)
-    && (!CL_MFG_FAM.length || (m.hex && CL_MFG_FAM.indexOf(colorAutoTags(m.hex).family)>=0)));
+    && (!CL_MFG_FAM.length || (m.hex && CL_MFG_FAM.indexOf(colorAutoTags(m.hex).family)>=0))
+    && (!CL_MFG_GRP.length || (m.hex && CL_MFG_GRP.indexOf(colorGroupOf(m.hex))>=0)));
 
   // Level 2 — one manufacturer selected: its colors in the SAME standard .pb-cards
   // tile grid the Theme Palettes drill-in uses, plus the same right-hand detail
   // panel, auto-opening the first color so it is never an empty "pick one" state.
   if(CL_MFG_BRAND){
     const items=list.filter(m=>m.manufacturer===CL_MFG_BRAND);
+    // Colour order by default: 378 TUUCI finishes in catalogue order reads as random,
+    // which is the whole complaint. Records with no hex can't be placed on a colour
+    // axis, so they sort to the end rather than being scattered through it.
+    if(CL_MFG_SORT==="colour") items.sort((a,b)=>colorSortCmp(a.hex,b.hex));
+    else if(CL_MFG_SORT==="name") items.sort((a,b)=>String(a.color||a.productName||"").localeCompare(String(b.color||b.productName||"")));
+    else if(CL_MFG_SORT==="kind") items.sort((a,b)=>String(a.materialKind||a.category||"").localeCompare(String(b.materialKind||b.category||""))||colorSortCmp(a.hex,b.hex));
     let open=items.find(m=>m.id===CL_MFG_OPEN);
     if(!open && items.length){ open=items[0]; CL_MFG_OPEN=open.id; }
     if(!open) CL_MFG_OPEN="";
@@ -29089,6 +29169,11 @@ function _clMfgRenderResults(){
           <div class="pb-lh">
             <button class="gt-more" style="display:inline-block;width:auto;padding:2px 8px 2px 0;margin:0" onclick="clMfgSetBrand('')">← All manufacturers</button>
             ${items.length} color${items.length===1?'':'s'} — ${escAttr(CL_MFG_BRAND)}
+            <select class="pb-sort" onchange="clMfgSetSort(this.value)">
+              <option value="colour"${CL_MFG_SORT==="colour"?" selected":""}>Sort: by colour</option>
+              <option value="kind"${CL_MFG_SORT==="kind"?" selected":""}>Sort: by material</option>
+              <option value="name"${CL_MFG_SORT==="name"?" selected":""}>Sort: A–Z</option>
+            </select>
           </div>
           <div class="pb-cards">${items.map(m=>_mfgColorCardHtml(m,m.id===CL_MFG_OPEN)).join('') || `<div class="pbk-empty">No colors match.</div>`}</div>
         </div>
@@ -29144,14 +29229,27 @@ function clMfgToggleMore(){ CL_MFG_MORE=!CL_MFG_MORE; _clMfgRenderResults(); }
 function _clMfgBrandFacetHtml(byMfg){
   const items=Object.keys(byMfg).sort().map(b=>({id:b,name:b,n:byMfg[b].length}));
   return _clFacetSection("Manufacturers",items,CL_MFG_BRAND?[CL_MFG_BRAND]:[],"clMfgSetBrand","#9B7B3A",CL_MFG_MORE,"clMfgToggleMore")
-    +_clMfgFamilyFacetHtml();
+    +_clMfgGroupFacetHtml()+_clMfgFamilyFacetHtml();
 }
 // Colour-family facet on this tab too, so the computed tags are filterable and not
 // only typeable. Scoped to the brand in view when one is open — inside Davis you
 // want Davis's families, not every brand's.
-let CL_MFG_FAM=[], CL_MFG_FAM_MORE=false;
+let CL_MFG_FAM=[], CL_MFG_FAM_MORE=false, CL_MFG_GRP=[], CL_MFG_GRP_MORE=false, CL_MFG_SORT="colour";
 function clMfgSetFamily(f){ _clArrToggle(CL_MFG_FAM,f); _clMfgRenderResults(); }
 function clMfgToggleFamMore(){ CL_MFG_FAM_MORE=!CL_MFG_FAM_MORE; _clMfgRenderResults(); }
+function clMfgSetGroup(g){ _clArrToggle(CL_MFG_GRP,g); _clMfgRenderResults(); }
+function clMfgToggleGrpMore(){ CL_MFG_GRP_MORE=!CL_MFG_GRP_MORE; _clMfgRenderResults(); }
+function clMfgSetSort(v){ CL_MFG_SORT=v; _clMfgRenderResults(); }
+// Big groups, spectrum-ordered, scoped to the brand in view when one is open.
+function _clMfgGroupFacetHtml(){
+  const t={};
+  MANUFACTURER_COLORS.forEach(m=>{ if(!m||!m.hex) return;
+    if(CL_MFG_BRAND && m.manufacturer!==CL_MFG_BRAND) return;
+    const g=colorGroupOf(m.hex); if(g) t[g]=(t[g]||0)+1; });
+  const items=COLOR_GROUP_ORDER.filter(g=>t[g]).map(g=>({id:g,name:g,n:t[g]}));
+  if(!items.length) return '';
+  return _clFacetSection("Colour",items,CL_MFG_GRP,"clMfgSetGroup","#C0704F",CL_MFG_GRP_MORE,"clMfgToggleGrpMore");
+}
 function _clMfgFamilyFacetHtml(){
   const t={};
   MANUFACTURER_COLORS.forEach(m=>{ if(!m||!m.hex) return;
@@ -29159,7 +29257,7 @@ function _clMfgFamilyFacetHtml(){
     const f=colorAutoTags(m.hex).family; t[f]=(t[f]||0)+1; });
   const items=Object.keys(t).map(f=>({id:f,name:f,n:t[f]})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name));
   if(!items.length) return '';
-  return _clFacetSection("Colour family",items,CL_MFG_FAM,"clMfgSetFamily","#A3729B",CL_MFG_FAM_MORE,"clMfgToggleFamMore");
+  return _clFacetSection("Shade",items,CL_MFG_FAM,"clMfgSetFamily","#A3729B",CL_MFG_FAM_MORE,"clMfgToggleFamMore");
 }
 // Detail panel for one manufacturer color. Its whole job is showing PROVENANCE —
 // where the hex came from and how much to trust it — because these values range
