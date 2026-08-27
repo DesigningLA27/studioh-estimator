@@ -2669,6 +2669,11 @@ body:not(.sp-on) #sp-open{display:grid}
 .pbk-btn{width:100%;border:1px solid var(--br);background:var(--card);border-radius:11px;padding:9px;
   font:700 12.5px inherit;color:var(--tx);cursor:pointer}
 .pbk-btn:hover{background:var(--surface2)}
+/* .pbk-btn carries no margin globally, so stacked buttons sat flush against each
+   other and against the image above them. Scoped to this library rather than fixed
+   globally, since the other detail panels lay their buttons out differently. */
+#view-colorlibrary .pbk-ins .pbk-btn{margin-bottom:6px}
+#view-colorlibrary .pbk-ins .pbk-ph+.pbk-btn{margin-top:8px}
 /* the selected plant row echoes the price book's selected line */
 .pb-row.sel{background:var(--brand-soft)}
 /* ── The Plant Book runs on the Price Book's palette ────────────────────────
@@ -5568,7 +5573,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1252</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1253</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29130,7 +29135,18 @@ function clJumpTheme(pid,key){ CL_STATE.themeFilter=[pid]; CL_STATE.tagFilter=[]
 function clToggleThemeMore(){ CL_STATE.themeMore=!CL_STATE.themeMore; _clBrowseRenderResults(); }
 function clToggleTagMore(){ CL_STATE.tagMore=!CL_STATE.tagMore; _clBrowseRenderResults(); }
 function clToggleAppMore(){ CL_STATE.appMore=!CL_STATE.appMore; _clBrowseRenderResults(); }
-function clSelectColor(pid,key){ CL_STATE.openPid=pid; CL_STATE.openKey=key; _clBrowseRenderResults(); }
+// Same in-place update as clMfgSelect, for the same reason.
+function clSelectColor(pid,key){
+  CL_STATE.openPid=pid; CL_STATE.openKey=key;
+  const host=document.getElementById("cl-browse-results");
+  const ins=host&&host.querySelector(".pbk-ins");
+  const c=ins&&_clBrowseFiltered().find(x=>x.pid===pid&&x.canonKey===key);
+  if(!ins||!c) return _clBrowseRenderResults();
+  ins.innerHTML=_clColorDetailHtml(c);
+  ins.scrollTop=0;
+  host.querySelectorAll(".pb-cd").forEach(el=>el.classList.toggle("on",
+    el.getAttribute("data-pid")===pid&&el.getAttribute("data-ckey")===key));
+}
 function clClearAllFilters(){
   CL_STATE.themeFilter=[]; CL_STATE.tagFilter=[]; CL_STATE.appFilter=[]; CL_STATE.familyFilter=[]; CL_STATE.groupFilter=[]; CL_STATE.favOnly=false;
   document.getElementById("cl-filtersdd")?.classList.remove("open");
@@ -29210,7 +29226,7 @@ function _clThemeCardHtml(p){
 // what actually differs card to card, so that's what shows instead.
 function _clColorCardHtml(c,on,showTheme){
   const sub=showTheme ? c.pname : (CANON_LABELS[c.canonKey]||"");
-  return `<button class="pb-cd${on?' on':''}" onclick="clSelectColor('${c.pid}','${c.canonKey}')">
+  return `<button class="pb-cd${on?' on':''}" data-pid="${escAttr(c.pid)}" data-ckey="${escAttr(c.canonKey)}" onclick="clSelectColor('${c.pid}','${c.canonKey}')">
       <span class="pb-cdph" style="background:${c.hex}"></span>
       <b>${escAttr(c.name)}</b><i>${escAttr(sub)}</i>
     </button>`;
@@ -29487,7 +29503,20 @@ function clMfgSetBrand(b){ CL_MFG_BRAND=(CL_MFG_BRAND===b)?"":b; CL_MFG_OPEN="";
   // Collection names are brand-local, so a collection filter cannot survive a brand
   // change without silently filtering everything out.
   CL_MFG_COLL=[]; _clMfgRenderResults(); }
-function clMfgSelect(id){ CL_MFG_OPEN=id; _clMfgRenderResults(); }
+// Selecting a card updates ONLY the detail panel and the highlight. It must not
+// re-render the wrap: innerHTML= destroys the scrolling .pbk-list node, so scrollTop
+// resets to 0 and you get thrown back to the top of the grid the instant you click
+// anything below the fold. Verified: the rebuilt .pbk-list was a different DOM node.
+function clMfgSelect(id){
+  CL_MFG_OPEN=id;
+  const host=document.getElementById("cl-mfg-results");
+  const ins=host&&host.querySelector(".pbk-ins");
+  const m=MANUFACTURER_COLORS.find(x=>x&&x.id===id);
+  if(!ins||!m) return _clMfgRenderResults();
+  ins.innerHTML=_mfgColorDetailHtml(m);
+  ins.scrollTop=0;                                  // new item reads from its top
+  host.querySelectorAll(".pb-cd").forEach(c=>c.classList.toggle("on",c.getAttribute("data-mid")===id));
+}
 // Same card shape as Theme Palettes — swatch on top, name + subtitle below — sized for
 // one color instead of a 14-swatch strip. A null hex (true for all but 7 of 438 entries;
 // most of these are physical fabric/concrete/metal chips with no official digital color)
@@ -29526,7 +29555,7 @@ function _mfgColorCardHtml(m,on){
   const _frameBtn='';
   // Same .pb-cd tile as the Theme Palettes colour grid. A null hex still gets the
   // hatch + "No hex on file" overlay rather than a blank box that reads as broken.
-  return `<div class="pb-cd${on?' on':''}" onclick="clMfgSelect('${m.id}')">
+  return `<div class="pb-cd${on?' on':''}" data-mid="${escAttr(m.id)}" onclick="clMfgSelect('${m.id}')">
       <span class="pb-cdph" style="position:relative;${swatchStyle}">${_frameBtn}
         ${!m.hex?`<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:.6rem;font-weight:700;color:var(--tm);background:rgba(255,255,255,.6);padding:0 4px">No hex on file</span>`:''}
       </span>
@@ -29986,7 +30015,7 @@ function _mfgColorDetailHtml(m){
         ? "This is a "+escAttr(m.colorType)+" colour, so the single hex above is an average of colours that are all genuinely present and none of which it equals. Read these."
         : (/solid/i.test(m.patternType||"")?"These are the colours the weave actually mixes — the single hex above is their average.":"This one is patterned, so a single hex under-describes it — these are the colours actually present.")}</div>`:'';
   return `<span class="pbk-ph" style="display:block;${swatchStyle}"></span>
-    ${(_cimg&&_hasAdminKey())?`<button class="pbk-btn" onclick="goodsFrameOpen(event,'mfgcolors','${m.id}','${escAttr(_cimg)}')" style="margin-top:-4px">Frame this photo — zoom &amp; pan</button>`:''}
+    ${(_cimg&&_hasAdminKey())?`<button class="pbk-btn" onclick="goodsFrameOpen(event,'mfgcolors','${m.id}','${escAttr(_cimg)}')">Frame this photo — zoom &amp; pan</button>`:''}
     ${_hasAdminKey()?`<button class="pbk-btn" onclick="mfgHexOpen(event,'${m.id}')">Adjust the colour${m.hexSource==="manual"?" — edited":""}</button>`:''}
     ${_cimg&&m.swatchImageUrl&&_cimg!==m.swatchImageUrl?`<div style="font-size:.68rem;color:var(--tl);padding:2px 6px 4px;line-height:1.45">Showing the installed pool. The aggregate material swatch is further down under Colour.</div>`:''}
     <div class="pbk-hd">${escAttr(title)}<i>${escAttr([m.manufacturer,m.collection].filter(Boolean).join(' · '))}</i></div>
