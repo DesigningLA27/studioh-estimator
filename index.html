@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1241</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1242</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29114,7 +29114,10 @@ let CL_MFG_Q="", CL_MFG_BRAND="", CL_MFG_OPEN="";
 function clMfgSetQuery(v){ CL_MFG_Q=v; _clMfgRenderResults(); }
 // Changing brand clears the open colour — carrying a selection from one brand into
 // another would leave the detail panel describing something not in the grid.
-function clMfgSetBrand(b){ CL_MFG_BRAND=(CL_MFG_BRAND===b)?"":b; CL_MFG_OPEN=""; _clMfgRenderResults(); }
+function clMfgSetBrand(b){ CL_MFG_BRAND=(CL_MFG_BRAND===b)?"":b; CL_MFG_OPEN="";
+  // Collection names are brand-local, so a collection filter cannot survive a brand
+  // change without silently filtering everything out.
+  CL_MFG_COLL=[]; _clMfgRenderResults(); }
 function clMfgSelect(id){ CL_MFG_OPEN=id; _clMfgRenderResults(); }
 // Same card shape as Theme Palettes — swatch on top, name + subtitle below — sized for
 // one color instead of a 14-swatch strip. A null hex (true for all but 7 of 438 entries;
@@ -29124,10 +29127,17 @@ function clMfgSelect(id){ CL_MFG_OPEN=id; _clMfgRenderResults(); }
 function _mfgColorCardHtml(m,on){
   const title=m.color||m.productName||"";
   const sub=[m.color?m.productName:null,m.category,m.material,m.collection,m.finish].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
-  // A patterned fabric draws its pattern rather than its average colour.
+  // Order of preference for what a card shows: the manufacturer's own material
+  // photo, then a generated pattern, then the flat hex. Image-first matters for
+  // aggregates and natural stone, where a single hex is a mud colour that appears
+  // nowhere in the material — the photo IS the honest representation. The hex is
+  // painted underneath as background-color, so a blocked or dead image URL degrades
+  // to the colour automatically with no error handling needed.
   const _pat=mfgPatternFill(m);
-  const swatchStyle=_pat?`background:${_pat.css}`
-    :(m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 7px,var(--br) 7px,var(--br) 14px)`);
+  const swatchStyle=m.swatchImageUrl
+    ? `background-color:${m.hex||"var(--pbwell)"};background-image:url("${escAttr(m.swatchImageUrl)}");background-size:cover;background-position:center`
+    : (_pat?`background:${_pat.css}`
+    :(m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 7px,var(--br) 7px,var(--br) 14px)`));
   // Same .pb-cd tile as the Theme Palettes colour grid. A null hex still gets the
   // hatch + "No hex on file" overlay rather than a blank box that reads as broken.
   return `<div class="pb-cd${on?' on':''}" onclick="clMfgSelect('${m.id}')">
@@ -29175,6 +29185,13 @@ function _mfgSearchBlob(m){
     if(t.family==="taupe") parts.push("beige greige tan");  // taupe reads as a beige
     if(t.family==="terracotta") parts.push("clay");
   }
+  // Water colour is searched as its own vocabulary, deliberately separate from the
+  // material's colour: for a pool finish "give me a light blue pool" is a question
+  // about the WATER, while "give me a warm beige aggregate" is about the MATERIAL,
+  // and an earth-toned aggregate routinely produces blue water.
+  if(m.waterColorFamily) parts.push("water "+String(m.waterColorFamily).replace(/_/g," "));
+  if(m.texture) parts.push(m.texture);
+  if(m.description) parts.push(String(m.description).slice(0,300));
   m._sblobHex=m.hex;
   return (m._sblob=parts.join(" ").toLowerCase());
 }
@@ -29189,7 +29206,9 @@ function _clMfgRenderResults(){
   const q=CL_MFG_Q.trim().toLowerCase();
   const list=MANUFACTURER_COLORS.filter(m=>_mfgMatches(m,q)
     && (!CL_MFG_FAM.length || (m.hex && CL_MFG_FAM.indexOf(colorAutoTags(m.hex).family)>=0))
-    && (!CL_MFG_GRP.length || (m.hex && CL_MFG_GRP.indexOf(colorGroupOf(m.hex))>=0)));
+    && (!CL_MFG_GRP.length || (m.hex && CL_MFG_GRP.indexOf(colorGroupOf(m.hex))>=0))
+    && (!CL_MFG_COLL.length || CL_MFG_COLL.indexOf(m.collection)>=0)
+    && (!CL_MFG_WATER.length || CL_MFG_WATER.indexOf(m.waterColorFamily)>=0));
 
   // Level 2 — one manufacturer selected: its colors in the SAME standard .pb-cards
   // tile grid the Theme Palettes drill-in uses, plus the same right-hand detail
@@ -29271,7 +29290,7 @@ function clMfgToggleMore(){ CL_MFG_MORE=!CL_MFG_MORE; _clMfgRenderResults(); }
 function _clMfgBrandFacetHtml(byMfg){
   const items=Object.keys(byMfg).sort().map(b=>({id:b,name:b,n:byMfg[b].length}));
   return _clFacetSection("Manufacturers",items,CL_MFG_BRAND?[CL_MFG_BRAND]:[],"clMfgSetBrand","#9B7B3A",CL_MFG_MORE,"clMfgToggleMore")
-    +_clMfgGroupFacetHtml()+_clMfgFamilyFacetHtml();
+    +_clMfgCollFacetHtml()+_clMfgGroupFacetHtml()+_clMfgWaterFacetHtml()+_clMfgFamilyFacetHtml();
 }
 // Colour-family facet on this tab too, so the computed tags are filterable and not
 // only typeable. Scoped to the brand in view when one is open — inside Davis you
@@ -29280,6 +29299,36 @@ let CL_MFG_FAM=[], CL_MFG_FAM_MORE=false, CL_MFG_GRP=[], CL_MFG_GRP_MORE=false, 
 function clMfgSetFamily(f){ _clArrToggle(CL_MFG_FAM,f); _clMfgRenderResults(); }
 function clMfgToggleFamMore(){ CL_MFG_FAM_MORE=!CL_MFG_FAM_MORE; _clMfgRenderResults(); }
 function clMfgSetGroup(g){ _clArrToggle(CL_MFG_GRP,g); _clMfgRenderResults(); }
+// Collection facet — generic, driven by whatever `collection` a brand uses. Serves
+// PebbleTec's finish families and Sunbrella's collections with the same code, and
+// only appears once a brand is open, since collection names are brand-local and a
+// combined list across every brand would be meaningless.
+let CL_MFG_COLL=[], CL_MFG_COLL_MORE=false;
+function clMfgSetColl(c){ _clArrToggle(CL_MFG_COLL,c); _clMfgRenderResults(); }
+function clMfgToggleCollMore(){ CL_MFG_COLL_MORE=!CL_MFG_COLL_MORE; _clMfgRenderResults(); }
+function _clMfgCollFacetHtml(){
+  if(!CL_MFG_BRAND) return '';
+  const t={};
+  MANUFACTURER_COLORS.forEach(m=>{ if(!m||m.manufacturer!==CL_MFG_BRAND||!m.collection) return;
+    t[m.collection]=(t[m.collection]||0)+1; });
+  const items=Object.keys(t).sort().map(c=>({id:c,name:c,n:t[c]}));
+  if(items.length<2) return '';
+  return _clFacetSection("Collection",items,CL_MFG_COLL,"clMfgSetColl","#6d8f5c",CL_MFG_COLL_MORE,"clMfgToggleCollMore");
+}
+// Water colour is its own facet, never folded into the material-colour one: for a
+// pool finish they are different questions and often different answers.
+let CL_MFG_WATER=[], CL_MFG_WATER_MORE=false;
+function clMfgSetWater(w){ _clArrToggle(CL_MFG_WATER,w); _clMfgRenderResults(); }
+function clMfgToggleWaterMore(){ CL_MFG_WATER_MORE=!CL_MFG_WATER_MORE; _clMfgRenderResults(); }
+function _clMfgWaterFacetHtml(){
+  const t={};
+  MANUFACTURER_COLORS.forEach(m=>{ if(!m||!m.waterColorFamily) return;
+    if(CL_MFG_BRAND && m.manufacturer!==CL_MFG_BRAND) return;
+    t[m.waterColorFamily]=(t[m.waterColorFamily]||0)+1; });
+  const items=Object.keys(t).sort().map(w=>({id:w,name:w.replace(/_/g," "),n:t[w]}));
+  if(!items.length) return '';
+  return _clFacetSection("Water colour",items,CL_MFG_WATER,"clMfgSetWater","#4F8FA8",CL_MFG_WATER_MORE,"clMfgToggleWaterMore");
+}
 function clMfgToggleGrpMore(){ CL_MFG_GRP_MORE=!CL_MFG_GRP_MORE; _clMfgRenderResults(); }
 function clMfgSetSort(v){ CL_MFG_SORT=v; _clMfgRenderResults(); }
 // Big groups, spectrum-ordered, scoped to the brand in view when one is open.
@@ -29374,8 +29423,10 @@ function _mfgTagPillsHtml(m){
 function _mfgColorDetailHtml(m){
   const title=m.color||m.productName||"";
   const _pat=mfgPatternFill(m);
-  const swatchStyle=_pat?`background:${_pat.css}`
-    :(m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 9px,var(--br) 9px,var(--br) 18px)`);
+  const swatchStyle=m.swatchImageUrl
+    ? `background-color:${m.hex||"var(--pbwell)"};background-image:url("${escAttr(m.swatchImageUrl)}");background-size:cover;background-position:center`
+    : (_pat?`background:${_pat.css}`
+    :(m.hex?`background:${m.hex}`:`background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 9px,var(--br) 9px,var(--br) 18px)`));
   const F=(k,v)=>v?`<div class="pbk-f"><span class="k">${k}</span><b style="font-family:inherit;font-weight:600">${escAttr(v)}</b></div>`:'';
   const SRC_LABEL={published:"Published by the manufacturer",pdf:"Extracted from the manufacturer's PDF colour chart",
     css:"Read from the manufacturer's own swatch styling",swatch_image:"Sampled from the manufacturer's swatch photo",
@@ -29436,6 +29487,14 @@ function _mfgColorDetailHtml(m){
     ${_pat?`<div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">For a patterned fabric the single hex is an average and can be a colour that appears nowhere on the cloth — read the bands, not the number.</div>`:''}
     ${dom}
 
+    ${m.waterColorFamily?`<div class="pbk-eb">Water Colour</div>
+      <div class="pbk-f"><span class="k">Filled pool reads</span><b style="font-family:inherit;font-weight:600;text-transform:capitalize">${escAttr(String(m.waterColorFamily).replace(/_/g," "))}</b></div>
+      ${m.waterColorQuote?`<div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">${escAttr(m.manufacturer||"The manufacturer")}'s own words: &ldquo;${escAttr(m.waterColorQuote)}&rdquo;</div>`:''}
+      <div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">This is a different thing from the material colour above — an earth-toned aggregate routinely gives blue water. Water colour also shifts with depth, light, shade, surroundings and water chemistry.</div>`:''}
+    ${m.installedPoolImageUrl?`<a class="pbk-btn" href="${escAttr(m.installedPoolImageUrl)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">See it installed and filled ↗</a>`:''}
+    ${m.description?`<div class="pbk-eb">Description</div>
+      <div style="font-size:.72rem;color:var(--tm);padding:2px 6px 6px;line-height:1.55">${escAttr(m.description)}<br><span style="color:var(--tl)">— ${escAttr(m.manufacturer||"manufacturer")}'s own description.</span></div>`:''}
+
     <div class="pbk-eb">Spec</div>
     ${F("Product",m.color?m.productName:"")}
     ${F("SKU / code",m.sku||(m.codeKind?"":m.code)||m.finishCode)}
@@ -29451,6 +29510,9 @@ function _mfgColorDetailHtml(m){
     ${m.patternRepeat?`<div class="pbk-f"><span class="k">Repeat</span><b style="color:var(--gm)">${escAttr(m.patternRepeat)}</b></div>
       <div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">Published by the manufacturer.</div>`:''}
     ${F("Colour family",m.colorFamily)}
+    ${F("Texture",m.texture)}
+    ${F("Availability",m.availabilityStatus)}
+    ${m.regionalAvailability?`<div style="font-size:.7rem;color:var(--gold);padding:2px 6px 4px;line-height:1.5">${escAttr(m.regionalAvailability)}</div>`:''}
     ${m.pantone?`<div class="pbk-f"><span class="k">Pantone</span><b style="color:var(--gm)">${escAttr(m.pantone)}</b></div>
       <div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">This one IS published by the manufacturer — and unlike the hex above, it's an actual colour standard. Not converted to hex here, because that conversion would need a licensed Pantone table.</div>`:''}
     ${m.livingFinish?`<div style="font-size:.7rem;color:var(--gold);padding:2px 6px 4px;line-height:1.5">Living finish — this patinas over time, so the installed colour will keep moving.</div>`:''}
@@ -29462,6 +29524,7 @@ function _mfgColorDetailHtml(m){
         <span style="flex:1;font-size:11px"><b>${escAttr(m.relatedByName.color)}</b><br><small style="color:var(--tl)">${escAttr(m.relatedByName.hex)}</small></span>
       </div>
       <div style="font-size:.7rem;color:var(--tm);padding:0 6px 4px;line-height:1.5">Same colour NAME, not a confirmed formulation link — and a finished planter wouldn't match a raw pigment chip regardless. Shown as a cross-reference only.</div>`:''}
+    ${/pool.?finish|aggregate/i.test((m.category||"")+" "+(m.material||""))?`<div style="font-size:.7rem;color:var(--tm);padding:6px 8px;line-height:1.5;background:var(--surface2);border-radius:9px;margin:6px 3px">Pool finish and water colours shown here are approximate. Actual appearance varies with the natural aggregate itself, installation, pool depth, lighting, shade, surroundings, water conditions and time of day. Verify final selections against current ${escAttr(m.manufacturer||"manufacturer")} samples and installed-pool references.</div>`:''}
     ${/concrete/i.test(m.material||m.category||"")?`<div style="font-size:.7rem;color:var(--tm);padding:6px 8px;line-height:1.5;background:var(--surface2);border-radius:9px;margin:6px 3px">Digital colour is a design reference only. ${/architectural/i.test(m.material||"")?"Architectural concrete colour and texture vary with cement, aggregate, pigment, mix design, surface treatment, curing, lighting and manufacturing conditions.":"Actual concrete colour varies with cement, aggregate, mix design, finishing, curing and field conditions."} Verify final selections with an actual ${escAttr(m.manufacturer||"manufacturer")} sample${/architectural/i.test(m.material||"")?"":" and/or project mockup"}.</div>`:''}
 
     ${m.catalogueStatus==="DISCONTINUED"?`<div style="font-size:.72rem;color:#B23F3C;background:#FBEDEA;border-radius:9px;padding:7px 9px;margin:6px 3px;line-height:1.5"><b>Discontinued.</b> Kept on file because a project may already have specified it.${m.catalogueNote?" "+escAttr(m.catalogueNote):""}</div>`
