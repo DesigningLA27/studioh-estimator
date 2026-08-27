@@ -5568,7 +5568,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1240</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1241</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27802,6 +27802,48 @@ const LIGHTING_HEX={
 // estimate must never render as a published value, so anything untiered is treated
 // as unconfirmed and the original note is preserved rather than discarded.
 const MFG_HEX_TIERS={published:1,pdf:1,css:1,swatch_image:1,unconfirmed:1};
+// TUUCI publishes its frame finishes as "<Name> Powder Coat" (image alt
+// "Powder Coat_<Name>"), but our seed also carried a bare-name Frame/Metal record
+// for each of the same eight. Those stayed permanently empty because a name-keyed
+// join never matched the suffixed form — so the library showed eight "No hex on
+// file" cards for finishes it already had the colour of. This is a de-duplication
+// problem in our data, not a gap on TUUCI's site.
+//
+// Matching is on MATERIAL KIND, not name alone, and that matters: "Espresso" is
+// both this brown powder coat (#412E24) and a TUUCI canopy fabric (near-black).
+// "Oyster" likewise collides with an upholstery. A name-only merge would silently
+// fold the wrong product in. Same lesson as the Brand|materialKind|Name key.
+function _mfgDedupeTuuciPowderCoats(){
+  const t=MANUFACTURER_COLORS.filter(m=>m&&m.manufacturer==="TUUCI");
+  const twin={};
+  t.forEach(m=>{
+    if(m.materialKind==="powder coat" && / Powder Coat$/i.test(m.productName||""))
+      twin[m.productName.replace(/ Powder Coat$/i,"").trim().toLowerCase()]=m;
+  });
+  const drop=new Set();
+  t.forEach(m=>{
+    if(m.hex) return;                                   // never drop a record with data
+    const isFrame=(m.materialKind==="Frame/Metal")||(!m.materialKind&&m.category==="Frame/Metal");
+    if(!isFrame) return;
+    const tw=twin[(m.productName||"").trim().toLowerCase()];
+    if(!tw||tw===m) return;
+    // Carry over anything the empty record held that the real one lacks, so nothing
+    // is lost by the merge, then drop the empty duplicate.
+    Object.keys(m).forEach(k=>{ if(k!=="id"&&m[k]!=null&&tw[k]==null) tw[k]=m[k]; });
+    drop.add(m.id);
+  });
+  if(drop.size) MANUFACTURER_COLORS=MANUFACTURER_COLORS.filter(m=>!m||!drop.has(m.id));
+  return drop.size;
+}
+// Two of the eight need their numbers qualified rather than taken at face value.
+function _mfgTuuciFinishCaveats(){
+  const set=(nm,note,conf)=>{
+    const m=MANUFACTURER_COLORS.find(x=>x&&x.manufacturer==="TUUCI"&&x.productName===nm);
+    if(m&&m.hex){ m.hexNote=note; if(conf) m.hexConfidence=conf; }
+  };
+  set("Black Sea Powder Coat","TUUCI's only image of this is crushed — 88.9% of its pixels are exactly black — so #000000 is a clipping artefact, not a measurement. Whether the finish carries the blue-charcoal cast its name implies cannot be told from that file. Treat it as \"a black\" and ignore the digits.","low");
+  set("Sandbar Powder Coat","Sampling is clean, but the whole image sits in the top 5% of the tonal range, so this is likely lighter than the real finish. Trust the warm-cream hue; treat the value as an upper bound.","low");
+}
 function _mfgNormalizeHexProvenance(){
   let n=0;
   MANUFACTURER_COLORS.forEach(m=>{
@@ -28266,7 +28308,7 @@ let MANUFACTURER_COLORS=(function(){ try{ const s=localStorage.getItem("studioh_
 // Also against the localStorage copy, not just the pull: that cache is what renders
 // first (and all that renders at all when offline), so without this the swatches
 // stay blank until the network round-trip lands.
-_mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
+_mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance();
 let _mfgColorsPulled=false;
 async function mfgColorsPull(force){
   if(_mfgColorsPulled&&!force) return MANUFACTURER_COLORS;
@@ -28274,7 +28316,7 @@ async function mfgColorsPull(force){
   if(d&&!d.err&&Array.isArray(d.data)){
     MANUFACTURER_COLORS=d.data.length?d.data:MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m));
     _mfgColorsPulled=true;
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance();
     try{ localStorage.setItem("studioh_goods_mfgcolors_at", d.savedAt||""); }catch(e){}
     try{ localStorage.setItem("studioh_mfgcolors_v1", JSON.stringify(MANUFACTURER_COLORS)); }catch(e){}
     if(!d.data.length) mfgColorsSaveQuiet(); // first-ever pull, empty on the server — seed it once with real researched data
@@ -28287,7 +28329,7 @@ async function mfgColorsPull(force){
     // real published or hand-corrected value saved there always wins over this.
   } else if(!MANUFACTURER_COLORS.length){
     MANUFACTURER_COLORS=MFG_COLORS_SEED.map(m=>Object.assign({id:"mc"+Date.now().toString(36)+Math.floor(Math.random()*100000)},m)); // offline fallback
-    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgNormalizeHexProvenance();
+    _mfgApplyStepstoneHex(); _mfgApplyDavisHex(); _mfgApplyKornegayHex(); _mfgApplySunbrellaHex(); _mfgApplySunbrellaExtra(); _mfgApplySunbrellaRepeat(); _mfgApplySunbrellaStripes(); _mfgApplyLightingHex(); _mfgApplyFurnHex(); _mfgDedupeTuuciPowderCoats(); _mfgTuuciFinishCaveats(); _mfgNormalizeHexProvenance();
   }
   return MANUFACTURER_COLORS;
 }
