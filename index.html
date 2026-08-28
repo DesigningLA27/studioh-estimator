@@ -2610,6 +2610,11 @@ body:not(.sp-on) #sp-open{display:grid}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shv-t.none{cursor:default;border-style:dashed;opacity:.6}
 .shv-t.none>span{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 5px,transparent 5px,transparent 10px)}
+.shv-ref{font-size:10.5px;color:var(--tm);line-height:1.45;padding:0 2px 5px}
+.shv-ref.warn{color:var(--gold);font-weight:700}
+.shv-mdl{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 2px 6px;
+  font-size:10.5px;font-weight:700;color:var(--tm)}
+.shv-mdl .bp-tri{flex-wrap:wrap}
 .shv-note{font-size:10.5px;color:var(--tl);line-height:1.45;padding:0 2px 7px}
 /* Permission system: a one-line badge, a pending placeholder, and the admin block. */
 .gd-perm{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--tm);
@@ -5671,7 +5676,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1263</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1264</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -18989,10 +18994,62 @@ function shvizSubject(x){
   if(x.fin&&x.fin!=="—") sent+=" Surface finish: "+x.fin.split(",")[0].trim()+".";
   return sent;
 }
-function shvizPrompt(x,view){
+function shvizPrompt(x,view,hasRef){
   const V=SHVIZ_VIEWS[view]; if(!V) return "";
+  if(hasRef){
+    // With the real photograph in hand the subject description stops being a guess at
+    // the geometry and becomes an instruction to preserve it. The measured dimensions
+    // stay, because they stop the model from re-proportioning the object.
+    const nm=String(x.nm||"").trim();
+    const h=x.kdHeightIn||x.apHeightIn, d=x.kdDiameterIn||x.apDiameterIn;
+    let sub="The supplied photograph shows the actual product: "+nm
+      +(x.sku?" (model "+x.sku+")":"")+". Reproduce THAT EXACT OBJECT. "
+      +"Its silhouette, its proportions and above all its surface geometry — every facet, "
+      +"flute, rib, edge and pattern repeat — must match the photograph precisely. "
+      +"Do not simplify the surface, do not smooth it, do not substitute an engraved or "
+      +"printed motif for real three-dimensional relief, and do not redesign any part of it.";
+    if(h&&d) sub+=" It is "+d+" inches across and "+h+" inches high — hold that proportion.";
+    if(view==="top") sub+=" The photograph may not show the plan view; infer it from the "
+      +"supplied images and keep the same number of facets around the rim.";
+    const cols=(x.cols||[]).filter(Boolean);
+    if(x.shvizColour) sub+=" Body colour: "+x.shvizColour+".";
+    else if(cols.length>1) sub+=" Keep the material and colour as photographed.";
+    return [sub,"Now re-photograph that same object: "+V.cam, V.bg||SHVIZ_STYLE.bg,
+            V.light||SHVIZ_STYLE.light, SHVIZ_STYLE.render, SHVIZ_STYLE.frame,
+            SHVIZ_STYLE.neg].join(" ");
+  }
   return [shvizSubject(x), V.cam, V.bg||SHVIZ_STYLE.bg, V.light||SHVIZ_STYLE.light,
           SHVIZ_STYLE.render, SHVIZ_STYLE.frame, SHVIZ_STYLE.neg].join(" ");
+}
+
+// ── Reference photographs ────────────────────────────────────────────────────
+// This is the part I got wrong first time round and it is the whole ballgame. A text
+// prompt cannot invent the Agave series' faceted rim; "stylized surface pattern" gets
+// you a smooth pot with a leaf scratched on it, which is exactly what came back. The
+// model has to SEE the object.
+//
+// We already hold the right picture: officialManufacturerImage is kept on every row by
+// the permission system. Using it as an image-to-image reference to produce our own
+// render is also the coherent way round — the output is a Studio H visualization, which
+// is what a referenced brand can publish, rather than their photograph re-hosted.
+//
+// Routed through the worker's imgproxy because a cross-origin manufacturer image cannot
+// be read by fetch/canvas directly, and a silently-dropped reference would put us right
+// back to text-only renders without saying so.
+async function shvizRefs(x,max){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  const urls=[];
+  if(x.officialManufacturerImage) urls.push(x.officialManufacturerImage);
+  if(x.img && urls.indexOf(x.img)<0) urls.push(x.img);
+  (Array.isArray(x.imgs)?x.imgs:[]).forEach(u=>{ if(u&&urls.indexOf(u)<0) urls.push(u); });
+  const out=[];
+  for(const u of urls.slice(0,max||3)){
+    let d=null;
+    try{ const p=await _satBase64ViaWorker(ep,u); if(p&&p.data) d="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
+    if(!d){ try{ d=await _urlToDataURL(u); }catch(e){} }
+    if(d) out.push(d);
+  }
+  return out;
 }
 
 // ── Alpha cut-out, done locally ─────────────────────────────────────────────
@@ -19093,6 +19150,15 @@ async function shvizCard(x,urls){
 // ── Run it ──────────────────────────────────────────────────────────────────
 // Cost is stated up front and nothing is generated until R2 is proven able to store AND
 // serve, so a paid render can never be produced and then lost on reload.
+function _imgModelName(){ const m=imgModel();
+  return m==="nano-2"?"Nano Banana 2":(m==="flux-klein"?"Flux 2 Klein":"Flux 2 Pro"); }
+// Model matters here more than anywhere else in the app: this is image-to-image against
+// a reference, and the app's own dropdown already notes that Nano Banana 2 is the one
+// that behaves with a reference photo. Exposed on the panel so a bad run can be retried
+// on a different model without hunting through Settings.
+function shvizSetModel(v){ setImgModel(v);
+  try{ goodsRepaint(GOODS_HOST==="mat-body"?"mat":"fur"); }catch(e){}
+  try{ _toast("Renders will use "+_imgModelName()+".","#4C7B3D"); }catch(e){} }
 const SHVIZ_FIELDS=["shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout"];
 // Which colourway the renders depict — a Kornegay planter comes in nine, so the card
 // is showing one of them and the record has to say which.
@@ -19110,12 +19176,25 @@ async function shvizGenerate(kind,id,opts){
   if(opts.hero!==false) want.unshift("hero");
   if(opts.cutout!==false) want.push("cutout");
   const n=want.length;
+  // Fetched BEFORE the confirm so the dialog can state whether the model will actually
+  // see the product. Without a reference this produces a generic pot, and that is worth
+  // being told before paying for five of them rather than after.
+  gwOpen({title:"Reading the reference photos",sub:x.nm||"",steps:["Fetching"],pct:null,cancel:false});
+  let refs=[]; try{ refs=await shvizRefs(x,3); }catch(e){}
+  gwClose();
+  const each=_imgCostEach(), cost=(n*each).toFixed(2);
   const a=await askDlg({icon:"✨",title:"Generate "+n+" images for "+(x.nm||"this product")+"?",
-    body:"Every product is rendered against the same fixed Studio H studio style — same sweep, "
-      +"same light, same three camera positions — so the library reads as one catalogue. "
-      +"This calls the image model "+n+" times and is charged to your account.",
+    body:(refs.length
+      ? (refs.length+" manufacturer photo"+(refs.length===1?"":"s")+" will be given to the model as "
+         +"the reference, so it renders THIS product rather than a generic one. Every product is "
+         +"then re-shot against the same fixed Studio H style — same sweep, same light, same "
+         +"camera positions — so the library reads as one catalogue.")
+      : ("\u26a0 No reference photograph could be read for this product, so the model has only "
+         +"the written description to go on. For anything with a distinctive surface — a faceted "
+         +"or fluted planter — expect a generic shape. Add a reference photo first."))
+      +" This calls "+_imgModelName()+" "+n+" times, about $"+cost+".",
     note:"The spec card is drawn locally from the record, so its dimensions and price are always the real ones.",
-    actions:["Cancel","Generate "+n]});
+    actions:["Cancel","Generate "+n+" · $"+cost]});
   if(a!==1) return {ok:false,err:"cancelled"};
   SHVIZ_BUSY=true;
   const urls={}; const fail=[];
@@ -19125,7 +19204,8 @@ async function shvizGenerate(kind,id,opts){
     for(let i=0;i<want.length;i++){
       const v=want[i];
       try{ gwStep&&gwStep(i,Math.round(i/want.length*100)); }catch(e){}
-      const g=await _genImageOne(ep,key,shvizPrompt(x,v),null,SHVIZ_VIEWS[v].aspect);
+      const g=await _genImageOne(ep,key,shvizPrompt(x,v,!!refs.length),
+                                  refs.length?refs:null,SHVIZ_VIEWS[v].aspect);
       if(!g.ok){ fail.push(SHVIZ_VIEWS[v].label+": "+g.err); continue; }
       // The cut-out is keyed to alpha before storing, so what lands in R2 is already a
       // transparent PNG ready to drop into a scene.
@@ -19195,6 +19275,16 @@ function _shvizPanel(x,kind){
   h+='<div class="shv-row">'+thumb("shvizHero","Hero")+thumb("shvizFront","Front")
     +thumb("shvizSide","Side")+thumb("shvizTop","Top")
     +thumb("shvizCard","Spec card")+thumb("shvizCutout","PNG cut-out")+'</div>';
+  // Reference status is stated on the panel, not just in the confirm dialog — it is the
+  // single biggest determinant of whether a render is usable.
+  const nref=(x.officialManufacturerImage?1:0)+((x.imgs||[]).length);
+  h+='<div class="shv-ref'+(nref?'':' warn')+'">'
+    +(nref?('Reference: '+nref+' manufacturer photo'+(nref===1?'':'s')+' — the model renders this exact product from them.')
+          :'No reference photo on this record. A text-only render will be a generic shape.')+'</div>';
+  h+='<div class="shv-mdl"><span>Model</span><span class="bp-tri">'
+    +[["nano-2","Nano Banana 2"],["flux-pro","Flux 2 Pro"],["flux-klein","Flux 2 Klein"]]
+      .map(o=>'<button class="'+(imgModel()===o[0]?"on":"")+'" onclick="shvizSetModel(\''+o[0]+'\')">'+o[1]+'</button>').join('')
+    +'</span></div>';
   h+='<div class="shv-note">'+(have
     ? (have+' of 6 rendered · status <b>'+esc(st.replace(/_/g," "))+'</b>')
     : 'Nothing rendered yet. Five model calls: hero, front, side, top and a shadowless pass that is keyed to a transparent PNG here. The spec card is drawn locally from this record, so its numbers are always the real ones.')
