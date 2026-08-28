@@ -2631,6 +2631,17 @@ body:not(.sp-on) #sp-open{display:grid}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shv-t.none{cursor:default;border-style:dashed;opacity:.6}
 .shv-t.none>span{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 5px,transparent 5px,transparent 10px)}
+/* #3: contain, not cover — a 4:3 hero and a 1:1 elevation must read as the same size. */
+.shv-t>span,.shv-open>span{background-size:contain!important;background-color:var(--surface2)}
+.shv-fixed{font:700 11px inherit;color:var(--gm);background:var(--brand-soft);
+  border-radius:7px;padding:3px 8px}
+.shv-eb{display:flex;align-items:baseline;gap:6px;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;color:var(--tl);padding:4px 2px 3px}
+.shv-eb i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:600;color:var(--tm)}
+.shv-cols{display:flex;flex-wrap:wrap;gap:4px;padding:0 2px 7px}
+.shv-cols button{width:20px;height:20px;border-radius:6px;border:1px solid var(--br);
+  cursor:pointer;padding:0;font:700 8.5px inherit;color:var(--tm);background:var(--card)}
+.shv-cols button.on{outline:2px solid var(--gm);outline-offset:1px}
 .shv-ref{font-size:10.5px;color:var(--tm);line-height:1.45;padding:0 2px 5px}
 .shv-ref.warn{color:var(--gold);font-weight:700}
 .shv-mdl{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 2px 6px;
@@ -5697,7 +5708,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1269</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1271</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16003,14 +16014,14 @@ async function _goodsPushOnce(book,key,force,retry){
     try{ _matApplyArto(); }catch(e){}
     try{ _goodsPermApply(); }catch(e){}
     try{ _permSeedTest(); }catch(e){}
-    try{ _goodsUnpublishGuessedPrices(); }catch(e){} }   // in-memory seed, re-applied after a pull replaces the array
+    try{ _goodsRestoreParkedPrices(); }catch(e){} }   // in-memory seed, re-applied after a pull replaces the array
       else { FURNISHINGS=merged; _goodsWrite("studioh_furnishings_v1",FURNISHINGS,"furnishings");
     try{ _furnApplyKornegay(); }catch(e){}
         try{ _furnApplyArchPottery(); }catch(e){}
         try{ _furFixFxCats(); }catch(e){}
         try{ _goodsPermApply(); }catch(e){}
         try{ _permSeedTest(); }catch(e){}
-    try{ _goodsUnpublishGuessedPrices(); }catch(e){} }   // derived seeds + the FX recategorisation, re-applied after a pull replaces the array
+    try{ _goodsRestoreParkedPrices(); }catch(e){} }   // derived seeds + the FX recategorisation, re-applied after a pull replaces the array
       try{ localStorage.setItem("studioh_goods_"+book+"_at", srv.savedAt||""); }catch(e){}
       try{ goodsAgeBackfill(); }catch(e){}   // rows arriving from the server get dated too
       return _goodsPushOnce(book,key,force,true);
@@ -16089,7 +16100,7 @@ async function goodsPull(book,silent,replace){
     try{ _matApplyArto(); }catch(e){}
     try{ _goodsPermApply(); }catch(e){}
     try{ _permSeedTest(); }catch(e){}
-    try{ _goodsUnpublishGuessedPrices(); }catch(e){}
+    try{ _goodsRestoreParkedPrices(); }catch(e){}
     _goodsWrite("studioh_materials_v1",MATERIALS,"materials");
     try{ renderMaterials(); }catch(e){} }
   else { FURNISHINGS=rows; FURNISHINGS.forEach(f=>{ if(f.specQty==null) f.specQty=0; });
@@ -16099,7 +16110,7 @@ async function goodsPull(book,silent,replace){
     try{ _furFixFxCats(); }catch(e){}
     try{ _goodsPermApply(); }catch(e){}
     try{ _permSeedTest(); }catch(e){}
-    try{ _goodsUnpublishGuessedPrices(); }catch(e){}
+    try{ _goodsRestoreParkedPrices(); }catch(e){}
     try{ goodsRepaint("fur"); }catch(e){} }
   try{ localStorage.setItem("studioh_goods_"+book+"_at", d.savedAt||""); }catch(e){}
   // Rows this device had and the server did not are now the newest truth. Send them.
@@ -16403,7 +16414,13 @@ function goodsPublicImgs(x){
   if(st==="referenced"){
     // Never fall back to the manufacturer photo. A missing Studio H visual has to read
     // as missing, or the whole point of the state is quietly defeated.
-    return sh?[sh]:[];
+    //
+    // But show the whole set, not just the hero: a client opening the detail wants the
+    // elevations and the spec card too. The PNG cut-out is deliberately excluded — it is
+    // a compositing asset for mood boards, and on a white page it looks like a mistake.
+    const ours=[sh,x.shvizHero,x.shvizFront,x.shvizSide,x.shvizTop,x.shvizCard]
+      .filter(Boolean).filter((u,i,a)=>a.indexOf(u)===i);
+    return ours;
   }
   if(st==="verified"){
     const pref=brandPerm(x).verifiedPrimaryImage;
@@ -16460,15 +16477,15 @@ function goodsVisibleRows(rows){
 // re-generate it. Automatic rather than a button to find, per the standing rule that
 // fixes should not need hunting for — and non-destructive, because nothing that removes
 // data should run on its own.
-function _goodsUnpublishGuessedPrices(){
+function _goodsRestoreParkedPrices(){
   let n=0;
   const one=x=>{
-    if(!x||!x.noPublishedPrice||!x.msrpAI||!(+x.msrp>0)) return;
-    x.msrpAIPrev=x.msrp;
-    x.msrpAIPrevNote="Studio H AI estimate from before v1265, when the automatic pass was "
-      +"running on products whose manufacturer publishes no price. Kept for reference only.";
-    x.msrp=0; x.msrpAI=false;
-    x.aiTried=1;                      // do not just re-guess it on the next pass
+    if(!x||!(+x.msrpAIPrev>0)||(+x.msrp>0)) return;
+    // Put back what v1265-v1268 stripped. It was stripped for the right reason — the spec
+    // card was printing it under "PRICE (MSRP)" — but the fix belonged on the card, not on
+    // the data. The card now labels it "STUDIO H ESTIMATE", so the figure is safe to show.
+    x.msrp=x.msrpAIPrev; x.msrpAI=true;
+    delete x.msrpAIPrev; delete x.msrpAIPrevNote;
     n++;
   };
   try{ (MATERIALS||[]).forEach(one); }catch(e){}
@@ -16891,7 +16908,13 @@ async function _goodsAutoPrices(){
     // is the exact failure this project's first rule exists to prevent, so the
     // automatic pass leaves them alone. Tools → Estimate unpriced still covers them if
     // a budget figure is wanted deliberately, behind its own confirm.
-    const todo=lib.filter(x=>x&&x.nm&&!(+x.msrp>0)&&!x.msrpAI&&!x.aiTried&&!x.noPublishedPrice).map(x=>x.id);
+    // noPublishedPrice is NOT a reason to skip the estimator. goodsAIPrice does a real
+    // web search, records the domain it found a figure on and its own confidence, and
+    // everything downstream marks it as an estimate — so a flagged estimate on a
+    // trade-only product is genuinely more useful than a blank, because an estimate is
+    // what an estimator needs. The rule that matters is that a guess must never be
+    // PRESENTED as the manufacturer's MSRP; that is enforced on the spec card instead.
+    const todo=lib.filter(x=>x&&x.nm&&!(+x.msrp>0)&&!x.msrpAI&&!x.aiTried).map(x=>x.id);
     if(!todo.length) continue;
     try{ _prog("Estimating prices",0,todo.length); }catch(e){}
     let n=0;
@@ -19069,6 +19092,12 @@ const SHVIZ_STYLE={
 // form. The cutout pass gets its own background because keying alpha out of a shadowed
 // grey sweep never comes away clean.
 const SHVIZ_MAXPX=1600;
+// Pinned, not a preference. Both Flux models were tried on these products and neither
+// held the faceted geometry from a reference photograph, which is the entire job here.
+// Leaving a picker on the panel only invited a wasted batch. This is also independent of
+// imgModel(), the app-wide setting other features use, so changing that cannot silently
+// change what a product visualization is rendered with.
+const SHVIZ_MODEL="nano-2";
 const SHVIZ_VIEWS={
   hero:{label:"Hero",aspect:"4:3",
     // Deliberately NOT the angle a manufacturer shoots. Two reasons. It is the house
@@ -19128,12 +19157,34 @@ function shvizScaleHint(x){
 // manufacturer reference photos are of different colourways, so each view picked up
 // whichever it liked. A colour is named explicitly on every prompt now, and the model is
 // told all five views are the same physical object.
+// The colourway is a CHOICE, and until now it was mine, not the manufacturer's: for
+// Kornegay it returned a hardcoded "natural grey" because they offer nine and the code had
+// to pick one. Their nine real names live in KORNEGAY_HEX, sampled from their own palette
+// PDF for the Color Library, so the list offered below is theirs — not invented, and not
+// cols[0], which was only ever alphabetical.
+function shvizColourList(x){
+  const out=[];
+  try{
+    if(/kornegay/i.test(x.brand||x.sup||"") && typeof KORNEGAY_HEX!=="undefined"){
+      Object.keys(KORNEGAY_HEX).forEach(nm=>out.push({nm:nm,hex:KORNEGAY_HEX[nm][0]}));
+    }
+  }catch(e){}
+  if(!out.length) (x.cols||[]).filter(Boolean).forEach(h=>out.push({nm:h,hex:h}));
+  return out;
+}
 function shvizColourOf(x){
   if(x.shvizColour) return x.shvizColour;
   if((x.cols||[]).length===1) return x.cols[0];
-  // Kornegay's own standard, and what their spec sheets quote prices against.
-  if(/kornegay/i.test(x.brand||x.sup||"")) return "natural grey concrete, a soft mid grey with a faint warm cast";
+  // No explicit choice yet. Name the manufacturer's own standard rather than a colour
+  // picked by sort order — and say so, so nobody reads it as a considered decision.
+  if(/kornegay/i.test(x.brand||x.sup||"")) return "natural grey concrete, a soft mid grey with a faint warm cast (Kornegay's stated standard)";
   return "";
+}
+function shvizSetColour(kind,id,nm,hex){
+  const x=_goodsFind(kind,id); if(!x) return;
+  x.shvizColour=nm?(nm+(hex&&hex!==nm?(" — approximately "+hex):"")):"";
+  goodsPermSet(id,"shvizColour",x.shvizColour);
+  try{ _toast(nm?("Renders will use "+nm+". Re-render to apply it."):"Back to the manufacturer's standard.","#4C7B3D"); }catch(e){}
 }
 // One factual sentence describing the object, built from the record rather than written
 // per product — so 41 Kornegay planters describe themselves and nobody hand-writes 41
@@ -19197,8 +19248,16 @@ function shvizPrompt(x,view,hasRef,tweak){
               +"physical object in this same one colour."):
              " Keep the material and colour exactly as it appears in the FIRST supplied "
              +"photograph, and keep it identical across every view.";
+    // The model was anchored to the reference photograph's own camera and shadow and
+    // reproducing them, which is the one thing it must not do — the angle, light and
+    // composition of a product photo are exactly the part copyright protects. Made an
+    // explicit negative, because "re-photograph from X" alone was not overriding it.
+    sub+=" IMPORTANT: do NOT copy the camera angle, lens height, shadow direction or "
+       +"composition of the supplied photograph. Take the geometry and the material from "
+       +"it and nothing else. This is a NEW photograph of the same object from a different "
+       +"camera position, lit differently.";
     return [sub,"Now re-photograph that same object: "+V.cam,
-            (view==="cutout"?"":shvizScaleHint(x)),
+            shvizScaleHint(x),
             V.bg||SHVIZ_STYLE.bg, V.light||SHVIZ_STYLE.light, SHVIZ_STYLE.render,
             SHVIZ_STYLE.frame, SHVIZ_STYLE.neg,
             // #12: free-text direction for a single re-render, appended last so it
@@ -19206,7 +19265,7 @@ function shvizPrompt(x,view,hasRef,tweak){
             (tweak?(" Additional direction, which takes priority over the framing note "
                     +"above: "+tweak):"")].join(" ");
   }
-  return [shvizSubject(x), V.cam, (view==="cutout"?"":shvizScaleHint(x)),
+  return [shvizSubject(x), V.cam, shvizScaleHint(x),
           V.bg||SHVIZ_STYLE.bg, V.light||SHVIZ_STYLE.light,
           SHVIZ_STYLE.render, SHVIZ_STYLE.frame, SHVIZ_STYLE.neg,
           (tweak?(" Additional direction: "+tweak):"")].join(" ");
@@ -19302,7 +19361,7 @@ async function shvizCard(x,urls){
     const rw=W-LEFT-GAP;
     cx.fillStyle="#FFFFFF"; cx.fillRect(LEFT+GAP,y,rw,rH);
     if(u){ try{ const im=await _loadImgEl(await _urlToDataURL(u));
-      _coverDraw(cx,im,LEFT+GAP,y,rw,rH); }catch(e){} }
+      _containDraw(cx,im,LEFT+GAP,y,rw,rH,0.07); }catch(e){} }
     cx.fillStyle="#3A3A38"; cx.font="600 15px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
     cx.fillText(SHVIZ_VIEWS[order[i]].label.toUpperCase(),LEFT+GAP+26,y+34);
   }
@@ -19313,7 +19372,7 @@ async function shvizCard(x,urls){
     // The data grid starts at H-244, so a hero ending at H-268 left 24px — the specs
     // read as if they were sitting on the photograph. 76px of air instead.
     const top=Math.round(H*0.155), bot=H-320;
-    _coverDraw(cx,im,44,top,LEFT-88,bot-top); }catch(e){} }
+    _containDraw(cx,im,44,top,LEFT-88,bot-top,0.04); }catch(e){} }
   const T=(t,px,x2,y2,col,wt,ls)=>{ cx.fillStyle=col; cx.font=(wt||"400")+" "+px+"px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
     if(ls){ let cxx=x2; String(t).split("").forEach(ch=>{ cx.fillText(ch,cxx,y2); cxx+=cx.measureText(ch).width+ls; }); }
     else cx.fillText(String(t),x2,y2); };
@@ -19363,13 +19422,6 @@ async function shvizCard(x,urls){
 // serve, so a paid render can never be produced and then lost on reload.
 function _imgModelName(){ const m=imgModel();
   return m==="nano-2"?"Nano Banana 2":(m==="flux-klein"?"Flux 2 Klein":"Flux 2 Pro"); }
-// Model matters here more than anywhere else in the app: this is image-to-image against
-// a reference, and the app's own dropdown already notes that Nano Banana 2 is the one
-// that behaves with a reference photo. Exposed on the panel so a bad run can be retried
-// on a different model without hunting through Settings.
-function shvizSetModel(v){ setImgModel(v);
-  try{ goodsRepaint(GOODS_HOST==="mat-body"?"mat":"fur"); }catch(e){}
-  try{ _toast("Renders will use "+_imgModelName()+".","#4C7B3D"); }catch(e){} }
 const SHVIZ_FIELDS=["shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout"];
 // Which colourway the renders depict — a Kornegay planter comes in nine, so the card
 // is showing one of them and the record has to say which.
@@ -19399,7 +19451,7 @@ async function shvizGenerate(kind,id,opts){
   gwOpen({title:"Reading the reference photos",sub:x.nm||"",steps:["Fetching"],pct:null,cancel:false});
   let refs=[]; try{ refs=await shvizRefs(x,3); }catch(e){}
   gwClose();
-  const each=_imgCostEach(), cost=(n*each).toFixed(2);
+  const each=0.08, cost=(n*each).toFixed(2);   // Nano Banana 2, pinned above
   const a=await askDlg({icon:"✨",title:"Generate "+n+" images for "+(x.nm||"this product")+"?",
     body:(refs.length
       ? (refs.length+" manufacturer photo"+(refs.length===1?"":"s")+" will be given to the model as "
@@ -19409,7 +19461,7 @@ async function shvizGenerate(kind,id,opts){
       : ("\u26a0 No reference photograph could be read for this product, so the model has only "
          +"the written description to go on. For anything with a distinctive surface — a faceted "
          +"or fluted planter — expect a generic shape. Add a reference photo first."))
-      +" This calls "+_imgModelName()+" "+n+" times, about $"+cost+".",
+      +" This calls Nano Banana 2 "+n+" times, about $"+cost+".",
     note:"The spec card is drawn locally from the record, so its dimensions and price are always the real ones.",
     actions:["Cancel","Generate "+n+" · $"+cost]});
   if(a!==1) return {ok:false,err:"cancelled"};
@@ -19425,12 +19477,12 @@ async function shvizGenerate(kind,id,opts){
       const v=want[i];
       try{ gwStep&&gwStep(i,Math.round(i/want.length*100)); }catch(e){}
       const p=shvizPrompt(x,v,!!refs.length,tweak);
-      let g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect);
+      let g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect,SHVIZ_MODEL);
       // Five calls back to back is exactly the shape that trips a rate limit, and losing
       // the whole set to one transient refusal is expensive. One retry, after a pause.
       if(!g.ok && /rate|429|quota|limit|timeout|temporar|503|502/i.test(g.err||"")){
         await new Promise(r=>setTimeout(r,4000));
-        g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect);
+        g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect,SHVIZ_MODEL);
       }
       if(!g.ok){ fail.push(SHVIZ_VIEWS[v].label+": "+g.err); continue; }
       // The cut-out is keyed to alpha before storing, so what lands in R2 is already a
@@ -19570,10 +19622,20 @@ function _shvizPanel(x,kind){
   h+='<div class="shv-ref'+(nref?'':' warn')+'">'
     +(nref?('Reference: '+nref+' manufacturer photo'+(nref===1?'':'s')+' — the model renders this exact product from them.')
           :'No reference photo on this record. A text-only render will be a generic shape.')+'</div>';
-  h+='<div class="shv-mdl"><span>Model</span><span class="bp-tri">'
-    +[["nano-2","Nano Banana 2"],["flux-pro","Flux 2 Pro"],["flux-klein","Flux 2 Klein"]]
-      .map(o=>'<button class="'+(imgModel()===o[0]?"on":"")+'" onclick="shvizSetModel(\''+o[0]+'\')">'+o[1]+'</button>').join('')
-    +'</span></div>';
+  h+='<div class="shv-mdl"><span>Model</span><b class="shv-fixed">Nano Banana 2</b></div>';
+  // #5: the manufacturer's own colourways, so the render is a stated choice rather than
+  // whichever swatch happened to sort first.
+  const cl=shvizColourList(x);
+  if(cl.length>1){
+    h+='<div class="shv-eb">Render colour<i>'+(x.shvizColour?esc(String(x.shvizColour).split(" — ")[0]):"manufacturer's standard")+'</i></div>';
+    h+='<div class="shv-cols">'
+      +'<button class="'+(x.shvizColour?"":"on")+'" title="Kornegay\u2019s stated standard" '
+      +'onclick="shvizSetColour(\''+kind+'\',\''+x.id+'\',\'\',\'\')">Std</button>'
+      +cl.map(c=>'<button class="'+((x.shvizColour||"").indexOf(c.nm)===0?"on":"")+'" title="'+escAttr(c.nm)+'" '
+        +'style="background:'+escAttr(c.hex)+'" '
+        +'onclick="shvizSetColour(\''+kind+'\',\''+x.id+'\',\''+escAttr(c.nm)+'\',\''+escAttr(c.hex)+'\')"></button>').join('')
+      +'</div>';
+  }
   // #4: which of the two we look at while the brand is internal, or once it is verified.
   const P=brandPerm(x), stt=brandStatus(x);
   if(x.studioHProductImage||have){
@@ -24158,8 +24220,8 @@ async function testR2Storage(){
   else setSt("⚠ Upload worked but the link won't load — the image is saved to R2 but the worker isn't serving it. Deploy the <b>latest worker.js</b> (it has the image-serving route) to the studioh-ai worker. Once deployed, your broken AI images come back — no regeneration.","#B23F3C");
 }
 // One AI image generation call → {ok,url} or {ok:false,err}
-async function _genImageOne(ep,key,prompt,refs,aspect){
-  const genBody={type:"genimage",key,prompt,model:imgModel(),aspect:aspect||"1:1"};
+async function _genImageOne(ep,key,prompt,refs,aspect,model){
+  const genBody={type:"genimage",key,prompt,model:model||imgModel(),aspect:aspect||"1:1"};
   if(refs&&refs.length) genBody.refs=refs;
   let r=null,d=null,raw="";
   try{
@@ -24185,6 +24247,21 @@ async function _genImageOne(ep,key,prompt,refs,aspect){
 }
 async function _urlToDataURL(url){ if(/^data:/.test(url)) return url; const r=await fetch(url); const b=await r.blob(); return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(b); }); }
 function _loadImgEl(src){ return new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>rej(new Error("img load")); im.src=src; }); }
+// Letterbox instead of crop. _coverDraw fills the tile and throws away the overflow,
+// which on a 670x339 spec-card tile means a 1:1 render loses roughly half its height —
+// that is why the top view had no padding at the bottom, and why a 4:3 hero, a 1:1
+// elevation and a 1:1 cut-out all came out looking like different sizes in the same
+// layout. `pad` is a fraction of the tile kept clear on every side so the six tiles read
+// as one set.
+function _containDraw(cx,img,dx,dy,dw,dh,pad){
+  const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+  if(!iw||!ih) return;
+  const p=(pad==null?0.06:pad);
+  const aw=dw*(1-p*2), ah=dh*(1-p*2);
+  const s=Math.min(aw/iw,ah/ih);
+  const w=iw*s, h=ih*s;
+  cx.drawImage(img,0,0,iw,ih, dx+(dw-w)/2, dy+(dh-h)/2, w, h);
+}
 function _coverDraw(cx,img,dx,dy,dw,dh){ const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height; if(!iw||!ih) return; const s=Math.max(dw/iw,dh/ih); const sw=dw/s, sh=dh/s; const sx=(iw-sw)/2, sy=(ih-sh)/2; cx.drawImage(img,sx,sy,sw,sh,dx,dy,dw,dh); }
 // Stitch two AI images into ONE 1:1 square: full = left two-thirds, close-up = right one-third.
 async function _composeTwoView(fullUrl, closeUrl){
@@ -30683,7 +30760,7 @@ try{ _furnApplyArchPottery(); }catch(e){}
 try{ _furFixFxCats(); }catch(e){}
 try{ _goodsPermApply(); }catch(e){}
 try{ _permSeedTest(); }catch(e){}
-try{ _goodsUnpublishGuessedPrices(); }catch(e){}
+try{ _goodsRestoreParkedPrices(); }catch(e){}
 try{ _publicPreviewBar(); }catch(e){}
 let _mfgColorsPulled=false;
 async function mfgColorsPull(force){
