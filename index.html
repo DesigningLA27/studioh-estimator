@@ -3906,6 +3906,14 @@ body.sp-on .tb-sp:hover{background:var(--brand-soft);color:var(--gm)}
 }
 
 /* Save & export, now living in the top bar */
+/* Admin / public lens button — top bar, immediately left of Save & export. */
+.tb-lens{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--br);
+  background:var(--card);color:var(--tm);font:700 12.5px inherit;padding:8px 12px;
+  border-radius:10px;cursor:pointer;margin-right:8px;white-space:nowrap}
+.tb-lens:hover{border-color:var(--gm);color:var(--gm)}
+.tb-lens svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;flex:none}
+.tb-lens.pub{background:#8C6D1F;border-color:#8C6D1F;color:#fff}
+.tb-lens.pub:hover{background:#7a5f1a;color:#fff}
 #tb-actions{display:flex;align-items:center}
 #tb-actions:empty{display:none}
 #topbar .hbtn{font-size:12.5px;padding:8px 14px;border-radius:10px}
@@ -5652,7 +5660,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1261</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1262</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16207,12 +16215,12 @@ function brandPermSet(brand,field,val){
 // a client actually gets. Session-scoped on purpose: it is a lens, not a setting, and
 // it must never be what a reload leaves you stuck in.
 let PUBLIC_PREVIEW=(function(){ try{ return sessionStorage.getItem("studioh_public_preview")==="1"; }catch(e){ return false; } })();
-function goodsIsAdminView(){ return _hasAdminKey() && !PUBLIC_PREVIEW; }
+function goodsIsAdminView(){ return isAdminUI(); }
 function publicPreviewSet(on){
   PUBLIC_PREVIEW=!!on;
   try{ on?sessionStorage.setItem("studioh_public_preview","1")
         :sessionStorage.removeItem("studioh_public_preview"); }catch(e){}
-  try{ _publicPreviewBar(); }catch(e){}
+  try{ _lensRepaint(); }catch(e){}
   try{ goodsRepaint("mat"); }catch(e){}
   try{ goodsRepaint("fur"); }catch(e){}
   try{ if(_stOpen) _stRender(); }catch(e){}
@@ -16229,6 +16237,58 @@ function _publicPreviewBar(){
       +'<button onclick="publicPreviewSet(false)">Back to admin view</button>';
     document.body.appendChild(el);
   }
+}
+
+// ── The admin/public lens ────────────────────────────────────────────────────
+// isAdminUI() is the gate every admin-only CONTROL asks. It is deliberately separate
+// from isAdminUI(), which answers a different question — does this device hold the
+// key at all — and still governs whether a save is permitted. Keeping them apart is
+// what lets an admin step into the public view without the app deciding they have been
+// signed out.
+function isAdminUI(){ return _hasAdminKey() && !PUBLIC_PREVIEW; }
+// Repaint the whole app, not just the goods books: the lens changes what is on screen
+// in the rail, the header, Settings and every library, so a partial repaint would leave
+// admin controls sitting in a public view. The tab handler is already the app's render
+// dispatcher, so re-firing the active tab re-runs exactly the right renderer.
+function _lensRepaint(){
+  try{ _adminLensPaint(); }catch(e){}
+  try{ _publicPreviewBar(); }catch(e){}
+  try{
+    const t=document.querySelector('.tab.on[data-view]')
+        || (typeof S!=="undefined"&&S.view?document.querySelector('.tab[data-view="'+S.view+'"]'):null);
+    if(t){ t.click(); return; }
+  }catch(e){}
+  // Views that are not tab-driven (Estimate, Design, Pro) — repaint what exists.
+  ["updateProBar","renderMaterials","renderFurnishings","renderProducts",
+   "renderColorLibrary","renderPlantBook","renderMoodBoard"].forEach(fn=>{
+    try{ if(typeof window[fn]==="function") window[fn](); }catch(e){}
+  });
+}
+// The button lives at the left end of the top-bar action group, next to Save & export,
+// and only ever exists for a device holding the admin key — a normal user never sees
+// that a lens exists. It stays visible while previewing, because a control you cannot
+// see is a trap: it is the way back.
+function _adminLensPaint(){
+  const slot=document.getElementById("tb-actions");
+  if(!slot) return;
+  let b=document.getElementById("tb-lens");
+  // _hasAdminKey(), NOT isAdminUI(). This one button has to survive the public lens or
+  // there is no way back out of it — everything else on screen is correctly hidden.
+  if(!_hasAdminKey()){ if(b) b.remove(); return; }
+  if(!b){
+    b=document.createElement("button");
+    b.type="button"; b.id="tb-lens";
+    b.onclick=()=>publicPreviewToggle();
+    slot.insertBefore(b,slot.firstChild);
+  }
+  const pub=PUBLIC_PREVIEW;
+  b.className="tb-lens"+(pub?" pub":"");
+  b.title=pub?"You are seeing the app as a public user. Click to return to the admin view."
+              :"See the app exactly as a public user does — internal brands hidden, referenced brands showing Studio H visuals.";
+  b.innerHTML='<svg viewBox="0 0 24 24">'
+    +(pub?'<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.6"/>'
+         :'<path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3Z"/>')
+    +'</svg><span>'+(pub?"Public view":"Admin")+'</span>';
 }
 
 // ── Per-product media + provenance fields ───────────────────────────────────
@@ -18176,7 +18236,11 @@ function matInSize(m){
 }
 function matInHue(m){ const sel=_selList(MAT_HUESEL); return !sel.length || sel.indexOf(matHueOf(m))>=0; }
 function matInKind(m){ const sel=_selList(MAT_KINDSEL); return !sel.length || sel.indexOf(goodsMat(m))>=0; }
-function matInView(m){ return matInGroup(m) && matInPrice(m) && matInUse(m)
+// goodsIsPublicHidden first: an internal brand is not "filtered out", it is not
+// available to this viewer at all, and every materials reader — the grid, the count and
+// the rail — goes through here. _goodsAll("mat") applies the same rule for the
+// inspector; both are needed because the grid does not use _goodsAll.
+function matInView(m){ return !goodsIsPublicHidden(m) && matInGroup(m) && matInPrice(m) && matInUse(m)
   && (!MAT_SALE || goodsSaleLive(m)) && (!MAT_SPEC || specIsOn(m.id)) && matInHue(m) && matInKind(m) && matInSize(m)
   && goodsFacetOk("mat",m); }
 function matOpen(id){ MAT_OPEN=id; MAT_TAB="detail"; renderMaterials(); }
@@ -18370,7 +18434,7 @@ function _goodsTree(kind){
   // never a rename target itself, only the values under it are.
   const sec=(t,kindF,facet,titleKey)=>{
     const lbl=titleKey?(railLabels[kindF+"|"+titleKey]||t):t;
-    const canRen=!!titleKey&&_hasAdminKey();
+    const canRen=!!titleKey&&isAdminUI();
     const renAct=canRen?("goodsRenameLabel('"+kindF+"','"+titleKey+"','"+q(lbl)+"')"):"";
     h+='<div class="pbk-sec gt-sec" style="cursor:default">'
       +'<span'+(renAct?(' onclick="'+(railEdit?("event.stopPropagation();"+renAct):"")+'" ondblclick="event.stopPropagation();'+renAct+'"'):'')+'>'+esc(lbl)+'</span>'
@@ -18418,7 +18482,7 @@ function _goodsTree(kind){
     // behind the admin key already set up in Settings → Master library access rather
     // than a separate switch.
     const renamer=n=>{
-      if(!_hasAdminKey()) return null;
+      if(!isAdminUI()) return null;
       if(facet==="cat") return "goodsRenameCategory('"+kind+"','"+q(n)+"')";
       if(facet==="sup") return "goodsRenameBrand('"+(kind==="mat"?"materials":"furnishings")+"','"+q(n)+"')";
       if(facet==="subcat") return "goodsRenameFacet('"+kind+"','subcat','Type','"+q(n)+"')";
@@ -18432,7 +18496,7 @@ function _goodsTree(kind){
     // Only Brand rows get the swipe/right-click removal, and only for an admin. A
     // Category row spans many suppliers, so "delete this row" has no honest meaning
     // there — and the count in the confirm dialog would be meaningless.
-    const delable=n=>(facet==="sup"&&_hasAdminKey())?n:null;
+    const delable=n=>(facet==="sup"&&isAdminUI())?n:null;
     sec(title,kind,facet,titleKey);
     if(chosen.length){
       chosen.forEach(n=>{
@@ -18513,7 +18577,7 @@ function _goodsTree(kind){
   // Housekeeping, not browsing — which items still need a photo or a fresh quote is
   // useful to whoever is maintaining the shared book and just clutter to everyone
   // reading it to spec a project, so it only shows up for the admin who can fix it.
-  if(_hasAdminKey() && PREFS.railUpkeep!==false){
+  if(isAdminUI() && PREFS.railUpkeep!==false){
     sec("Book upkeep",kind,"","upkeep");
     const all=_goodsAll(kind);
     const noimg=all.filter(x=>{ try{ return !goodsImg(x); }catch(e){ return false; } }).length;
@@ -19186,6 +19250,9 @@ function goodsSwipeBind(root){
     const row=e.target.closest && e.target.closest(".pb-row[data-gid]");
     if(!row) return;
     const kind=_goodsKindOf(row); if(!kind||GOODS_SELMODE[kind]) return;
+    // Swipe reveals Archive/Delete, so it is admin-only like every other way to remove
+    // a row. Without this the public lens still offered the gesture.
+    if(!isAdminUI()) return;
     if(e.target.closest("button,a,input,select")) return;
     _SWIPE={row,kind,id:row.getAttribute("data-gid"),x:e.clientX,y:e.clientY,dx:0,live:false};
   },{passive:true});
@@ -19253,6 +19320,7 @@ let _HOLD=null, GOODS_MENU=null;
 function goodsHoldBind(root){
   if(!root||root._holdBound) return; root._holdBound=1;
   const start=e=>{
+    if(!isAdminUI()) return;          // the row menu is all edit actions
     const cell=e.target.closest && e.target.closest("[data-gid]");
     if(!cell) return;
     const kind=_goodsKindOf(cell); if(!kind) return;
@@ -19266,6 +19334,7 @@ function goodsHoldBind(root){
   ["pointerup","pointermove","pointercancel","pointerleave"].forEach(t=>
     root.addEventListener(t,stop,{passive:true}));
   root.addEventListener("contextmenu",e=>{
+    if(!isAdminUI()) return;
     const cell=e.target.closest && e.target.closest("[data-gid]"); if(!cell) return;
     const kind=_goodsKindOf(cell); if(!kind) return;
     e.preventDefault();
@@ -19654,8 +19723,10 @@ function _goodsHeader(kind,shown,total){
     ? '<b style="color:var(--tx)">'+shown+'</b> of '+total+' '+lbl
     : total+' '+lbl;
   const on=GOODS_SELMODE[kind], n=_goodsSelIds(kind).length;
-  const selBtn='<button class="pb-selbtn'+(on?' on':'')+'" onclick="goodsSelMode(\''+kind+'\')">'
-    +(on?'Done':'Select')+'</button>';
+  // Select is how bulk Compare and bulk Delete are reached, so it is an editing
+  // control, not a browsing one. A public user never sees it.
+  const selBtn=isAdminUI()?('<button class="pb-selbtn'+(on?' on':'')+'" onclick="goodsSelMode(\''+kind+'\')">'
+    +(on?'Done':'Select')+'</button>'):'';
   const bar=on?('<div class="pb-selbar">'
     +'<b>'+n+'</b> selected'
     +'<button onclick="goodsSelAllShown(\''+kind+'\')">Select all '
@@ -19856,9 +19927,9 @@ function _matGrid(host){
              <span onclick="event.stopPropagation();matAllFields(0);document.getElementById('mat-dd').classList.add('open')">Clear</span></div>
          </div></span>
        <span class="sp-grp">
-         <button class="mchip pri${GOODS_URLBAR==="mat"?" on":""}" onclick="matImportURL()">${mi("link")}Add from URL</button>
-         ${goodsSyncChip("mat")}
-         ${matToolsHTML()}
+         ${isAdminUI()?`<button class="mchip pri${GOODS_URLBAR==="mat"?" on":""}" onclick="matImportURL()">${mi("link")}Add from URL</button>`:``}
+         ${isAdminUI()?goodsSyncChip("mat"):``}
+         ${isAdminUI()?matToolsHTML():``}
          ${matSortBarHTML()}
          ${matCardSizeHTML()}
          <span class="gsp"></span>
@@ -20448,7 +20519,7 @@ function _goodsBrandRows(brand){
           otherName:onProd?"Furnishings":"Products"};
 }
 async function goodsBrandAsk(brand){
-  if(!_hasAdminKey()){
+  if(!isAdminUI()){
     try{ askTell("Admin only","Removing a brand changes the shared library for everyone, so it sits behind the admin key in Settings → Master library access."); }catch(e){}
     return;
   }
@@ -20834,8 +20905,8 @@ function _furGrid(host){
          ${goodsTagMenuHTML("fur-tagdd",FUR_TAGS,"furToggleTag","furClearTags","furTagQ",FUR_TAGQ)}
        </span>
        <span class="sp-grp">
-         ${goodsSyncChip("fur")}
-         ${furToolsHTML()}
+         ${isAdminUI()?goodsSyncChip("fur"):``}
+         ${isAdminUI()?furToolsHTML():``}
          <span class="gcols" title="Cards across">
            <button class="${cols===2?"on":""}" onclick="goodsSetCols(2)">${mi("col2")}</button>
            <button class="${cols===4?"on":""}" onclick="goodsSetCols(4)">${mi("col4")}</button>
@@ -22192,7 +22263,7 @@ function _stRender(){
           ${_stSeg(_isClientLens()?"client":"pro",[{v:"pro",nm:"Pro"},{v:"client",nm:"Client"}],"stLens")}</div>
         <div class="st-row"><span class="l">Sidebar<small>Pinned stays open. Hover expands it only while you are over it.</small></span>
           ${_stSeg(document.body.classList.contains("rail-pin")?"pinned":"hover",[{v:"pinned",nm:"Pinned"},{v:"hover",nm:"Hover"}],"stRailPin")}</div>
-        ${_hasAdminKey()?`<div class="st-row"><span class="l">Book upkeep<small>Show "No photo" / "Price over 90 days" in the Materials, Furnishings and Products side panel. Only ever visible to you — normal users never see this section regardless.</small></span>
+        ${isAdminUI()?`<div class="st-row"><span class="l">Book upkeep<small>Show "No photo" / "Price over 90 days" in the Materials, Furnishings and Products side panel. Only ever visible to you — normal users never see this section regardless.</small></span>
           ${_stSeg(PREFS.railUpkeep===false?"off":"on",[{v:"on",nm:"On"},{v:"off",nm:"Off"}],"stRailUpkeep")}</div>`:""}
         <div class="st-row"><span class="l">Sidebar text<small>Labels and icons in the rail.</small></span>
           <div class="st-acc">
@@ -22286,24 +22357,24 @@ function _stRender(){
           <span><input type="number" class="st-in num" value="${+GSET.marketAdj||0}" step="1" onchange="setMarketAdj(this.value)"> <b style="font-size:12px;color:var(--tm)">%</b></span></div>
       </div>
 
-      <div class="st-card">
+      ${isAdminUI()?`<div class="st-card">
         <h3>Master library access</h3>
         <div class="st-row"><span class="l">Admin key<small>Held on this device only. With it, your libraries save to the server automatically. Without it the app is read-only — safe to hand someone a link.</small></span>
           <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <input class="st-in" type="password" id="st-adminkey" value="${_hasAdminKey()?escAttr(_adminKeyRaw()):""}" placeholder="${_hasAdminKey()?"••••••••":"Not set — read-only"}" onchange="stSetAdminKey(this.value)" style="width:190px">
-            ${_hasAdminKey()?`<button class="btn btn-o" onclick="stRevealKey(this)">Show</button>`:""}
-            ${_hasAdminKey()?`<button class="btn btn-o" onclick="stCopyKey()">Copy</button>`:""}
-            ${_hasAdminKey()?`<button class="btn btn-o" onclick="stClearAdminKey()">Sign out</button>`:""}
+            <input class="st-in" type="password" id="st-adminkey" value="${isAdminUI()?escAttr(_adminKeyRaw()):""}" placeholder="${isAdminUI()?"••••••••":"Not set — read-only"}" onchange="stSetAdminKey(this.value)" style="width:190px">
+            ${isAdminUI()?`<button class="btn btn-o" onclick="stRevealKey(this)">Show</button>`:""}
+            ${isAdminUI()?`<button class="btn btn-o" onclick="stCopyKey()">Copy</button>`:""}
+            ${isAdminUI()?`<button class="btn btn-o" onclick="stClearAdminKey()">Sign out</button>`:""}
           </span></div>
         <div class="st-row"><span class="l">Status</span>
-          <span>${_hasAdminKey()
+          <span>${isAdminUI()
             ? `<span class="acc-badge owner">Owner · saves to server</span>`
             : `<span class="acc-badge guest">Guest · read-only</span>`}</span></div>
-        ${_hasAdminKey()?`<div class="st-row"><span class="l">Tap to rename<small>In Materials, Furnishings and Products, a tap on a Category, Brand, Type or Material renames it everywhere instead of filtering by it. Turn off to filter normally — double-click still renames either way.</small></span>
+        ${isAdminUI()?`<div class="st-row"><span class="l">Tap to rename<small>In Materials, Furnishings and Products, a tap on a Category, Brand, Type or Material renames it everywhere instead of filtering by it. Turn off to filter normally — double-click still renames either way.</small></span>
           ${_stSeg(PREFS.railRenameMode?"on":"off",[{v:"on",nm:"On"},{v:"off",nm:"Off"}],"stRailRenameMode")}</div>`:""}
-      </div>
+      </div>`:``}
 
-      ${_hasAdminKey()?_bpCard():""}
+      ${isAdminUI()?_bpCard():""}
 
       <div class="st-card">
         <h3 style="display:flex;align-items:center;gap:7px">Estimate confidence — your default
@@ -31106,7 +31177,7 @@ function _mfgColorDetailHtml(m){
   // future path. Defaults to unconfirmed rather than published: guessing "published"
   // about an unknown value is the one wrong answer here.
   const srcKey=MFG_HEX_TIERS[m.hexSource]?m.hexSource:"unconfirmed";
-    hexHtml=`<div class="pbk-f${_hasAdminKey()?' pbk-tap':''}"${_hasAdminKey()?` onclick="mfgHexOpen(event,'${m.id}')" title="Click to adjust this colour"`:''}><span class="k">Hex</span><b style="color:${srcKey==="manual"?'var(--gm)':(approx?'var(--gold)':'var(--gm)')}">${approx?'≈ ':''}${escAttr(m.hex)}</b>${_hasAdminKey()?'<span class="pen">✎</span>':''}</div>
+    hexHtml=`<div class="pbk-f${isAdminUI()?' pbk-tap':''}"${isAdminUI()?` onclick="mfgHexOpen(event,'${m.id}')" title="Click to adjust this colour"`:''}><span class="k">Hex</span><b style="color:${srcKey==="manual"?'var(--gm)':(approx?'var(--gold)':'var(--gm)')}">${approx?'≈ ':''}${escAttr(m.hex)}</b>${isAdminUI()?'<span class="pen">✎</span>':''}</div>
       ${F("Source",SRC_LABEL[srcKey]||srcKey)}
       ${m.hexConfidence?F("Sample confidence",m.hexConfidence):''}
       ${SRC_NOTE[srcKey]?`<div style="font-size:.7rem;color:var(--tm);padding:2px 6px 4px;line-height:1.5">${SRC_NOTE[srcKey]}</div>`:''}
@@ -31137,8 +31208,8 @@ function _mfgColorDetailHtml(m){
         ? "This is a "+escAttr(m.colorType)+" colour, so the single hex above is an average of colours that are all genuinely present and none of which it equals. Read these."
         : (/solid/i.test(m.patternType||"")?"These are the colours the weave actually mixes — the single hex above is their average.":"This one is patterned, so a single hex under-describes it — these are the colours actually present.")}</div>`:'';
   return `<span class="pbk-ph" style="display:block;${swatchStyle}"></span>
-    ${(_cimg&&_hasAdminKey())?`<button class="pbk-btn" onclick="goodsFrameOpen(event,'mfgcolors','${m.id}','${escAttr(_cimg)}')">Frame this photo — zoom &amp; pan</button>`:''}
-    ${_hasAdminKey()?`<button class="pbk-btn" onclick="mfgHexOpen(event,'${m.id}')">Adjust the colour${m.hexSource==="manual"?" — edited":""}</button>`:''}
+    ${(_cimg&&isAdminUI())?`<button class="pbk-btn" onclick="goodsFrameOpen(event,'mfgcolors','${m.id}','${escAttr(_cimg)}')">Frame this photo — zoom &amp; pan</button>`:''}
+    ${isAdminUI()?`<button class="pbk-btn" onclick="mfgHexOpen(event,'${m.id}')">Adjust the colour${m.hexSource==="manual"?" — edited":""}</button>`:''}
     ${_cimg&&m.swatchImageUrl&&_cimg!==m.swatchImageUrl?`<div style="font-size:.68rem;color:var(--tl);padding:2px 6px 4px;line-height:1.45">Showing the installed pool. The aggregate material swatch is further down under Colour.</div>`:''}
     <div class="pbk-hd">${escAttr(title)}<i>${escAttr([m.manufacturer,m.collection].filter(Boolean).join(' · '))}</i></div>
 
@@ -38853,6 +38924,8 @@ window.addEventListener("load",function(){
     const hw=document.querySelector("#view-pro .viewbar .hwrap");
     if(slot&&hw){ slot.appendChild(hw); const vb=document.querySelector("#view-pro .viewbar"); if(vb) vb.remove(); }
   }catch(e){}
+  // After the Save & export group has been moved in, so the lens sits to its left.
+  try{ _adminLensPaint(); }catch(e){}
 });
 // Hover-expand is wired in JS and only on devices that really have a pointer. On a
 // touch screen a mouseenter fires on tap and never leaves, which is what left the
