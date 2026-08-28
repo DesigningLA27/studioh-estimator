@@ -2633,6 +2633,18 @@ body:not(.sp-on) #sp-open{display:grid}
 .shv-t.none>span{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 5px,transparent 5px,transparent 10px)}
 /* #3: contain, not cover — a 4:3 hero and a 1:1 elevation must read as the same size. */
 .shv-t>span,.shv-open>span{background-size:contain!important;background-color:var(--surface2)}
+/* Photo arrows and dots inside the lightbox image. */
+.gl-big{position:relative}
+.gl-ia{position:absolute;top:50%;transform:translateY(-50%);width:36px;height:52px;border:0;
+  border-radius:10px;background:rgba(22,28,20,.42);color:#fff;font:400 24px/1 inherit;
+  cursor:pointer;display:grid;place-items:center;opacity:0;transition:opacity .14s ease}
+.gl-big:hover .gl-ia,.gl-ia:focus-visible{opacity:1}
+.gl-ia.prev{left:10px} .gl-ia.next{right:10px}
+.gl-ia:hover{background:rgba(22,28,20,.66)}
+.gl-idots{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:6px}
+.gl-idots i{width:7px;height:7px;border-radius:50%;background:rgba(22,28,20,.28);cursor:pointer}
+.gl-idots i.on{background:var(--gm);transform:scale(1.25)}
+@media(hover:none){.gl-ia{opacity:1}}
 .shv-fixed{font:700 11px inherit;color:var(--gm);background:var(--brand-soft);
   border-radius:7px;padding:3px 8px}
 .shv-eb{display:flex;align-items:baseline;gap:6px;font-size:10px;font-weight:700;
@@ -5708,7 +5720,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1271</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1273</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19067,22 +19079,21 @@ function goodsUpkeep(kind,which){
 //
 // It also does the legal work: a Studio H visualization is our own image, which is what
 // makes a REFERENCED brand publishable — see brandStatus() and goodsPublicImgs().
+// Read from SHVIZ_CFG at prompt time rather than frozen at load, so a change in Settings
+// applies to the next render without a reload.
 const SHVIZ_STYLE={
-  // Deliberately one long string per axis rather than a paragraph per view, so a change
-  // to the house look happens in exactly one place and cannot drift between views.
-  bg:"Seamless studio background in a very light warm grey (#F2F1EE), completely even, "
-    +"no horizon line, no visible seam between floor and wall, no vignette, no gradient bands.",
-  light:"One large soft key light from the upper left at about 45 degrees, gentle bounce fill "
-    +"from the right so the shadow side still reads, and a soft diffuse contact shadow falling "
-    +"to the lower right directly under the object. No hard specular highlights, no rim light, "
-    +"no mirrored or reflective floor.",
+  get bg(){ return "Seamless studio background in a "+SHVIZ_CFG.bgWord+" ("+SHVIZ_CFG.bgHex
+    +"), completely even, no horizon line, no visible seam between floor and wall, no "
+    +"vignette, no gradient bands."; },
+  get light(){ return "One large soft key light from the upper left at about "+SHVIZ_CFG.keyDeg
+    +" degrees, gentle bounce fill from the right so the shadow side still reads, and "
+    +(SHVIZ_SHADOW_WORD[SHVIZ_CFG.shadow]||SHVIZ_SHADOW_WORD.soft)
+    +". No hard specular highlights, no rim light, no mirrored or reflective floor."; },
   render:"Photorealistic studio product photography, 50mm lens, no perspective distortion, "
     +"sharp throughout, true matte material with the fine aggregate texture of the real "
     +"material visible at close range. Neutral colour, accurate to the stated finish.",
-  frame:"Object centred and complete in frame with even margins of roughly 12 percent on all "
-    +"sides. Nothing cropped, nothing touching the edge.",
-  // Negatives matter more than positives with image models — most failures are an added
-  // plant, a prop, or invented type, not a wrong camera.
+  get frame(){ return "Object centred and complete in frame with even margins of roughly "
+    +SHVIZ_CFG.padPct+" percent on all sides. Nothing cropped, nothing touching the edge."; },
   neg:"Absolutely no text, no lettering, no numbers, no watermark, no logo, no label, no "
     +"dimension lines. No plants, no soil, no flowers, no props, no furniture, no people, "
     +"no hands. Nothing inside the vessel. One single object only."
@@ -19091,7 +19102,47 @@ const SHVIZ_STYLE={
 // proportion off them; the hero sits slightly above because that is the angle that shows
 // form. The cutout pass gets its own background because keying alpha out of a shadowed
 // grey sweep never comes away clean.
-const SHVIZ_MAXPX=1600;
+// ── House style, as a setting ─────────────────────────────────────────────────
+// Warwick asked whether background colour, camera angle and padding should be editable
+// in Settings. Yes — but ONE global set, not per product, and deliberately few knobs.
+// The entire value of this system is that 600 products look like one shoot; a per-product
+// control panel would guarantee they don't. Per-image corrections already have a home:
+// the ↻ tweak field, which applies to a single render and is not stored.
+//
+// Changing these does not touch anything already rendered, which is worth saying out
+// loud — mixing a new background tone into an existing library is how it starts looking
+// like a scrapbook again.
+const SHVIZ_CFG_DEFAULT={
+  bgHex:"#F2F1EE",
+  bgWord:"very light warm grey",
+  padPct:12,
+  heroUp:8,
+  heroRound:40,
+  keyDeg:45,
+  shadow:"soft",          // soft | minimal | none
+  maxPx:1600
+};
+let SHVIZ_CFG=(function(){ try{ return Object.assign({},SHVIZ_CFG_DEFAULT,
+  JSON.parse(localStorage.getItem("studioh_shvizcfg_v1")||"{}")||{}); }catch(e){ return Object.assign({},SHVIZ_CFG_DEFAULT); } })();
+function shvizCfgSave(){
+  try{ localStorage.setItem("studioh_shvizcfg_v1",JSON.stringify(SHVIZ_CFG)); }catch(e){}
+  try{ _saveConfigSilent(); }catch(e){}
+}
+function shvizCfgSet(k,v){
+  if(k==="padPct"||k==="heroUp"||k==="heroRound"||k==="keyDeg"||k==="maxPx") v=+v||0;
+  SHVIZ_CFG[k]=v; shvizCfgSave();
+  try{ if(_stOpen) _stRender(); }catch(e){}
+  try{ _toast("House style updated. Applies to the NEXT render — nothing already made changes.","#4C7B3D"); }catch(e){}
+}
+function shvizCfgReset(){ SHVIZ_CFG=Object.assign({},SHVIZ_CFG_DEFAULT); shvizCfgSave();
+  try{ if(_stOpen) _stRender(); }catch(e){}
+  try{ _toast("Back to the Studio H default style.","#4C7B3D"); }catch(e){} }
+const SHVIZ_SHADOW_WORD={
+  soft:"a soft diffuse contact shadow falling to the lower right directly under the object",
+  minimal:"only the faintest contact shadow directly beneath the object, barely visible",
+  none:"no cast shadow at all — the object sits on the background with no shadow"
+};
+const SHVIZ_MAXPX=1600;   // fallback; SHVIZ_CFG.maxPx is what is used
 // Pinned, not a preference. Both Flux models were tried on these products and neither
 // held the faceted geometry from a reference photograph, which is the entire job here.
 // Leaving a picker on the panel only invited a wasted batch. This is also independent of
@@ -19105,9 +19156,10 @@ const SHVIZ_VIEWS={
     // creative choices in a product photograph — angle, light, composition — are the
     // part copyright actually protects, so matching their angle is the one place our
     // render came closest to theirs. Lower and from the other side.
-    cam:"Three-quarter view from only 8 degrees above the object — close to eye level, so "
-       +"the height of the piece reads honestly — and 40 degrees to the RIGHT of centre, "
-       +"showing the front face and the right side together."},
+    get cam(){ return "Three-quarter view from only "+SHVIZ_CFG.heroUp+" degrees above the "
+       +"object — close to eye level, so the height of the piece reads honestly — and "
+       +SHVIZ_CFG.heroRound+" degrees to the RIGHT of centre, showing the front face and the "
+       +"right side together."; }},
   front:{label:"Front view",aspect:"1:1",
     cam:"Straight-on front elevation, camera exactly level with the mid-height of the object, "
        +"dead centre, no tilt."},
@@ -19118,7 +19170,8 @@ const SHVIZ_VIEWS={
     cam:"Directly overhead plan view looking straight down at the object from above, "
        +"perfectly square to it, showing the full opening and rim."},
   cutout:{label:"Cut-out",aspect:"1:1",
-    cam:"Three-quarter view from 8 degrees above and 40 degrees to the right.",
+    get cam(){ return "Three-quarter view from "+SHVIZ_CFG.heroUp+" degrees above and "
+      +SHVIZ_CFG.heroRound+" degrees to the right."; },
     bg:"Pure flat white background, RGB 255 255 255, absolutely uniform, with NO shadow of "
       +"any kind and no contact shadow — the object must appear to float, fully isolated, "
       +"so it can be cut out cleanly.",
@@ -19489,7 +19542,7 @@ async function shvizGenerate(kind,id,opts){
       // transparent PNG ready to drop into a scene.
       let data=null;
       // 1600px at 0.93 rather than 512 at 0.82 — see _imgToMax.
-      try{ data=(v==="cutout")?await shvizCutoutPng(g.url):await _fetchToMax(g.url,SHVIZ_MAXPX,0.93); }catch(e){}
+      try{ data=(v==="cutout")?await shvizCutoutPng(g.url):await _fetchToMax(g.url,(SHVIZ_CFG.maxPx||SHVIZ_MAXPX),0.93); }catch(e){}
       let stored=data||g.url;
       if(data){ const up=await _uploadImageR2("shviz_"+id+"_"+v+"_"+Date.now().toString(36),data);
         if(up.ok&&up.url){ for(let t=0;t<3&&!(await _imgLoads(up.url));t++){} stored=up.url; } }
@@ -20397,6 +20450,15 @@ function _goodsLbxPaint(){
 }
 function goodsLbxClose(){ GL_OPEN=null; _goodsLbxPaint(); }
 function goodsLbxImg(i){ GL_IMG=i; _goodsLbxPaint(); }
+// Wraps, so you can keep going in one direction rather than hitting a dead end.
+function goodsLbxImgStep(d){
+  try{
+    const x=_goodsFind(GL_KIND,GL_OPEN); if(!x) return;
+    const n=(goodsImgs(x)||[]).length; if(n<2) return;
+    GL_IMG=((GL_IMG+d)%n+n)%n;
+    _goodsLbxPaint();
+  }catch(e){}
+}
 function goodsLbxOpen(kind,id){ GL_KIND=kind; GL_OPEN=id; GL_IMG=0; GL_TAB="money";
   const x=_goodsFind(kind,id); GL_QTY=(kind==="mat")?640:1;
   try{ const l=specLineOf&&specLineOf(kind==="mat"?"materials":"furnishings",id);
@@ -20482,12 +20544,25 @@ function _goodsLbxHTML(kind,x){
      +'<div class="gl-gal">'
        +'<div class="gl-big" style="'+(shot?goodsShotStyle(x,shot,"var(--surface2)"):"")+'">'+(shot
           ?''
-          :'<span class="none">no photo</span>')+'</div>'
-       +goodsPhotoStripHTML(kind==="mat"?"materials":"furnishings",x)
+          :'<span class="none">no photo</span>')
+          // Arrows over the image itself. The thumbnail strip was the only way through the
+          // photos, and it is admin-only furniture — so with it hidden a public user had a
+          // set of five views and no way to reach four of them. The ‹ › in the header move
+          // through PRODUCTS, which is a different axis and was the confusing part.
+          +((imgs.length>1)?('<button class="gl-ia prev" title="Previous photo" '
+             +'onclick="event.stopPropagation();goodsLbxImgStep(-1)">‹</button>'
+             +'<button class="gl-ia next" title="Next photo" '
+             +'onclick="event.stopPropagation();goodsLbxImgStep(1)">›</button>'
+             +'<span class="gl-idots">'+imgs.map((u,i)=>'<i class="'+(i===GL_IMG?"on":"")
+               +'" onclick="event.stopPropagation();goodsLbxImg('+i+')"></i>').join('')+'</span>'):'')
+          +'</div>'
+       +(isAdminUI()?goodsPhotoStripHTML(kind==="mat"?"materials":"furnishings",x):'')
      +'</div>'
      +'<div class="gl-info">'
        +'<div class="gl-eb">'+esc(x.brand||x.sup||"")+'</div>'
-       +'<h3 class="gl-h3ren" ondblclick="goodsRenameTitle(\''+kind+'\',\''+x.id+'\')" title="Double-click to rename">'+esc(x.nm||"")+'</h3>'
+       +(isAdminUI()
+          ?('<h3 class="gl-h3ren" ondblclick="goodsRenameTitle(\''+kind+'\',\''+x.id+'\')" title="Double-click to rename">'+esc(x.nm||"")+'</h3>')
+          :('<h3>'+esc(x.nm||"")+'</h3>'))
        +'<div class="gl-sub">'+esc([x.loc,x.dist!=null?(x.dist+" mi"):"",
             (!_gBlank(x.fin)?x.fin:"")].filter(Boolean).join(" · "))+'</div>'
        +'<div class="gl-tabs">'+live.map(t=>'<button class="'+(GL_TAB===t[0]?"on":"")
@@ -20509,15 +20584,20 @@ function _goodsLbxHTML(kind,x){
      +'<span class="sp">'
      +'<span class="gl-qty"><button onclick="goodsLbxQty(-1)">−</button><span>'
         +qty+(kind==="mat"?" sf":"")+'</span><button onclick="goodsLbxQty(1)">+</button></span>'
-     +(_gSrc(x)?'<button class="gl-btn" onclick="goodsFetchImages(\''+(kind==="mat"?"materials":"furnishings")+'\',\''+x.id+'\')">Find images</button>':'')
-     +'<button class="gl-btn" onclick="goodsAddPhotoURL(\''+kind+'\',\''+x.id+'\')">+ Photo link</button>'
-     +'<label class="gl-btn" style="cursor:pointer">+ Upload<input type="file" accept="image/*" hidden onchange="goodsAddPhotoFile(this,\''+kind+'\',\''+x.id+'\')"></label>'
+     // Editing the shared library is admin work. In the public lens this bar was still
+     // offering Find images, Photo link, Upload, Delete and Where used — the lightbox was
+     // never covered by the lens sweep.
+     +(isAdminUI()&&_gSrc(x)?'<button class="gl-btn" onclick="goodsFetchImages(\''+(kind==="mat"?"materials":"furnishings")+'\',\''+x.id+'\')">Find images</button>':'')
+     +(isAdminUI()?'<button class="gl-btn" onclick="goodsAddPhotoURL(\''+kind+'\',\''+x.id+'\')">+ Photo link</button>':'')
+     +(isAdminUI()?'<label class="gl-btn" style="cursor:pointer">+ Upload<input type="file" accept="image/*" hidden onchange="goodsAddPhotoFile(this,\''+kind+'\',\''+x.id+'\')"></label>':'')
+     // The manufacturer link stays for everyone — that is a reference, not an edit — but
+     // the double-click-to-change only makes sense for an admin.
      +(_gSrc(x)?('<a class="gl-btn" href="'+escAttr(_gSrc(x))+'" target="_blank" rel="noopener" '
-        +'ondblclick="event.preventDefault();goodsAddProductURL(\''+kind+'\',\''+x.id+'\')" title="Double-click to change this link">'
+        +(isAdminUI()?('ondblclick="event.preventDefault();goodsAddProductURL(\''+kind+'\',\''+x.id+'\')" title="Double-click to change this link"'):'')+'>'
         +'Open on '+esc(_gHost(_gSrc(x)))+' ↗</a>')
-        :'<button class="gl-btn" onclick="goodsAddProductURL(\''+kind+'\',\''+x.id+'\')">+ Product link</button>')
-     +'<button class="gl-btn" onclick="goodsLbxClose();'+(kind==="mat"?"matOpen":"furOpen")+'(\''+x.id+'\')">Documents · Where used</button>'
-     +'<button class="gl-btn del" onclick="goodsDeleteOne(\''+kind+'\',\''+x.id+'\')">Delete</button>'
+        :(isAdminUI()?'<button class="gl-btn" onclick="goodsAddProductURL(\''+kind+'\',\''+x.id+'\')">+ Product link</button>':''))
+     +(isAdminUI()?'<button class="gl-btn" onclick="goodsLbxClose();'+(kind==="mat"?"matOpen":"furOpen")+'(\''+x.id+'\')">Documents · Where used</button>':'')
+     +(isAdminUI()?'<button class="gl-btn del" onclick="goodsDeleteOne(\''+kind+'\',\''+x.id+'\')">Delete</button>':'')
      +'<button class="gl-btn solid" onclick="goodsSpecAdd()">Add to project</button>'
      +'</span></div>'
    +'</div>';
@@ -22986,6 +23066,39 @@ function bpBrands(){
   try{ (FURNISHINGS||[]).forEach(x=>add(x,goodsLibOf(x)==="prod"?"Products":"Furnishings")); }catch(e){}
   return Object.keys(by).map(k=>by[k]).sort((a,b)=>b.n-a.n);
 }
+function _shvizCfgCard(){
+  const C=SHVIZ_CFG;
+  const num=(k,lbl,sub,min,max,unit)=>'<div class="st-row"><span class="l">'+lbl
+    +(sub?'<small>'+sub+'</small>':'')+'</span><span style="display:flex;align-items:center;gap:7px">'
+    +'<input type="number" class="st-in num" min="'+min+'" max="'+max+'" value="'+(+C[k]||0)
+    +'" onchange="shvizCfgSet(\''+k+'\',this.value)"><b style="font-size:12px;color:var(--tm)">'+unit+'</b></span></div>';
+  let h='<div class="st-card"><h3 style="display:flex;align-items:center;gap:7px">'
+    +'Product library › Studio H render style'
+    +ihint("One style for the whole library, on purpose. The value of these renders is that "
+      +"600 products look like a single shoot, so there is no per-product version of this — "
+      +"a one-off correction goes in the ↻ note on a single view instead. Nothing already "
+      +"rendered changes when you edit these; only the next render does.")
+    +'</h3>';
+  h+='<div class="st-row"><span class="l">Background<small>The sweep every product is shot against.</small></span>'
+    +'<span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+    +'<input type="color" value="'+escAttr(C.bgHex)+'" onchange="shvizCfgSet(\'bgHex\',this.value)" '
+      +'style="width:42px;height:30px;border:1px solid var(--br);border-radius:8px;background:none;padding:2px;cursor:pointer">'
+    +'<input class="st-in" value="'+escAttr(C.bgWord)+'" onchange="shvizCfgSet(\'bgWord\',this.value)" '
+      +'placeholder="how to describe it" style="width:190px">'
+    +'</span></div>';
+  h+='<div class="st-row"><span class="l">Shadow<small>Under the object. None reads as a cut-out.</small></span>'
+    +_stSeg(C.shadow,[{v:"soft",nm:"Soft"},{v:"minimal",nm:"Minimal"},{v:"none",nm:"None"}],"shvizCfgShadow")+'</div>';
+  h+=num("padPct","Padding","Clear space kept around the object, each side.",4,30,"%");
+  h+=num("heroUp","Hero — height","Degrees above the object. Low reads honest; high looks into the bowl.",0,60,"°");
+  h+=num("heroRound","Hero — rotation","Degrees round from front. This is the angle that makes a hero ours rather than the manufacturer's.",0,80,"°");
+  h+=num("keyDeg","Key light","Angle of the main light from upper left.",15,75,"°");
+  h+=num("maxPx","Resolution","Longest edge of a stored render. Mood boards want the larger end.",512,2400,"px");
+  h+='<div class="st-row"><span class="l">Reset</span><span>'
+    +'<button class="btn btn-o" onclick="shvizCfgReset()">Back to the Studio H default</button></span></div>';
+  h+='</div>';
+  return h;
+}
+function shvizCfgShadow(v){ shvizCfgSet("shadow",v); }
 function _bpCard(){
   const esc=v=>escAttr(v);
   const all=bpBrands();
@@ -23201,6 +23314,8 @@ function _stRender(){
       </div>`:``}
 
       ${isAdminUI()?_bpCard():""}
+
+      ${isAdminUI()?_shvizCfgCard():""}
 
       <div class="st-card">
         <h3 style="display:flex;align-items:center;gap:7px">Estimate confidence — your default
@@ -23841,7 +23956,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   const pick=await askDlg({title:"Publish your pricing?",
@@ -23995,7 +24110,8 @@ const CFG_KEY_LABEL={
   studioh_mfgedit_v1:"Colour corrections",
   studioh_brandblock_v1:"Removed brands",
   studioh_brandperms_v1:"Brand permissions",
-  studioh_productmedia_v1:"Product media and sources"
+  studioh_productmedia_v1:"Product media and sources",
+  studioh_shvizcfg_v1:"Studio H render style"
 };
 
 let _cfgConflictAsked=false;
