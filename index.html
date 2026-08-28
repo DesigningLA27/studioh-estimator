@@ -5676,7 +5676,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1265</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1266</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16316,9 +16316,25 @@ const GOODS_PERM_FIELDS=["studioHProductImage","studioHProductImageStatus","stud
   "officialManufacturerImage","officialManufacturerDescription",
   "sourceProductUrl","sourceBrandUrl","sourceCheckedDate","priceCheckedDate",
   "shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout","shvizColour"];
-let GOODS_PERM=(function(){ try{ return JSON.parse(localStorage.getItem("studioh_goodsperm_v1")||"{}")||{}; }catch(e){ return {}; } })();
+// Renamed from "studioh_goodsperm_v1". That key was my abbreviation of "goods
+// permissions", but the config-conflict dialog labels a store by stripping the prefix
+// and version off its key — so it printed "goodsperm" at a user, which reads as
+// something else entirely. Migrated once, old key removed, so no copy is orphaned.
+let GOODS_PERM=(function(){
+  try{
+    const cur=localStorage.getItem("studioh_productmedia_v1");
+    if(cur!=null) return JSON.parse(cur)||{};
+    const legacy=localStorage.getItem("studioh_goodsperm_v1");
+    if(legacy!=null){
+      localStorage.setItem("studioh_productmedia_v1",legacy);
+      localStorage.removeItem("studioh_goodsperm_v1");
+      return JSON.parse(legacy)||{};
+    }
+  }catch(e){}
+  return {};
+})();
 function goodsPermSave(){
-  try{ localStorage.setItem("studioh_goodsperm_v1",JSON.stringify(GOODS_PERM)); }catch(e){}
+  try{ localStorage.setItem("studioh_productmedia_v1",JSON.stringify(GOODS_PERM)); }catch(e){}
   try{ _saveConfigSilent(); }catch(e){}
 }
 function goodsPermSet(id,field,val){
@@ -23492,7 +23508,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_goodsperm_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1"];
 async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   const pick=await askDlg({title:"Publish your pricing?",
@@ -23614,11 +23630,49 @@ function cfgRestoreBackup(){
   });
 }
 function _cfgKeyLabel(k){ return (k||"").replace(/^studioh_/,"").replace(/_v\d+$/,"").replace(/_/g," "); }
-const CFG_KEY_LABEL={studioh_nurseries_v1:"Nurseries",studioh_pricebook_v5:"Price Book",studioh_labor_v1:"Labor rates",studioh_assemblies_v1:"Assemblies",studioh_favs_v1:"Favorites",studioh_water_v1:"Water pricing",studioh_settings_v1:"Settings"};
+// EVERY key in SHARED_CFG_KEYS needs an entry. _cfgKeyLabel() below is only a
+// last-ditch fallback, and what it produces is an internal variable name shown to a
+// user — "oap", "valov", "matmarkup", "goodsperm". 21 of the 28 keys were falling
+// through to it. If you add a key to SHARED_CFG_KEYS, add its label here too.
+const CFG_KEY_LABEL={
+  studioh_prefs_v1:"App preferences",
+  studioh_pricebook_v5:"Price Book",
+  studioh_labor_v1:"Labor rates",
+  studioh_assemblies_v1:"Assemblies",
+  studioh_oap_v1:"Overhead and profit",
+  studioh_valov_v1:"Value-engineering overrides",
+  studioh_mods_v1:"Project modifiers",
+  studioh_assume_v1:"Estimate assumptions",
+  studioh_matmarkup_v1:"Material markup",
+  studioh_louverkits_v1:"Louver kits",
+  studioh_nurseries_v1:"Nurseries",
+  studioh_settings_v1:"Settings",
+  studioh_reprice_v1:"Plant repricing",
+  studioh_lightprice_v2:"Lighting prices",
+  studioh_tree_reprice_v1:"Tree repricing",
+  studioh_floorpurge_v1:"Flooring cleanup",
+  studioh_poolprices_v1:"Pool prices",
+  studioh_poolenergy_v1:"Pool energy model",
+  studioh_citytemps_v1:"City temperatures",
+  studioh_water_v1:"Water pricing",
+  studioh_favs_v1:"Favorites",
+  studioh_imgmodel_v1:"AI image model",
+  studioh_imgstyle_v1:"AI image style",
+  studioh_mfgframe_v1:"Colour photo framing",
+  studioh_mfgedit_v1:"Colour corrections",
+  studioh_brandblock_v1:"Removed brands",
+  studioh_brandperms_v1:"Brand permissions",
+  studioh_productmedia_v1:"Product media and sources"
+};
+
 let _cfgConflictAsked=false;
 async function _cfgResolveConflicts(keys,serverConfig,serverStamp){
   const names=keys.map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k));
-  const i=await askDlg({title:"Pricing changed in two places",
+  // The title used to read "Pricing changed in two places" for every key, so a clash in
+  // brand permissions or an AI image setting announced itself as a pricing problem.
+  // Name the thing that actually changed.
+  const what=(names.length===1)?names[0]:"Your shared library settings";
+  const i=await askDlg({title:what+" changed in two places",
     body:(names.join(", "))+(names.length>1?" were":" was")+" edited on this device AND on another device since they last synced. Nothing is deleted either way — the copy you don't keep is backed up and restorable from Settings.",
     actions:["Use the server's copy","Keep this device's copy"]});
   if(i===0){
