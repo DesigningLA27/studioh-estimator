@@ -5720,7 +5720,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1273</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1275</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19200,10 +19200,11 @@ function shvizScaleHint(x){
   // The largest in the series fills ~84% of the frame; the rest scale down from there,
   // floored at 30% so the smallest piece is still legible.
   const pct=Math.max(30,Math.round(84*(mine/big)));
-  return " SCALE: this piece must occupy about "+pct+"% of the frame's shorter dimension, "
-    +"centred, with the empty background making up the rest. Do NOT enlarge it to fill the "
-    +"frame — its size on screen is meaningful, because it is shown alongside other sizes "
-    +"in the same family.";
+  // Deliberately no longer asks for a percentage. The model ignored it, and the scaling
+  // is now done exactly in shvizFitScale() after the render. All that is still wanted
+  // from the model is consistent, generous framing so there is room to scale into.
+  return " Frame it consistently: the object centred with clear even space around it, "
+    +"never touching or running off any edge.";
 }
 // ── #2: one colourway, stated on every view ───────────────────────────────────
 // The first run came back with a GREY hero and GREEN elevations. Cause: several
@@ -19366,6 +19367,73 @@ async function shvizRefs(x,max){
   return out;
 }
 
+// ── Relative size, done locally ──────────────────────────────────────────────
+// Asking the model to "occupy about 63% of the frame" does not work — it fills the frame
+// whatever the instruction says, so a 13.5" and a 22.5" Agave came out the same size on
+// screen, which is the one thing a series catalogue must not do.
+//
+// So stop asking. Let the model frame it however it likes (consistently, which it does
+// well), then scale the finished image here. Same reasoning as drawing the spec card
+// instead of generating it: if a value has to be exact, compute it, do not negotiate for
+// it. This is arithmetic, so AS-13.5 next to AS-22.5 is now exactly right.
+//
+// The pad colour is sampled from the render's own corners rather than taken from
+// SHVIZ_CFG.bgHex, so it blends seamlessly even when the model drifts a shade off.
+async function shvizFitScale(dataUrl,pct){
+  const p=Math.max(0.15,Math.min(1,(+pct||100)/100));
+  if(p>=0.995) return dataUrl;
+  const im=await _loadImgEl(dataUrl);
+  const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
+  if(!W||!H) return dataUrl;
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const cx=cv.getContext("2d");
+  // sample the four corners of the source to find its true background
+  const t=document.createElement("canvas"); t.width=W; t.height=H;
+  const tx=t.getContext("2d"); tx.drawImage(im,0,0);
+  const pick=(X,Y)=>{ const d=tx.getImageData(X,Y,1,1).data; return [d[0],d[1],d[2]]; };
+  const cs=[pick(2,2),pick(W-3,2),pick(2,H-3),pick(W-3,H-3)];
+  const med=i=>cs.map(c=>c[i]).sort((a,b)=>a-b)[1];
+  cx.fillStyle="rgb("+med(0)+","+med(1)+","+med(2)+")";
+  cx.fillRect(0,0,W,H);
+  cx.imageSmoothingQuality="high";
+  const w=Math.round(W*p), h=Math.round(H*p);
+  // Sits slightly below centre, the way an object on a surface actually reads, rather
+  // than floating in the middle of the frame.
+  cx.drawImage(im,0,0,W,H, Math.round((W-w)/2), Math.round((H-h)*0.58), w, h);
+  return cv.toDataURL("image/jpeg",0.93);
+}
+// The percentage this product should occupy, against the largest in its own series.
+function shvizScalePct(x){
+  const d=x.kdDiameterIn||x.apDiameterIn, h=x.kdHeightIn||x.apHeightIn;
+  if(!d&&!h) return 100;
+  const series=x.kdSeries||null;
+  let maxD=d||0, maxH=h||0;
+  if(series&&typeof FURNISHINGS!=="undefined"){
+    FURNISHINGS.forEach(y=>{ if(!y||y.kdSeries!==series) return;
+      maxD=Math.max(maxD,y.kdDiameterIn||0); maxH=Math.max(maxH,y.kdHeightIn||0); });
+  }
+  const big=Math.max(maxD,maxH), mine=Math.max(d||0,h||0);
+  if(!big||!mine||big===mine) return 100;
+  // Floor at 42% so the smallest piece in a wide-ranging series is still legible.
+  return Math.max(42,Math.round(100*(mine/big)));
+}
+// ── Which views a product actually needs ─────────────────────────────────────
+// A side elevation of a round pot is the front elevation again. Rendering it costs money,
+// adds a tile to review and tells a designer nothing. For a four-sided or trough form it
+// is essential. So the set follows the shape, which the record already states.
+function shvizIsRound(x){
+  const sh=String(x.kdShape||x.apKind||"").toLowerCase();
+  if(!sh) return false;
+  if(/four-sided|square|trough|rectang/.test(sh)) return false;
+  return /round|cylinder|circular|bowl/.test(sh);
+}
+function shvizViewsFor(x){
+  const w=["hero","front","top"];
+  if(!shvizIsRound(x)) w.splice(2,0,"side");
+  w.push("cutout");
+  return w;
+}
+
 // ── Alpha cut-out, done locally ─────────────────────────────────────────────
 // The model is asked for a shadowless pure-white frame, then the white is keyed to
 // transparent here. Doing the key in canvas rather than asking the model for
@@ -19490,12 +19558,11 @@ async function shvizGenerate(kind,id,opts){
   if(!(await _ensureR2())) return {ok:false,err:R2_DOWN_MSG};
   // #9: one view at a time. Re-rendering all five to fix one bad top view wasted four
   // paid images and, worse, replaced four you had already accepted.
-  const want=opts.only?[opts.only]:(function(){
-    const w=["front","side","top"];
-    if(opts.hero!==false) w.unshift("hero");
-    if(opts.cutout!==false) w.push("cutout");
-    return w;
-  })();
+  // Three ways in: one view (the ↻ badge), the two that every product genuinely needs, or
+  // the full set. The middle one exists because across Kornegay and Architectural Pottery
+  // the full set is 439 images and you do not yet know which 30 products get specified.
+  const want=opts.only?[opts.only]
+    :(opts.quick?["hero","cutout"]:shvizViewsFor(x));
   const tweak=(opts.tweak||"").trim();
   const n=want.length;
   // Fetched BEFORE the confirm so the dialog can state whether the model will actually
@@ -19542,7 +19609,17 @@ async function shvizGenerate(kind,id,opts){
       // transparent PNG ready to drop into a scene.
       let data=null;
       // 1600px at 0.93 rather than 512 at 0.82 — see _imgToMax.
-      try{ data=(v==="cutout")?await shvizCutoutPng(g.url):await _fetchToMax(g.url,(SHVIZ_CFG.maxPx||SHVIZ_MAXPX),0.93); }catch(e){}
+      try{
+        if(v==="cutout"){
+          // Left at native size and never rescaled: it is a compositing asset, placed at
+          // whatever size a mood board needs, and it has no background to pad with.
+          data=await shvizCutoutPng(g.url);
+        } else {
+          data=await _fetchToMax(g.url,(SHVIZ_CFG.maxPx||SHVIZ_MAXPX),0.93);
+          const pct=shvizScalePct(x);
+          if(pct<100) data=await shvizFitScale(data,pct);
+        }
+      }catch(e){}
       let stored=data||g.url;
       if(data){ const up=await _uploadImageR2("shviz_"+id+"_"+v+"_"+Date.now().toString(36),data);
         if(up.ok&&up.url){ for(let t=0;t<3&&!(await _imgLoads(up.url));t++){} stored=up.url; } }
@@ -19702,8 +19779,13 @@ function _shvizPanel(x,kind){
     ? (have+' of 6 rendered · status <b>'+esc(st.replace(/_/g," "))+'</b>')
     : 'Nothing rendered yet. Five model calls: hero, front, side, top and a shadowless pass that is keyed to a transparent PNG here. The spec card is drawn locally from this record, so its numbers are always the real ones.')
     +'</div>';
+  const nAll=shvizViewsFor(x).length;
+  h+='<button class="pbk-btn" onclick="shvizGenerate(\''+kind+'\',\''+x.id+'\',{quick:true})">'
+    +(x.shvizHero&&x.shvizCutout?"Re-render hero + cut-out":"Render hero + cut-out")
+    +' <i style="font-style:normal;color:var(--tl)">2 · $0.16</i></button>';
   h+='<button class="pbk-btn" onclick="shvizGenerate(\''+kind+'\',\''+x.id+'\')">'
-    +(have?"Re-render all views":"Render the Studio H views")+'</button>';
+    +(have?"Re-render every view":"Render every view")
+    +' <i style="font-style:normal;color:var(--tl)">'+nAll+' · $'+(nAll*0.08).toFixed(2)+'</i></button>';
   if(have){
     if(st==="approved")
       h+='<button class="pbk-btn" onclick="shvizUnapprove(\''+kind+'\',\''+x.id+'\')">Withdraw approval</button>';
