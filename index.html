@@ -2600,6 +2600,17 @@ body:not(.sp-on) #sp-open{display:grid}
 .bp-tri button.on{background:var(--brand-soft);color:var(--gm)}
 .bp-none{font-size:12px;color:var(--tl);padding:10px 0}
 @media(max-width:760px){.bp-row{grid-template-columns:1fr;gap:6px}.bp-meta{text-align:left}}
+/* Studio H visualization thumbnails in the admin block. */
+.shv-row{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:3px 0 6px}
+.shv-t{display:block;border:1px solid var(--br);border-radius:8px;overflow:hidden;padding:0;
+  background:var(--card);cursor:pointer;font:inherit;text-align:center}
+.shv-t>span{display:block;height:42px;background-size:cover;background-position:center;
+  background-repeat:no-repeat;background-color:var(--surface2)}
+.shv-t>i{display:block;font-style:normal;font-size:9px;font-weight:700;color:var(--tm);padding:2px 2px 3px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shv-t.none{cursor:default;border-style:dashed;opacity:.6}
+.shv-t.none>span{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 5px,transparent 5px,transparent 10px)}
+.shv-note{font-size:10.5px;color:var(--tl);line-height:1.45;padding:0 2px 7px}
 /* Permission system: a one-line badge, a pending placeholder, and the admin block. */
 .gd-perm{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--tm);
   padding:2px 2px 6px;cursor:help}
@@ -5660,7 +5671,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1262</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1263</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16298,7 +16309,8 @@ function _adminLensPaint(){
 // next load. Same separation as MFG_EDIT.
 const GOODS_PERM_FIELDS=["studioHProductImage","studioHProductImageStatus","studioHDescription",
   "officialManufacturerImage","officialManufacturerDescription",
-  "sourceProductUrl","sourceBrandUrl","sourceCheckedDate","priceCheckedDate"];
+  "sourceProductUrl","sourceBrandUrl","sourceCheckedDate","priceCheckedDate",
+  "shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout","shvizColour"];
 let GOODS_PERM=(function(){ try{ return JSON.parse(localStorage.getItem("studioh_goodsperm_v1")||"{}")||{}; }catch(e){ return {}; } })();
 function goodsPermSave(){
   try{ localStorage.setItem("studioh_goodsperm_v1",JSON.stringify(GOODS_PERM)); }catch(e){}
@@ -18884,6 +18896,316 @@ function goodsUpkeep(kind,which){
 // underneath. Deliberately reads out what is being SUBSTITUTED, because the value of
 // this block is catching a referenced product that is still publishing a manufacturer
 // photo or manufacturer copy.
+// ══ STUDIO H PRODUCT VISUALIZATION ══════════════════════════════════════════
+// The point of this is CONSISTENCY, not individual pictures. A library where every
+// product was shot on the same sweep, under the same light, from the same three camera
+// positions reads as one catalogue; a library of scraped manufacturer photos never
+// will, however good each photo is. So the style below is a fixed spec that every
+// product is generated against, and the only thing that changes per product is the
+// subject sentence.
+//
+// It also does the legal work: a Studio H visualization is our own image, which is what
+// makes a REFERENCED brand publishable — see brandStatus() and goodsPublicImgs().
+const SHVIZ_STYLE={
+  // Deliberately one long string per axis rather than a paragraph per view, so a change
+  // to the house look happens in exactly one place and cannot drift between views.
+  bg:"Seamless studio background in a very light warm grey (#F2F1EE), completely even, "
+    +"no horizon line, no visible seam between floor and wall, no vignette, no gradient bands.",
+  light:"One large soft key light from the upper left at about 45 degrees, gentle bounce fill "
+    +"from the right so the shadow side still reads, and a soft diffuse contact shadow falling "
+    +"to the lower right directly under the object. No hard specular highlights, no rim light, "
+    +"no mirrored or reflective floor.",
+  render:"Photorealistic studio product photography, 50mm lens, no perspective distortion, "
+    +"sharp throughout, true matte material with the fine aggregate texture of the real "
+    +"material visible at close range. Neutral colour, accurate to the stated finish.",
+  frame:"Object centred and complete in frame with even margins of roughly 12 percent on all "
+    +"sides. Nothing cropped, nothing touching the edge.",
+  // Negatives matter more than positives with image models — most failures are an added
+  // plant, a prop, or invented type, not a wrong camera.
+  neg:"Absolutely no text, no lettering, no numbers, no watermark, no logo, no label, no "
+    +"dimension lines. No plants, no soil, no flowers, no props, no furniture, no people, "
+    +"no hands. Nothing inside the vessel. One single object only."
+};
+// Camera per view. Front and side are level with the object so a designer can read true
+// proportion off them; the hero sits slightly above because that is the angle that shows
+// form. The cutout pass gets its own background because keying alpha out of a shadowed
+// grey sweep never comes away clean.
+const SHVIZ_VIEWS={
+  hero:{label:"Hero",aspect:"4:3",
+    cam:"Three-quarter view from 15 degrees above the object and 35 degrees to the left, "
+       +"showing the front face and one side together."},
+  front:{label:"Front view",aspect:"1:1",
+    cam:"Straight-on front elevation, camera exactly level with the mid-height of the object, "
+       +"dead centre, no tilt."},
+  side:{label:"Side view",aspect:"1:1",
+    cam:"Straight-on side elevation, camera exactly level with the mid-height of the object, "
+       +"rotated 90 degrees from the front view, no tilt."},
+  top:{label:"Top view",aspect:"1:1",
+    cam:"Directly overhead plan view looking straight down at the object from above, "
+       +"perfectly square to it, showing the full opening and rim."},
+  cutout:{label:"Cut-out",aspect:"1:1",
+    cam:"Three-quarter view from 15 degrees above and 35 degrees to the left.",
+    bg:"Pure flat white background, RGB 255 255 255, absolutely uniform, with NO shadow of "
+      +"any kind and no contact shadow — the object must appear to float, fully isolated, "
+      +"so it can be cut out cleanly.",
+    light:"Even soft light from the front and both sides so no edge of the object goes to "
+      +"pure white and no edge goes to black. No cast shadow anywhere in frame."}
+};
+// One factual sentence describing the object, built from the record rather than written
+// per product — so 41 Kornegay planters describe themselves and nobody hand-writes 41
+// prompts. Everything here is a measured field, never an adjective we invented.
+function shvizSubject(x){
+  if(!x) return "";
+  const nm=String(x.nm||"").replace(/^Architectural Pottery\s+/,"").trim();
+  const shape=x.kdShape||x.apKind||null;
+  const mat=(x.frame&&x.frame!=="—")?x.frame:(x.apMaterial||x.mat||"");
+  const h=x.kdHeightIn||x.apHeightIn, d=x.kdDiameterIn||x.apDiameterIn;
+  const isPot=/planter|pot|container/i.test((x.cat||"")+" "+(x.kdShape||"")+" "+(x.apKind||""));
+  let sent="A single "+(mat?mat.toLowerCase()+" ":"")+(isPot?"planter":"object")
+    +" — "+nm+(x.sku?" (model "+x.sku+")":"")+".";
+  if(shape) sent+=" Its form is "+shape+".";
+  if(h&&d) sent+=" It is "+d+" inches across and "+h+" inches high, so it is "
+    +(d>h?"wider than it is tall":(h>d?"taller than it is wide":"as wide as it is tall"))
+    +" — hold that proportion exactly.";
+  // The manufacturer's series copy is useful for FORM and useless for size, because it
+  // describes the whole series: pasting it in told the model "24 to 48 inches diameter"
+  // one sentence after we had said 36, and a contradicted dimension is worse than a
+  // missing one. So: first sentence only, and dropped entirely if it carries numbers.
+  const src=String(x.kdSeriesDesc||"").replace(/\s+/g," ").trim();
+  if(src){
+    const first=(src.split(/(?<=\.)\s/)[0]||"").trim();
+    if(first && first.length<220 && !/\d/.test(first)) sent+=" Reference for the form only: "+first;
+  }
+  // Colour is an ORDERED OPTION on these products, not a property of the model. `cols`
+  // holds the brand's whole swatch menu, so taking cols[0] rendered Kornegay's Ash White
+  // for every one of their 41 planters purely because it sorts first. Only state a hex
+  // when the row really has one; otherwise name the manufacturer's own standard and
+  // record which colour the render depicts, since a card then shows one of nine.
+  const cols=(x.cols||[]).filter(Boolean);
+  if(x.shvizColour) sent+=" Body colour: "+x.shvizColour+".";
+  else if(cols.length===1) sent+=" Body colour approximately "+cols[0]+".";
+  else if(cols.length>1) sent+=" Render it in the manufacturer's standard natural grey "
+    +"concrete — a soft mid grey with a faint warm cast, not white and not charcoal.";
+  if(x.fin&&x.fin!=="—") sent+=" Surface finish: "+x.fin.split(",")[0].trim()+".";
+  return sent;
+}
+function shvizPrompt(x,view){
+  const V=SHVIZ_VIEWS[view]; if(!V) return "";
+  return [shvizSubject(x), V.cam, V.bg||SHVIZ_STYLE.bg, V.light||SHVIZ_STYLE.light,
+          SHVIZ_STYLE.render, SHVIZ_STYLE.frame, SHVIZ_STYLE.neg].join(" ");
+}
+
+// ── Alpha cut-out, done locally ─────────────────────────────────────────────
+// The model is asked for a shadowless pure-white frame, then the white is keyed to
+// transparent here. Doing the key in canvas rather than asking the model for
+// transparency is the difference between a usable PNG and a grey box — no image model
+// reliably returns real alpha.
+async function shvizCutoutPng(srcUrl){
+  const durl=await _urlToDataURL(srcUrl);
+  const im=await _loadImgEl(durl);
+  const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const cx=cv.getContext("2d"); cx.drawImage(im,0,0);
+  const d=cx.getImageData(0,0,W,H), p=d.data;
+  // Two thresholds rather than one: above HI is certainly background and goes fully
+  // clear; between LO and HI is the anti-aliased edge and gets partial alpha, which is
+  // what stops the cut-out having a hard white fringe when it lands on dark planting.
+  const HI=246, LO=222;
+  for(let i=0;i<p.length;i+=4){
+    const r=p[i],g=p[i+1],b=p[i+2];
+    const mn=Math.min(r,g,b), mx=Math.max(r,g,b);
+    // Only key NEUTRAL brightness. A pale warm-grey concrete highlight has a colour
+    // cast; flat studio white does not. Without the chroma test the rim of a light
+    // planter is eaten along with the background.
+    if(mx-mn>14) continue;
+    if(mn>=HI){ p[i+3]=0; }
+    else if(mn>LO){ p[i+3]=Math.round(255*(1-(mn-LO)/(HI-LO))); }
+  }
+  cx.putImageData(d,0,0);
+  return cv.toDataURL("image/png");
+}
+
+// ── The spec card, drawn not generated ──────────────────────────────────────
+// Composited in canvas on purpose. An image model asked to letter a data table produces
+// convincing gibberish — wrong dimensions, invented model numbers — and a spec sheet
+// that lies is worse than no spec sheet. Here every character comes from the record.
+async function shvizCard(x,urls){
+  const W=1536,H=1024,cv=document.createElement("canvas");
+  cv.width=W; cv.height=H; const cx=cv.getContext("2d");
+  cx.fillStyle="#F2F1EE"; cx.fillRect(0,0,W,H);
+  // The right strip runs to the very edge of the card — a white margin outside it read
+  // as an unfinished layout rather than a deliberate one.
+  const LEFT=Math.round(W*0.561), GAP=6;
+  // right column: three labelled views stacked
+  const order=["front","side","top"], rH=Math.floor((H-GAP*2)/3);
+  for(let i=0;i<order.length;i++){
+    const u=urls[order[i]]; const y=i*(rH+GAP);
+    const rw=W-LEFT-GAP;
+    cx.fillStyle="#FFFFFF"; cx.fillRect(LEFT+GAP,y,rw,rH);
+    if(u){ try{ const im=await _loadImgEl(await _urlToDataURL(u));
+      _coverDraw(cx,im,LEFT+GAP,y,rw,rH); }catch(e){} }
+    cx.fillStyle="#3A3A38"; cx.font="600 15px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
+    cx.fillText(SHVIZ_VIEWS[order[i]].label.toUpperCase(),LEFT+GAP+26,y+34);
+  }
+  // hero — sized to the space actually available between the title block and the data
+  // grid rather than a guessed fraction, so it fills the panel the way the reference does
+  const hero=urls.hero||urls.front;
+  if(hero){ try{ const im=await _loadImgEl(await _urlToDataURL(hero));
+    const top=Math.round(H*0.155), bot=H-268;
+    _coverDraw(cx,im,44,top,LEFT-88,bot-top); }catch(e){} }
+  const T=(t,px,x2,y2,col,wt,ls)=>{ cx.fillStyle=col; cx.font=(wt||"400")+" "+px+"px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
+    if(ls){ let cxx=x2; String(t).split("").forEach(ch=>{ cx.fillText(ch,cxx,y2); cxx+=cx.measureText(ch).width+ls; }); }
+    else cx.fillText(String(t),x2,y2); };
+  T(String(x.brand||x.sup||"").toUpperCase(),15,52,50,"#6B6B67","600",2.4);
+  const title=String(x.nm||"").replace(/^Kornegay\s+/,"").replace(/^Architectural Pottery\s+/,"").toUpperCase();
+  T(title,40,52,100,"#26261F","700",0);
+  const d=x.kdDiameterIn||x.apDiameterIn;
+  if(d) T(d+"″ DIAMETER",17,52,132,"#6B6B67","500",1.6);
+  // data grid — three columns, two rows, exactly the fields a spec sheet needs
+  const h=x.kdHeightIn||x.apHeightIn;
+  const dims=(d&&h)?(d+"″ DIA x "+h+"″ H"):"—";
+  const money=v=>v?("$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):"—";
+  // FINISH falls through to the colourway the render actually depicts. On a product cast
+  // in nine colours that is the only honest answer — the card is showing one of them.
+  const finish=(x.fin&&x.fin!=="—")?x.fin.split(",")[0].trim()
+    :(x.shvizColour||((x.cols||[]).length>1?"Natural grey — 9 colours available":"—"));
+  const cells=[["DIMENSIONS",dims],["MATERIAL",(x.frame&&x.frame!=="—")?x.frame:(x.apMaterial||"—")],
+    ["FINISH",finish],
+    ["LEAD TIME",x.lead||"—"],["PRICE (MSRP)",x.msrp?money(x.msrp):"On request"],
+    ["MANUFACTURER",x.brand||x.sup||"—"]];
+  const colX=[52,316,580], colW=252;
+  // Measured truncation, not a character count: "Precast concrete, integral pigment" fits
+  // in no fixed number of characters and was running straight through the next column.
+  const fit=(t,px)=>{ cx.font="400 "+px+"px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
+    let str=String(t); if(cx.measureText(str).width<=colW) return str;
+    while(str.length>1 && cx.measureText(str+"…").width>colW) str=str.slice(0,-1);
+    return str+"…"; };
+  cells.forEach((c,i)=>{ const cxp=colX[i%3], cyp=(i<3?H-244:H-158);
+    T(c[0],13,cxp,cyp,"#26261F","600",0.9);
+    T(fit(c[1],16),16,cxp,cyp+27,"#3A3A38","400",0); });
+  // The disclaimer is not decoration. It is the sentence that keeps a rendered image
+  // from being read as a photograph of the delivered product.
+  cx.fillStyle="#8A8A85"; cx.font="italic 400 15px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
+  cx.fillText("Studio H product visualization – refer to manufacturer for exact appearance.",52,H-56);
+  return cv.toDataURL("image/jpeg",0.92);
+}
+
+// ── Run it ──────────────────────────────────────────────────────────────────
+// Cost is stated up front and nothing is generated until R2 is proven able to store AND
+// serve, so a paid render can never be produced and then lost on reload.
+const SHVIZ_FIELDS=["shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout"];
+// Which colourway the renders depict — a Kornegay planter comes in nine, so the card
+// is showing one of them and the record has to say which.
+const SHVIZ_COLOUR_FIELD="shvizColour";
+let SHVIZ_BUSY=false;
+async function shvizGenerate(kind,id,opts){
+  opts=opts||{};
+  if(SHVIZ_BUSY) return {ok:false,err:"Already generating."};
+  const x=_goodsFind(kind,id); if(!x) return {ok:false,err:"No such product."};
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return {ok:false,err:"No worker connected."};
+  const key=_adminKey(); if(!key) return {ok:false,err:"No admin key on this device."};
+  if(!(await _ensureR2())) return {ok:false,err:R2_DOWN_MSG};
+  const want=["front","side","top"];
+  if(opts.hero!==false) want.unshift("hero");
+  if(opts.cutout!==false) want.push("cutout");
+  const n=want.length;
+  const a=await askDlg({icon:"✨",title:"Generate "+n+" images for "+(x.nm||"this product")+"?",
+    body:"Every product is rendered against the same fixed Studio H studio style — same sweep, "
+      +"same light, same three camera positions — so the library reads as one catalogue. "
+      +"This calls the image model "+n+" times and is charged to your account.",
+    note:"The spec card is drawn locally from the record, so its dimensions and price are always the real ones.",
+    actions:["Cancel","Generate "+n]});
+  if(a!==1) return {ok:false,err:"cancelled"};
+  SHVIZ_BUSY=true;
+  const urls={}; const fail=[];
+  try{
+    gwOpen({title:"Rendering "+(x.nm||"product"),sub:"Studio H visualization",
+            steps:want.map(v=>SHVIZ_VIEWS[v].label),pct:0,cancel:false});
+    for(let i=0;i<want.length;i++){
+      const v=want[i];
+      try{ gwStep&&gwStep(i,Math.round(i/want.length*100)); }catch(e){}
+      const g=await _genImageOne(ep,key,shvizPrompt(x,v),null,SHVIZ_VIEWS[v].aspect);
+      if(!g.ok){ fail.push(SHVIZ_VIEWS[v].label+": "+g.err); continue; }
+      // The cut-out is keyed to alpha before storing, so what lands in R2 is already a
+      // transparent PNG ready to drop into a scene.
+      let data=null;
+      try{ data=(v==="cutout")?await shvizCutoutPng(g.url):await _fetchTo512(g.url); }catch(e){}
+      let stored=data||g.url;
+      if(data){ const up=await _uploadImageR2("shviz_"+id+"_"+v+"_"+Date.now().toString(36),data);
+        if(up.ok&&up.url){ for(let t=0;t<3&&!(await _imgLoads(up.url));t++){} stored=up.url; } }
+      urls[v]=stored;
+    }
+    // The card last, once the views it composites actually exist.
+    if(urls.front||urls.hero){
+      try{
+        const card=await shvizCard(x,urls);
+        const up=await _uploadImageR2("shviz_"+id+"_card_"+Date.now().toString(36),card);
+        urls.card=(up.ok&&up.url)?up.url:card;
+      }catch(e){ fail.push("Spec card: "+((e&&e.message)||"compose failed")); }
+    }
+    // Stored on the row AND in the per-product store, so a derived row keeps them
+    // across the rebuild that happens on every load.
+    const map={hero:"shvizHero",front:"shvizFront",side:"shvizSide",top:"shvizTop",
+               card:"shvizCard",cutout:"shvizCutout"};
+    Object.keys(map).forEach(v=>{ if(urls[v]){ x[map[v]]=urls[v]; goodsPermSet(id,map[v],urls[v]); } });
+    // The library's public image is the hero — the clean product, not the spec sheet.
+    const primary=urls.hero||urls.front;
+    if(primary){ x.studioHProductImage=primary; goodsPermSet(id,"studioHProductImage",primary);
+      x.studioHProductImageStatus="generated"; goodsPermSet(id,"studioHProductImageStatus","generated"); }
+    gwClose();
+    if(fail.length) await askTell("Generated with "+fail.length+" problem"+(fail.length===1?"":"s"),fail.join(" · "),{icon:"!"});
+    return {ok:true,urls:urls,fail:fail};
+  }catch(e){ gwClose(); return {ok:false,err:(e&&e.message)||"error"}; }
+  finally{ SHVIZ_BUSY=false; try{ goodsRepaint(kind); }catch(e){} }
+}
+function shvizApprove(kind,id){
+  const x=_goodsFind(kind,id); if(!x) return;
+  x.studioHProductImageStatus="approved"; goodsPermSet(id,"studioHProductImageStatus","approved");
+  try{ _toast("Approved — this is what public users see now.","#4C7B3D"); }catch(e){}
+}
+function shvizNeedsReview(kind,id){
+  const x=_goodsFind(kind,id); if(!x) return;
+  x.studioHProductImageStatus="needs_review"; goodsPermSet(id,"studioHProductImageStatus","needs_review");
+  try{ _toast("Flagged for review.","#9B7B3A"); }catch(e){}
+}
+// The prompts are shown and copyable because Warwick is already generating these with
+// GPT — the same spec has to produce the same look wherever it is run, or consistency
+// is lost the moment a render happens outside the app.
+function shvizCopyPrompts(kind,id){
+  const x=_goodsFind(kind,id); if(!x) return;
+  const txt=Object.keys(SHVIZ_VIEWS).map(v=>"["+SHVIZ_VIEWS[v].label.toUpperCase()
+    +"  ·  aspect "+SHVIZ_VIEWS[v].aspect+"]\n"+shvizPrompt(x,v)).join("\n\n");
+  try{ navigator.clipboard.writeText(txt);
+    _toast("All "+Object.keys(SHVIZ_VIEWS).length+" prompts copied — paste into any image model.","#4C7B3D"); }
+  catch(e){ try{ askTell("Studio H visualization prompts",txt.replace(/\n/g,"<br>")); }catch(e2){} }
+}
+// The visualization panel. Sits inside the admin block because generating one is an
+// admin act with a cost, and because the thing it produces is exactly what the Public
+// display rows above report on.
+function _shvizPanel(x,kind){
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const st=x.studioHProductImageStatus||"missing";
+  const have=SHVIZ_FIELDS.filter(f=>x[f]).length;
+  const thumb=(f,lbl)=>x[f]
+    ? '<button class="shv-t" title="'+esc(lbl)+' — open full size" onclick="window.open(\''+escAttr(x[f])+'\',\'_blank\')">'
+      +'<span style="background-image:url(\''+escAttr(x[f])+'\')"></span><i>'+esc(lbl)+'</i></button>'
+    : '<span class="shv-t none"><span></span><i>'+esc(lbl)+'</i></span>';
+  let h='<div class="pbk-eb">Studio H visualization</div>';
+  h+='<div class="shv-row">'+thumb("shvizHero","Hero")+thumb("shvizFront","Front")
+    +thumb("shvizSide","Side")+thumb("shvizTop","Top")
+    +thumb("shvizCard","Spec card")+thumb("shvizCutout","PNG cut-out")+'</div>';
+  h+='<div class="shv-note">'+(have
+    ? (have+' of 6 rendered · status <b>'+esc(st.replace(/_/g," "))+'</b>')
+    : 'Nothing rendered yet. Five model calls: hero, front, side, top and a shadowless pass that is keyed to a transparent PNG here. The spec card is drawn locally from this record, so its numbers are always the real ones.')
+    +'</div>';
+  h+='<button class="pbk-btn" onclick="shvizGenerate(\''+kind+'\',\''+x.id+'\')">'
+    +(have?"Re-render all views":"Render the Studio H views")+'</button>';
+  if(have) h+='<button class="pbk-btn" onclick="shvizApprove(\''+kind+'\',\''+x.id+'\')">Approve for public use</button>'
+    +'<button class="pbk-btn" onclick="shvizNeedsReview(\''+kind+'\',\''+x.id+'\')">Flag for review</button>';
+  h+='<button class="pbk-btn" onclick="shvizCopyPrompts(\''+kind+'\',\''+x.id+'\')">Copy the 5 prompts</button>';
+  return h;
+}
 function _goodsPermAdminBlock(x,kind){
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const st=brandStatus(x), brand=(x.brand||x.sup||"—");
@@ -18908,6 +19230,7 @@ function _goodsPermAdminBlock(x,kind){
   h+=row("Official image",x.officialManufacturerImage?"stored":"—");
   h+=row("Official description",x.officialManufacturerDescription?"stored":"—");
   h+=row("Studio H image",sh?("stored · "+shSt):("none · "+shSt));
+  h+=_shvizPanel(x,kind);
   h+=row("Source URL",x.sourceProductUrl||"—");
   h+=row("Source checked",x.sourceCheckedDate||"not checked");
   h+=row("Price checked",x.priceCheckedDate||"not checked");
