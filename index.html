@@ -5697,7 +5697,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1267</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1268</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19228,10 +19228,22 @@ function shvizPrompt(x,view,hasRef,tweak){
 // back to text-only renders without saying so.
 async function shvizRefs(x,max){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
-  const urls=[];
-  if(x.officialManufacturerImage) urls.push(x.officialManufacturerImage);
-  if(x.img && urls.indexOf(x.img)<0) urls.push(x.img);
-  (Array.isArray(x.imgs)?x.imgs:[]).forEach(u=>{ if(u&&urls.indexOf(u)<0) urls.push(u); });
+  // Measured on AS-18: the naive list was [product shot, THE SAME product shot again,
+  // 300x200 lifestyle thumbnail] — one useful reference, one duplicate, and a tiny
+  // gallery crop that can only confuse the model. Dedupe, then rank: a manufacturer
+  // product shot beats a gallery/lifestyle image, and bigger beats smaller.
+  let urls=[];
+  [x.officialManufacturerImage,x.img].concat(Array.isArray(x.imgs)?x.imgs:[])
+    .forEach(u=>{ if(u&&urls.indexOf(u)<0) urls.push(u); });
+  const rank=u=>{
+    let sc=0;
+    if(/gallery/i.test(u)) sc+=100;                 // lifestyle shot, not the product
+    const m=u.match(/-(\d{2,4})x(\d{2,4})\.[a-z]+$/i);
+    if(m) sc+=Math.max(0,60-Math.round(+m[1]/40));  // an explicit small crop is worse
+    if(/-content-/i.test(u)) sc-=20;                // their own product-shot naming
+    return sc;
+  };
+  urls=urls.sort((a,b)=>rank(a)-rank(b));
   const out=[];
   for(const u of urls.slice(0,max||3)){
     let d=null;
@@ -19402,15 +19414,24 @@ async function shvizGenerate(kind,id,opts){
     actions:["Cancel","Generate "+n+" · $"+cost]});
   if(a!==1) return {ok:false,err:"cancelled"};
   SHVIZ_BUSY=true;
-  const urls={}; const fail=[];
+  // `made` counts views actually produced by THIS run. `urls` also carries the stored
+  // views on a single-view re-render so the card can be rebuilt, so counting urls told
+  // the user "rendered 5, failed 1" when nothing new had been made at all.
+  const urls={}; const fail=[]; const made=[];
   try{
     gwOpen({title:"Rendering "+(x.nm||"product"),sub:"Studio H visualization",
             steps:want.map(v=>SHVIZ_VIEWS[v].label),pct:0,cancel:false});
     for(let i=0;i<want.length;i++){
       const v=want[i];
       try{ gwStep&&gwStep(i,Math.round(i/want.length*100)); }catch(e){}
-      const g=await _genImageOne(ep,key,shvizPrompt(x,v,!!refs.length,tweak),
-                                  refs.length?refs:null,SHVIZ_VIEWS[v].aspect);
+      const p=shvizPrompt(x,v,!!refs.length,tweak);
+      let g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect);
+      // Five calls back to back is exactly the shape that trips a rate limit, and losing
+      // the whole set to one transient refusal is expensive. One retry, after a pause.
+      if(!g.ok && /rate|429|quota|limit|timeout|temporar|503|502/i.test(g.err||"")){
+        await new Promise(r=>setTimeout(r,4000));
+        g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect);
+      }
       if(!g.ok){ fail.push(SHVIZ_VIEWS[v].label+": "+g.err); continue; }
       // The cut-out is keyed to alpha before storing, so what lands in R2 is already a
       // transparent PNG ready to drop into a scene.
@@ -19420,7 +19441,7 @@ async function shvizGenerate(kind,id,opts){
       let stored=data||g.url;
       if(data){ const up=await _uploadImageR2("shviz_"+id+"_"+v+"_"+Date.now().toString(36),data);
         if(up.ok&&up.url){ for(let t=0;t<3&&!(await _imgLoads(up.url));t++){} stored=up.url; } }
-      urls[v]=stored;
+      urls[v]=stored; made.push(v);
     }
     // The card last, once the views it composites actually exist.
     // On a single-view re-render the other views are not in `urls`, so read them off the
@@ -19453,9 +19474,29 @@ async function shvizGenerate(kind,id,opts){
       x.studioHProductImageStatus="generated"; goodsPermSet(id,"studioHProductImageStatus","generated");
     }
     gwClose();
-    if(fail.length) await askTell("Generated with "+fail.length+" problem"+(fail.length===1?"":"s"),fail.join(" · "),{icon:"!"});
-    return {ok:true,urls:urls,fail:fail};
-  }catch(e){ gwClose(); return {ok:false,err:(e&&e.message)||"error"}; }
+    const got=made.length;
+    if(fail.length && !got){
+      // The previous version returned {ok:false} to an onclick that discarded it, so a
+      // total failure looked like a progress bar that finished and did nothing. Say it.
+      await askTell("Nothing was rendered",
+        "The image service refused every request, so no image was produced and nothing "
+        +"should have been charged.<br><br><b>What it said:</b><br>"+_askEsc(fail.join(" · "))
+        +"<br><br>If that mentions a quota, balance or rate limit, it is on the fal.ai "
+        +"account. If it mentions authorisation, the admin key on this device is not the "
+        +"one the worker expects. Try a different model on the panel to rule out the model.",
+        {icon:"!"});
+    }
+    else if(fail.length) await askTell("Rendered "+got+" of "+want.length+", failed "+fail.length,
+      _askEsc(fail.join(" · ")),{icon:"!"});
+    return {ok:got>0,urls:urls,fail:fail};
+  }catch(e){
+    gwClose();
+    const msg=(e&&e.message)||"error";
+    try{ console.error("[shviz] aborted",e); }catch(e2){}
+    try{ await askTell("The render stopped","Something went wrong partway through: "
+      +_askEsc(msg)+". Anything already rendered has been kept.",{icon:"!"}); }catch(e2){}
+    return {ok:false,err:msg};
+  }
   finally{ SHVIZ_BUSY=false; try{ goodsRepaint(kind); }catch(e){} }
 }
 function shvizApprove(kind,id){
@@ -24120,9 +24161,26 @@ async function testR2Storage(){
 async function _genImageOne(ep,key,prompt,refs,aspect){
   const genBody={type:"genimage",key,prompt,model:imgModel(),aspect:aspect||"1:1"};
   if(refs&&refs.length) genBody.refs=refs;
-  const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(genBody)});
-  const d=await r.json();
-  if(!(d&&d.ok&&d.url)) return {ok:false,err:(d&&(d.detail||d.error))||"failed"};
+  let r=null,d=null,raw="";
+  try{
+    r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(genBody)});
+    raw=await r.text();
+    try{ d=JSON.parse(raw); }catch(e){}
+  }catch(e){
+    return {ok:false,err:"Could not reach the worker: "+((e&&e.message)||"network error")};
+  }
+  if(!(d&&d.ok&&d.url)){
+    // "failed" told nobody anything. A paid call that does not happen has to say WHY —
+    // an HTTP status, a Cloudflare error page, a fal quota message. The raw body is
+    // included (trimmed) because the useful text is often not in .error or .detail.
+    const bits=[];
+    if(r&&!r.ok) bits.push("HTTP "+r.status+(r.statusText?" "+r.statusText:""));
+    if(d&&(d.detail||d.error)) bits.push(String(d.detail||d.error));
+    else if(raw) bits.push(String(raw).replace(/\s+/g," ").slice(0,220));
+    const err=bits.join(" · ")||"no response body";
+    try{ console.error("[genimage] failed",{model:imgModel(),aspect,status:r&&r.status,body:raw&&raw.slice(0,600)}); }catch(e){}
+    return {ok:false,err:err};
+  }
   return {ok:true,url:d.url};
 }
 async function _urlToDataURL(url){ if(/^data:/.test(url)) return url; const r=await fetch(url); const b=await r.blob(); return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(b); }); }
