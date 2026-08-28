@@ -5676,7 +5676,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1264</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1265</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16393,6 +16393,50 @@ function goodsVisibleRows(rows){
   return (rows||[]).filter(x=>x&&brandStatus(x)!=="internal");
 }
 
+// ── Carrying runtime state across a seed rebuild ─────────────────────────────
+// The derived seeds purge and re-create their rows from the table compiled into this
+// file on every load, which is what lets a corrected lookup take effect. The cost is
+// that anything the RUNNING APP wrote onto one of those rows is thrown away with it.
+//
+// That is what made the price estimator loop. goodsAutoPrices() marks a row `aiTried`
+// so an unpriceable item is never re-sent — and localStorage duly held that flag on 40
+// of the 41 Kornegay rows — but the rebuild handed it a fresh object every load, so the
+// flag was gone and all 47 were re-sent on every single page load, at a cost each time.
+//
+// So: snapshot the fields the app writes, keyed by SKU (stable across a rebuild; the id
+// is too, but SKU survives an id-scheme change), and put them back afterwards.
+const SEED_CARRY_FIELDS=["aiTried","msrpAI","msrpSrc","priced","specQty","fr"];
+function _seedSnapshot(arr,prefix){
+  const snap={};
+  (arr||[]).forEach(x=>{
+    if(!x||!prefix.test(x.id||"")||!x.sku) return;
+    const keep={};
+    SEED_CARRY_FIELDS.forEach(f=>{ if(x[f]!=null) keep[f]=x[f]; });
+    // The AI's number only travels with the flag that says it is the AI's.
+    if(x.msrpAI && +x.msrp>0) keep.msrp=x.msrp;
+    if(Object.keys(keep).length) snap[x.sku]=keep;
+  });
+  return snap;
+}
+function _seedRestore(arr,prefix,snap){
+  let n=0;
+  (arr||[]).forEach(x=>{
+    if(!x||!prefix.test(x.id||"")||!x.sku) return;
+    const keep=snap[x.sku]; if(!keep) return;
+    Object.keys(keep).forEach(f=>{
+      if(f==="msrp") return;                       // handled below, 0 is not "empty" here
+      if(x[f]==null||x[f]==="") x[f]=keep[f];
+    });
+    // The AI's price needs its own rule: a rebuilt row sets msrp to 0 when the lookup
+    // has no figure, and 0 is not null, so the generic "only fill an empty field" test
+    // dropped it every time. Restore it ONLY when the table still has no real price —
+    // a published price that has since been researched must always win over a guess.
+    if(keep.msrp!=null && keep.msrpAI && !(+x.msrp>0)) x.msrp=keep.msrp;
+    n++;
+  });
+  return n;
+}
+
 // ── Removed brands ───────────────────────────────────────────────────────────
 // A brand can have to come OUT of a book for a reason that has nothing to do with the
 // data being wrong: the manufacturer has not given permission to show their products.
@@ -16758,7 +16802,13 @@ async function _goodsAutoPrices(){
   for(const book of ["materials","furnishings"]){
     const lib=book==="materials"?MATERIALS:FURNISHINGS;
     if(!Array.isArray(lib)) continue;
-    const todo=lib.filter(x=>x&&x.nm&&!(+x.msrp>0)&&!x.msrpAI&&!x.aiTried).map(x=>x.id);
+    // noPublishedPrice is not "we could not find a price" — it records that the
+    // manufacturer deliberately does not publish one (Kornegay is trade-only; their
+    // price table is blank on every page but one). Having the AI invent a number there
+    // is the exact failure this project's first rule exists to prevent, so the
+    // automatic pass leaves them alone. Tools → Estimate unpriced still covers them if
+    // a budget figure is wanted deliberately, behind its own confirm.
+    const todo=lib.filter(x=>x&&x.nm&&!(+x.msrp>0)&&!x.msrpAI&&!x.aiTried&&!x.noPublishedPrice).map(x=>x.id);
     if(!todo.length) continue;
     try{ _prog("Estimating prices",0,todo.length); }catch(e){}
     let n=0;
@@ -20817,6 +20867,7 @@ function _furnApplyArchPottery(){
 
   // Same self-correcting purge as the Kornegay seed: our own derived rows go, then get
   // rebuilt from the table above. Scoped to our id prefix so authored rows are untouched.
+  const _carry=_seedSnapshot(FURNISHINGS,/^furn-ap-/);
   FURNISHINGS=FURNISHINGS.filter(f=>!(f&&/^furn-ap-/.test(f.id||"")));
   // An admin removed this brand — see GOODS_BRAND_BLOCK. The purge above has
   // already stripped any copy that arrived from cache or the server; stop here
@@ -20874,12 +20925,17 @@ function _furnApplyArchPottery(){
       apFreezeWarning:isCeramic?AP_FACTS.freeze:null,
       apDimNote:AP_FACTS.dims, apMaker:AP_FACTS.maker,
       apDiscontinuedNote:AP_FACTS.discontinued,
-      needsPricing:!shop
+      needsPricing:!shop,
+      // Their shop lists these with no figure at all (the Pro-artisan series and the
+      // custom IN totems) — quoted per order rather than sold at a shelf price.
+      noPublishedPrice:!shop,
+      priceNote:shop?null:"Architectural Pottery lists no price for this item \u2014 quoted per order."
     });
     n++;
   });
   // Runs after _goodsWrite on every path, never before — see the note on the Kornegay
   // seed for why the ordering matters.
+  _seedRestore(FURNISHINGS,/^furn-ap-/,_carry);
   return n;
 }
 // ── FX Lighting was showing up in Furnishings, and this is why ───────────────
@@ -21055,6 +21111,7 @@ function _furnApplyKornegay(){
   // seed got written to localStorage by a call-ordering slip and then could never be
   // corrected, because a skip-if-present guard treats the stale row as authoritative.
   // Scoped to our own id prefix, so nothing a human authored is touched.
+  const _carry=_seedSnapshot(FURNISHINGS,/^furn-kd-/);
   FURNISHINGS=FURNISHINGS.filter(f=>!(f&&/^furn-kd-/.test(f.id||"")));
   // An admin removed this brand — see GOODS_BRAND_BLOCK. The purge above has
   // already stripped any copy that arrived from cache or the server; stop here
@@ -21132,7 +21189,13 @@ function _furnApplyKornegay(){
       kdWarrantyFull:KORNEGAY_FACTS.warranty,
       kdNotWaterOrFire:KORNEGAY_FACTS.notWaterOrFire,
       kdFounded:KORNEGAY_FACTS.founded,
-      needsPricing:!price
+      needsPricing:!price,
+      // Their own price table reads "Starting at: $" with the number blank on every
+      // product page and on the Comparison page; the one exception is PS-17 at $730.
+      // Their FAQ says why: trade only, no public sales. So an absent price here is a
+      // fact about Kornegay, not a gap in our research.
+      noPublishedPrice:!price,
+      priceNote:price?null:"Kornegay publishes no price for this model \u2014 trade only. Quote them."
     });
     n++;
   });
@@ -21144,6 +21207,7 @@ function _furnApplyKornegay(){
   // array. That is harmless precisely because of the purge at the top: the rows are
   // rebuilt from the table above on every load, so a persisted copy is always replaced
   // by the current one and can never go stale. Saying "in memory only" would be false.
+  _seedRestore(FURNISHINGS,/^furn-kd-/,_carry);
   return n;
 }
 // Seeded AFTER the colour tables below rather than here, so the swatch row is populated
