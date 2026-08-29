@@ -5720,7 +5720,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1275</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1277</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -23148,6 +23148,31 @@ function bpBrands(){
   try{ (FURNISHINGS||[]).forEach(x=>add(x,goodsLibOf(x)==="prod"?"Products":"Furnishings")); }catch(e){}
   return Object.keys(by).map(k=>by[k]).sort((a,b)=>b.n-a.n);
 }
+// ── Is this device actually up to date? ──────────────────────────────────────
+// The Studio H renders live in the shared config bundle, so a second device only sees
+// them once it has pulled. There was no way to ask for that pull except a button buried
+// in the Price Book's overflow menu, and no way to see whether it had happened — so an
+// iPad showing no image was indistinguishable from an iPad that had never synced.
+function cfgSyncState(){
+  let applied="",stamp="";
+  try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
+  let media=0;
+  try{ media=Object.keys(JSON.parse(localStorage.getItem("studioh_productmedia_v1")||"{}")||{}).length; }catch(e){}
+  let shots=0;
+  try{
+    const seen={};
+    (FURNISHINGS||[]).concat(MATERIALS||[]).forEach(x=>{ if(x&&x.studioHProductImage) seen[x.id]=1; });
+    shots=Object.keys(seen).length;
+  }catch(e){}
+  return {applied:applied, mediaRows:media, withRenders:shots};
+}
+async function cfgPullNow(){
+  gwOpen({title:"Pulling from the server",sub:"shared libraries and settings",
+          steps:["Reading the server copy"],pct:null,cancel:false});
+  try{ await configLoad(false,true); }catch(e){}
+  gwClose();
+  try{ if(_stOpen) _stRender(); }catch(e){}
+}
 function _shvizCfgCard(){
   const C=SHVIZ_CFG;
   const num=(k,lbl,sub,min,max,unit)=>'<div class="st-row"><span class="l">'+lbl
@@ -23391,6 +23416,13 @@ function _stRender(){
           <span>${isAdminUI()
             ? `<span class="acc-badge owner">Owner · saves to server</span>`
             : `<span class="acc-badge guest">Guest · read-only</span>`}</span></div>
+        ${(()=>{ const S=cfgSyncState(); return `<div class="st-row"><span class="l">This device<small>Renders and permissions travel in the shared bundle, so a second device only shows them after it has pulled.</small></span>
+          <span style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+            <button class="btn btn-o" onclick="cfgPullNow()">Pull from the server now</button>
+            <b style="font-size:11.5px;color:var(--tm);font-weight:600">${S.applied
+              ? ("last pulled "+new Date(S.applied).toLocaleString())
+              : "never pulled on this device"}${S.withRenders?(" · "+S.withRenders+" product"+(S.withRenders===1?"":"s")+" with a Studio H render"):" · no Studio H renders here yet"}</b>
+          </span></div>`; })()}
         ${isAdminUI()?`<div class="st-row"><span class="l">Tap to rename<small>In Materials, Furnishings and Products, a tap on a Category, Brand, Type or Material renames it everywhere instead of filtering by it. Turn off to filter normally — double-click still renames either way.</small></span>
           ${_stSeg(PREFS.railRenameMode?"on":"off",[{v:"on",nm:"On"},{v:"off",nm:"Off"}],"stRailRenameMode")}</div>`:""}
       </div>`:``}
@@ -24197,8 +24229,14 @@ const CFG_KEY_LABEL={
 };
 
 let _cfgConflictAsked=false;
-async function _cfgResolveConflicts(keys,serverConfig,serverStamp){
+async function _cfgResolveConflicts(keys,serverConfig,serverStamp,toApply){
   const names=keys.map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k));
+  // Everything the server changed that this device had NOT touched. Not in dispute, so
+  // it is written on either branch below — see the note at the call site.
+  const undisputed=toApply||{};
+  const landUndisputed=()=>{ let n=0;
+    Object.keys(undisputed).forEach(k=>{ try{ localStorage.setItem(k,undisputed[k]); n++; }catch(e){} });
+    return n; };
   // The title used to read "Pricing changed in two places" for every key, so a clash in
   // brand permissions or an AI image setting announced itself as a pricing problem.
   // Name the thing that actually changed.
@@ -24209,24 +24247,34 @@ async function _cfgResolveConflicts(keys,serverConfig,serverStamp){
   if(i===0){
     _cfgBackupLocal(keys);
     keys.forEach(k=>{ const v=serverConfig.data[k]; if(v!=null){ try{ localStorage.setItem(k,v); }catch(e){} } });
+    landUndisputed();
     try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
     _cfgSaveSnapshot(); _cfgMarkSynced();
     _toast("Using the server's copy — your version is backed up in Settings.","#4C7B3D");
     setTimeout(()=>location.reload(),900);
   } else {
+    // Keeping this device's copy of the DISPUTED keys must not also throw away the
+    // undisputed ones — that was how an iPad ended up permanently without the Studio H
+    // renders while the server had them all along.
+    const n=landUndisputed();
     const ok=await _saveConfigSilent();
-    if(ok){ _cfgSaveSnapshot(); _cfgMarkSynced(); _toast("Kept this device's copy and published it.","#4C7B3D"); }
+    if(ok){ _cfgSaveSnapshot(); _cfgMarkSynced();
+      _toast("Kept this device's copy"+(n?(" · pulled "+n+" other update"+(n===1?"":"s")):"")+".","#4C7B3D"); }
     else _toast("Couldn't publish — try again from Settings.","#B23F3C");
+    if(n) setTimeout(()=>location.reload(),900);
   }
   try{ _renderPbSync(); }catch(e){}
 }
-async function configLoad(silent){
+async function configLoad(silent,force){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
   try{
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})}); const d=await r.json();
     if(!(d&&d.found&&d.config&&d.config.data)){ if(!silent) alert("No master pricing on the server yet. Publish it first."); return; }
     const serverStamp=d.config.savedAt||""; let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
-    if(serverStamp && serverStamp===applied){ if(!_cfgSyncedFp()) _cfgMarkSynced(); return; } // already applied, nothing to do
+    // `force` skips the already-applied shortcut. A device that marked a stamp applied
+    // without actually receiving everything in it (see the conflict note below) would
+    // otherwise early-return on every future pull with no way back.
+    if(!force && serverStamp && serverStamp===applied){ if(!_cfgSyncedFp()) _cfgMarkSynced(); return; }
 
     const snap=_cfgSnapshot();
     // A device with no snapshot yet has never synced — there is no baseline to diff
@@ -24251,11 +24299,20 @@ async function configLoad(silent){
     });
 
     if(conflicts.length){
+      // toApply is passed through, and this is the whole bug it fixes. Previously this
+      // branch returned and DISCARDED every non-conflicting update in the same round —
+      // then _cfgResolveConflicts stamped studioh_cfg_applied with the server's version,
+      // so the next pull early-returned and those keys could never arrive again. One
+      // conflicting key permanently blocked every unrelated one.
+      //
+      // A key that is NOT in conflict is by definition not in dispute: the server changed
+      // it and this device did not. It should land whichever copy you keep for the
+      // handful that ARE in dispute.
       if(silent){
         if(_cfgConflictAsked) return;             // ask once per load, never nag
         _cfgConflictAsked=true;
-        setTimeout(()=>_cfgResolveConflicts(conflicts,d.config,serverStamp),600);
-      } else await _cfgResolveConflicts(conflicts,d.config,serverStamp);
+        setTimeout(()=>_cfgResolveConflicts(conflicts,d.config,serverStamp,toApply),600);
+      } else await _cfgResolveConflicts(conflicts,d.config,serverStamp,toApply);
       return;
     }
 
