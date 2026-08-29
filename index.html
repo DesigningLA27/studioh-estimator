@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1286</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1287</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19580,6 +19580,25 @@ conf     - how sure you are that you have identified the right object.`}
   }catch(e){ return {shows:true,isolated:true,what:""}; }
 }
 
+// ── Guard against paying twice for the same render ───────────────────────────
+// This exists because it already happened. A CSS regression in v1267 made the rendered
+// thumbnails invisible, so a run that had SUCCEEDED and been billed looked like it had
+// done nothing. Warwick re-ran it twice. fal's usage page shows 25 image-to-image calls
+// against one product — five full five-view runs — for what should have been one.
+//
+// Device-local on purpose: the question this asks is "did YOU just do this", which is
+// about the person at this screen, not about the shared library.
+function _shvizRuns(){ try{ return JSON.parse(localStorage.getItem("studioh_shvizruns_v1")||"{}")||{}; }catch(e){ return {}; } }
+function _shvizNoteRun(id){
+  try{ const r=_shvizRuns(); r[id]=Date.now();
+    Object.keys(r).forEach(k=>{ if(Date.now()-r[k]>864e5) delete r[k]; });   // keep it small
+    localStorage.setItem("studioh_shvizruns_v1",JSON.stringify(r)); }catch(e){}
+}
+function _shvizSinceRun(id){
+  const t=_shvizRuns()[id]; if(!t) return null;
+  return Math.max(0,Math.round((Date.now()-t)/60000));
+}
+
 // ── Go and find a clean product shot, without touching the record ────────────
 // The audit answers "is this reference any good"; this answers "can we get a better one".
 // They are different jobs and this one has to be non-destructive: goodsLookupImage()
@@ -19885,6 +19904,20 @@ async function shvizGenerate(kind,id,opts){
         +"product and render again \u2014 the check runs each time.",{icon:"\u2713"}); }catch(e){} }
     return {ok:false,err:"no usable reference"};
   }
+  // Before the cost dialog, not after: the point is to stop the spend, not narrate it.
+  const mins=_shvizSinceRun(id);
+  const already=SHVIZ_FIELDS.filter(f=>x[f]).length;
+  if(mins!=null && mins<20 && already){
+    const g=await askDlg({icon:"!",
+      title:"You rendered this "+(mins<1?"less than a minute":(mins+" minute"+(mins===1?"":"s")))+" ago",
+      body:(x.nm||"This product")+" already has "+already+" stored image"+(already===1?"":"s")
+        +", so the last run worked.\n\nIf the tiles looked empty, that is a display problem and "
+        +"rendering again will not fix it — it will just charge you a second time. Close this and "
+        +"reload the page first; the images are already there.",
+      note:"This guard exists because a display bug once caused the same product to be rendered five times over.",
+      actions:["Leave it — I will reload first","Render again anyway"]});
+    if(g!==1) return {ok:false,err:"already rendered"};
+  }
   const M=SHVIZ_MODELS[shvizModel()]||SHVIZ_MODELS["nano-2"];
   const each=M.cost, cost=(n*each).toFixed(2);
   const a=await askDlg({icon:"✨",title:"Generate "+n+" images for "+(x.nm||"this product")+"?",
@@ -19992,6 +20025,7 @@ async function shvizGenerate(kind,id,opts){
     }
     // Stored on the row AND in the per-product store, so a derived row keeps them
     // across the rebuild that happens on every load.
+    if(made.length) _shvizNoteRun(id);
     const map={hero:"shvizHero",front:"shvizFront",side:"shvizSide",top:"shvizTop",
                card:"shvizCard",cutout:"shvizCutout"};
     Object.keys(map).forEach(v=>{ if(urls[v]){ x[map[v]]=urls[v]; goodsPermSet(id,map[v],urls[v]); } });
@@ -20216,6 +20250,10 @@ function _shvizPanel(x,kind){
         '<button class="'+(((P[fld]||"official")===o[0])?"on":"")+'" onclick="shvizImgPref(\''+escAttr(brandKeyOf(x))+'\',\''+fld+'\',\''+o[0]+'\')">'+o[1]+'</button>').join('')
       +'</span></div>';
   }
+  const _mins=_shvizSinceRun(x.id);
+  if(_mins!=null && _mins<60 && have)
+    h+='<div class="shv-ref">Last rendered '+(_mins<1?"less than a minute":(_mins+" minute"+(_mins===1?"":"s")))
+      +' ago. If a tile looks empty, reload before re-rendering — the images are stored.</div>';
   h+='<div class="shv-note">'+(have
     ? (have+' of 6 rendered · status <b>'+esc(st.replace(/_/g," "))+'</b>')
     : 'Nothing rendered yet. Five model calls: hero, front, side, top and a shadowless pass that is keyed to a transparent PNG here. The spec card is drawn locally from this record, so its numbers are always the real ones.')
