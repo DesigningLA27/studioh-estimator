@@ -2647,6 +2647,12 @@ body:not(.sp-on) #sp-open{display:grid}
 @media(hover:none){.gl-ia{opacity:1}}
 .shv-fixed{font:700 11px inherit;color:var(--gm);background:var(--brand-soft);
   border-radius:7px;padding:3px 8px}
+.shv-scale{display:flex;align-items:center;gap:6px;padding:0 2px 7px}
+.shv-scale input{width:64px;padding:4px 7px;border:1px solid var(--br);border-radius:8px;
+  font:700 12px inherit;color:var(--tx);background:var(--card)}
+.shv-scale b{font-size:11px;color:var(--tm)}
+.shv-auto{margin-left:auto;border:1px solid var(--br);background:var(--card);border-radius:7px;
+  padding:3px 8px;font:700 10.5px inherit;color:var(--tm);cursor:pointer}
 .shv-eb{display:flex;align-items:baseline;gap:6px;font-size:10px;font-weight:700;
   text-transform:uppercase;letter-spacing:.04em;color:var(--tl);padding:4px 2px 3px}
 .shv-eb i{font-style:normal;text-transform:none;letter-spacing:0;font-weight:600;color:var(--tm)}
@@ -5720,7 +5726,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1279</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1280</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16369,7 +16375,8 @@ function _adminLensPaint(){
 const GOODS_PERM_FIELDS=["studioHProductImage","studioHProductImageStatus","studioHDescription",
   "officialManufacturerImage","officialManufacturerDescription",
   "sourceProductUrl","sourceBrandUrl","sourceCheckedDate","priceCheckedDate",
-  "shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout","shvizColour"];
+  "shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout","shvizColour",
+  "shvizScalePctOverride"];
 // Renamed from "studioh_goodsperm_v1". That key was my abbreviation of "goods
 // permissions", but the config-conflict dialog labels a store by stripping the prefix
 // and version off its key — so it printed "goodsperm" at a user, which reads as
@@ -19440,6 +19447,12 @@ async function shvizFitScale(dataUrl,pct){
 }
 // The percentage this product should occupy, against the largest in its own series.
 function shvizScalePct(x){
+  // A hand-set value always wins. The derived figure is a good default, not a rule: a
+  // series with one outlier size squashes everything else against the floor, a product
+  // with no siblings has nothing to be measured against, and a bench and a pot are not
+  // usefully compared at all. Where the arithmetic reads wrong, say so and it stops.
+  const ov=+x.shvizScalePctOverride||0;
+  if(ov>=15&&ov<=100) return Math.round(ov);
   const d=x.kdDiameterIn||x.apDiameterIn, h=x.kdHeightIn||x.apHeightIn;
   if(!d&&!h) return 100;
   const series=x.kdSeries||null;
@@ -19724,6 +19737,16 @@ async function shvizGenerate(kind,id,opts){
 // money to fix something arithmetic can fix for nothing.
 //
 // This also means the size rule stays editable later without obsoleting the library.
+// Set or clear the per-product size. Changing it does not touch the stored images — you
+// re-fit afterwards, which is free, so trying a number costs nothing.
+function shvizSetScale(kind,id,v){
+  const x=_goodsFind(kind,id); if(!x) return;
+  const n=Math.round(+v||0);
+  if(!n||n<15||n>100){ delete x.shvizScalePctOverride; goodsPermSet(id,"shvizScalePctOverride",""); }
+  else { x.shvizScalePctOverride=n; goodsPermSet(id,"shvizScalePctOverride",n); }
+  try{ goodsRepaint(kind); }catch(e){}
+  try{ _toast("Size set to "+shvizScalePct(x)+"%. Re-fit to apply it \u2014 that part is free.","#4C7B3D"); }catch(e){}
+}
 async function shvizRefit(kind,id){
   const x=_goodsFind(kind,id); if(!x) return {ok:false,err:"No such product."};
   const key=_adminKey(); if(!key) return {ok:false,err:"No admin key on this device."};
@@ -19731,7 +19754,10 @@ async function shvizRefit(kind,id){
   const FL=[["shvizHero","Hero"],["shvizFront","Front"],["shvizSide","Side"],["shvizTop","Top"]];
   const todo=FL.filter(f=>x[f[0]]);
   if(!todo.length) return {ok:false,err:"Nothing rendered yet."};
-  if(pct>=100){
+  // 100% is a legitimate target now that the size can be set by hand — but the stored
+  // images are already whatever they were last fitted to, so re-fitting UP is not
+  // possible without re-rendering. Say that rather than appearing to do nothing.
+  if(pct>=100 && !(+x.shvizScalePctOverride>0)){
     try{ await askTell("Already the right size",
       (x.nm||"This product")+" is the largest in its series, so it is shown at full size. "
       +"Nothing to re-fit.",{icon:"✓"}); }catch(e){}
@@ -19893,9 +19919,19 @@ function _shvizPanel(x,kind){
     else if(x.shvizHero)
       h+='<button class="pbk-btn" onclick="shvizUsePrimary(\''+kind+'\',\''+x.id+'\',\'shvizHero\')">Publish the hero again</button>';
   }
-  if(have && shvizScalePct(x)<100)
+  if(have){
+    const pct=shvizScalePct(x), ov=+x.shvizScalePctOverride||0;
+    const auto=(function(){ const k=x.shvizScalePctOverride; delete x.shvizScalePctOverride;
+      const a=shvizScalePct(x); if(k!=null) x.shvizScalePctOverride=k; return a; })();
+    h+='<div class="shv-eb">Size in frame<i>'+(ov?("set by hand \u00b7 auto would be "+auto+"%"):("from its series"))+'</i></div>';
+    h+='<div class="shv-scale">'
+      +'<input type="number" min="15" max="100" step="1" value="'+pct+'" '
+      +'onchange="shvizSetScale(\''+kind+'\',\''+x.id+'\',this.value)"><b>%</b>'
+      +(ov?('<button class="shv-auto" onclick="shvizSetScale(\''+kind+'\',\''+x.id+'\',0)">Back to auto</button>'):'')
+      +'</div>';
     h+='<button class="pbk-btn" onclick="shvizRefit(\''+kind+'\',\''+x.id+'\')">'
-      +'Re-fit to '+shvizScalePct(x)+'% of frame <i style="font-style:normal;color:var(--tl)">free</i></button>';
+      +'Re-fit to '+pct+'% of frame <i style="font-style:normal;color:var(--tl)">free</i></button>';
+  }
   h+='<button class="pbk-btn" onclick="shvizCopyPrompts(\''+kind+'\',\''+x.id+'\')">Copy the 5 prompts</button>';
   return h;
 }
