@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1287</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1289</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19677,30 +19677,49 @@ async function shvizFitScale(dataUrl,pct){
   const im=await _loadImgEl(dataUrl);
   const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
   if(!W||!H) return dataUrl;
-  const t=document.createElement("canvas"); t.width=W; t.height=H;
-  const tx=t.getContext("2d"); tx.drawImage(im,0,0);
-  // Sampling FOUR CORNER PIXELS was wrong and it showed: these renders vignette, so the
-  // corners are the darkest part of the background and the pad came out visibly darker
-  // than the image it surrounded — a grey field with a lighter rectangle floating in it.
+
+  // Two goes at this were wrong for the same underlying reason: shrinking a photograph
+  // inside its own frame and filling the rest with a FLAT colour cannot be seamless.
+  // Corner sampling gave a pad 32 levels too dark; a top-band sample is too light,
+  // because these renders have a gently graded background — so the pad matched at the
+  // top and drifted at the bottom, leaving a visible box with the shadow apparently
+  // chopped off at its edge.
   //
-  // Sample a horizontal band across the upper eighth instead. The object is centred and
-  // sits low in frame, so that band is background all the way across, and it is inset far
-  // enough from the edge to miss the vignette. Median of many samples, not a mean, so one
-  // stray pixel cannot drag it.
-  const y=Math.max(1,Math.round(H*0.08));
-  const row=tx.getImageData(0,y,W,1).data;
-  const R=[],G=[],B=[];
-  for(let i=0;i<W;i+=Math.max(1,Math.round(W/240))){ R.push(row[i*4]); G.push(row[i*4+1]); B.push(row[i*4+2]); }
-  const med=a=>{ a.sort((x,z)=>x-z); return a[Math.floor(a.length/2)]||0; };
+  // The fix is not a better sample. It is to rebuild the background rather than fill it:
+  // draw the source blown up to cover the whole frame and heavily blurred, which carries
+  // the real gradient and the real tone, then lay the sharp scaled copy on top and feather
+  // the join. No flat field, no boundary, and the shadow inside the sharp copy sits on a
+  // background that continues past it instead of stopping dead.
   const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
   const cx=cv.getContext("2d");
-  cx.fillStyle="rgb("+med(R)+","+med(G)+","+med(B)+")";
-  cx.fillRect(0,0,W,H);
   cx.imageSmoothingQuality="high";
+  try{ cx.filter="blur("+Math.max(24,Math.round(Math.min(W,H)*0.09))+"px)"; }catch(e){}
+  // Over-draw well past the edges so the blur has real pixels to work with at the border
+  // rather than sampling transparency and darkening the rim.
+  const ov=Math.round(Math.max(W,H)*0.14);
+  cx.drawImage(im,-ov,-ov,W+ov*2,H+ov*2);
+  try{ cx.filter="none"; }catch(e){}
+
   const w=Math.round(W*p), h=Math.round(H*p);
-  // Sits slightly below centre, the way an object on a surface actually reads, rather
-  // than floating in the middle of the frame.
-  cx.drawImage(im,0,0,W,H, Math.round((W-w)/2), Math.round((H-h)*0.58), w, h);
+  const dx=Math.round((W-w)/2), dy=Math.round((H-h)*0.58);   // sits slightly low, as an object on a surface does
+  // Feather the sharp copy into the blurred ground over a soft border, so there is no
+  // line at all — even where the two disagree by a level or two.
+  const f=Math.max(8,Math.round(Math.min(w,h)*0.06));
+  const tmp=document.createElement("canvas"); tmp.width=w; tmp.height=h;
+  const tc=tmp.getContext("2d");
+  tc.imageSmoothingQuality="high";
+  tc.drawImage(im,0,0,W,H,0,0,w,h);
+  tc.globalCompositeOperation="destination-in";
+  const g=tc.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(f/h,"rgba(0,0,0,1)");
+  g.addColorStop(1-f/h,"rgba(0,0,0,1)"); g.addColorStop(1,"rgba(0,0,0,0)");
+  tc.fillStyle=g; tc.fillRect(0,0,w,h);
+  const g2=tc.createLinearGradient(0,0,w,0);
+  g2.addColorStop(0,"rgba(0,0,0,0)"); g2.addColorStop(f/w,"rgba(0,0,0,1)");
+  g2.addColorStop(1-f/w,"rgba(0,0,0,1)"); g2.addColorStop(1,"rgba(0,0,0,0)");
+  tc.fillStyle=g2; tc.fillRect(0,0,w,h);
+  tc.globalCompositeOperation="source-over";
+  cx.drawImage(tmp,dx,dy);
   return cv.toDataURL("image/jpeg",0.93);
 }
 // The percentage this product should occupy, against the largest in its own series.
@@ -19785,6 +19804,8 @@ async function shvizCard(x,urls){
   const W=1536,H=1024,cv=document.createElement("canvas");
   cv.width=W; cv.height=H; const cx=cv.getContext("2d");
   cx.fillStyle="#F2F1EE"; cx.fillRect(0,0,W,H);
+  // Relative size, read once and applied to every panel below at draw time.
+  const sPct=Math.max(0.15,Math.min(1,(shvizScalePct(x)||100)/100));
   // The right strip runs to the very edge of the card — a white margin outside it read
   // as an unfinished layout rather than a deliberate one.
   const LEFT=Math.round(W*0.561), GAP=6;
@@ -19795,7 +19816,7 @@ async function shvizCard(x,urls){
     const rw=W-LEFT-GAP;
     cx.fillStyle="#FFFFFF"; cx.fillRect(LEFT+GAP,y,rw,rH);
     if(u){ try{ const im=await _loadImgEl(await _urlToDataURL(u));
-      _containDraw(cx,im,LEFT+GAP,y,rw,rH,0.07); }catch(e){} }
+      _containDraw(cx,im,LEFT+GAP,y,rw,rH,0.07+(1-sPct)*0.30); }catch(e){} }
     cx.fillStyle="#3A3A38"; cx.font="600 15px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
     cx.fillText(SHVIZ_VIEWS[order[i]].label.toUpperCase(),LEFT+GAP+26,y+34);
   }
@@ -19806,7 +19827,7 @@ async function shvizCard(x,urls){
     // The data grid starts at H-244, so a hero ending at H-268 left 24px — the specs
     // read as if they were sitting on the photograph. 76px of air instead.
     const top=Math.round(H*0.155), bot=H-320;
-    _containDraw(cx,im,44,top,LEFT-88,bot-top,0.04); }catch(e){} }
+    _containDraw(cx,im,44,top,LEFT-88,bot-top,0.04+(1-sPct)*0.42); }catch(e){} }
   const T=(t,px,x2,y2,col,wt,ls)=>{ cx.fillStyle=col; cx.font=(wt||"400")+" "+px+"px ui-sans-serif,system-ui,-apple-system,Helvetica,Arial";
     if(ls){ let cxx=x2; String(t).split("").forEach(ch=>{ cx.fillText(ch,cxx,y2); cxx+=cx.measureText(ch).width+ls; }); }
     else cx.fillText(String(t),x2,y2); };
@@ -19996,9 +20017,16 @@ async function shvizGenerate(kind,id,opts){
           data=await shvizCutoutPng(g.url);
         } else {
           data=await _fetchToMax(g.url,(SHVIZ_CFG.maxPx||SHVIZ_MAXPX),0.93);
-          const pct=shvizScalePct(x);
-          if(pct<100){ data=await shvizFitScale(data,pct); }
-          x.shvizFittedPct=pct;
+          // NOT scaled here any more. Three attempts at shrinking a render inside its
+          // own frame failed for one reason: the source has a graded background, so a
+          // half-size copy compresses that whole gradient into the middle and can never
+          // agree with whatever fills the rest — flat colour, blurred copy, feathered or
+          // not. The gradients differ in SCALE, which no edge-matching fixes.
+          //
+          // The render is stored exactly as it came back, and relative size is applied
+          // where the app DRAWS it: layout, not pixels. Exact, free, reversible, and the
+          // stored file stays full quality for a mood board or an export.
+          x.shvizFittedPct=100;
         }
       }catch(e){}
       let stored=data||g.url;
@@ -20285,8 +20313,8 @@ function _shvizPanel(x,kind){
       +'onchange="shvizSetScale(\''+kind+'\',\''+x.id+'\',this.value)"><b>%</b>'
       +(ov?('<button class="shv-auto" onclick="shvizSetScale(\''+kind+'\',\''+x.id+'\',0)">Back to auto</button>'):'')
       +'</div>';
-    h+='<button class="pbk-btn" onclick="shvizRefit(\''+kind+'\',\''+x.id+'\')">'
-      +'Re-fit to '+pct+'% of frame <i style="font-style:normal;color:var(--tl)">free</i></button>';
+    // No re-fit button: size is applied when the image is drawn, so changing the number
+    // takes effect at once and there is nothing to re-process.
   }
   h+='<button class="pbk-btn" onclick="shvizCopyPrompts(\''+kind+'\',\''+x.id+'\')">Copy the 5 prompts</button>';
   return h;
