@@ -5726,7 +5726,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1280</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1281</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19321,7 +19321,7 @@ function shvizSubject(x){
   if(x.fin&&x.fin!=="—") sent+=" Surface finish: "+x.fin.split(",")[0].trim()+".";
   return sent;
 }
-function shvizPrompt(x,view,hasRef,tweak){
+function shvizPrompt(x,view,hasRef,tweak,which){
   const V=SHVIZ_VIEWS[view]; if(!V) return "";
   if(hasRef){
     // With the real photograph in hand the subject description stops being a guess at
@@ -19345,6 +19345,12 @@ function shvizPrompt(x,view,hasRef,tweak){
               +"physical object in this same one colour."):
              " Keep the material and colour exactly as it appears in the FIRST supplied "
              +"photograph, and keep it identical across every view.";
+    // When the only photograph a manufacturer publishes is a styled scene, the reference
+    // is still useful — but only if the model is told which object in it to look at.
+    // Without this it renders the terrace, or the wrong product on the terrace.
+    if(which) sub=("The supplied photograph is a styled scene containing several things. "
+      +"The product to render is "+which+". Ignore the setting, the background, any people "
+      +"and every other object in the frame — they are not the product. ")+sub;
     // The model was anchored to the reference photograph's own camera and shadow and
     // reproducing them, which is the one thing it must not do — the angle, light and
     // composition of a product photo are exactly the part copyright protects. Made an
@@ -19400,14 +19406,94 @@ async function shvizRefs(x,max){
     return sc;
   };
   urls=urls.sort((a,b)=>rank(a)-rank(b));
-  const out=[];
+  const out=[]; const audits=[];
   for(const u of urls.slice(0,max||3)){
     let d=null;
     try{ const p=await _satBase64ViaWorker(ep,u); if(p&&p.data) d="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
     if(!d){ try{ d=await _urlToDataURL(u); }catch(e){} }
-    if(d) out.push(d);
+    if(d){ out.push(d); audits.push({url:u}); }
   }
   return out;
+}
+// The audited version. Kept separate from shvizRefs so nothing that already calls that
+// starts paying for vision checks it did not ask for.
+async function shvizRefsAudited(x,max){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  let urls=[];
+  [x.officialManufacturerImage,x.img].concat(Array.isArray(x.imgs)?x.imgs:[])
+    .forEach(u=>{ if(u&&urls.indexOf(u)<0) urls.push(u); });
+  const rank=u=>{ let sc=0;
+    if(/gallery/i.test(u)) sc+=100;
+    const m=u.match(/-(\d{2,4})x(\d{2,4})\.[a-z]+$/i);
+    if(m) sc+=Math.max(0,60-Math.round(+m[1]/40));
+    if(/-content-/i.test(u)) sc-=20;
+    return sc; };
+  urls=urls.sort((a,b)=>rank(a)-rank(b)).slice(0,max||3);
+  const nm=x.nm||"", brand=x.brand||x.sup||"";
+  const checked=[];
+  for(const u of urls){
+    const a=await shvizRefAudit(u,nm,brand);
+    checked.push(Object.assign({url:u},a));
+  }
+  // An isolated product shot beats a scene; a scene beats a photo that does not show the
+  // product at all, which is dropped entirely.
+  const usable=checked.filter(c=>c.shows);
+  usable.sort((a,b)=>(b.isolated?1:0)-(a.isolated?1:0));
+  const refs=[];
+  for(const c of usable){
+    let d=null;
+    try{ const p=await _satBase64ViaWorker(ep,c.url); if(p&&p.data) d="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
+    if(!d){ try{ d=await _urlToDataURL(c.url); }catch(e){} }
+    if(d) refs.push(d);
+  }
+  return {refs:refs, checked:checked,
+          isolated:usable.some(c=>c.isolated),
+          // The phrase the renderer needs when the only reference is a styled scene.
+          which:(usable.find(c=>!c.isolated&&c.what)||{}).what||"",
+          none:!usable.length};
+}
+
+// ── Is this reference actually usable? ───────────────────────────────────────
+// Some manufacturers publish nothing but lifestyle photography. A Gloster page might
+// give one image of a terrace at dusk with a woven table lamp, a fire bowl and a person
+// in it — and feeding that to an image model produces a terrace at dusk, or worse, a
+// confident render of the wrong object. You cannot tell from the URL whether a photo is
+// a product shot or a scene, so ask something that can see it.
+//
+// Returns, per image: does it show this product at all, is the product ISOLATED on a
+// plain ground, and if it is a scene, a short phrase naming the product within it. That
+// last one is what makes an otherwise useless photo usable — the renderer can be told
+// which object in the frame it is looking for.
+async function shvizRefAudit(url,productName,brand){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return {shows:true,isolated:true,what:""};        // no worker: do not block
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:220,temperature:0,
+        messages:[{role:"user",content:[
+          {type:"image",source:{type:"url",url:url}},
+          {type:"text",text:
+`This photograph is published by ${brand||"a manufacturer"} for a product called "${productName}".
+
+Answer ONLY with minified JSON:
+{"shows":true|false,"isolated":true|false,"what":"","conf":"high|med|low"}
+
+shows    - is that product visibly in this photograph at all?
+isolated - is the product shown ALONE on a plain studio background, with no room, no
+           setting, no other products and no people? A styled scene is NOT isolated.
+what     - if it is a scene, name the product within it in a short phrase a person could
+           follow, e.g. "the woven cylindrical table lamp on the left, not the fire bowl".
+           Empty when isolated.
+conf     - how sure you are that you have identified the right object.`}
+        ]}]})});
+    const d=await r.json();
+    const t=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("")||"");
+    const a=t.indexOf("{"), b=t.lastIndexOf("}");
+    if(a<0||b<a) return {shows:true,isolated:true,what:""};
+    const j=JSON.parse(t.slice(a,b+1));
+    return {shows:j.shows!==false, isolated:!!j.isolated,
+            what:String(j.what||"").slice(0,180), conf:String(j.conf||"")};
+  }catch(e){ return {shows:true,isolated:true,what:""}; }
 }
 
 // ── Relative size, done locally ──────────────────────────────────────────────
@@ -19617,16 +19703,40 @@ async function shvizGenerate(kind,id,opts){
   // Fetched BEFORE the confirm so the dialog can state whether the model will actually
   // see the product. Without a reference this produces a generic pot, and that is worth
   // being told before paying for five of them rather than after.
-  gwOpen({title:"Reading the reference photos",sub:x.nm||"",steps:["Fetching"],pct:null,cancel:false});
-  let refs=[]; try{ refs=await shvizRefs(x,3); }catch(e){}
+  gwOpen({title:"Checking the reference photos",sub:x.nm||"",
+          steps:["Fetching","Confirming they show this product"],pct:null,cancel:false});
+  let refs=[], which="", audit=null;
+  try{ audit=await shvizRefsAudited(x,3); refs=audit.refs||[]; which=audit.which||""; }catch(e){}
   gwClose();
+  // The failure this prevents: a manufacturer whose only published photo is a terrace at
+  // dusk with a lamp, a fire bowl and a person in it. Rendering from that produces a
+  // confident image of the wrong object, which is far worse than no image — a designer
+  // would specify it. So say what is wrong and offer to go and find a real product shot.
+  if(audit && audit.none){
+    const go=await askDlg({icon:"!",title:"No usable reference for "+(x.nm||"this product"),
+      body:"None of the "+(audit.checked||[]).length+" photograph"+((audit.checked||[]).length===1?"":"s")
+        +" on this record appears to show this product — they look like scene or catalogue "
+        +"imagery for something else. Rendering from them would produce a convincing picture "
+        +"of the wrong object, so nothing has been generated and nothing charged.",
+      note:"Find a product photo searches the manufacturer's own site and their dealers for a real shot of this exact product, then you can render from that.",
+      actions:["Leave it","Find a product photo"]});
+    if(go===1){ try{ await goodsLookupImage(kind==="mat"?"materials":"furnishings",id); }catch(e){}
+      try{ goodsRepaint(kind); }catch(e){}
+      try{ await askTell("Have a look","If a photo was found it is on the record now. Open the "
+        +"product and render again \u2014 the check runs each time.",{icon:"\u2713"}); }catch(e){} }
+    return {ok:false,err:"no usable reference"};
+  }
   const each=0.08, cost=(n*each).toFixed(2);   // Nano Banana 2, pinned above
   const a=await askDlg({icon:"✨",title:"Generate "+n+" images for "+(x.nm||"this product")+"?",
     body:(refs.length
       ? (refs.length+" manufacturer photo"+(refs.length===1?"":"s")+" will be given to the model as "
-         +"the reference, so it renders THIS product rather than a generic one. Every product is "
-         +"then re-shot against the same fixed Studio H style — same sweep, same light, same "
-         +"camera positions — so the library reads as one catalogue.")
+         +"the reference, so it renders THIS product rather than a generic one."
+         +(which?("<br><br>\u26a0 None of them is a clean product shot \u2014 the best is a styled "
+                 +"scene, and the model will be told to render <b>"+_askEsc(which)+"</b> and ignore "
+                 +"the rest of the frame. Check the result carefully; a scene is a weaker "
+                 +"reference than a plain studio photograph.")
+                :" Every product is then re-shot against the same fixed Studio H style \u2014 same "
+                 +"sweep, same light, same camera positions \u2014 so the library reads as one catalogue."))
       : ("\u26a0 No reference photograph could be read for this product, so the model has only "
          +"the written description to go on. For anything with a distinctive surface — a faceted "
          +"or fluted planter — expect a generic shape. Add a reference photo first."))
@@ -19645,7 +19755,7 @@ async function shvizGenerate(kind,id,opts){
     for(let i=0;i<want.length;i++){
       const v=want[i];
       try{ gwStep&&gwStep(i,Math.round(i/want.length*100)); }catch(e){}
-      const p=shvizPrompt(x,v,!!refs.length,tweak);
+      const p=shvizPrompt(x,v,!!refs.length,tweak,which);
       let g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect,SHVIZ_MODEL);
       // Five calls back to back is exactly the shape that trips a rate limit, and losing
       // the whole set to one transient refusal is expensive. One retry, after a pause.
