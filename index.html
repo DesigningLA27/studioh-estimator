@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1289</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1290</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16401,7 +16401,7 @@ const GOODS_PERM_FIELDS=["studioHProductImage","studioHProductImageStatus","stud
   "officialManufacturerImage","officialManufacturerDescription",
   "sourceProductUrl","sourceBrandUrl","sourceCheckedDate","priceCheckedDate",
   "shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout","shvizColour",
-  "shvizScalePctOverride","shvizFittedPct"];
+  "shvizScalePctOverride"];
 // Renamed from "studioh_goodsperm_v1". That key was my abbreviation of "goods
 // permissions", but the config-conflict dialog labels a store by stripping the prefix
 // and version off its key — so it printed "goodsperm" at a user, which reads as
@@ -19327,9 +19327,9 @@ function shvizScaleHint(x){
   // The largest in the series fills ~84% of the frame; the rest scale down from there,
   // floored at 30% so the smallest piece is still legible.
   const pct=Math.max(30,Math.round(84*(mine/big)));
-  // Deliberately no longer asks for a percentage. The model ignored it, and the scaling
-  // is now done exactly in shvizFitScale() after the render. All that is still wanted
-  // from the model is consistent, generous framing so there is room to scale into.
+  // Deliberately no longer asks for a percentage: the model ignored it, and relative size
+  // is applied when the image is drawn instead. All that is wanted from the model is
+  // consistent, generous framing.
   return " Frame it consistently: the object centred with clear even space around it, "
     +"never touching or running off any edge.";
 }
@@ -19671,57 +19671,6 @@ exact product, say NONE.`}]})});
 //
 // The pad colour is sampled from the render's own corners rather than taken from
 // SHVIZ_CFG.bgHex, so it blends seamlessly even when the model drifts a shade off.
-async function shvizFitScale(dataUrl,pct){
-  const p=Math.max(0.15,Math.min(1,(+pct||100)/100));
-  if(p>=0.995) return dataUrl;
-  const im=await _loadImgEl(dataUrl);
-  const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
-  if(!W||!H) return dataUrl;
-
-  // Two goes at this were wrong for the same underlying reason: shrinking a photograph
-  // inside its own frame and filling the rest with a FLAT colour cannot be seamless.
-  // Corner sampling gave a pad 32 levels too dark; a top-band sample is too light,
-  // because these renders have a gently graded background — so the pad matched at the
-  // top and drifted at the bottom, leaving a visible box with the shadow apparently
-  // chopped off at its edge.
-  //
-  // The fix is not a better sample. It is to rebuild the background rather than fill it:
-  // draw the source blown up to cover the whole frame and heavily blurred, which carries
-  // the real gradient and the real tone, then lay the sharp scaled copy on top and feather
-  // the join. No flat field, no boundary, and the shadow inside the sharp copy sits on a
-  // background that continues past it instead of stopping dead.
-  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-  const cx=cv.getContext("2d");
-  cx.imageSmoothingQuality="high";
-  try{ cx.filter="blur("+Math.max(24,Math.round(Math.min(W,H)*0.09))+"px)"; }catch(e){}
-  // Over-draw well past the edges so the blur has real pixels to work with at the border
-  // rather than sampling transparency and darkening the rim.
-  const ov=Math.round(Math.max(W,H)*0.14);
-  cx.drawImage(im,-ov,-ov,W+ov*2,H+ov*2);
-  try{ cx.filter="none"; }catch(e){}
-
-  const w=Math.round(W*p), h=Math.round(H*p);
-  const dx=Math.round((W-w)/2), dy=Math.round((H-h)*0.58);   // sits slightly low, as an object on a surface does
-  // Feather the sharp copy into the blurred ground over a soft border, so there is no
-  // line at all — even where the two disagree by a level or two.
-  const f=Math.max(8,Math.round(Math.min(w,h)*0.06));
-  const tmp=document.createElement("canvas"); tmp.width=w; tmp.height=h;
-  const tc=tmp.getContext("2d");
-  tc.imageSmoothingQuality="high";
-  tc.drawImage(im,0,0,W,H,0,0,w,h);
-  tc.globalCompositeOperation="destination-in";
-  const g=tc.createLinearGradient(0,0,0,h);
-  g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(f/h,"rgba(0,0,0,1)");
-  g.addColorStop(1-f/h,"rgba(0,0,0,1)"); g.addColorStop(1,"rgba(0,0,0,0)");
-  tc.fillStyle=g; tc.fillRect(0,0,w,h);
-  const g2=tc.createLinearGradient(0,0,w,0);
-  g2.addColorStop(0,"rgba(0,0,0,0)"); g2.addColorStop(f/w,"rgba(0,0,0,1)");
-  g2.addColorStop(1-f/w,"rgba(0,0,0,1)"); g2.addColorStop(1,"rgba(0,0,0,0)");
-  tc.fillStyle=g2; tc.fillRect(0,0,w,h);
-  tc.globalCompositeOperation="source-over";
-  cx.drawImage(tmp,dx,dy);
-  return cv.toDataURL("image/jpeg",0.93);
-}
 // The percentage this product should occupy, against the largest in its own series.
 function shvizScalePct(x){
   // A hand-set value always wins. The derived figure is a good default, not a rule: a
@@ -19743,6 +19692,28 @@ function shvizScalePct(x){
   // Floor at 42% so the smallest piece in a wide-ranging series is still legible.
   return Math.max(42,Math.round(100*(mine/big)));
 }
+// ── Relative size, applied wherever the app draws a Studio H render ──────────
+// v1289 moved sizing out of the pixels and into the drawing, but only the spec card was
+// actually taught to do it — so AS-13.5 and AS-22.5 still looked identical everywhere
+// else, which was the whole point of the feature. This is the shared piece.
+//
+// Applied ONLY to our own renders. A manufacturer's photograph has its own framing that
+// we did not choose, and shrinking it by our percentage would be meaningless.
+function shvizIsOurs(x,url){
+  if(!x||!url) return false;
+  return url===x.shvizHero || url===x.studioHProductImage || url===x.shvizFront
+      || url===x.shvizSide || url===x.shvizTop;
+}
+// Padding rather than transform: an <img> with object-fit:contain shrinks inside its
+// padding box without overflowing its tile or needing a wrapper.
+function shvizSizeStyle(x,url){
+  if(!shvizIsOurs(x,url)) return "";
+  const p=Math.max(0.15,Math.min(1,(shvizScalePct(x)||100)/100));
+  if(p>=0.995) return "";
+  const pad=Math.round((1-p)*50*0.8);        // half the shortfall, eased
+  return "object-fit:contain;padding:"+pad+"% "+pad+"%;box-sizing:border-box;";
+}
+
 // ── Which views a product actually needs ─────────────────────────────────────
 // A side elevation of a round pot is the front elevation again. Rendering it costs money,
 // adds a tile to review and tells a designer nothing. For a four-sided or trough form it
@@ -20026,7 +19997,6 @@ async function shvizGenerate(kind,id,opts){
           // The render is stored exactly as it came back, and relative size is applied
           // where the app DRAWS it: layout, not pixels. Exact, free, reversible, and the
           // stored file stays full quality for a mood board or an export.
-          x.shvizFittedPct=100;
         }
       }catch(e){}
       let stored=data||g.url;
@@ -20108,74 +20078,7 @@ function shvizSetScale(kind,id,v){
   if(!n||n<15||n>100){ delete x.shvizScalePctOverride; goodsPermSet(id,"shvizScalePctOverride",""); }
   else { x.shvizScalePctOverride=n; goodsPermSet(id,"shvizScalePctOverride",n); }
   try{ goodsRepaint(kind); }catch(e){}
-  try{ _toast("Size set to "+shvizScalePct(x)+"%. Re-fit to apply it \u2014 that part is free.","#4C7B3D"); }catch(e){}
-}
-async function shvizRefit(kind,id){
-  const x=_goodsFind(kind,id); if(!x) return {ok:false,err:"No such product."};
-  const key=_adminKey(); if(!key) return {ok:false,err:"No admin key on this device."};
-  const pct=shvizScalePct(x);
-  // Refit re-fetches the STORED image, which has already been scaled once. Applying the
-  // percentage again compounds it — 75% becomes 56%, then 42% — and the product quietly
-  // shrinks every time the button is pressed. So track what a row is already fitted to
-  // and scale by the RATIO, not the absolute figure.
-  const at=+x.shvizFittedPct||100;
-  const rel=Math.round(pct/at*100);
-  const FL=[["shvizHero","Hero"],["shvizFront","Front"],["shvizSide","Side"],["shvizTop","Top"]];
-  const todo=FL.filter(f=>x[f[0]]);
-  if(!todo.length) return {ok:false,err:"Nothing rendered yet."};
-  // 100% is a legitimate target now that the size can be set by hand — but the stored
-  // images are already whatever they were last fitted to, so re-fitting UP is not
-  // possible without re-rendering. Say that rather than appearing to do nothing.
-  if(rel>=100){
-    try{ await askTell(rel>100?"Cannot re-fit upwards":"Already the right size",
-      rel>100
-        ? ((x.nm||"This product")+" is already fitted to "+at+"% and you are asking for "+pct
-           +"%. Scaling a stored image UP would just enlarge pixels — re-render it instead.")
-        : ((x.nm||"This product")+" is already at "+pct+"% of frame. Nothing to re-fit."),
-      {icon:rel>100?"!":"✓"}); }catch(e){}
-    return {ok:true,n:0};
-  }
-  const a=await askDlg({icon:"⤢",
-    title:"Re-fit "+todo.length+" view"+(todo.length===1?"":"s")+" to "+pct+"%?",
-    body:"Scales the images already rendered so this piece sits at its true size beside the "
-      +"others in its series.\n\nNo image is generated and nothing is charged — the "
-      +"scaling is arithmetic done here.",
-    note:"The cut-out is left alone deliberately; it is placed at whatever size a mood board needs.",
-    actions:["Cancel","Re-fit "+todo.length]});
-  if(a!==1) return {ok:false,err:"cancelled"};
-  gwOpen({title:"Re-fitting "+(x.nm||"product"),sub:pct+"% of frame",
-          steps:todo.map(f=>f[1]),pct:0,cancel:false});
-  let n=0; const fail=[];
-  for(let i=0;i<todo.length;i++){
-    const [fld,lbl]=todo[i];
-    try{ gwStep&&gwStep(i,Math.round(i/todo.length*100)); }catch(e){}
-    try{
-      // Re-fetch through the proxy: the stored file is cross-origin to canvas otherwise.
-      let src=null;
-      try{ const p=await _satBase64ViaWorker(AI_PROXY_URL,x[fld]);
-           if(p&&p.data) src="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
-      if(!src) src=await _urlToDataURL(x[fld]);
-      const out=await shvizFitScale(src,rel);
-      const up=await _uploadImageR2("shviz_"+id+"_"+fld+"_fit"+Date.now().toString(36),out);
-      if(up.ok&&up.url){
-        x[fld]=up.url; goodsPermSet(id,fld,up.url);
-        if(fld==="shvizHero"){ x.studioHProductImage=up.url; goodsPermSet(id,"studioHProductImage",up.url); }
-        n++;
-      } else fail.push(lbl+": "+(up.err||"upload failed"));
-    }catch(e){ fail.push(lbl+": "+((e&&e.message)||"failed")); }
-  }
-  // Rebuild the spec card from the re-fitted views so it matches.
-  try{
-    const card=await shvizCard(x,{hero:x.shvizHero,front:x.shvizFront,side:x.shvizSide,top:x.shvizTop});
-    const up=await _uploadImageR2("shviz_"+id+"_card_fit"+Date.now().toString(36),card);
-    if(up.ok&&up.url){ x.shvizCard=up.url; goodsPermSet(id,"shvizCard",up.url); }
-  }catch(e){}
-  if(n){ x.shvizFittedPct=pct; goodsPermSet(id,"shvizFittedPct",pct); }
-  gwClose();
-  try{ goodsRepaint(kind); }catch(e){}
-  if(fail.length) try{ await askTell("Re-fitted "+n+", "+fail.length+" failed",_askEsc(fail.join(" · ")),{icon:"!"}); }catch(e){}
-  else try{ _toast(n+" view"+(n===1?"":"s")+" re-fitted to "+pct+"% — nothing was charged.","#4C7B3D"); }catch(e){}
-  return {ok:true,n:n};
+  try{ _toast("Size set to "+shvizScalePct(x)+"%. Applied when the image is drawn \u2014 nothing to re-process.","#4C7B3D"); }catch(e){}
 }
 function shvizApprove(kind,id){
   const x=_goodsFind(kind,id); if(!x) return;
@@ -20404,7 +20307,7 @@ function _goodsIns(kind){
   // manufacturer's photograph — which is the exact thing the state exists to prevent.
   const _permPending=!goodsIsAdminView() && brandStatus(x)==="referenced" && !x.studioHProductImage;
   h+= _permPending ? '<div class="pbk-ph none gd-pend">Studio H visualization pending</div>'
-    : (shot ? '<img class="pbk-ph" src="'+escAttr(shot)+'" alt="" onerror="pbImgErr(this)" onclick="'+_lbx+'" title="Photos and financials">'
+    : (shot ? '<img class="pbk-ph" src="'+escAttr(shot)+'" alt="" style="'+shvizSizeStyle(x,shot)+'" onerror="pbImgErr(this)" onclick="'+_lbx+'" title="Photos and financials">'
            : '<div class="pbk-ph none" onclick="'+_lbx+'">no photo</div>');
   h+='<div class="pbk-hd">'+esc(x.nm||"")+'<i>'+esc([x.brand&&x.brand!==x.sup?x.brand:"",x.sup,x.loc].filter(Boolean).join(" · "))+'</i></div>';
   // Subtle by design — one line, no icon on the card, and the wording never implies the
@@ -21471,7 +21374,7 @@ function _matGrid(host){
     const framed=shot&&m.fr&&m.fr[shot];
     return `<button data-gid="${m.id}" class="pb-cd${MAT_PICK===m.id?" on":""}${(GOODS_SEL.mat||{})[m.id]?" picked":""}" onclick="goodsCardTap('mat','${m.id}')">
       ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(m,shot,'var(--surface2)')}"></span>`
-            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
+            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" style="${(typeof shvizSizeStyle==="function")?shvizSizeStyle(m,shot):""}" onerror="pbImgErr(this)">`)
             :(goodsPendingVisual(m)
             // A referenced row with no Studio H visual yet is not the same thing as a row
             // nobody has photographed, and the leaf icon read as the latter. Say which.
@@ -22455,7 +22358,7 @@ function _furGrid(host){
      const framed=shot&&f.fr&&f.fr[shot];
      return `<button data-gid="${f.id}" class="pb-cd${FUR_PICK===f.id?" on":""}${(GOODS_SEL.fur||{})[f.id]?" picked":""}" onclick="goodsCardTap('fur','${f.id}')">
       ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(f,shot,'var(--surface2)')}"></span>`
-            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
+            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" style="${(typeof shvizSizeStyle==="function")?shvizSizeStyle(m,shot):""}" onerror="pbImgErr(this)">`)
             :(goodsPendingVisual(f)
             // A referenced row with no Studio H visual yet is not the same thing as a row
             // nobody has photographed, and the leaf icon read as the latter. Say which.
