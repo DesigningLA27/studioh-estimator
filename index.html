@@ -5743,7 +5743,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1282</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1283</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19546,6 +19546,66 @@ conf     - how sure you are that you have identified the right object.`}
   }catch(e){ return {shows:true,isolated:true,what:""}; }
 }
 
+// ── Go and find a clean product shot, without touching the record ────────────
+// The audit answers "is this reference any good"; this answers "can we get a better one".
+// They are different jobs and this one has to be non-destructive: goodsLookupImage()
+// REPLACES row.img and row.imgs, which for a referenced brand would overwrite the
+// manufacturer photography the permission system is built to preserve. A better
+// reference is wanted for THIS render only.
+//
+// Worth being clear about what this changes: a dusk terrace with a lamp, a fire bowl and
+// a person in it is a poor thing to render from even when the right object is named. A
+// plain product shot from a dealer is a far better input, and the output is ours either
+// way — we are looking for a clearer view of the same real object, not for something to
+// publish.
+async function shvizFindCleanRef(x){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return null;
+  const brand=x.brand||x.sup||"", nm=x.nm||"";
+  const q=(brand+" "+nm).trim();
+  let prose="";
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:600,
+        tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}],
+        system:"You find pages that show one specific product photographed on its own.",
+        messages:[{role:"user",content:
+`Find pages showing this exact product photographed ALONE on a plain or white background —
+a catalogue or product-listing photograph, not a styled room or garden scene:
+
+${q}
+
+Up to FOUR URLs, one per line, each on a DIFFERENT site. The maker's own product page
+first if it exists, then authorised dealers. Nothing but the URLs. If you cannot find that
+exact product, say NONE.`}]})});
+    const d=await r.json();
+    prose=((d.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n")||"");
+  }catch(e){ return null; }
+  const urls=(prose.match(/https?:\/\/[^\s`*"'<>()\[\]]+/gi)||[])
+    .map(u=>u.replace(/[.,;:]+$/,""))
+    .filter(u=>!/\.(pdf)$/i.test(u));
+  for(let i=0;i<Math.min(urls.length,4);i++){
+    try{ if(_goodsIsListUrl(urls[i])) continue; }catch(e){}
+    let sc=null;
+    try{ sc=await goodsScrape(urls[i]); }catch(e){}
+    if(!sc||sc.err) continue;
+    let imgs=[];
+    try{ imgs=await goodsVerifyImgs(goodsBestImages(_goodsAllImages(sc),5)); }catch(e){}
+    for(const u of imgs.slice(0,4)){
+      const a=await shvizRefAudit(u,nm,brand);
+      // Only an ISOLATED shot is worth swapping in. A second styled scene is no better
+      // than the one already on the record and is not worth the render.
+      if(a.shows && a.isolated){
+        let d2=null;
+        try{ const p=await _satBase64ViaWorker(ep,u); if(p&&p.data) d2="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
+        if(!d2){ try{ d2=await _urlToDataURL(u); }catch(e){} }
+        if(d2) return {data:d2,url:u,from:(sc.url||urls[i])};
+      }
+    }
+  }
+  return null;
+}
+
 // ── Relative size, done locally ──────────────────────────────────────────────
 // Asking the model to "occupy about 63% of the frame" does not work — it fills the frame
 // whatever the instruction says, so a 13.5" and a 22.5" Agave came out the same size on
@@ -19789,8 +19849,10 @@ async function shvizGenerate(kind,id,opts){
          +"the reference, so it renders THIS product rather than a generic one."
          +(which?("<br><br>\u26a0 None of them is a clean product shot \u2014 the best is a styled "
                  +"scene, and the model will be told to render <b>"+_askEsc(which)+"</b> and ignore "
-                 +"the rest of the frame. Check the result carefully; a scene is a weaker "
-                 +"reference than a plain studio photograph.")
+                 +"the rest of the frame. That works, but a scene is a weaker reference than a "
+                 +"plain studio photograph. <b>Look for a better photo</b> searches the maker and "
+                 +"their dealers for a shot of this product on its own \u2014 it is only used as a "
+                 +"reference here and nothing on the record is changed.")
                 :" Every product is then re-shot against the same fixed Studio H style \u2014 same "
                  +"sweep, same light, same camera positions \u2014 so the library reads as one catalogue."))
       : ("\u26a0 No reference photograph could be read for this product, so the model has only "
@@ -19798,8 +19860,31 @@ async function shvizGenerate(kind,id,opts){
          +"or fluted planter — expect a generic shape. Add a reference photo first."))
       +" This calls Nano Banana 2 "+n+" times, about $"+cost+".",
     note:"The spec card is drawn locally from the record, so its dimensions and price are always the real ones.",
-    actions:["Cancel","Generate "+n+" · $"+cost]});
-  if(a!==1) return {ok:false,err:"cancelled"};
+    actions:which?["Cancel","Look for a better photo","Generate "+n+" · $"+cost]
+                  :["Cancel","Generate "+n+" · $"+cost]});
+  if(a===0||a==null) return {ok:false,err:"cancelled"};
+  if(which && a===1){
+    gwOpen({title:"Looking for a clean product photo",sub:(x.brand||x.sup||"")+" \u00b7 "+(x.nm||""),
+            steps:["Searching","Checking each one shows this product alone"],pct:null,cancel:false});
+    let found=null; try{ found=await shvizFindCleanRef(x); }catch(e){}
+    gwClose();
+    if(found){
+      // Front of the list: an isolated shot outranks the scene we already had.
+      refs.unshift(found.data); which="";
+      const go=await askDlg({icon:"\u2713",title:"Found one",
+        body:"A product shot of this item on its own was found at <b>"+_askEsc((found.from||"").replace(/^https?:\/\//,"").split("/")[0])
+          +"</b> and will be used as the reference. Nothing on the product record was changed.",
+        actions:["Cancel","Generate "+n+" \u00b7 $"+cost]});
+      if(go!==1) return {ok:false,err:"cancelled"};
+    } else {
+      const go=await askDlg({icon:"!",title:"Nothing better found",
+        body:"No photograph of this product on its own could be found, so the styled scene is "
+          +"still the best reference available. The model will be told to render <b>"+_askEsc(which)
+          +"</b> and ignore the rest of the frame.",
+        actions:["Cancel","Generate anyway \u00b7 $"+cost]});
+      if(go!==1) return {ok:false,err:"cancelled"};
+    }
+  }
   SHVIZ_BUSY=true;
   // `made` counts views actually produced by THIS run. `urls` also carries the stored
   // views on a single-view re-render so the card can be rebuilt, so counting urls told
