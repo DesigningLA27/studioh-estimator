@@ -5720,7 +5720,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1278</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1279</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19717,6 +19717,67 @@ async function shvizGenerate(kind,id,opts){
   }
   finally{ SHVIZ_BUSY=false; try{ goodsRepaint(kind); }catch(e){} }
 }
+// ── Re-fit stored renders, without calling the model ─────────────────────────
+// Scaling happens AFTER the render, in canvas, so a change to the size rule does not
+// need the image made again. The AS-18 set was rendered 14 minutes before local scaling
+// shipped, which is exactly why it fills its frame — and re-rendering it would have cost
+// money to fix something arithmetic can fix for nothing.
+//
+// This also means the size rule stays editable later without obsoleting the library.
+async function shvizRefit(kind,id){
+  const x=_goodsFind(kind,id); if(!x) return {ok:false,err:"No such product."};
+  const key=_adminKey(); if(!key) return {ok:false,err:"No admin key on this device."};
+  const pct=shvizScalePct(x);
+  const FL=[["shvizHero","Hero"],["shvizFront","Front"],["shvizSide","Side"],["shvizTop","Top"]];
+  const todo=FL.filter(f=>x[f[0]]);
+  if(!todo.length) return {ok:false,err:"Nothing rendered yet."};
+  if(pct>=100){
+    try{ await askTell("Already the right size",
+      (x.nm||"This product")+" is the largest in its series, so it is shown at full size. "
+      +"Nothing to re-fit.",{icon:"✓"}); }catch(e){}
+    return {ok:true,n:0};
+  }
+  const a=await askDlg({icon:"⤢",
+    title:"Re-fit "+todo.length+" view"+(todo.length===1?"":"s")+" to "+pct+"%?",
+    body:"Scales the images already rendered so this piece sits at its true size beside the "
+      +"others in its series. No image is generated and <b>nothing is charged</b> — the "
+      +"scaling is arithmetic done here.",
+    note:"The cut-out is left alone deliberately; it is placed at whatever size a mood board needs.",
+    actions:["Cancel","Re-fit "+todo.length]});
+  if(a!==1) return {ok:false,err:"cancelled"};
+  gwOpen({title:"Re-fitting "+(x.nm||"product"),sub:pct+"% of frame",
+          steps:todo.map(f=>f[1]),pct:0,cancel:false});
+  let n=0; const fail=[];
+  for(let i=0;i<todo.length;i++){
+    const [fld,lbl]=todo[i];
+    try{ gwStep&&gwStep(i,Math.round(i/todo.length*100)); }catch(e){}
+    try{
+      // Re-fetch through the proxy: the stored file is cross-origin to canvas otherwise.
+      let src=null;
+      try{ const p=await _satBase64ViaWorker(AI_PROXY_URL,x[fld]);
+           if(p&&p.data) src="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
+      if(!src) src=await _urlToDataURL(x[fld]);
+      const out=await shvizFitScale(src,pct);
+      const up=await _uploadImageR2("shviz_"+id+"_"+fld+"_fit"+Date.now().toString(36),out);
+      if(up.ok&&up.url){
+        x[fld]=up.url; goodsPermSet(id,fld,up.url);
+        if(fld==="shvizHero"){ x.studioHProductImage=up.url; goodsPermSet(id,"studioHProductImage",up.url); }
+        n++;
+      } else fail.push(lbl+": "+(up.err||"upload failed"));
+    }catch(e){ fail.push(lbl+": "+((e&&e.message)||"failed")); }
+  }
+  // Rebuild the spec card from the re-fitted views so it matches.
+  try{
+    const card=await shvizCard(x,{hero:x.shvizHero,front:x.shvizFront,side:x.shvizSide,top:x.shvizTop});
+    const up=await _uploadImageR2("shviz_"+id+"_card_fit"+Date.now().toString(36),card);
+    if(up.ok&&up.url){ x.shvizCard=up.url; goodsPermSet(id,"shvizCard",up.url); }
+  }catch(e){}
+  gwClose();
+  try{ goodsRepaint(kind); }catch(e){}
+  if(fail.length) try{ await askTell("Re-fitted "+n+", "+fail.length+" failed",_askEsc(fail.join(" · ")),{icon:"!"}); }catch(e){}
+  else try{ _toast(n+" view"+(n===1?"":"s")+" re-fitted to "+pct+"% — nothing was charged.","#4C7B3D"); }catch(e){}
+  return {ok:true,n:n};
+}
 function shvizApprove(kind,id){
   const x=_goodsFind(kind,id); if(!x) return;
   x.studioHProductImageStatus="approved"; goodsPermSet(id,"studioHProductImageStatus","approved");
@@ -19832,6 +19893,9 @@ function _shvizPanel(x,kind){
     else if(x.shvizHero)
       h+='<button class="pbk-btn" onclick="shvizUsePrimary(\''+kind+'\',\''+x.id+'\',\'shvizHero\')">Publish the hero again</button>';
   }
+  if(have && shvizScalePct(x)<100)
+    h+='<button class="pbk-btn" onclick="shvizRefit(\''+kind+'\',\''+x.id+'\')">'
+      +'Re-fit to '+shvizScalePct(x)+'% of frame <i style="font-style:normal;color:var(--tl)">free</i></button>';
   h+='<button class="pbk-btn" onclick="shvizCopyPrompts(\''+kind+'\',\''+x.id+'\')">Copy the 5 prompts</button>';
   return h;
 }
