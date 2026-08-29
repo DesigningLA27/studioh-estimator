@@ -5720,7 +5720,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1277</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1278</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16025,6 +16025,7 @@ async function _goodsPushOnce(book,key,force,retry){
       if(book==="materials"){ MATERIALS=merged; _goodsWrite("studioh_materials_v1",MATERIALS,"materials");
     try{ _matApplyArto(); }catch(e){}
     try{ _goodsPermApply(); }catch(e){}
+try{ _shvizRecover(); }catch(e){}
     try{ _permSeedTest(); }catch(e){}
     try{ _goodsRestoreParkedPrices(); }catch(e){} }   // in-memory seed, re-applied after a pull replaces the array
       else { FURNISHINGS=merged; _goodsWrite("studioh_furnishings_v1",FURNISHINGS,"furnishings");
@@ -16032,6 +16033,7 @@ async function _goodsPushOnce(book,key,force,retry){
         try{ _furnApplyArchPottery(); }catch(e){}
         try{ _furFixFxCats(); }catch(e){}
         try{ _goodsPermApply(); }catch(e){}
+try{ _shvizRecover(); }catch(e){}
         try{ _permSeedTest(); }catch(e){}
     try{ _goodsRestoreParkedPrices(); }catch(e){} }   // derived seeds + the FX recategorisation, re-applied after a pull replaces the array
       try{ localStorage.setItem("studioh_goods_"+book+"_at", srv.savedAt||""); }catch(e){}
@@ -16111,6 +16113,7 @@ async function goodsPull(book,silent,replace){
   if(book==="materials"){ MATERIALS=rows; MATERIALS.forEach(m=>{ if(m.specSF==null) m.specSF=0; });
     try{ _matApplyArto(); }catch(e){}
     try{ _goodsPermApply(); }catch(e){}
+try{ _shvizRecover(); }catch(e){}
     try{ _permSeedTest(); }catch(e){}
     try{ _goodsRestoreParkedPrices(); }catch(e){}
     _goodsWrite("studioh_materials_v1",MATERIALS,"materials");
@@ -16121,6 +16124,7 @@ async function goodsPull(book,silent,replace){
     try{ _furnApplyArchPottery(); }catch(e){}
     try{ _furFixFxCats(); }catch(e){}
     try{ _goodsPermApply(); }catch(e){}
+try{ _shvizRecover(); }catch(e){}
     try{ _permSeedTest(); }catch(e){}
     try{ _goodsRestoreParkedPrices(); }catch(e){}
     try{ goodsRepaint("fur"); }catch(e){} }
@@ -16411,6 +16415,38 @@ function _goodsPermApply(){
   };
   try{ (MATERIALS||[]).forEach(one); }catch(e){}
   try{ (FURNISHINGS||[]).forEach(one); }catch(e){}
+  return n;
+}
+
+// ── One-time recovery of the AS-18 renders ───────────────────────────────────
+// These were lost from the shared bundle on 29 Aug 2026, not by a render failing but by
+// a publish that dropped them: an iPad that had never pulled the store published its own
+// bundle without the key, and saveconfig replaces rather than merges, so the pointers
+// were deleted for every device. _saveConfigSilent now merges, so this cannot recur.
+//
+// The IMAGES were never lost — all six R2 objects still serve, re-checked before this was
+// written. Only the record of where they are went missing, and it is restored here from a
+// copy of the bundle read before the overwrite.
+//
+// Purely additive: it fills a row that has NO Studio H image and never overwrites a newer
+// render, so it is harmless once the real store is back and harmless if you re-render.
+const SHVIZ_RECOVER={"furn-kd-as-18":{"shvizHero":"https://studioh-ai.warwick-cca.workers.dev/?imgget=shviz_furn-kd-as-18_hero_mtde0l5c","shvizFront":"https://studioh-ai.warwick-cca.workers.dev/?imgget=shviz_furn-kd-as-18_front_mtde0usb","shvizSide":"https://studioh-ai.warwick-cca.workers.dev/?imgget=shviz_furn-kd-as-18_side_mtde14ti","shvizTop":"https://studioh-ai.warwick-cca.workers.dev/?imgget=shviz_furn-kd-as-18_top_mtde1ehd","shvizCard":"https://studioh-ai.warwick-cca.workers.dev/?imgget=shviz_furn-kd-as-18_card_mtde1n0p","shvizCutout":"https://studioh-ai.warwick-cca.workers.dev/?imgget=shviz_furn-kd-as-18_cutout_mtde1lfs","studioHProductImage":"https://studioh-ai.warwick-cca.workers.dev/?imgget=shviz_furn-kd-as-18_hero_mtde0l5c","studioHProductImageStatus":"generated","shvizColour":"Natural Gray — approximately #BEBAB1"}};
+function _shvizRecover(){
+  let n=0;
+  try{
+    Object.keys(SHVIZ_RECOVER).forEach(id=>{
+      const rec=SHVIZ_RECOVER[id];
+      const x=(FURNISHINGS||[]).filter(r=>r&&r.id===id)[0]
+           || (MATERIALS||[]).filter(r=>r&&r.id===id)[0];
+      if(!x || x.studioHProductImage) return;          // already has one — leave it alone
+      Object.keys(rec).forEach(f=>{ if(!x[f]) x[f]=rec[f]; });
+      // Put it back in the store too, so the next publish carries it up to the server.
+      if(!GOODS_PERM[id]) GOODS_PERM[id]={};
+      Object.keys(rec).forEach(f=>{ if(GOODS_PERM[id][f]==null) GOODS_PERM[id][f]=rec[f]; });
+      n++;
+    });
+    if(n){ try{ localStorage.setItem("studioh_productmedia_v1",JSON.stringify(GOODS_PERM)); }catch(e){} }
+  }catch(e){}
   return n;
 }
 
@@ -24077,7 +24113,17 @@ async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
     body:"This publishes your price book, nurseries, labor rates and markups as the Studio H master. Every designer's device will pull this.",
     actions:["Cancel","Publish"]});
   if(pick!==1) return;
-  const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
+  // Same merge rule as _saveConfigSilent — see the note there. Publish must never drop a
+  // key this device happens not to hold.
+  let base={};
+  try{
+    const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"loadconfig"})});
+    const dd=await rr.json();
+    if(dd&&dd.found&&dd.config&&dd.config.data) base=dd.config.data;
+    else if(dd&&dd.found){ alert("Could not read the current master copy, so nothing was published."); return; }
+  }catch(e){ alert("Could not reach the server, so nothing was published."); return; }
+  const cfg={ savedAt:new Date().toISOString(), data:Object.assign({},base) }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
   try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json();
     if(d&&d.ok){ try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} _cfgSaveSnapshot(); _cfgMarkSynced(); alert("Pricing published to master ✓"); }
     else if(d&&/authoriz/i.test(d.error||"")){ alert("Wrong admin key. Check it in Settings → Master library access, then try again."); }
@@ -24085,9 +24131,40 @@ async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
   }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
 }
 // Silently save the config bundle (favorites, image prefs, pricing) to Cloudflare — used by Publish master
-async function _saveConfigSilent(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return; let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} if(!key) return;
-  const cfg={ savedAt:new Date().toISOString(), data:{} }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
-  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json(); try{ if(d&&d.ok&&cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} return d&&d.ok; }catch(e){ return false; } }
+// PUBLISHING IS A MERGE, NEVER A REPLACE — and this cost real data before it was.
+//
+// A device only sends the keys IT has: `if(v!=null) cfg.data[k]=v`. So a second device
+// that had never received a key simply omitted it, and because saveconfig overwrites the
+// whole bundle, that omission DELETED the key for everyone. An iPad that had never pulled
+// the Studio H renders published a bundle without them and wiped them off the server.
+//
+// So: read what is on the server first, start from that, and overlay only what this
+// device actually holds. A key this device has never seen is left exactly as it is. If
+// the server cannot be read, the publish is abandoned rather than risked — refusing to
+// save is recoverable, silently deleting somebody else's work is not.
+async function _saveConfigSilent(){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key) return;
+  let base={};
+  try{
+    const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"loadconfig"})});
+    const dd=await rr.json();
+    if(dd&&dd.found&&dd.config&&dd.config.data) base=dd.config.data;
+    else if(!(dd&&dd.found)) base={};        // genuinely nothing published yet — fine
+    else return false;                       // malformed: do not risk overwriting
+  }catch(e){ return false; }                 // could not read: do not publish blind
+  const cfg={ savedAt:new Date().toISOString(), data:Object.assign({},base) };
+  SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"saveconfig",key,config:cfg})});
+    const d=await r.json();
+    try{ if(d&&d.ok&&cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
+    return d&&d.ok;
+  }catch(e){ return false; }
+}
 // ── CONFIG SYNC ──────────────────────────────────────────────
 // The price-book bundle (SHARED_CFG_KEYS) lives on the server, cached in localStorage.
 // Startup pulls; edits push back on idle. A fingerprint tells us whether this device has
@@ -31014,6 +31091,7 @@ try{ _furnApplyKornegay(); }catch(e){}   // needs KORNEGAY_HEX above for the swa
 try{ _furnApplyArchPottery(); }catch(e){}
 try{ _furFixFxCats(); }catch(e){}
 try{ _goodsPermApply(); }catch(e){}
+try{ _shvizRecover(); }catch(e){}
 try{ _permSeedTest(); }catch(e){}
 try{ _goodsRestoreParkedPrices(); }catch(e){}
 try{ _publicPreviewBar(); }catch(e){}
