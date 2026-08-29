@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1285</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1286</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16401,7 +16401,7 @@ const GOODS_PERM_FIELDS=["studioHProductImage","studioHProductImageStatus","stud
   "officialManufacturerImage","officialManufacturerDescription",
   "sourceProductUrl","sourceBrandUrl","sourceCheckedDate","priceCheckedDate",
   "shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout","shvizColour",
-  "shvizScalePctOverride"];
+  "shvizScalePctOverride","shvizFittedPct"];
 // Renamed from "studioh_goodsperm_v1". That key was my abbreviation of "goods
 // permissions", but the config-conflict dialog labels a store by stripping the prefix
 // and version off its key — so it printed "goodsperm" at a user, which reads as
@@ -19658,15 +19658,24 @@ async function shvizFitScale(dataUrl,pct){
   const im=await _loadImgEl(dataUrl);
   const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
   if(!W||!H) return dataUrl;
-  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-  const cx=cv.getContext("2d");
-  // sample the four corners of the source to find its true background
   const t=document.createElement("canvas"); t.width=W; t.height=H;
   const tx=t.getContext("2d"); tx.drawImage(im,0,0);
-  const pick=(X,Y)=>{ const d=tx.getImageData(X,Y,1,1).data; return [d[0],d[1],d[2]]; };
-  const cs=[pick(2,2),pick(W-3,2),pick(2,H-3),pick(W-3,H-3)];
-  const med=i=>cs.map(c=>c[i]).sort((a,b)=>a-b)[1];
-  cx.fillStyle="rgb("+med(0)+","+med(1)+","+med(2)+")";
+  // Sampling FOUR CORNER PIXELS was wrong and it showed: these renders vignette, so the
+  // corners are the darkest part of the background and the pad came out visibly darker
+  // than the image it surrounded — a grey field with a lighter rectangle floating in it.
+  //
+  // Sample a horizontal band across the upper eighth instead. The object is centred and
+  // sits low in frame, so that band is background all the way across, and it is inset far
+  // enough from the edge to miss the vignette. Median of many samples, not a mean, so one
+  // stray pixel cannot drag it.
+  const y=Math.max(1,Math.round(H*0.08));
+  const row=tx.getImageData(0,y,W,1).data;
+  const R=[],G=[],B=[];
+  for(let i=0;i<W;i+=Math.max(1,Math.round(W/240))){ R.push(row[i*4]); G.push(row[i*4+1]); B.push(row[i*4+2]); }
+  const med=a=>{ a.sort((x,z)=>x-z); return a[Math.floor(a.length/2)]||0; };
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const cx=cv.getContext("2d");
+  cx.fillStyle="rgb("+med(R)+","+med(G)+","+med(B)+")";
   cx.fillRect(0,0,W,H);
   cx.imageSmoothingQuality="high";
   const w=Math.round(W*p), h=Math.round(H*p);
@@ -19955,7 +19964,8 @@ async function shvizGenerate(kind,id,opts){
         } else {
           data=await _fetchToMax(g.url,(SHVIZ_CFG.maxPx||SHVIZ_MAXPX),0.93);
           const pct=shvizScalePct(x);
-          if(pct<100) data=await shvizFitScale(data,pct);
+          if(pct<100){ data=await shvizFitScale(data,pct); }
+          x.shvizFittedPct=pct;
         }
       }catch(e){}
       let stored=data||g.url;
@@ -20042,16 +20052,25 @@ async function shvizRefit(kind,id){
   const x=_goodsFind(kind,id); if(!x) return {ok:false,err:"No such product."};
   const key=_adminKey(); if(!key) return {ok:false,err:"No admin key on this device."};
   const pct=shvizScalePct(x);
+  // Refit re-fetches the STORED image, which has already been scaled once. Applying the
+  // percentage again compounds it — 75% becomes 56%, then 42% — and the product quietly
+  // shrinks every time the button is pressed. So track what a row is already fitted to
+  // and scale by the RATIO, not the absolute figure.
+  const at=+x.shvizFittedPct||100;
+  const rel=Math.round(pct/at*100);
   const FL=[["shvizHero","Hero"],["shvizFront","Front"],["shvizSide","Side"],["shvizTop","Top"]];
   const todo=FL.filter(f=>x[f[0]]);
   if(!todo.length) return {ok:false,err:"Nothing rendered yet."};
   // 100% is a legitimate target now that the size can be set by hand — but the stored
   // images are already whatever they were last fitted to, so re-fitting UP is not
   // possible without re-rendering. Say that rather than appearing to do nothing.
-  if(pct>=100 && !(+x.shvizScalePctOverride>0)){
-    try{ await askTell("Already the right size",
-      (x.nm||"This product")+" is the largest in its series, so it is shown at full size. "
-      +"Nothing to re-fit.",{icon:"✓"}); }catch(e){}
+  if(rel>=100){
+    try{ await askTell(rel>100?"Cannot re-fit upwards":"Already the right size",
+      rel>100
+        ? ((x.nm||"This product")+" is already fitted to "+at+"% and you are asking for "+pct
+           +"%. Scaling a stored image UP would just enlarge pixels — re-render it instead.")
+        : ((x.nm||"This product")+" is already at "+pct+"% of frame. Nothing to re-fit."),
+      {icon:rel>100?"!":"✓"}); }catch(e){}
     return {ok:true,n:0};
   }
   const a=await askDlg({icon:"⤢",
@@ -20074,7 +20093,7 @@ async function shvizRefit(kind,id){
       try{ const p=await _satBase64ViaWorker(AI_PROXY_URL,x[fld]);
            if(p&&p.data) src="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
       if(!src) src=await _urlToDataURL(x[fld]);
-      const out=await shvizFitScale(src,pct);
+      const out=await shvizFitScale(src,rel);
       const up=await _uploadImageR2("shviz_"+id+"_"+fld+"_fit"+Date.now().toString(36),out);
       if(up.ok&&up.url){
         x[fld]=up.url; goodsPermSet(id,fld,up.url);
@@ -20089,6 +20108,7 @@ async function shvizRefit(kind,id){
     const up=await _uploadImageR2("shviz_"+id+"_card_fit"+Date.now().toString(36),card);
     if(up.ok&&up.url){ x.shvizCard=up.url; goodsPermSet(id,"shvizCard",up.url); }
   }catch(e){}
+  if(n){ x.shvizFittedPct=pct; goodsPermSet(id,"shvizFittedPct",pct); }
   gwClose();
   try{ goodsRepaint(kind); }catch(e){}
   if(fail.length) try{ await askTell("Re-fitted "+n+", "+fail.length+" failed",_askEsc(fail.join(" · ")),{icon:"!"}); }catch(e){}
