@@ -5760,7 +5760,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1318</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1319</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25326,6 +25326,15 @@ async function _saveConfigSilent(){
     if(base[k]===undefined){                  // server has never had it — send it
       cfg.data[k]=v; cfg.times[k]=cfgTimeOf(mine,k)||cfg.savedAt; sent[k]=1; return; }
     if(base[k]===v){ sent[k]=1; return; }     // already agree, nothing to decide
+    // Same reasoning as the pull side: merge the markers per book rather than letting one
+    // device's whole picture win, or a save from the machine with the older view silently
+    // rewinds a book the other one has already announced.
+    if(k===BOOK_STAMP_KEY){
+      let s={},l={}; try{ s=JSON.parse(base[k]||"{}")||{}; }catch(e){} try{ l=JSON.parse(v||"{}")||{}; }catch(e){}
+      const m=Object.assign({},s);
+      Object.keys(l).forEach(n=>{ if(!m[n]||l[n]>m[n]) m[n]=l[n]; });
+      cfg.data[k]=JSON.stringify(m); cfg.times[k]=cfg.savedAt; sent[k]=1; return;
+    }
     let a=cfgTimeOf(mine,k); const b=cfgTimeOf(srvT,k);
     // Undated locally, but different from what this device last synced. That difference can
     // only have been made HERE, and only SINCE that sync — and the sync was at or after the
@@ -25668,6 +25677,19 @@ async function configLoad(silent,force){
       if(k==="studioh_favs_v1"){ // favorites always union — never a conflict, never a loss
         let s=[],l=[]; try{ s=JSON.parse(srvVal||"[]"); }catch(e){} try{ l=JSON.parse(locVal||"[]"); }catch(e){}
         toApply[k]=JSON.stringify(Array.from(new Set([].concat(Array.isArray(l)?l:[],Array.isArray(s)?s:[]))));
+        return;
+      }
+      // Book markers are a SET of per-book timestamps, not one value, so newest-wins on the
+      // whole object is wrong: whichever device saved the settings last imposes its entire
+      // picture, including books it knows nothing new about. Observed exactly that — the
+      // server's plant book was stamped 20:59:31 while the marker read 20:59:18, because a
+      // device holding the older marker wrote the settings afterwards. Merged per book, so
+      // each entry keeps the latest either side has seen.
+      if(k===BOOK_STAMP_KEY){
+        let s={},l={}; try{ s=JSON.parse(srvVal||"{}")||{}; }catch(e){} try{ l=JSON.parse(locVal||"{}")||{}; }catch(e){}
+        const m=Object.assign({},l);
+        Object.keys(s).forEach(n=>{ if(!m[n]||s[n]>m[n]) m[n]=s[n]; });
+        toApply[k]=JSON.stringify(m);
         return;
       }
       if(freshDevice){ if(srvVal!=null) toApply[k]=srvVal; return; }
