@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1303</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1304</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25110,7 +25110,9 @@ async function cfgSaveNow(){
   try{ ok=await _saveConfigSilent(); }catch(e){}
   _cfgSaveBusy=false;
   _cfgSaveFailed=!ok;
-  if(ok){ _cfgSaveSnapshot(); _cfgMarkSynced(); }
+  // No snapshot here — _saveConfigSilent already took one from the bundle it actually
+  // sent. Re-taking it from localStorage is exactly the bug that overwrote a price.
+  if(ok){ _cfgMarkSynced(); }
   try{ _renderPbSync(); }catch(e){}
   if(_cfgSaveAgain){ _cfgSaveAgain=false; return cfgSaveNow(); }
   return ok;   // a failure is left dirty; the 30s watchdog retries it
@@ -25192,6 +25194,8 @@ async function _saveConfigSilent(){
       // Adopt the merged clock, so a key the server won is no longer claimed as ours.
       try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(cfg.times)); }catch(e){}
       try{ if(cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
+      // Baseline = the bundle that actually went up. See the note on _cfgSaveSnapshot.
+      _cfgSaveSnapshot(cfg.data);
     }
     return d&&d.ok;
   }catch(e){ return false; }
@@ -25259,7 +25263,30 @@ document.addEventListener("visibilitychange",()=>{ if(document.hidden && _cfgDir
 // sides since they last agreed — is now the only thing that prompts, and even then the
 // side you don't keep is backed up first, never just discarded.
 function _cfgSnapshot(){ try{ return JSON.parse(localStorage.getItem("studioh_cfg_snapshot")||"{}"); }catch(e){ return {}; } }
-function _cfgSaveSnapshot(){ const full={}; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) full[k]=v; }catch(e){} }); try{ localStorage.setItem("studioh_cfg_snapshot",JSON.stringify(full)); }catch(e){} }
+// THE SNAPSHOT MUST RECORD WHAT WAS SENT, NOT WHAT WAS ON THE DEVICE.
+//
+// This is what actually destroyed Warwick's 850 -> 800. The save declined to send the new
+// price (the bug fixed in v1303) but then snapshotted localStorage anyway, writing down
+// "we synced 800" when it had sent 850. The snapshot is the baseline configLoad uses to
+// decide who changed what, so on the next reload it reasoned: local still 800 and the
+// snapshot says 800, therefore this device has NOT changed anything; the server says 850
+// and the snapshot says 800, therefore the SERVER changed — and it dutifully applied 850
+// over the edit. A wrong baseline turns a merge into an overwrite.
+//
+// So the merged bundle that actually went up is passed in. Then a key we deliberately
+// declined to send stays OUTSIDE the baseline, still reads as a local change, and gets
+// another go — instead of being quietly marked as agreed and then overwritten.
+function _cfgSaveSnapshot(sentData){
+  const full={};
+  SHARED_CFG_KEYS.forEach(k=>{
+    try{
+      if(sentData && Object.prototype.hasOwnProperty.call(sentData,k)){ full[k]=sentData[k]; return; }
+      if(sentData) return;                       // not in the bundle: not agreed, leave it out
+      const v=localStorage.getItem(k); if(v!=null) full[k]=v;
+    }catch(e){}
+  });
+  try{ localStorage.setItem("studioh_cfg_snapshot",JSON.stringify(full)); }catch(e){}
+}
 function _cfgBackupLocal(keys){
   const data={}; keys.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) data[k]=v; }catch(e){} });
   try{ localStorage.setItem("studioh_cfg_backup", JSON.stringify({savedAt:new Date().toISOString(), keys, data})); }catch(e){}
