@@ -5760,7 +5760,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1317</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1318</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24823,7 +24823,7 @@ async function masterBookPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
     }
   }catch(e){}
   _toast("Publishing…");
-  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H"})}); const d=await r.json();
+  try{ const d=await _saveBookServer(ep,key,"Studio H");
     if(d&&d.ok){ try{ await _saveConfigSilent(); }catch(e){}   // also save favorites, prefs & pricing to the server
       _toast("Published to master ✓ ("+total+" plants)"); }
     else if(d&&/authoriz/i.test(d.error||"")){ alert("Wrong admin key. Check it in Settings → Master library access, then try again."); }
@@ -24847,6 +24847,17 @@ try{
   document.addEventListener("visibilitychange",()=>{ if(document.hidden && _bookDirty) _autoPublish("hidden"); });
   window.addEventListener("pagehide",()=>{ if(_bookDirty) _autoPublish("pagehide"); });
 }catch(e){}
+// EVERY route that writes the plant book goes through here. Five different places posted
+// savebook directly and only one of them announced the change, so a book saved by a bulk
+// image or AI pass reached the server and then sat there — the other machine had no way to
+// learn it had moved. A shared helper is the only version of this that cannot be forgotten.
+async function _saveBookServer(ep,key,by){
+  const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:by||"Studio H"})});
+  let d=null; try{ d=await r.json(); }catch(e){}
+  if(d&&d.ok) try{ bookStampSet("plants"); }catch(e){}
+  return d;
+}
 async function _autoPublish(reason){
   if(_autoPubBusy) return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
@@ -24887,8 +24898,8 @@ async function _autoPublish(reason){
         try{ _toast("Picked up "+took+" plant photo"+(took===1?"":"s")+" from the server","#4C7B3D"); }catch(e){}
       }
     }
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (auto)"})}); const d=await r.json();
-    if(d&&d.ok){ _bookDirty=false; bookStampSet("plants"); }
+    const d=await _saveBookServer(ep,key,"Studio H (auto)");
+    if(d&&d.ok) _bookDirty=false;
   }catch(e){}
   _autoPubBusy=false;
 }
@@ -26310,7 +26321,7 @@ async function fillMissingImages(){ const licSel=(document.querySelector('input[
   plantBookSave(); if(prog) prog.innerHTML=`<b>Done.</b> ${found} images added${flagged?`, <span style="color:#b8952a">${flagged} flagged ⚠</span>`:''}${miss?`, ${miss} had no safe image`:''}. ${_fillStop?'(stopped)':''}`;
   // auto-publish to the server so images persist (if admin key already saved)
   try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
-    if(key&&ep&&found>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (image fill)"})}); const dd=await rr.json(); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Server save failed — click ☁ Publish master."); }
+    if(key&&ep&&found>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const dd=await _saveBookServer(ep,key,"Studio H (image fill)"); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Server save failed — click ☁ Publish master."); }
     else if(found>0 && prog){ prog.innerHTML+=`<br><b>Saving to the server…</b>`; }
   }catch(e){ if(prog) prog.innerHTML+=`<br>⚠ Not saved yet — it will retry on its own.`; }
   if(startBtn){ startBtn.textContent="Start"; startBtn.disabled=false; }
@@ -27457,7 +27468,7 @@ async function fillSunRanges(){ const prog=document.getElementById("fillsun-prog
   try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
     const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(key&&ep&&ok>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`;
-      const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (sun ranges)"})}); const dd=await rr.json();
+      const dd=await _saveBookServer(ep,key,"Studio H (sun ranges)");
       if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Click ☁ Publish master to save."); }
     else if(ok>0&&prog) prog.innerHTML+=`<br><b>Saving to the server…</b>`;
   }catch(e){}
@@ -27479,7 +27490,7 @@ async function fillMissingDetails(){ const prog=document.getElementById("filldet
   }
   plantBookSave(); if(prog) prog.innerHTML=`<b>Done.</b> ${ok} plants filled${_detStop?' (stopped)':''}.`;
   try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
-    if(key&&ep&&ok>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (details)"})}); const dd=await rr.json(); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Click ☁ Publish master to save."); }
+    if(key&&ep&&ok>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const dd=await _saveBookServer(ep,key,"Studio H (details)"); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Click ☁ Publish master to save."); }
     else if(ok>0&&prog) prog.innerHTML+=`<br><b>Saving to the server…</b>`;
   }catch(e){}
   if(sb){ sb.textContent="Start"; sb.disabled=false; } if(typeof renderPlantBook==="function") renderPlantBook();
