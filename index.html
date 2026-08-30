@@ -5760,7 +5760,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1316</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1317</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16057,6 +16057,9 @@ async function goodsPush(book,force,retry){
   let out=false;
   try{ out=await _goodsPushOnce(book,key,force,retry); }
   finally{
+    // Announce it, so the other machine learns this book moved without downloading it to
+    // find out. See the note on BOOK_STAMP_KEY.
+    if(out) try{ bookStampSet(book); }catch(e){}
     _goodsBusy[book]=false;
     const p=_goodsPending[book];
     if(p){
@@ -24835,9 +24838,11 @@ let _autoPubTimer=null, _autoPubBusy=false;
 // working session could go entirely unsaved — the timer only ever fired once you
 // stopped for five clear minutes. Hiding or closing the tab also forces a save.
 let _bookDirty=false;
+// 2 seconds, like everything else. It was 90 — a plant edited here did not leave the device
+// for a minute and a half, which is not "saves itself", it is "saves eventually".
 function _scheduleAutoPublish(){ _bookDirty=true;
   try{ if(_autoPubTimer) clearTimeout(_autoPubTimer);
-    _autoPubTimer=setTimeout(()=>{ _autoPubTimer=null; _autoPublish("idle"); }, 90*1000); }catch(e){} }
+    _autoPubTimer=setTimeout(()=>{ _autoPubTimer=null; _autoPublish("idle"); }, 2000); }catch(e){} }
 try{
   document.addEventListener("visibilitychange",()=>{ if(document.hidden && _bookDirty) _autoPublish("hidden"); });
   window.addEventListener("pagehide",()=>{ if(_bookDirty) _autoPublish("pagehide"); });
@@ -24883,7 +24888,7 @@ async function _autoPublish(reason){
       }
     }
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (auto)"})}); const d=await r.json();
-    if(d&&d.ok){ _bookDirty=false; _toast("Auto-saved to server ✓"); }
+    if(d&&d.ok){ _bookDirty=false; bookStampSet("plants"); }
   }catch(e){}
   _autoPubBusy=false;
 }
@@ -24931,7 +24936,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1","studioh_bookstamps_v1"];
 // ── Settings save themselves ─────────────────────────────────────────────────
 // "We have so many publish to serve, publish to this. Export this, and that. And 'pick
 // server or pick local'. I've never seen an app with all this shit." Correct — and the
@@ -25006,6 +25011,7 @@ const CFG_LIVE={
   // intention, two different behaviours, and a button to reconcile the difference I had
   // created. applyPriceBook keeps ucSet and _spec, so a price typed onto a job line is
   // still the user's and is not overwritten.
+  studioh_bookstamps_v1:  v=>{ try{ bookSyncFrom(_j(v,{})); }catch(e){} },
   studioh_pricebook_v5:   v=>{ const o=_j(v,null); if(!o) return; PB=o;
                                try{ applyPriceBook(); }catch(e){}
                                try{ PB.forEach(c=>refreshCatTotals&&refreshCatTotals(c.id)); }catch(e){}
@@ -25013,6 +25019,53 @@ const CFG_LIVE={
                                try{ renderPriceBook(); }catch(e){} }
 };
 function _cfgPaintGoods(){ try{ goodsRepaint("mat"); }catch(e){} try{ goodsRepaint("fur"); }catch(e){} }
+
+// ── Books ride the settings poll ────────────────────────────────────────────
+// "The different computers, if logged in under the same account, should have the exact same
+// settings and numbers and everything."
+//
+// Settings were live; the BOOKS were not. Plant Book, Materials, Furnishings and the rest
+// each save themselves to their own server document, but nothing ever told the other
+// machine one had moved — so a plant edited here appeared there on the next reload, or not
+// at all. They are far too big to poll: the plant book alone is 5.2MB, and asking "anything
+// new?" by downloading it is not a question, it is a transfer.
+//
+// So they announce themselves through the settings bundle instead. Saving a book writes its
+// timestamp into one small shared key, which rides the cheap cfgstamp poll that already
+// runs every 8 seconds and on every touch. The other device sees the marker move and pulls
+// that ONE book. No new endpoint, no deploy, and the big documents are only ever fetched
+// when there is genuinely something in them.
+const BOOK_STAMP_KEY="studioh_bookstamps_v1", BOOK_SEEN_KEY="studioh_bookseen_v1";
+function bookStamps(){ try{ return JSON.parse(localStorage.getItem(BOOK_STAMP_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function bookSeen(){ try{ return JSON.parse(localStorage.getItem(BOOK_SEEN_KEY)||"{}")||{}; }catch(e){ return {}; } }
+// Called after a book has actually reached the server. Writing this key is what schedules
+// the settings save, so the announcement travels on the back of the next one.
+function bookStampSet(name){
+  const t=bookStamps(), now=new Date().toISOString();
+  t[name]=now;
+  try{ localStorage.setItem(BOOK_STAMP_KEY,JSON.stringify(t)); }catch(e){}
+  // We wrote it, so we have it — never pull our own save back down.
+  const seen=bookSeen(); seen[name]=now;
+  try{ localStorage.setItem(BOOK_SEEN_KEY,JSON.stringify(seen)); }catch(e){}
+}
+const BOOK_PULL={
+  plants: async()=>{ await masterBookLoad(true); try{ renderPlantBook(); }catch(e){} },
+  materials: async()=>{ await goodsPull("materials",true); _cfgPaintGoods(); },
+  furnishings: async()=>{ await goodsPull("furnishings",true); _cfgPaintGoods(); }
+};
+let _bookPulling=false;
+async function bookSyncFrom(remote){
+  if(_bookPulling) return; _bookPulling=true;
+  try{
+    const seen=bookSeen();
+    for(const name of Object.keys(remote||{})){
+      const fn=BOOK_PULL[name]; if(!fn) continue;
+      if(seen[name] && seen[name]>=remote[name]) continue;   // already have this one
+      try{ await fn(); seen[name]=remote[name]; }catch(e){}
+    }
+    try{ localStorage.setItem(BOOK_SEEN_KEY,JSON.stringify(seen)); }catch(e){}
+  } finally { _bookPulling=false; }
+}
 // Applies what a pull brought down, into the running app. Returns false if any key had no
 // live handler, which is what puts the page on the stale list.
 function cfgApplyLive(applied){
@@ -25564,7 +25617,8 @@ const CFG_KEY_LABEL={
   studioh_brandblock_v1:"Removed brands",
   studioh_brandperms_v1:"Brand permissions",
   studioh_productmedia_v1:"Product media and sources",
-  studioh_shvizcfg_v1:"Studio H render style"
+  studioh_shvizcfg_v1:"Studio H render style",
+  studioh_bookstamps_v1:"Library update markers"
 };
 
 // _cfgResolveConflicts() lived here — the "Use the server's copy / Keep this device's
@@ -25805,7 +25859,7 @@ async function repairBrokenImages(){
   if(confirm(broken.length+" image link(s) are broken (won't load — usually R2 not deployed yet).\n\nClear those dead links so each plant shows the 🖼 fetch-photo button and you can re-add an image? Working images and all other data stay untouched.\n\nTIP: if your R2 bucket simply isn't deployed yet, Cancel, deploy the worker, and these may come back on their own.")){
     broken.forEach(x=>{ x.p.img=""; x.p.imgAlts=[]; delete x.p._imgIdx; x.p.imgFlag=false; delete x.p.imgAI; });
     plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook();
-    setSt("Cleared "+broken.length+" broken links. Use 🖼 fetch photo (or regenerate), then ☁ Publish master.","var(--gm)");
+    setSt("Cleared "+broken.length+" broken links. Use 🖼 fetch photo, or regenerate.","var(--gm)");
   } else { setSt(broken.length+" broken links found — left as-is so you can fix R2 first.","#B23F3C"); }
 }
 async function testR2Storage(){
@@ -26224,7 +26278,7 @@ function openDuplicates(){ let d=document.getElementById("dup-modal"); if(d) d.r
 function deleteDupPlant(kind,id){ PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(p=>p.id!==id); plantBookSave(); openDuplicates(); if(typeof renderPlantBook==="function") renderPlantBook(); }
 function deleteAllDupExtras(){ const groups=findDuplicateGroups(); groups.forEach(g=>g.sort((a,b)=>_dupScore(b.p)-_dupScore(a.p))); let n=0;
   groups.forEach(g=>{ g.slice(1).forEach(x=>{ PLANT_DB[x.kind]=(PLANT_DB[x.kind]||[]).filter(p=>p.id!==x.p.id); n++; }); });
-  plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); openDuplicates(); alert("Deleted "+n+" duplicate copies. Click ☁ Publish master to save to the server.");
+  plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); openDuplicates(); alert("Deleted "+n+" duplicate copies. Saving to the server…"+"aster to save to the server.");
 }
 function openFillImages(){ let d=document.getElementById("fillimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fillimg-modal";
   const blanks=_allPlantsFlat().filter(x=>!x.p.img).length;
@@ -26257,8 +26311,8 @@ async function fillMissingImages(){ const licSel=(document.querySelector('input[
   // auto-publish to the server so images persist (if admin key already saved)
   try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(key&&ep&&found>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (image fill)"})}); const dd=await rr.json(); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Server save failed — click ☁ Publish master."); }
-    else if(found>0 && prog){ prog.innerHTML+=`<br><b>Click ☁ Publish master to save these to the server.</b>`; }
-  }catch(e){ if(prog) prog.innerHTML+=`<br>⚠ Click ☁ Publish master to save to the server.`; }
+    else if(found>0 && prog){ prog.innerHTML+=`<br><b>Saving to the server…</b>`; }
+  }catch(e){ if(prog) prog.innerHTML+=`<br>⚠ Not saved yet — it will retry on its own.`; }
   if(startBtn){ startBtn.textContent="Start"; startBtn.disabled=false; }
   if(typeof renderPlantBook==="function") renderPlantBook();
 }
@@ -27405,7 +27459,7 @@ async function fillSunRanges(){ const prog=document.getElementById("fillsun-prog
     if(key&&ep&&ok>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`;
       const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (sun ranges)"})}); const dd=await rr.json();
       if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Click ☁ Publish master to save."); }
-    else if(ok>0&&prog) prog.innerHTML+=`<br><b>Click ☁ Publish master to save these.</b>`;
+    else if(ok>0&&prog) prog.innerHTML+=`<br><b>Saving to the server…</b>`;
   }catch(e){}
   if(sb){ sb.textContent="Start"; sb.disabled=false; } if(typeof renderPlantBook==="function") renderPlantBook();
 }
@@ -27426,7 +27480,7 @@ async function fillMissingDetails(){ const prog=document.getElementById("filldet
   plantBookSave(); if(prog) prog.innerHTML=`<b>Done.</b> ${ok} plants filled${_detStop?' (stopped)':''}.`;
   try{ let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){} const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
     if(key&&ep&&ok>0){ if(prog) prog.innerHTML+=`<br><span style="color:var(--gm)">Publishing to server…</span>`; const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (details)"})}); const dd=await rr.json(); if(prog) prog.innerHTML=prog.innerHTML.replace("Publishing to server…", dd&&dd.ok?"✓ Saved to server.":"⚠ Click ☁ Publish master to save."); }
-    else if(ok>0&&prog) prog.innerHTML+=`<br><b>Click ☁ Publish master to save these.</b>`;
+    else if(ok>0&&prog) prog.innerHTML+=`<br><b>Saving to the server…</b>`;
   }catch(e){}
   if(sb){ sb.textContent="Start"; sb.disabled=false; } if(typeof renderPlantBook==="function") renderPlantBook();
 }
@@ -35040,8 +35094,11 @@ function _renderPlantBook_inner(){
             <button onclick="openDuplicates()">🔍&nbsp; Find duplicates</button>
             <div class="div"></div>
             <div class="mh">Sync</div>
-            <button onclick="masterBookLoad(false)">☁&nbsp; Pull master</button>
-            <button onclick="masterBookPublish()">☁&nbsp; Publish master</button>
+            <!-- "Pull master" and "Publish master" stood here. The Plant Book saves
+                 itself two seconds after a change and announces itself to the other
+                 machine through the settings poll, so both buttons could only ever
+                 repeat what had already happened. Backups stay: that is history, not
+                 sync. -->
             <button onclick="openBackups()">↺&nbsp; Backups</button>
           </div>
         </div>
