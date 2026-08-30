@@ -36,6 +36,7 @@ export default {
     if(body && body.type==="plantimage") return handlePlantImage(body, origin);
     if(body && body.type==="loadbook")  return handleLoadBook(env, origin);
     if(body && body.type==="savebook")  return handleSaveBook(body, env, origin);
+    if(body && body.type==="cfgstamp")  return handleCfgStamp(env, origin);
     if(body && body.type==="loadconfig") return handleLoadConfig(env, origin);
     if(body && body.type==="saveconfig") return handleSaveConfig(body, env, origin);
     if(body && body.type==="verifyimage") return handleVerifyImage(body, origin);
@@ -355,6 +356,21 @@ async function handleRestoreBackup(body, env, origin){
 
 // ---- Shared pricing/config (KV) ----
 const CFG_KEY = "config_v1";
+// "Has anything changed?" — the whole answer in ~60 bytes. Every device polls this every
+// few seconds so a change made on one shows up on the other without a reload; returning
+// the entire settings bundle to say "no" would be a few hundred KB each time, which on a
+// cellular iPad is the difference between live sync and a data bill. The stamp is written
+// alongside the bundle on save, so this never has to read the bundle at all.
+async function handleCfgStamp(env, origin){
+  if(!env.PLANTS_KV) return json({error:"No KV bound (PLANTS_KV)"},500,origin);
+  try{
+    let s=await env.PLANTS_KV.get(CFG_KEY+"_stamp");
+    // Older bundles were saved before the stamp key existed. Fall back once, and the next
+    // save writes it, so this path stops being taken.
+    if(!s){ const raw=await env.PLANTS_KV.get(CFG_KEY); if(raw){ try{ s=(JSON.parse(raw)||{}).savedAt||""; }catch(e){} } }
+    return json({ok:true, savedAt:s||""},200,origin);
+  }catch(e){ return json({error:"Stamp failed",detail:String(e)},502,origin); }
+}
 async function handleLoadConfig(env, origin){
   if(!env.PLANTS_KV) return json({error:"No KV bound (PLANTS_KV)"},500,origin);
   try{ const raw=await env.PLANTS_KV.get(CFG_KEY); if(!raw) return json({found:false},200,origin);
@@ -368,7 +384,15 @@ async function handleSaveConfig(body, env, origin){
   if(!body.config || typeof body.config!=="object") return json({error:"No config provided"},400,origin);
   const str=JSON.stringify(body.config);
   if(str.length > MAX_BOOK_BYTES) return json({error:"Config too large"},413,origin);
-  try{ await env.PLANTS_KV.put(CFG_KEY, str); return json({ok:true, savedAt:new Date().toISOString()},200,origin); }
+  try{
+    await env.PLANTS_KV.put(CFG_KEY, str);
+    // The stamp is written second and separately so the cheap poll never has to read the
+    // bundle. Its value is the client's own savedAt, which is what the client compares
+    // against — a fresh timestamp here would differ from the one inside the bundle and
+    // every device would pull on every poll forever.
+    try{ await env.PLANTS_KV.put(CFG_KEY+"_stamp", String((body.config&&body.config.savedAt)||"")); }catch(e){}
+    return json({ok:true, savedAt:(body.config&&body.config.savedAt)||new Date().toISOString()},200,origin);
+  }
   catch(e){ return json({error:"Save failed",detail:String(e)},502,origin); }
 }
 

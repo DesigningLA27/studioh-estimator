@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1299</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1300</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24859,13 +24859,131 @@ let _cfgSaveFailed=false;
   try{
     const raw=localStorage.setItem.bind(localStorage);
     localStorage.setItem=function(k,v){
+      let stamp=false;
+      // Read the OLD value first: a write is not a change, and only a real change should
+      // move the key's clock. Rewriting a key with what it already held must not make this
+      // device look newer than another that genuinely edited it.
+      try{ stamp = !_cfgApplying && SHARED_CFG_KEYS.indexOf(k)>=0 && localStorage.getItem(k)!==v; }catch(e){}
       raw(k,v);
-      try{ if(!_cfgApplying && SHARED_CFG_KEYS.indexOf(k)>=0) cfgSaveSoon(); }catch(e){}
+      if(stamp){ try{ cfgStampKey(k); cfgSaveSoon(); }catch(e){} }
     };
   }catch(e){}
 })();
+// ── Live: the other machine's change lands on this screen, not on your next reload ──
+// "Live push. So both computers always have the same thing on the screen, without having
+// to reload or do anything."
+//
+// Saving already happens in two seconds. The other half is RECEIVING: this device asks
+// what changed while you are looking at it, and puts the answer straight into the running
+// app. The app kept these settings in module-level variables read once at boot, which is
+// why the old code could only offer a full page reload — reloading is not "live", it is
+// throwing the screen away and hoping you were not mid-sentence.
+//
+// So each key that a screen actually reads names how to re-read it. Anything without an
+// entry cannot be swapped safely under a live screen; it is marked stale instead and
+// refreshed the moment the tab is not being looked at, which you never see.
+const _j=(v,d)=>{ try{ const o=JSON.parse(v); return o==null?d:o; }catch(e){ return d; } };
+let _cfgStale=false;
+const CFG_LIVE={
+  studioh_productmedia_v1:v=>{ GOODS_PERM=_j(v,{}); try{ _goodsPermApply(); }catch(e){} _cfgPaintGoods(); },
+  studioh_brandperms_v1:  v=>{ BRAND_PERMS=_j(v,{}); _cfgPaintGoods(); },
+  studioh_brandblock_v1:  v=>{ GOODS_BRAND_BLOCK=_j(v,{}); _cfgPaintGoods(); },
+  studioh_shvizcfg_v1:    v=>{ SHVIZ_CFG=Object.assign({},SHVIZ_CFG_DEFAULT,_j(v,{}));
+                               try{ if(typeof _stOpen!=="undefined" && _stOpen) _stRender(); }catch(e){} },
+  studioh_mfgframe_v1:    v=>{ MFG_FRAME=_j(v,{}); try{ _mfgApplyFrames(); }catch(e){} _cfgPaintGoods(); },
+  studioh_mfgedit_v1:     v=>{ MFG_EDIT=_j(v,{}); _cfgPaintGoods(); },
+  studioh_favs_v1:        v=>{ FAVS=new Set(_j(v,[])); try{ renderPlantBook(); }catch(e){} },
+  studioh_pricebook_v5:   v=>{ const o=_j(v,null); if(!o) return; PB=o;
+                               try{ renderPriceBook(); }catch(e){} }
+};
+function _cfgPaintGoods(){ try{ goodsRepaint("mat"); }catch(e){} try{ goodsRepaint("fur"); }catch(e){} }
+// Applies what a pull brought down, into the running app. Returns false if any key had no
+// live handler, which is what puts the page on the stale list.
+function cfgApplyLive(applied){
+  let allLive=true;
+  Object.keys(applied||{}).forEach(k=>{
+    const fn=CFG_LIVE[k];
+    if(!fn){ allLive=false; return; }
+    try{ fn(applied[k]); }catch(e){ allLive=false; }
+  });
+  if(!allLive) _cfgStale=true;
+  return allLive;
+}
+// A stale screen is refreshed when you are not watching it — on the way out, or on a tab
+// you have come back to after leaving. Never mid-edit, and never as a surprise.
+try{
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="visible"){ cfgPollNow(); return; }
+    if(_cfgStale && !_cfgSaveTm && !_cfgSaveBusy) location.reload();
+  });
+}catch(e){}
+// ── The poll ────────────────────────────────────────────────────────────────
+// Every 8 seconds while this tab is in front, and immediately when you come back to it.
+// A tab in the background asks for nothing: it has no screen to keep current, and the
+// visibility handler above catches it up the moment it is looked at again.
+let _cfgPollTm=null, _cfgPollBusy=false;
+// Asking "has anything changed?" must not cost what "give me everything" costs — the
+// bundle is a few hundred KB and an iPad on cellular would be pulling it every 8 seconds
+// to be told no. `cfgstamp` returns just the timestamp. If the worker has not been
+// updated yet the poll still works, on the full bundle and a slower clock, so this ships
+// without waiting on a deploy.
+let _cfgStampOk=null;      // null = not tried yet, false = worker does not have it
+async function cfgServerStamp(){
+  if(_cfgStampOk===false) return undefined;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return undefined;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"cfgstamp"})});
+    const d=await r.json();
+    if(d&&d.ok){ _cfgStampOk=true; return d.savedAt||""; }
+    // A valid reply WITHOUT ok means this worker does not know the type — that is a
+    // permanent answer, so stop asking and drop to the slower rhythm. A thrown fetch is a
+    // network blip and must NOT latch, or one dropped request would leave the device
+    // pulling the whole bundle for the rest of the session.
+    _cfgStampOk=false;
+    if(_cfgPollTm) cfgPollStart();
+  }catch(e){}
+  return undefined;
+}
+async function cfgPollNow(){
+  if(_cfgPollBusy || !_cfgAutoOn) return;
+  if(_cfgSaveTm || _cfgSaveBusy) return;      // our own edit is in flight — let it land first
+  _cfgPollBusy=true;
+  try{
+    const stamp=await cfgServerStamp();
+    let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
+    // Only fetch the bundle when the stamp says there is something new in it.
+    if(stamp===undefined || stamp!==applied) await configLoad(true);
+  }catch(e){}
+  _cfgPollBusy=false;
+}
+function cfgPollStart(){
+  if(_cfgPollTm) clearInterval(_cfgPollTm);
+  const every=(_cfgStampOk===false)?20000:8000;
+  _cfgPollTm=setInterval(()=>{ if(document.visibilityState==="visible") cfgPollNow(); }, every);
+}
+// ── When each setting last changed ───────────────────────────────────────────
+// "Whichever computer has made the most current change, that is the one that saves…
+// there should only be one user per account." That is the whole model, and it is only
+// answerable if each setting knows when it last changed — a single stamp on the bundle
+// cannot say whether YOUR labour rates or the server's price book is the newer edit.
+//
+// Stored per key, and sent with the bundle so every device can compare like with like.
+// Local time is only ever used for ordering YOUR OWN edits across YOUR OWN machines, so
+// a clock a few seconds out is harmless; a clock hours out would decide wrongly, which is
+// the one real weakness of this model and the reason a lost value is still backed up.
+const CFG_TIMES_KEY="studioh_cfg_times";
+function cfgTimes(){ try{ return JSON.parse(localStorage.getItem(CFG_TIMES_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function cfgStampKey(k,when){
+  const t=cfgTimes(); t[k]=when||new Date().toISOString();
+  try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(t)); }catch(e){}
+}
+// An unstamped key predates this feature. Treating it as "very old" is deliberate: a
+// device that has never recorded when it changed something cannot claim to be the newer
+// edit, so the side that DOES know wins. Both unknown → the server, which is shared.
+function cfgTimeOf(times,k){ return (times&&times[k])||""; }
 function cfgSaveSoon(){
-  if(!_cfgAutoOn || _cfgConflictOpen) return;
+  if(!_cfgAutoOn) return;
   if(_cfgSaveTm) clearTimeout(_cfgSaveTm);
   _cfgSaveTm=setTimeout(()=>{ _cfgSaveTm=null; cfgSaveNow(); },2000);
   try{ _renderPbSync(); }catch(e){}
@@ -24873,7 +24991,6 @@ function cfgSaveSoon(){
 async function cfgSaveNow(){
   if(_cfgSaveTm){ clearTimeout(_cfgSaveTm); _cfgSaveTm=null; }
   if(!_cfgAutoOn) return false;
-  if(_cfgConflictOpen) return false;   // see the note on _cfgConflictOpen
   // A save arriving while one is in flight QUEUES rather than returning. Dropping it is
   // how a rename typed at the wrong moment was lost once already — same fix as goodsPush.
   if(_cfgSaveBusy){ _cfgSaveAgain=true; return false; }
@@ -24936,22 +25053,42 @@ async function _saveConfigSilent(){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   if(!key) return;
-  let base={};
+  let base={}, baseTimes={};
   try{
     const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({type:"loadconfig"})});
     const dd=await rr.json();
-    if(dd&&dd.found&&dd.config&&dd.config.data) base=dd.config.data;
-    else if(!(dd&&dd.found)) base={};        // genuinely nothing published yet — fine
+    if(dd&&dd.found&&dd.config&&dd.config.data){ base=dd.config.data; baseTimes=dd.config.times||{}; }
+    else if(!(dd&&dd.found)){ base={}; baseTimes={}; }   // nothing published yet — fine
     else return false;                       // malformed: do not risk overwriting
   }catch(e){ return false; }                 // could not read: do not publish blind
-  const cfg={ savedAt:new Date().toISOString(), data:Object.assign({},base) };
-  SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
+  // NEWEST EDIT WINS, PER KEY. Overlaying every local key unconditionally was right while
+  // saving was a deliberate act — you pressed Publish, you meant it. Now that every device
+  // saves by itself, an old iPad coming out of a pocket would quietly overwrite work done
+  // on the laptop an hour ago. So a local value only goes up if this device changed it
+  // more recently than whoever last changed it on the server.
+  const mine=cfgTimes(), srvT=(baseTimes||{});
+  const cfg={ savedAt:new Date().toISOString(), data:Object.assign({},base), times:Object.assign({},srvT) };
+  SHARED_CFG_KEYS.forEach(k=>{
+    let v=null; try{ v=localStorage.getItem(k); }catch(e){}
+    if(v==null) return;                       // nothing here to offer
+    if(base[k]===undefined){                  // server has never had it — send it
+      cfg.data[k]=v; cfg.times[k]=cfgTimeOf(mine,k)||cfg.savedAt; return; }
+    if(base[k]===v) return;                   // already agree, nothing to decide
+    const a=cfgTimeOf(mine,k), b=cfgTimeOf(srvT,k);
+    if(a && (!b || a>b)){ cfg.data[k]=v; cfg.times[k]=a; }
+    // else the server's copy is the newer edit (or this device cannot say when it changed)
+    // — leave it alone. configLoad brings it down on the next pull.
+  });
   try{
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({type:"saveconfig",key,config:cfg})});
     const d=await r.json();
-    try{ if(d&&d.ok&&cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
+    if(d&&d.ok){
+      // Adopt the merged clock, so a key the server won is no longer claimed as ours.
+      try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(cfg.times)); }catch(e){}
+      try{ if(cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
+    }
     return d&&d.ok;
   }catch(e){ return false; }
 }
@@ -24982,45 +25119,11 @@ function _cfgMarkSynced(){ try{ localStorage.setItem("studioh_cfg_fp",_cfgFp());
 // to send.
 function _cfgDirty(){ const s=_cfgSyncedFp(); if(s) return _cfgFp()!==s;
   return SHARED_CFG_KEYS.some(k=>{ try{ return localStorage.getItem(k)!=null; }catch(e){ return false; } }); }
-let _cfgPushTimer=null,_cfgPushBusy=false;
-function _cfgSchedulePush(){
-  if(_cfgPushTimer) clearTimeout(_cfgPushTimer);
-  _cfgPushTimer=setTimeout(()=>{ _cfgPushTimer=null; _cfgAutoPush(); }, 90*1000);
-}
-// Push this device's config up. Aborts if the server moved since we last applied it —
-// that means another device published and a blind push would erase their work.
-async function _cfgAutoPush(){
-  if(_cfgPushBusy) return;
-  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
-  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
-  if(!key) return;               // no admin key → never push silently
-  if(!_cfgDirty()) return;
-  _cfgPushBusy=true;
-  try{
-    let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
-    const sr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadconfig"})});
-    const sd=await sr.json();
-    const srvStamp=(sd&&sd.found&&sd.config&&sd.config.savedAt)||"";
-    if(srvStamp && applied && srvStamp!==applied){
-      _cfgPushBusy=false;
-      // Let configLoad's per-key diff decide -- most of the time the server moved on a
-      // DIFFERENT key than the one this device is dirty on, so it merges silently and
-      // this device's push resumes on its next 30s tick with nothing to ask about.
-      if(!_cfgConflictAsked) setTimeout(()=>configLoad(true),200);
-      return;
-    }
-    const cfg={ savedAt:new Date().toISOString(), data:{} };
-    SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})});
-    const d=await r.json();
-    if(d&&d.ok){
-      try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
-      _cfgMarkSynced();
-      _toast("Pricing synced ✓","#4C7B3D");
-    }
-  }catch(e){}
-  _cfgPushBusy=false;
-}
+// The 90-second _cfgAutoPush() lived here. Every one of its callers writes through
+// localStorage, so the hook above already scheduled a 2-second save before this timer was
+// even set — it was doing the same job, 88 seconds later, with its own separate merge
+// rules. One save path, not two.
+function _cfgSchedulePush(){ try{ cfgSaveSoon(); }catch(e){} }
 // Sync state, shown in the Price Book header so a device is never silently out of step.
 function _renderPbSync(){
   const el=document.getElementById("pb-sync"); if(!el) return;
@@ -25106,58 +25209,12 @@ const CFG_KEY_LABEL={
   studioh_shvizcfg_v1:"Studio H render style"
 };
 
-let _cfgConflictAsked=false;
-// Auto-save must not run while this dialog is open. Making settings save themselves
-// created a race that did not exist while saving was a button: configLoad schedules this
-// dialog and returns, so auto-save would arm and push THIS device's disputed copy to the
-// server seconds before you were asked which copy to keep — deciding the question by
-// timing, and in the dark. Nothing saves until the answer is in.
-let _cfgConflictOpen=false;
-async function _cfgResolveConflicts(keys,serverConfig,serverStamp,toApply){
-  _cfgConflictOpen=true;
-  try{ return await _cfgResolveConflictsInner(keys,serverConfig,serverStamp,toApply); }
-  finally{ _cfgConflictOpen=false; try{ if(_cfgDirty()) cfgSaveSoon(); }catch(e){} }
-}
-async function _cfgResolveConflictsInner(keys,serverConfig,serverStamp,toApply){
-  const names=keys.map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k));
-  // Everything the server changed that this device had NOT touched. Not in dispute, so
-  // it is written on either branch below — see the note at the call site.
-  const undisputed=toApply||{};
-  const landUndisputed=()=>{ let n=0;
-    _cfgApplying++;
-    Object.keys(undisputed).forEach(k=>{ try{ localStorage.setItem(k,undisputed[k]); n++; }catch(e){} });
-    _cfgApplying--;
-    return n; };
-  // The title used to read "Pricing changed in two places" for every key, so a clash in
-  // brand permissions or an AI image setting announced itself as a pricing problem.
-  // Name the thing that actually changed.
-  const what=(names.length===1)?names[0]:"Your shared library settings";
-  const i=await askDlg({title:what+" changed in two places",
-    body:(names.join(", "))+(names.length>1?" were":" was")+" edited on this device AND on another device since they last synced. Nothing is deleted either way — the copy you don't keep is backed up and restorable from Settings.",
-    actions:["Use the server's copy","Keep this device's copy"]});
-  if(i===0){
-    _cfgBackupLocal(keys);
-    _cfgApplying++;
-    keys.forEach(k=>{ const v=serverConfig.data[k]; if(v!=null){ try{ localStorage.setItem(k,v); }catch(e){} } });
-    _cfgApplying--;
-    landUndisputed();
-    try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
-    _cfgSaveSnapshot(); _cfgMarkSynced();
-    _toast("Using the server's copy — your version is backed up in Settings.","#4C7B3D");
-    setTimeout(()=>location.reload(),900);
-  } else {
-    // Keeping this device's copy of the DISPUTED keys must not also throw away the
-    // undisputed ones — that was how an iPad ended up permanently without the Studio H
-    // renders while the server had them all along.
-    const n=landUndisputed();
-    const ok=await _saveConfigSilent();
-    if(ok){ _cfgSaveSnapshot(); _cfgMarkSynced();
-      _toast("Kept this device's copy"+(n?(" · pulled "+n+" other update"+(n===1?"":"s")):"")+".","#4C7B3D"); }
-    else _toast("Couldn't publish — try again from Settings.","#B23F3C");
-    if(n) setTimeout(()=>location.reload(),900);
-  }
-  try{ _renderPbSync(); }catch(e){}
-}
+// _cfgResolveConflicts() lived here — the "Use the server's copy / Keep this device's
+// copy" dialog. It asked a question that only makes sense with two people on one account.
+// With one user on two machines both copies are yours, so the later edit is the one you
+// meant; configLoad decides it per key from the clock and says nothing. The value it
+// replaces is still backed up, because a wrong device clock is the one way this can cost
+// you something.
 async function configLoad(silent,force){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ if(!silent) alert("No worker connected."); return; }
   try{
@@ -25174,7 +25231,8 @@ async function configLoad(silent,force){
     // against, so a local default (not a real edit) must never read as "changed" and
     // trigger a conflict. Trust the server wholesale on a device's first-ever sync.
     const freshDevice=!Object.keys(snap).length;
-    const toApply={}, conflicts=[];
+    const toApply={}, supersededed=[];
+    const myTimes=cfgTimes(), srvTimes=d.config.times||{};
     SHARED_CFG_KEYS.forEach(k=>{
       const srvVal=d.config.data[k]; let locVal=null; try{ locVal=localStorage.getItem(k); }catch(e){}
       if(k==="studioh_favs_v1"){ // favorites always union — never a conflict, never a loss
@@ -25183,31 +25241,31 @@ async function configLoad(silent,force){
         return;
       }
       if(freshDevice){ if(srvVal!=null) toApply[k]=srvVal; return; }
+      if(srvVal===undefined || srvVal===locVal) return;   // nothing to decide
       const known=Object.prototype.hasOwnProperty.call(snap,k)?snap[k]:undefined;
       const localChanged = known!==undefined ? (locVal!==known) : (locVal!=null);
-      const serverChanged = srvVal!==undefined && (known!==undefined ? (srvVal!==known) : true);
-      if(serverChanged && !localChanged){ if(srvVal!=null) toApply[k]=srvVal; }
-      else if(!serverChanged){ /* only local changed, or neither -- keep local as-is */ }
-      else conflicts.push(k);
+      const serverChanged = known!==undefined ? (srvVal!==known) : true;
+      if(serverChanged && !localChanged){ if(srvVal!=null) toApply[k]=srvVal; return; }
+      if(!serverChanged) return;                          // only local moved — it pushes
+      // BOTH SIDES MOVED. This used to stop everything and ask "the server's copy or this
+      // device's copy" — a question with no meaning on a single-user account, because both
+      // copies are yours. It is just you on two machines, so the later edit is the one you
+      // meant. Whichever moved most recently wins, per key, silently.
+      const a=cfgTimeOf(myTimes,k), b=cfgTimeOf(srvTimes,k);
+      if(b && (!a || b>a)){
+        // The server's edit is newer, so the local value is about to go. Keep a copy —
+        // this is the one place last-write-wins can cost you something, and a wrong clock
+        // is the way it would happen.
+        supersededed.push(k);
+        if(srvVal!=null) toApply[k]=srvVal;
+      }
+      // else this device holds the later edit; leave it, the save takes it up.
     });
+    if(supersededed.length) _cfgBackupLocal(supersededed);
 
-    if(conflicts.length){
-      // toApply is passed through, and this is the whole bug it fixes. Previously this
-      // branch returned and DISCARDED every non-conflicting update in the same round —
-      // then _cfgResolveConflicts stamped studioh_cfg_applied with the server's version,
-      // so the next pull early-returned and those keys could never arrive again. One
-      // conflicting key permanently blocked every unrelated one.
-      //
-      // A key that is NOT in conflict is by definition not in dispute: the server changed
-      // it and this device did not. It should land whichever copy you keep for the
-      // handful that ARE in dispute.
-      if(silent){
-        if(_cfgConflictAsked) return;             // ask once per load, never nag
-        _cfgConflictAsked=true;
-        setTimeout(()=>_cfgResolveConflicts(conflicts,d.config,serverStamp,toApply),600);
-      } else await _cfgResolveConflicts(conflicts,d.config,serverStamp,toApply);
-      return;
-    }
+    // The two-sided conflict dialog stood here. There is no second person to disagree
+    // with — one account, one user, two machines — so the later edit is simply the one
+    // that was meant, and it is applied without stopping to ask.
 
     if(!Object.keys(toApply).length){ // nothing actually differed -- just move the marker forward
       try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
@@ -25220,16 +25278,31 @@ async function configLoad(silent,force){
     _cfgApplying++;
     Object.keys(toApply).forEach(k=>{ try{ localStorage.setItem(k,toApply[k]); }catch(e){} });
     _cfgApplying--;
+    // Adopt the server's clock for what we just took, or this device would later claim
+    // those keys as its own newer edit and push them straight back.
+    (function(){ const t=cfgTimes();
+      Object.keys(toApply).forEach(k=>{
+        // Favourites are a UNION, so the applied value is neither side's — it is a new
+        // edit, and needs a new stamp or it will never propagate to the other machine.
+        if(k==="studioh_favs_v1"){ t[k]=new Date().toISOString(); return; }
+        if(srvTimes[k]) t[k]=srvTimes[k];
+      });
+      try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(t)); }catch(e){} })();
     // An old server copy carries the pre-correction lighting prices. Fix them in
     // place before the reload, so the corrected numbers are what actually load —
     // and this device becomes dirty, so it pushes the correction back up.
     try{ _lgtFixStoredPrices(); }catch(e){}
     try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
     _cfgSaveSnapshot(); _cfgMarkSynced();
-    if(silent){ // avoid reload loop: only reload once per session
-      let did=""; try{ did=sessionStorage.getItem("studioh_cfg_reloaded")||""; }catch(e){}
-      if(did!==serverStamp){ try{ sessionStorage.setItem("studioh_cfg_reloaded",serverStamp); }catch(e){} location.reload(); }
-    } else { alert("Pricing updated from the server."); location.reload(); }
+    // This used to reload the page. A reload is not live sync — it is discarding the
+    // screen, and doing that under someone who is mid-edit on the other machine's
+    // schedule is worse than being slightly behind. What arrived goes into the running
+    // app instead; only a key with no live handler leaves the page stale, and that is
+    // refreshed when the tab is not in front.
+    const live=cfgApplyLive(toApply);
+    const n=Object.keys(toApply).length;
+    if(!silent) _toast(live?("Updated from your other device ("+n+")"):"Updated — refreshing","#4C7B3D");
+    if(!live && document.visibilityState!=="visible") location.reload();
   }catch(e){ if(!silent) alert("Couldn't reach the server."); }
 }
 // Auto-save is armed only once the boot pull has finished, so this device can never write
@@ -25239,7 +25312,8 @@ setTimeout(()=>{
   // soon as it has SCHEDULED a conflict dialog, so arming and pushing immediately would
   // settle a two-sided disagreement by whoever got to the network first.
   const arm=()=>{ _cfgAutoOn=true;
-    setTimeout(()=>{ try{ if(!_cfgConflictOpen && _cfgDirty()) cfgSaveSoon(); }catch(e){} },2500); };
+    setTimeout(()=>{ try{ if(_cfgDirty()) cfgSaveSoon(); }catch(e){} },2500);
+    try{ cfgPollStart(); }catch(e){} };
   try{ const p=configLoad(true); (p&&p.then) ? p.then(arm,arm) : arm(); }catch(e){ arm(); }
 }, 1200);
 function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); const d=new Date(); const p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; a.href=url; a.download=`plantbook-data_${stamp}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
