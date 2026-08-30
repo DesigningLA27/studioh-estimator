@@ -24865,7 +24865,7 @@ let _cfgSaveFailed=false;
   }catch(e){}
 })();
 function cfgSaveSoon(){
-  if(!_cfgAutoOn) return;
+  if(!_cfgAutoOn || _cfgConflictOpen) return;
   if(_cfgSaveTm) clearTimeout(_cfgSaveTm);
   _cfgSaveTm=setTimeout(()=>{ _cfgSaveTm=null; cfgSaveNow(); },2000);
   try{ _renderPbSync(); }catch(e){}
@@ -24873,6 +24873,7 @@ function cfgSaveSoon(){
 async function cfgSaveNow(){
   if(_cfgSaveTm){ clearTimeout(_cfgSaveTm); _cfgSaveTm=null; }
   if(!_cfgAutoOn) return false;
+  if(_cfgConflictOpen) return false;   // see the note on _cfgConflictOpen
   // A save arriving while one is in flight QUEUES rather than returning. Dropping it is
   // how a rename typed at the wrong moment was lost once already — same fix as goodsPush.
   if(_cfgSaveBusy){ _cfgSaveAgain=true; return false; }
@@ -25106,7 +25107,18 @@ const CFG_KEY_LABEL={
 };
 
 let _cfgConflictAsked=false;
+// Auto-save must not run while this dialog is open. Making settings save themselves
+// created a race that did not exist while saving was a button: configLoad schedules this
+// dialog and returns, so auto-save would arm and push THIS device's disputed copy to the
+// server seconds before you were asked which copy to keep — deciding the question by
+// timing, and in the dark. Nothing saves until the answer is in.
+let _cfgConflictOpen=false;
 async function _cfgResolveConflicts(keys,serverConfig,serverStamp,toApply){
+  _cfgConflictOpen=true;
+  try{ return await _cfgResolveConflictsInner(keys,serverConfig,serverStamp,toApply); }
+  finally{ _cfgConflictOpen=false; try{ if(_cfgDirty()) cfgSaveSoon(); }catch(e){} }
+}
+async function _cfgResolveConflictsInner(keys,serverConfig,serverStamp,toApply){
   const names=keys.map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k));
   // Everything the server changed that this device had NOT touched. Not in dispute, so
   // it is written on either branch below — see the note at the call site.
@@ -25223,7 +25235,11 @@ async function configLoad(silent,force){
 // Auto-save is armed only once the boot pull has finished, so this device can never write
 // its copy over a server copy it has not reconciled yet. See [[never-force-a-save]].
 setTimeout(()=>{
-  const arm=()=>{ _cfgAutoOn=true; try{ if(_cfgDirty()) cfgSaveSoon(); }catch(e){} };
+  // Armed after the pull, but the first save waits a further beat: configLoad returns as
+  // soon as it has SCHEDULED a conflict dialog, so arming and pushing immediately would
+  // settle a two-sided disagreement by whoever got to the network first.
+  const arm=()=>{ _cfgAutoOn=true;
+    setTimeout(()=>{ try{ if(!_cfgConflictOpen && _cfgDirty()) cfgSaveSoon(); }catch(e){} },2500); };
   try{ const p=configLoad(true); (p&&p.then) ? p.then(arm,arm) : arm(); }catch(e){ arm(); }
 }, 1200);
 function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); const d=new Date(); const p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; a.href=url; a.download=`plantbook-data_${stamp}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
