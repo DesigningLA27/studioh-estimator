@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1300</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1301</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24913,7 +24913,9 @@ function cfgApplyLive(applied){
 // you have come back to after leaving. Never mid-edit, and never as a surprise.
 try{
   document.addEventListener("visibilitychange",()=>{
-    if(document.visibilityState==="visible"){ cfgPollNow(); return; }
+    // Coming back to a tab is the exact moment you have most likely just been on the
+    // other machine, so poll at once and go back to watching closely.
+    if(document.visibilityState==="visible"){ _cfgQuiet=0; cfgPollNow(); return; }
     if(_cfgStale && !_cfgSaveTm && !_cfgSaveBusy) location.reload();
   });
 }catch(e){}
@@ -24946,21 +24948,49 @@ async function cfgServerStamp(){
   return undefined;
 }
 async function cfgPollNow(){
-  if(_cfgPollBusy || !_cfgAutoOn) return;
-  if(_cfgSaveTm || _cfgSaveBusy) return;      // our own edit is in flight — let it land first
+  // Each poll schedules the next one, so EVERY exit from here has to reschedule or the
+  // chain stops for good. Returning early because a save was in flight would have killed
+  // live sync for the rest of the session — silently, and only on the machine you had
+  // just been typing on, which is the one you would least suspect.
+  if(!_cfgAutoOn) return;
+  if(_cfgPollBusy) return;                    // that call owns the next schedule
+  if(_cfgSaveTm || _cfgSaveBusy){ cfgPollStart(); return; }  // our edit first, ask again after
   _cfgPollBusy=true;
   try{
     const stamp=await cfgServerStamp();
     let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
     // Only fetch the bundle when the stamp says there is something new in it.
-    if(stamp===undefined || stamp!==applied) await configLoad(true);
+    if(stamp===undefined || stamp!==applied){
+      const before=applied;
+      await configLoad(true);
+      let now=""; try{ now=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
+      if(now!==before) _cfgQuiet=0; else _cfgQuiet++;
+    } else _cfgQuiet++;
   }catch(e){}
   _cfgPollBusy=false;
+  cfgPollStart();
+}
+// ── How often to ask ────────────────────────────────────────────────────────
+// With `cfgstamp` deployed a poll is ~60 bytes, so 8 seconds costs nothing and it stays
+// there. WITHOUT it, each poll drags the whole 139KB bundle: at 8 seconds that is 60MB an
+// hour on an iPad's cellular, which is not a sync feature, it is a phone bill. So the
+// fallback backs off as nothing keeps happening — quick while you are switching between
+// machines, which is right after something changed, and nearly idle when you are not.
+//
+// Backing off costs less than it looks. A backgrounded tab polls not at all, and opening
+// it fires an immediate poll — and "I put the iPad down and picked up the laptop" IS that
+// moment. The interval only governs two machines awake and in front of you at once.
+let _cfgQuiet=0;
+function cfgPollDelay(){
+  if(_cfgStampOk!==false) return 8000;            // cheap: stay responsive
+  if(_cfgQuiet<4)  return 20000;                  // ~1 min of attentive polling
+  if(_cfgQuiet<10) return 60000;
+  return 300000;                                  // idle: 1.7MB/hour, twelve times less
 }
 function cfgPollStart(){
-  if(_cfgPollTm) clearInterval(_cfgPollTm);
-  const every=(_cfgStampOk===false)?20000:8000;
-  _cfgPollTm=setInterval(()=>{ if(document.visibilityState==="visible") cfgPollNow(); }, every);
+  if(_cfgPollTm) clearTimeout(_cfgPollTm);
+  _cfgPollTm=setTimeout(()=>{ if(document.visibilityState==="visible") cfgPollNow();
+    else cfgPollStart(); }, cfgPollDelay());
 }
 // ── When each setting last changed ───────────────────────────────────────────
 // "Whichever computer has made the most current change, that is the one that saves…
@@ -24984,6 +25014,7 @@ function cfgStampKey(k,when){
 function cfgTimeOf(times,k){ return (times&&times[k])||""; }
 function cfgSaveSoon(){
   if(!_cfgAutoOn) return;
+  _cfgQuiet=0;   // you are working — the other machine may be about to want this
   if(_cfgSaveTm) clearTimeout(_cfgSaveTm);
   _cfgSaveTm=setTimeout(()=>{ _cfgSaveTm=null; cfgSaveNow(); },2000);
   try{ _renderPbSync(); }catch(e){}
