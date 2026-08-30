@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1298</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1299</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6473,10 +6473,10 @@ function algoRecalc(){
     <div class="pbt-acts">
       <div class="pbx-seg" id="pb-lens"></div>
       <span class="pbt-meta"><span id="pb-sync" class="pb-sync"></span></span>
-      <div class="pbt-seg">
-        <button type="button" class="on" onclick="configPublish()" title="Publish this price book to the cloud for everyone">
-          <svg viewBox="0 0 24 24"><path d="M7 17.5a4 4 0 0 1 .6-8 5.5 5.5 0 0 1 10.6 1.4 3.6 3.6 0 0 1-.7 7.1"/><path d="M12 17v-7m0 0L9.4 12.6M12 10l2.6 2.6"/></svg>Publish</button>
-      </div>
+      <!-- The Publish button stood here. Settings now save themselves the moment they
+           change, so there is nothing left for it to do; the state it used to hide behind
+           a click is in the pb-sync label to its left. -->
+
       <input type="file" id="pb-import-file" accept=".csv" style="display:none" onchange="pbImportCsv(this.files[0])">
       <div class="pbt-more">
         <button type="button" class="pbt-dots" onclick="pbToggleMore(event)" aria-haspopup="true" aria-expanded="false" title="More actions">
@@ -24829,29 +24829,96 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
 const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1"];
-async function configPublish(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
-  const key=_adminKey(); if(!key) return;
-  const pick=await askDlg({title:"Publish your pricing?",
-    body:"This publishes your price book, nurseries, labor rates and markups as the Studio H master. Every designer's device will pull this.",
-    actions:["Cancel","Publish"]});
-  if(pick!==1) return;
-  // Same merge rule as _saveConfigSilent — see the note there. Publish must never drop a
-  // key this device happens not to hold.
-  let base={};
+// ── Settings save themselves ─────────────────────────────────────────────────
+// "We have so many publish to serve, publish to this. Export this, and that. And 'pick
+// server or pick local'. I've never seen an app with all this shit." Correct — and the
+// answer was already in the app. The Materials and Furnishings books have NO sync
+// buttons: you edit a row, it saves, and if it cannot it says so and asks for the key on
+// the spot. This gives the shared settings the same deal.
+//
+// An auto-push did exist. Three things stopped it being a save:
+//   1. `_cfgDirty()` returned FALSE on a device that had never synced (`s ? … : false`),
+//      so a fresh device never pushed anything, ever. That is why the price book still
+//      needed the button.
+//   2. It ran a 30s poll into a 90s debounce — up to two minutes behind the edit.
+//   3. No admin key was a silent no-op, so the device that could not save was the one
+//      least likely to find out.
+// Now the write itself schedules the save, it leaves in two seconds, and a device that
+// cannot save says so.
+let _cfgAutoOn=false;   // armed only after the boot pull — never write over the server
+                        // with a copy this device has not reconciled yet
+let _cfgApplying=0;     // >0 while WE are writing the server's values into localStorage
+let _cfgSaveTm=null, _cfgSaveBusy=false, _cfgSaveAgain=false, _cfgNoKeyAsked=false;
+// A save that keeps failing must not keep saying "saving…". That word is the whole
+// problem with the old model restated: something that looks like it is handling itself
+// and is not.
+let _cfgSaveFailed=false;
+// One hook, rather than an edit to each of the ~25 save functions. The point is not
+// brevity: a hook cannot be forgotten by whoever adds the 30th setting.
+(function _cfgHookWrites(){
   try{
-    const rr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"loadconfig"})});
-    const dd=await rr.json();
-    if(dd&&dd.found&&dd.config&&dd.config.data) base=dd.config.data;
-    else if(dd&&dd.found){ alert("Could not read the current master copy, so nothing was published."); return; }
-  }catch(e){ alert("Could not reach the server, so nothing was published."); return; }
-  const cfg={ savedAt:new Date().toISOString(), data:Object.assign({},base) }; SHARED_CFG_KEYS.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!=null) cfg.data[k]=v; }catch(e){} });
-  try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"saveconfig",key,config:cfg})}); const d=await r.json();
-    if(d&&d.ok){ try{ localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){} _cfgSaveSnapshot(); _cfgMarkSynced(); alert("Pricing published to master ✓"); }
-    else if(d&&/authoriz/i.test(d.error||"")){ alert("Wrong admin key. Check it in Settings → Master library access, then try again."); }
-    else alert("Publish failed: "+((d&&d.error)||"error"));
-  }catch(e){ alert("Publish failed ("+((e&&e.message)||"error")+")."); }
+    const raw=localStorage.setItem.bind(localStorage);
+    localStorage.setItem=function(k,v){
+      raw(k,v);
+      try{ if(!_cfgApplying && SHARED_CFG_KEYS.indexOf(k)>=0) cfgSaveSoon(); }catch(e){}
+    };
+  }catch(e){}
+})();
+function cfgSaveSoon(){
+  if(!_cfgAutoOn) return;
+  if(_cfgSaveTm) clearTimeout(_cfgSaveTm);
+  _cfgSaveTm=setTimeout(()=>{ _cfgSaveTm=null; cfgSaveNow(); },2000);
+  try{ _renderPbSync(); }catch(e){}
 }
+async function cfgSaveNow(){
+  if(_cfgSaveTm){ clearTimeout(_cfgSaveTm); _cfgSaveTm=null; }
+  if(!_cfgAutoOn) return false;
+  // A save arriving while one is in flight QUEUES rather than returning. Dropping it is
+  // how a rename typed at the wrong moment was lost once already — same fix as goodsPush.
+  if(_cfgSaveBusy){ _cfgSaveAgain=true; return false; }
+  // A write is not necessarily a change. Some code rewrites a key with identical content
+  // on every load; without this the hook would turn each of those into a network round
+  // trip. The fingerprint already knows the difference.
+  if(!_cfgDirty()){ _cfgSaveFailed=false; try{ _renderPbSync(); }catch(e){} return true; }
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  if(!key){
+    await _cfgAskForKey();
+    try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+    if(!key){ try{ _renderPbSync(); }catch(e){} return false; }
+  }
+  _cfgSaveBusy=true;
+  let ok=false;
+  try{ ok=await _saveConfigSilent(); }catch(e){}
+  _cfgSaveBusy=false;
+  _cfgSaveFailed=!ok;
+  if(ok){ _cfgSaveSnapshot(); _cfgMarkSynced(); }
+  try{ _renderPbSync(); }catch(e){}
+  if(_cfgSaveAgain){ _cfgSaveAgain=false; return cfgSaveNow(); }
+  return ok;   // a failure is left dirty; the 30s watchdog retries it
+}
+// Asked once, at the moment it is needed. Sending someone to Settings while their edit
+// sits unsaved is how an edit gets lost.
+async function _cfgAskForKey(){
+  if(_cfgNoKeyAsked) return;
+  _cfgNoKeyAsked=true;
+  try{
+    const k=await appAsk({title:"This device cannot save",
+      hint:"There is no admin key here, so your pricing and settings stay on this device only. Paste it once and it is remembered.",
+      value:"", placeholder:"Studio H admin key", ok:"Save key"});
+    if(k&&String(k).trim()){ localStorage.setItem("studioh_admin_key",String(k).trim()); _cfgNoKeyAsked=false; }
+  }catch(e){}
+}
+// Leaving the page must not strand an unsaved setting.
+try{
+  window.addEventListener("pagehide",()=>{ if(_cfgSaveTm) cfgSaveNow(); });
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="hidden" && _cfgSaveTm) cfgSaveNow(); });
+}catch(e){}
+// configPublish() lived here — the button that made you remember to save. Settings now
+// save themselves on change (cfgSaveNow above), so there was nothing left for it to do
+// but restate what had already happened. Its dialog also promised "your price book,
+// nurseries, labor rates and markups" while quietly writing brand permissions and
+// render pointers too, which is the confusion that started this.
 // Silently save the config bundle (favorites, image prefs, pricing) to Cloudflare — used by Publish master
 // PUBLISHING IS A MERGE, NEVER A REPLACE — and this cost real data before it was.
 //
@@ -24907,7 +24974,13 @@ function _cfgFp(){
 }
 function _cfgSyncedFp(){ try{ return localStorage.getItem("studioh_cfg_fp")||""; }catch(e){ return ""; } }
 function _cfgMarkSynced(){ try{ localStorage.setItem("studioh_cfg_fp",_cfgFp()); }catch(e){} }
-function _cfgDirty(){ const s=_cfgSyncedFp(); return s ? _cfgFp()!==s : false; }
+// A device that has never synced has no fingerprint — and this used to return FALSE for
+// exactly that case, so a fresh device was permanently "clean" and never pushed anything.
+// That, not the design, is why the price book still needed a Publish button. No
+// fingerprint now means "nothing has been sent yet", which is dirty if there is anything
+// to send.
+function _cfgDirty(){ const s=_cfgSyncedFp(); if(s) return _cfgFp()!==s;
+  return SHARED_CFG_KEYS.some(k=>{ try{ return localStorage.getItem(k)!=null; }catch(e){ return false; } }); }
 let _cfgPushTimer=null,_cfgPushBusy=false;
 function _cfgSchedulePush(){
   if(_cfgPushTimer) clearTimeout(_cfgPushTimer);
@@ -24951,18 +25024,23 @@ async function _cfgAutoPush(){
 function _renderPbSync(){
   const el=document.getElementById("pb-sync"); if(!el) return;
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
-  if(!_cfgSyncedFp()){ el.className="pb-sync"; el.textContent=""; return; }
-  if(_cfgDirty()){
+  // No fingerprint used to mean "say nothing", which on a never-synced device meant the
+  // one place that could have told you nothing was reaching the server stayed blank.
+  if(_cfgDirty() || _cfgSaveBusy || _cfgSaveTm){
     el.className="pb-sync dirty";
-    el.textContent = key ? "saving…" : "not synced";
-  } else {
+    el.textContent = !key ? "not saved — no key"
+      : (_cfgSaveFailed && !_cfgSaveBusy) ? "not saved — retrying"
+      : "saving…";
+  } else if(!_cfgSyncedFp()){ el.className="pb-sync"; el.textContent=""; }
+  else {
     // Silence when it is fine — "in sync" is only worth the space when it is not.
     el.className="pb-sync ok"; el.textContent="";
   }
 }
-// Watch for local edits without having to touch all 16 save paths.
-setInterval(()=>{ _renderPbSync(); if(_cfgDirty()) _cfgSchedulePush(); }, 30*1000);
-document.addEventListener("visibilitychange",()=>{ if(document.hidden && _cfgDirty()) _cfgAutoPush(); });
+// Backstop only. The write hook above saves within two seconds, so anything still dirty
+// here failed — offline, or the server moved. Retry it rather than waiting 90 more.
+setInterval(()=>{ _renderPbSync(); if(_cfgDirty() && !_cfgSaveBusy && !_cfgSaveTm) cfgSaveNow(); }, 30*1000);
+document.addEventListener("visibilitychange",()=>{ if(document.hidden && _cfgDirty()) cfgSaveNow(); });
 // ── Per-key sync snapshot ──────────────────────────────────────────────────
 // The old design compared ONE fingerprint across all ~22 keys, so editing anything —
 // even an unrelated pref on a device that never touched nurseries — made every OTHER
@@ -25034,7 +25112,9 @@ async function _cfgResolveConflicts(keys,serverConfig,serverStamp,toApply){
   // it is written on either branch below — see the note at the call site.
   const undisputed=toApply||{};
   const landUndisputed=()=>{ let n=0;
+    _cfgApplying++;
     Object.keys(undisputed).forEach(k=>{ try{ localStorage.setItem(k,undisputed[k]); n++; }catch(e){} });
+    _cfgApplying--;
     return n; };
   // The title used to read "Pricing changed in two places" for every key, so a clash in
   // brand permissions or an AI image setting announced itself as a pricing problem.
@@ -25045,7 +25125,9 @@ async function _cfgResolveConflicts(keys,serverConfig,serverStamp,toApply){
     actions:["Use the server's copy","Keep this device's copy"]});
   if(i===0){
     _cfgBackupLocal(keys);
+    _cfgApplying++;
     keys.forEach(k=>{ const v=serverConfig.data[k]; if(v!=null){ try{ localStorage.setItem(k,v); }catch(e){} } });
+    _cfgApplying--;
     landUndisputed();
     try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
     _cfgSaveSnapshot(); _cfgMarkSynced();
@@ -25121,7 +25203,11 @@ async function configLoad(silent,force){
       return;
     }
 
+    // Muted: these values CAME from the server, so writing them must not schedule a save
+    // straight back to it. Only what the app itself changes is worth sending.
+    _cfgApplying++;
     Object.keys(toApply).forEach(k=>{ try{ localStorage.setItem(k,toApply[k]); }catch(e){} });
+    _cfgApplying--;
     // An old server copy carries the pre-correction lighting prices. Fix them in
     // place before the reload, so the corrected numbers are what actually load —
     // and this device becomes dirty, so it pushes the correction back up.
@@ -25134,7 +25220,12 @@ async function configLoad(silent,force){
     } else { alert("Pricing updated from the server."); location.reload(); }
   }catch(e){ if(!silent) alert("Couldn't reach the server."); }
 }
-setTimeout(()=>{ try{ configLoad(true); }catch(e){} }, 1200);
+// Auto-save is armed only once the boot pull has finished, so this device can never write
+// its copy over a server copy it has not reconciled yet. See [[never-force-a-save]].
+setTimeout(()=>{
+  const arm=()=>{ _cfgAutoOn=true; try{ if(_cfgDirty()) cfgSaveSoon(); }catch(e){} };
+  try{ const p=configLoad(true); (p&&p.then) ? p.then(arm,arm) : arm(); }catch(e){ arm(); }
+}, 1200);
 function plantBookExport(){ try{ const blob=new Blob([JSON.stringify(PLANT_DB)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); const d=new Date(); const p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; a.href=url; a.download=`plantbook-data_${stamp}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(e){ alert("Export failed: "+e.message); } }
 function plantBookImport(input){ const f=input.files&&input.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=e=>{ try{ const data=JSON.parse(e.target.result); plantBookMerge(data,"overwrite"); plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof renderPlantingBuilder==="function") renderPlantingBuilder(); }catch(err){ alert("Import failed — that doesn't look like a plant-book file."); } input.value=""; }; rd.readAsText(f); }
 // ── Auto-fetch commercial-safe plant images (iNaturalist via worker) ──
