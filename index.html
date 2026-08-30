@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1306</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1307</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24911,6 +24911,9 @@ let _cfgSaveTm=null, _cfgSaveBusy=false, _cfgSaveAgain=false, _cfgNoKeyAsked=fal
 // problem with the old model restated: something that looks like it is handling itself
 // and is not.
 let _cfgSaveFailed=false;
+// How many keys the last save chose NOT to send. Not cosmetic: a save that withheld
+// something has not finished, and must not let the device mark itself in sync.
+let _cfgLastWithheld=0;
 // One hook, rather than an edit to each of the ~25 save functions. The point is not
 // brevity: a hook cannot be forgotten by whoever adds the 30th setting.
 (function _cfgHookWrites(){
@@ -25107,12 +25110,21 @@ async function cfgSaveNow(){
   }
   _cfgSaveBusy=true;
   let ok=false;
+  _cfgLastWithheld=0;                 // stale from the previous save otherwise
   try{ ok=await _saveConfigSilent(); }catch(e){}
   _cfgSaveBusy=false;
   _cfgSaveFailed=!ok;
   // No snapshot here — _saveConfigSilent already took one from the bundle it actually
   // sent. Re-taking it from localStorage is exactly the bug that overwrote a price.
-  if(ok){ _cfgMarkSynced(); }
+  // MARK SYNCED ONLY IF EVERYTHING ACTUALLY WENT UP.
+  //
+  // This ran on ok alone — and ok is true for a save that declined to send a key. The
+  // fingerprint then recorded the whole local state, 825 included, as synced. _cfgDirty()
+  // went false, cfgSaveNow short-circuits on it, and the device stopped saving ENTIRELY —
+  // not just that key, because the fingerprint covers all of them. That is why the server's
+  // savedAt froze: the MacBook was not failing to save, it had quietly decided it had
+  // nothing left to say.
+  if(ok && !_cfgLastWithheld) _cfgMarkSynced();
   try{ _renderPbSync(); }catch(e){}
   if(_cfgSaveAgain){ _cfgSaveAgain=false; return cfgSaveNow(); }
   return ok;   // a failure is left dirty; the 30s watchdog retries it
@@ -25218,6 +25230,7 @@ async function _saveConfigSilent(){
       try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(adopt)); }catch(e){}
       // A withheld key means the server looked newer. Sitting on it achieves nothing — pull,
       // so this device converges on the server instead of holding a value forever.
+      _cfgLastWithheld=withheld.length;
       if(withheld.length) setTimeout(()=>{ try{ configLoad(true,true); }catch(e){} },400);
       try{ if(cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
       // Baseline = the bundle that actually went up. See the note on _cfgSaveSnapshot.
@@ -25244,8 +25257,12 @@ function _cfgFp(){
   });
   return n+"."+(h>>>0);
 }
-function _cfgSyncedFp(){ try{ return localStorage.getItem("studioh_cfg_fp")||""; }catch(e){ return ""; } }
-function _cfgMarkSynced(){ try{ localStorage.setItem("studioh_cfg_fp",_cfgFp()); }catch(e){} }
+// _v2: devices are carrying a fingerprint that says "everything here is synced" over a
+// value that was never sent — see the note on _cfgLastWithheld. Renaming the key makes
+// every device recompute once, which is what lets a stuck one break out on its own
+// instead of needing someone to go and edit something to shake it loose.
+function _cfgSyncedFp(){ try{ return localStorage.getItem("studioh_cfg_fp_v2")||""; }catch(e){ return ""; } }
+function _cfgMarkSynced(){ try{ localStorage.setItem("studioh_cfg_fp_v2",_cfgFp()); }catch(e){} }
 // A device that has never synced has no fingerprint — and this used to return FALSE for
 // exactly that case, so a fresh device was permanently "clean" and never pushed anything.
 // That, not the design, is why the price book still needed a Publish button. No
