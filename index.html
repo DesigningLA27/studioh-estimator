@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1311</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1312</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25052,6 +25052,7 @@ async function cfgPollNow(){
   if(_cfgPollBusy) return;                    // that call owns the next schedule
   if(_cfgSaveTm || _cfgSaveBusy){ cfgPollStart(); return; }  // our edit first, ask again after
   _cfgPollBusy=true;
+  _cfgT.pollAt=Date.now();
   try{
     const stamp=await cfgServerStamp();
     let applied=""; try{ applied=localStorage.getItem("studioh_cfg_applied")||""; }catch(e){}
@@ -25146,7 +25147,9 @@ async function cfgSaveNow(){
   _cfgSaveBusy=true;
   let ok=false;
   _cfgLastWithheld=0;                 // stale from the previous save otherwise
+  const _t0=Date.now();
   try{ ok=await _saveConfigSilent(); }catch(e){}
+  _cfgT.saveAt=Date.now(); _cfgT.saveMs=_cfgT.saveAt-_t0;
   _cfgSaveBusy=false;
   _cfgSaveFailed=!ok;
   // No snapshot here — _saveConfigSilent already took one from the bundle it actually
@@ -25342,8 +25345,61 @@ function _cfgDirty(){ const s=_cfgSyncedFp(); if(s) return _cfgFp()!==s;
 // rules. One save path, not two.
 function _cfgSchedulePush(){ try{ cfgSaveSoon(); }catch(e){} }
 // Sync state, shown in the Price Book header so a device is never silently out of step.
+// ── Sync timings, so a delay can be measured instead of guessed ─────────────
+// Three rounds of "it took about 30 seconds… about 45 seconds" and no way to tell whether
+// the sending device was slow to save or the receiving one slow to ask. Both ends are
+// timed now, and tapping the sync label prints them.
+let _cfgT={saveAt:0,saveMs:0,pollAt:0,applyAt:0,applyKeys:0};
+const _cfgClock=t=>t?new Date(t).toLocaleTimeString():"never";
+const _cfgAgo=t=>t?(Math.round((Date.now()-t)/1000)+"s ago"):"never";
+function cfgSyncReport(){
+  let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
+  const ver=(document.querySelector(".sb-ver")||{}).textContent||"?";
+  const lines=[
+    "Version            "+ver,
+    "Admin key          "+(key?"present":"MISSING — nothing can save"),
+    "Has changes to send "+(_cfgDirty()?"yes":"no"),
+    "",
+    "Last save          "+_cfgClock(_cfgT.saveAt)+"  ("+_cfgAgo(_cfgT.saveAt)+")",
+    "  took             "+(_cfgT.saveMs?_cfgT.saveMs+" ms":"—"),
+    "  result           "+(_cfgSaveFailed?"FAILED":(_cfgT.saveAt?"ok":"—"))
+      +(_cfgLastWithheld?(" · "+_cfgLastWithheld+" key(s) held back"):""),
+    "",
+    "Last check         "+_cfgClock(_cfgT.pollAt)+"  ("+_cfgAgo(_cfgT.pollAt)+")",
+    "  asking every     "+Math.round(cfgPollDelay()/1000)+"s",
+    "  cheap check      "+(_cfgStampOk===true?"yes (cfgstamp)":_cfgStampOk===false?"NO — worker not updated":"not tried yet"),
+    "",
+    "Last update taken  "+_cfgClock(_cfgT.applyAt)+"  ("+_cfgAgo(_cfgT.applyAt)+")",
+    "  settings changed "+(_cfgT.applyKeys||0)
+  ];
+  // Its own element rather than askDlg. A dialog queue can wedge — it did, on the very box
+  // I was testing this on — and a diagnostic that fails whenever something else is stuck is
+  // no diagnostic at all. This is also the thing most likely to be read out to me over a
+  // screenshot, so it must not depend on anything but the DOM.
+  let h=document.getElementById("cfg-report");
+  if(h) h.remove();
+  h=document.createElement("div"); h.id="cfg-report";
+  h.style.cssText="position:fixed;inset:0;z-index:2147483000;background:rgba(20,26,18,.55);"
+    +"display:flex;align-items:center;justify-content:center;padding:20px";
+  const card=document.createElement("div");
+  card.style.cssText="background:var(--card,#fff);color:var(--tx,#1d2a17);border-radius:16px;"
+    +"padding:18px 20px;max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);"
+    +"font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto;max-height:80vh";
+  card.textContent=lines.join("\n");
+  const btn=document.createElement("button");
+  btn.textContent="Close";
+  btn.style.cssText="margin-top:14px;border:0;background:var(--gm,#2F5B23);color:#fff;"
+    +"border-radius:10px;padding:8px 16px;font:600 13px ui-sans-serif,system-ui;cursor:pointer";
+  btn.onclick=()=>h.remove();
+  card.appendChild(btn);
+  h.appendChild(card);
+  h.addEventListener("click",e=>{ if(e.target===h) h.remove(); });
+  document.body.appendChild(h);
+}
 function _renderPbSync(){
   const el=document.getElementById("pb-sync"); if(!el) return;
+  if(!el._cfgWired){ el._cfgWired=1; el.style.cursor="pointer";
+    el.title="Tap for sync detail"; el.addEventListener("click",cfgSyncReport); }
   let key=""; try{ key=localStorage.getItem("studioh_admin_key")||""; }catch(e){}
   // No fingerprint used to mean "say nothing", which on a never-synced device meant the
   // one place that could have told you nothing was reaching the server stayed blank.
@@ -25352,10 +25408,11 @@ function _renderPbSync(){
     el.textContent = !key ? "not saved — no key"
       : (_cfgSaveFailed && !_cfgSaveBusy) ? "not saved — retrying"
       : "saving…";
-  } else if(!_cfgSyncedFp()){ el.className="pb-sync"; el.textContent=""; }
-  else {
-    // Silence when it is fine — "in sync" is only worth the space when it is not.
-    el.className="pb-sync ok"; el.textContent="";
+  } else {
+    // Near-silence when it is fine — but not NOTHING, because an empty span is not a thing
+    // you can tap, and the detail behind it is the only way to tell a slow sender from a
+    // slow receiver.
+    el.className="pb-sync ok"; el.textContent="↻";
   }
 }
 // Backstop only. The write hook above saves within two seconds, so anything still dirty
@@ -25551,6 +25608,7 @@ async function configLoad(silent,force){
     // refreshed when the tab is not in front.
     const live=cfgApplyLive(toApply);
     const n=Object.keys(toApply).length;
+    _cfgT.applyAt=Date.now(); _cfgT.applyKeys=n;
     if(!silent) _toast(live?("Updated from your other device ("+n+")"):"Updated — refreshing","#4C7B3D");
     if(!live && document.visibilityState!=="visible") location.reload();
   }catch(e){ if(!silent) alert("Couldn't reach the server."); }
