@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1292</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1293</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19716,6 +19716,11 @@ function shvizIsOurs(x,url){
 }
 // Padding rather than transform: an <img> with object-fit:contain shrinks inside its
 // padding box without overflowing its tile or needing a wrapper.
+// Deliberately NOT used on the card grid or the inspector thumbnail. Relative size is
+// information you read when COMPARING or STUDYING a product — a spec card, or the
+// lightbox. On a 132x92 tile it just renders a 13.5" planter as a postage stamp beside
+// full-bleed neighbours, which reads as broken rather than as "this one is smaller".
+// Kept for any surface with room to show it.
 function shvizSizeStyle(x,url){
   if(!shvizIsOurs(x,url)) return "";
   const p=Math.max(0.15,Math.min(1,(shvizScalePct(x)||100)/100));
@@ -20277,9 +20282,12 @@ function _goodsPermAdminBlock(x,kind){
     +'<b'+(warn?' style="color:var(--gold)"':'')+'>'+esc(v)+'</b></div>';
   let h='<div class="gd-permadm">';
   h+='<div class="pbk-eb">Public display</div>';
+  // Confirmed, not instant. This control sits under your thumb on an iPad and one tap
+  // changes what EVERY product from that brand shows to everyone — Kornegay went from
+  // referenced to internal this way, which emptied the public library without a word.
   h+='<div class="pbk-f stack"><span class="k">Brand status</span><b>'
     +'<span class="gd-permseg">'+BRAND_STATUSES.map(v=>'<button class="'+(v===st?'on':'')+'" '
-      +'onclick="brandPermSetAndPaint(\''+escAttr(brandKeyOf(x))+'\',\''+v+'\')">'
+      +'onclick="brandPermAsk(\''+escAttr(brandKeyOf(x))+'\',\''+escAttr(x.brand||x.sup||"")+'\',\''+v+'\')">'
       +v.charAt(0).toUpperCase()+v.slice(1)+'</button>').join('')+'</span></b></div>';
   h+=row("Public image",pubImg,/⚠/.test(pubImg));
   h+=row("Public description",pubDesc,/⚠/.test(pubDesc));
@@ -20294,6 +20302,32 @@ function _goodsPermAdminBlock(x,kind){
   h+='<button class="pbk-btn" onclick="publicPreviewSet(true)">Preview as a public user</button>';
   h+='</div>';
   return h;
+}
+// Brand status changes what every product from that brand shows to everyone, so it asks
+// first and says how many rows it affects. The count is the part that matters: "set
+// Kornegay Design to internal" means nothing, "hides 41 products from every public user"
+// means something.
+async function brandPermAsk(brandKey,brandName,status){
+  const cur=brandStatus(brandKey);
+  if(cur===status) return;
+  let n=0;
+  try{
+    const k=String(brandKey||"").toLowerCase();
+    (FURNISHINGS||[]).concat(MATERIALS||[]).forEach(x=>{ if(x&&brandKeyOf(x)===k) n++; });
+  }catch(e){}
+  const what={
+    internal:"hidden from every public user",
+    referenced:"public, showing Studio H visuals instead of manufacturer photography",
+    verified:"public, showing manufacturer photography"
+  }[status]||status;
+  const a=await askDlg({icon:"!",
+    title:(brandName||brandKey)+" → "+status.charAt(0).toUpperCase()+status.slice(1),
+    body:"All "+n+" "+(brandName||brandKey)+" product"+(n===1?"":"s")+" become "+what+"."
+      +"\n\nNothing is deleted either way — this only changes what is shown, and you can "
+      +"change it straight back.",
+    actions:["Cancel","Set to "+status]});
+  if(a!==1) return;
+  brandPermSetAndPaint(brandKey,status);
 }
 function brandPermSetAndPaint(brandKey,status){
   brandPermSet(brandKey,"permissionStatus",status);
@@ -20317,7 +20351,7 @@ function _goodsIns(kind){
   // manufacturer's photograph — which is the exact thing the state exists to prevent.
   const _permPending=!goodsIsAdminView() && brandStatus(x)==="referenced" && !x.studioHProductImage;
   h+= _permPending ? '<div class="pbk-ph none gd-pend">Studio H visualization pending</div>'
-    : (shot ? '<img class="pbk-ph" src="'+escAttr(shot)+'" alt="" style="'+shvizSizeStyle(x,shot)+'" onerror="pbImgErr(this)" onclick="'+_lbx+'" title="Photos and financials">'
+    : (shot ? '<img class="pbk-ph" src="'+escAttr(shot)+'" alt="" onerror="pbImgErr(this)" onclick="'+_lbx+'" title="Photos and financials">'
            : '<div class="pbk-ph none" onclick="'+_lbx+'">no photo</div>');
   h+='<div class="pbk-hd">'+esc(x.nm||"")+'<i>'+esc([x.brand&&x.brand!==x.sup?x.brand:"",x.sup,x.loc].filter(Boolean).join(" · "))+'</i></div>';
   // Subtle by design — one line, no icon on the card, and the wording never implies the
@@ -21384,7 +21418,7 @@ function _matGrid(host){
     const framed=shot&&m.fr&&m.fr[shot];
     return `<button data-gid="${m.id}" class="pb-cd${MAT_PICK===m.id?" on":""}${(GOODS_SEL.mat||{})[m.id]?" picked":""}" onclick="goodsCardTap('mat','${m.id}')">
       ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(m,shot,'var(--surface2)')}"></span>`
-            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" style="${(typeof shvizSizeStyle==="function")?shvizSizeStyle(m,shot):""}" onerror="pbImgErr(this)">`)
+            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
             :(goodsPendingVisual(m)
             // A referenced row with no Studio H visual yet is not the same thing as a row
             // nobody has photographed, and the leaf icon read as the latter. Say which.
@@ -22368,7 +22402,7 @@ function _furGrid(host){
      const framed=shot&&f.fr&&f.fr[shot];
      return `<button data-gid="${f.id}" class="pb-cd${FUR_PICK===f.id?" on":""}${(GOODS_SEL.fur||{})[f.id]?" picked":""}" onclick="goodsCardTap('fur','${f.id}')">
       ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(f,shot,'var(--surface2)')}"></span>`
-            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" style="${(typeof shvizSizeStyle==="function")?shvizSizeStyle(f,shot):""}" onerror="pbImgErr(this)">`)
+            :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
             :(goodsPendingVisual(f)
             // A referenced row with no Studio H visual yet is not the same thing as a row
             // nobody has photographed, and the leaf icon read as the latter. Say which.
