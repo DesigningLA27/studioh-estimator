@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1302</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1303</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25066,10 +25066,22 @@ function cfgStampKey(k,when){
   const t=cfgTimes(); t[k]=when||new Date().toISOString();
   try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(t)); }catch(e){}
 }
-// An unstamped key predates this feature. Treating it as "very old" is deliberate: a
-// device that has never recorded when it changed something cannot claim to be the newer
-// edit, so the side that DOES know wins. Both unknown → the server, which is shared.
+// An unstamped key predates this feature. Where the SERVER can say when it changed and
+// this device cannot, the server wins — that part was right. Where NEITHER can say, the
+// old rule also handed it to the server, and that was data loss: it wrote the server's own
+// value back over a local edit and reported success. Warwick changed a transformer from
+// 850 to 800, the save ran, savedAt moved, and the server still said 850.
+//
+// Both sides silent and the values differ means only one thing: this device is holding an
+// edit that has never been sent. A device that has NOT edited holds the server's value and
+// never reaches the comparison at all. cfgLocalChanged() checks that against the
+// last-synced snapshot, so it is evidence rather than an assumption.
 function cfgTimeOf(times,k){ return (times&&times[k])||""; }
+function cfgLocalChanged(k,v){
+  let snap={}; try{ snap=_cfgSnapshot()||{}; }catch(e){}
+  if(!Object.prototype.hasOwnProperty.call(snap,k)) return true;  // never synced: cannot rule it out
+  return snap[k]!==v;
+}
 function cfgSaveSoon(){
   if(!_cfgAutoOn) return;
   _cfgQuiet=0;   // you are working — the other machine may be about to want this
@@ -25164,7 +25176,10 @@ async function _saveConfigSilent(){
     if(base[k]===undefined){                  // server has never had it — send it
       cfg.data[k]=v; cfg.times[k]=cfgTimeOf(mine,k)||cfg.savedAt; return; }
     if(base[k]===v) return;                   // already agree, nothing to decide
-    const a=cfgTimeOf(mine,k), b=cfgTimeOf(srvT,k);
+    let a=cfgTimeOf(mine,k); const b=cfgTimeOf(srvT,k);
+    // Neither side dated, and they differ — see cfgLocalChanged. Stamp it now rather than
+    // dropping it: an edit nobody can date is still an edit somebody made.
+    if(!a && !b && cfgLocalChanged(k,v)) a=cfg.savedAt;
     if(a && (!b || a>b)){ cfg.data[k]=v; cfg.times[k]=a; }
     // else the server's copy is the newer edit (or this device cannot say when it changed)
     // — leave it alone. configLoad brings it down on the next pull.
