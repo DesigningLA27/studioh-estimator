@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1310</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1311</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24979,7 +24979,17 @@ const CFG_LIVE={
   studioh_mfgframe_v1:    v=>{ MFG_FRAME=_j(v,{}); try{ _mfgApplyFrames(); }catch(e){} _cfgPaintGoods(); },
   studioh_mfgedit_v1:     v=>{ MFG_EDIT=_j(v,{}); _cfgPaintGoods(); },
   studioh_favs_v1:        v=>{ FAVS=new Set(_j(v,[])); try{ renderPlantBook(); }catch(e){} },
+  // applyPriceBook() as well as PB, so a rate arriving from the other machine reaches the
+  // open job exactly as it does when you type it here. Without it, a book edit made on this
+  // device applied instantly while the SAME edit made on the other device only put a
+  // "1 line still prices at the old rate" bar on screen — the same person, the same
+  // intention, two different behaviours, and a button to reconcile the difference I had
+  // created. applyPriceBook keeps ucSet and _spec, so a price typed onto a job line is
+  // still the user's and is not overwritten.
   studioh_pricebook_v5:   v=>{ const o=_j(v,null); if(!o) return; PB=o;
+                               try{ applyPriceBook(); }catch(e){}
+                               try{ PB.forEach(c=>refreshCatTotals&&refreshCatTotals(c.id)); }catch(e){}
+                               try{ renderTotal&&renderTotal(); updateProBar&&updateProBar(); renderProSummary&&renderProSummary(); }catch(e){}
                                try{ renderPriceBook(); }catch(e){} }
 };
 function _cfgPaintGoods(){ try{ goodsRepaint("mat"); }catch(e){} try{ goodsRepaint("fur"); }catch(e){} }
@@ -39775,15 +39785,12 @@ function _renderPriceBook_inner(){
   host.appendChild(legCard);
   const _sr=document.createElement("div"); _sr.id="pb-sr"; _sr.style.display="none";
   host.appendChild(_sr);
-  const _drift=pbDrift();
-  if(_drift.length){
-    const d=document.createElement("div"); d.className="pb-drift";
-    d.innerHTML='<span><b>'+_drift.length+' line'+(_drift.length===1?'':'s')+'</b> in this job still '
-      +(_drift.length===1?'prices':'price')+' at the old rate — the book has moved since it was opened.</span>'
-      +'<button onclick="pbPullIntoJob()">Bring them up to date</button>';
-    host.appendChild(d);
-  }
-
+  // The "1 line still prices at the old rate / Bring them up to date" callout stood here.
+  // It only ever appeared because a book edit arriving by sync did not reach the open job,
+  // while the identical edit typed on this device did — a difference this app invented, and
+  // then asked the user to resolve by hand. CFG_LIVE now calls applyPriceBook() on a synced
+  // book, so both routes behave the same and there is no drift left to report. Prices you
+  // typed onto a job line are still protected, by ucSet, where that protection belongs.
   // Below-floor warning summary
   const flagged=[];
   PB.forEach(cat=>cat.items.forEach(it=>{ if(it.floor!=null && !it.bd && +it.lo < +it.floor) flagged.push({n:it.n, lo:it.lo, floor:it.floor, u:it.u}); }));
@@ -40757,53 +40764,7 @@ function pbResetConfirm(){
 // in front of you carries on charging the old one. This finds the lines that have drifted —
 // skipping anything you typed here, anything specified from a supplier, and build-ups, which
 // recompute anyway — so it can be shown and pulled through deliberately.
-function pbDrift(){
-  const out=[];
-  try{
-    PB.forEach(cat=>{
-      const cs=S.cats&&S.cats[cat.id]; if(!cs||!cs.items) return;
-      const tiers=SEC_TIERS[cat.id]||["Low","Standard","High"];
-      const ti=(cs.tier!=null)?cs.tier:(SEC_TIER_DEFAULT[cat.id]||0);
-      (cat.items||[]).forEach(def=>{
-        if(def.bd) return;
-        const it=cs.items.find(p=>p.n===def.n);
-        if(!it || it.ucSet || it._spec) return;
-        const want=tierUC(def,tiers,ti);
-        if(+it.uc!==+want) out.push({cat:cat.id, catName:cat.name, n:def.n, from:+it.uc, to:+want});
-      });
-    });
-  }catch(e){}
-  return out;
-}
-// KEPT ON PURPOSE, unlike the sync buttons. Those asked you to do something the app
-// already knew how to do — plumbing you should never have been shown. This one asks a
-// question only you can answer, and it has money attached: an estimate is a quoted
-// document, and a price you have put in front of a client must not change under you
-// because the library moved. Silently repricing a live job is the opposite of the first
-// rule of this project.
-async function pbPullIntoJob(){
-  const d=pbDrift(); if(!d.length) return;
-  // Was a native confirm(), whose OK/Cancel says nothing about what is about to happen —
-  // and it listed no lines, so the only way to see what you were agreeing to was to agree
-  // to it. Name the change, show the numbers, name the buttons.
-  const money=n=>"$"+Math.round(n).toLocaleString();
-  const show=d.slice(0,8).map(x=>"  "+x.n+"   "+money(x.from)+" → "+money(x.to)).join("\n");
-  const more=d.length>8?("\n  …and "+(d.length-8)+" more"):"";
-  const up=d.filter(x=>x.to>x.from).length, dn=d.length-up;
-  const pick=await askDlg({icon:"↻",title:"Reprice this job to the Price Book?",
-    body:show+more+"\n\n"+(up?up+" going up":"")+(up&&dn?", ":"")+(dn?dn+" coming down":"")
-      +".\nLines you typed a price on in this job are left alone.",
-    actions:["Leave the job as it is","Reprice "+d.length+" line"+(d.length===1?"":"s")]});
-  if(pick!==1) return;
-  d.forEach(x=>{
-    const cs=S.cats[x.cat]; if(!cs||!cs.items) return;
-    const it=cs.items.find(p=>p.n===x.n); if(it) it.uc=x.to;
-  });
-  try{ PB.forEach(c=>refreshCatTotals&&refreshCatTotals(c.id)); }catch(e){}
-  try{ renderTotal&&renderTotal(); updateProBar&&updateProBar(); renderProSummary&&renderProSummary(); }catch(e){}
-  renderPriceBook();
-  try{ _toast(d.length+" line"+(d.length===1?"":"s")+" updated","#2F5B23"); }catch(e){}
-}
+// pbDrift() and pbPullIntoJob() lived here — see the note in renderPriceBook.
 function applyPriceBook(){
   PB.forEach(cat=>{
     const cs=S.cats[cat.id];
