@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1305</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1306</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25172,17 +25172,23 @@ async function _saveConfigSilent(){
   // more recently than whoever last changed it on the server.
   const mine=cfgTimes(), srvT=(baseTimes||{});
   const cfg={ savedAt:new Date().toISOString(), data:Object.assign({},base), times:Object.assign({},srvT) };
+  const sent={}, withheld=[];
   SHARED_CFG_KEYS.forEach(k=>{
     let v=null; try{ v=localStorage.getItem(k); }catch(e){}
     if(v==null) return;                       // nothing here to offer
     if(base[k]===undefined){                  // server has never had it — send it
-      cfg.data[k]=v; cfg.times[k]=cfgTimeOf(mine,k)||cfg.savedAt; return; }
-    if(base[k]===v) return;                   // already agree, nothing to decide
+      cfg.data[k]=v; cfg.times[k]=cfgTimeOf(mine,k)||cfg.savedAt; sent[k]=1; return; }
+    if(base[k]===v){ sent[k]=1; return; }     // already agree, nothing to decide
     let a=cfgTimeOf(mine,k); const b=cfgTimeOf(srvT,k);
-    // Neither side dated, and they differ — see cfgLocalChanged. Stamp it now rather than
-    // dropping it: an edit nobody can date is still an edit somebody made.
-    if(!a && !b && cfgLocalChanged(k,v)) a=cfg.savedAt;
-    if(a && (!b || a>b)){ cfg.data[k]=v; cfg.times[k]=a; }
+    // Undated locally, but different from what this device last synced. That difference can
+    // only have been made HERE, and only SINCE that sync — and the sync was at or after the
+    // server's stamp. So the local edit is necessarily the later one, whether or not the
+    // server's copy is dated. Requiring the server to be undated too left a device holding
+    // an edit it could never send: the save declined it for having no date, and the pull
+    // kept it for being a local change. 825 on the MacBook, 800 everywhere else, forever.
+    if(!a && cfgLocalChanged(k,v)) a=cfg.savedAt;
+    if(a && (!b || a>b)){ cfg.data[k]=v; cfg.times[k]=a; sent[k]=1; }
+    else withheld.push(k);
     // else the server's copy is the newer edit (or this device cannot say when it changed)
     // — leave it alone. configLoad brings it down on the next pull.
   });
@@ -25191,8 +25197,28 @@ async function _saveConfigSilent(){
       body:JSON.stringify({type:"saveconfig",key,config:cfg})});
     const d=await r.json();
     if(d&&d.ok){
-      // Adopt the merged clock, so a key the server won is no longer claimed as ours.
-      try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(cfg.times)); }catch(e){}
+      // ADOPTING THE MERGED CLOCK MUST NOT WIPE A STAMP WE STILL NEED.
+      //
+      // This overwrote local times with cfg.times wholesale — and cfg.times starts from the
+      // SERVER's clock, so any key we declined to send lost its local stamp. After that the
+      // key had no date, the server did, and every later save declined it for the same
+      // reason: a permanent stalemate where the device holds an edit it will never send and
+      // the pull keeps the local value because the device did change it. Warwick's MacBook
+      // sat on 825 while the server and the iPad stayed on 800, and nothing broke loudly
+      // enough to notice.
+      //
+      // A key we actually sent takes the merged clock. A key we withheld keeps OURS, because
+      // we are still holding that edit and it is still dated.
+      const adopt={};
+      SHARED_CFG_KEYS.forEach(k=>{
+        if(sent[k]){ if(cfg.times[k]) adopt[k]=cfg.times[k]; return; }
+        if(mine[k]){ adopt[k]=mine[k]; return; }
+        if(cfg.times[k]) adopt[k]=cfg.times[k];
+      });
+      try{ localStorage.setItem(CFG_TIMES_KEY,JSON.stringify(adopt)); }catch(e){}
+      // A withheld key means the server looked newer. Sitting on it achieves nothing — pull,
+      // so this device converges on the server instead of holding a value forever.
+      if(withheld.length) setTimeout(()=>{ try{ configLoad(true,true); }catch(e){} },400);
       try{ if(cfg.savedAt) localStorage.setItem("studioh_cfg_applied",cfg.savedAt); }catch(e){}
       // Baseline = the bundle that actually went up. See the note on _cfgSaveSnapshot.
       _cfgSaveSnapshot(cfg.data);
