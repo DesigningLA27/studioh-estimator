@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1297</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1298</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -13756,8 +13756,13 @@ function goodsShotStyle(x,url,fallback){
   // so a 13.5" and a 22.5" both filled it. A manufacturer photo is untouched — cover is
   // right there, because their framing is not ours to second-guess.
   if(typeof shvizIsOurs==="function" && shvizIsOurs(x,url) && !(x.fr&&x.fr[url])){
+    // Scaling the WHOLE IMAGE by the product's relative percentage was wrong, and wrong in
+    // a way that hid itself: it assumed every render frames its object the same, and they
+    // do not (80% of frame on one, 53% on another). The percentage now rides along as
+    // --shvfit and shvizFitAll applies it to the MEASURED OBJECT instead. Contain/centre
+    // below is what shows until the measurement lands, so nothing ever looks broken.
     const p=Math.max(0.15,Math.min(1,(shvizScalePct(x)||100)/100));
-    return `background-image:url('${escAttr(url)}');background-size:${Math.round(p*100)}% auto;`+
+    return `--shvfit:${p.toFixed(3)};background-image:url('${escAttr(url)}');background-size:contain;`+
            `background-position:50% 50%;background-repeat:no-repeat;background-color:var(--surface2)`;
   }
   return `background-image:url('${escAttr(url)}');background-size:${f.z}% auto;`+
@@ -19733,20 +19738,10 @@ function shvizIsOurs(x,url){
   return url===x.shvizHero || url===x.studioHProductImage || url===x.shvizFront
       || url===x.shvizSide || url===x.shvizTop;
 }
-// Padding rather than transform: an <img> with object-fit:contain shrinks inside its
-// padding box without overflowing its tile or needing a wrapper.
-// Deliberately NOT used on the card grid or the inspector thumbnail. Relative size is
-// information you read when COMPARING or STUDYING a product — a spec card, or the
-// lightbox. On a 132x92 tile it just renders a 13.5" planter as a postage stamp beside
-// full-bleed neighbours, which reads as broken rather than as "this one is smaller".
-// Kept for any surface with room to show it.
-function shvizSizeStyle(x,url){
-  if(!shvizIsOurs(x,url)) return "";
-  const p=Math.max(0.15,Math.min(1,(shvizScalePct(x)||100)/100));
-  if(p>=0.995) return "";
-  const pad=Math.round((1-p)*50*0.8);        // half the shortfall, eased
-  return "object-fit:contain;padding:"+pad+"% "+pad+"%;box-sizing:border-box;";
-}
+// Relative size used to be applied as padding on the <img>, which shrank the whole frame
+// rather than the object inside it — so it depended on every render being framed the same,
+// and they are not. Superseded by shvizFitAll() below, which measures the object. Nothing
+// calls this any more.
 
 // ── Consistent framing, measured rather than instructed ─────────────────────
 // Measured on two real renders: AS-13.5's object fills 80% of its frame, AS-18's fills
@@ -19791,8 +19786,20 @@ function shvizObjectBox(im){
   for(let j=0;j<rows;j++) if(rowHit[j]>=minRow){ if(miny<0)miny=j; maxy=j; }
   if(minx<0||miny<0||maxx<=minx||maxy<=miny) return null;
   minx*=step; maxx*=step; miny*=step; maxy*=step;
+  // The sweep is GRADED — brighter at the top than at the foot. So when the image is drawn
+  // smaller than its tile, a single flat pad colour steps visibly at one end. Two colours
+  // are taken instead, and the tile is filled with a gradient between them, which meets the
+  // image edge at both ends. The foot colour is sampled from the columns OUTSIDE the object
+  // box, so the contact shadow is not mistaken for the background.
+  const rowMed=(y,x0,x1)=>{ const r=[],g=[],b=[]; const st=Math.max(1,Math.round((x1-x0)/120));
+    for(let x=x0;x<x1;x+=st){ const p=at(Math.min(W-1,Math.max(0,x)),y); r.push(p[0]);g.push(p[1]);b.push(p[2]); }
+    return r.length?[med(r),med(g),med(b)]:null; };
+  const top=rowMed(Math.max(1,Math.round(H*0.02)),0,W)||bg;
+  let bot=null, yb=Math.min(H-2,Math.round(H*0.985));
+  if(minx>W*0.06) bot=rowMed(yb,0,minx);
+  else if(maxx<W*0.94) bot=rowMed(yb,maxx,W);
   return {x:minx,y:miny,w:maxx-minx,h:maxy-miny,W:W,H:H,bg:bg,
-          fill:(maxx-minx)/W};
+          top:top,bot:bot||top,fill:(maxx-minx)/W};
 }
 // Re-frame so the object occupies `target` of the width, on a canvas of `ar`.
 // Padding is done by EDGE EXTENSION, not a flat fill or a blur — both of those were
@@ -19827,6 +19834,105 @@ function shvizTargetFill(x){
   const p=Math.max(0.15,Math.min(1,(shvizScalePct(x)||100)/100));
   return 0.72*p;
 }
+
+// ── Framing applied when the image is DRAWN, not baked into a file ───────────
+// v1297 could measure the object correctly but only acted on it behind a "Re-frame"
+// button, and that button only exists in admin. So on an iPad, in public view, nothing
+// had changed: AS-13.5 (object filling 80% of its render) still sat next to AS-18
+// (filling 53%) and read as the larger pot, which is backwards — 13.5 is the small one.
+//
+// A fix you have to go and press is not a fix. This runs itself, on every surface, with
+// no model call, no upload, and no admin rights: measure the object once per image, cache
+// the box, then set background-size and background-position in pixels so the object lands
+// at the same fraction of whatever tile it is in. Nothing is re-processed and nothing is
+// re-uploaded — the stored render is untouched and only the drawing changes.
+const SHVIZ_BOX_KEY="studioh_shvizbox_v1";
+let SHVIZ_BOX={}; try{ SHVIZ_BOX=JSON.parse(localStorage.getItem(SHVIZ_BOX_KEY)||"{}")||{}; }catch(e){ SHVIZ_BOX={}; }
+const _shvBoxPend={};
+// Deliberately NOT a shared config key. The box is derived from the image and is identical
+// on every device, so publishing it would add a key that can go stale against its own
+// source for no gain. Measuring it costs one fetch, once, per image, ever.
+function shvizBoxFor(url){
+  if(!url) return null;
+  const b=SHVIZ_BOX[url];
+  if(b) return b.bad?null:b;
+  if(_shvBoxPend[url]) return null;
+  _shvBoxPend[url]=1;
+  (async()=>{
+    let box=null;
+    // via data URL rather than a direct <img>: canvas readback on a cross-origin image
+    // taints the canvas and getImageData throws.
+    try{ const im=await _loadImgEl(await _urlToDataURL(url)); box=shvizObjectBox(im); }catch(e){}
+    SHVIZ_BOX[url]=box||{bad:1};
+    // A failure is remembered for this page only and never written to storage. One dropped
+    // request would otherwise mark an image unmeasurable for good, and it would stay
+    // mis-framed on that device until someone cleared the cache.
+    if(box){ try{ const keep={}; Object.keys(SHVIZ_BOX).forEach(k=>{ if(!SHVIZ_BOX[k].bad) keep[k]=SHVIZ_BOX[k]; });
+      localStorage.setItem(SHVIZ_BOX_KEY,JSON.stringify(keep)); }catch(e){}
+      shvizFitAll(true); }
+  })();
+  return null;
+}
+// Fit one element. Returns false if it is not laid out yet, so the caller can leave it
+// unmarked and come back to it — a tile in a hidden tab has no width to measure against.
+function shvizFitEl(el){
+  const Cw=el.clientWidth, Ch=el.clientHeight;
+  if(!Cw||!Ch) return false;
+  const m=/url\(["']?(.*?)["']?\)/.exec(el.style.backgroundImage||"");
+  const url=m&&m[1]; if(!url) return true;
+  const box=shvizBoxFor(url);
+  if(!box) return true;                       // contain/centre fallback is already on it
+  const p=Math.max(0.15,Math.min(1,parseFloat(el.style.getPropertyValue("--shvfit"))||1));
+  // A small card can carry a fuller object than a big panel before it reads as cramped.
+  const base=(Cw>=260?0.74:0.88), t=base*p;
+  // CONTAIN the object at the target, rather than matching width alone: a tall pot in a
+  // wide 132x92 tile would otherwise run off the top and bottom.
+  const k=Math.min(t*Cw/box.w, t*Ch/box.h);
+  const ox=Cw/2-k*(box.x+box.w/2), oy=Ch*0.53-k*(box.y+box.h/2);
+  const grad="linear-gradient(180deg,rgb("+box.top.join(",")+") 0%,rgb("+box.bot.join(",")+") 100%)";
+  el.style.backgroundImage='url("'+url+'"), '+grad;
+  el.style.backgroundSize=(box.W*k).toFixed(1)+"px "+(box.H*k).toFixed(1)+"px, 100% 100%";
+  el.style.backgroundPosition=ox.toFixed(1)+"px "+oy.toFixed(1)+"px, 0 0";
+  el.style.backgroundRepeat="no-repeat, no-repeat";
+  return true;
+}
+// A tile in a hidden tab has no width, so it cannot be fitted when it is built — and
+// switching to that tab changes a CLASS, not the DOM, so no mutation ever announces that
+// it now has one. That gap is what an IntersectionObserver is for: anything that could not
+// be measured is handed over, and fitted the moment it actually becomes visible.
+let _shvIO=null;
+try{ _shvIO=new IntersectionObserver(es=>{ es.forEach(e=>{
+  if(!e.isIntersecting) return;
+  if(shvizFitEl(e.target)!==false){ e.target.dataset.shvfit=String(e.target.clientWidth);
+    try{ _shvIO.unobserve(e.target); }catch(x){} }
+}); }); }catch(e){}
+// Found by the --shvfit custom property in the inline style rather than by a class, so
+// every existing caller of goodsShotStyle is covered without touching any of them.
+function shvizFitAll(force){
+  let els; try{ els=document.querySelectorAll('[style*="--shvfit"]'); }catch(e){ return; }
+  els.forEach(el=>{
+    const w=String(el.clientWidth);
+    if(!force && w!=="0" && el.dataset.shvfit===w) return;
+    if(shvizFitEl(el)!==false) el.dataset.shvfit=w;
+    else if(_shvIO) try{ _shvIO.observe(el); }catch(e){}
+  });
+}
+// setTimeout rather than requestAnimationFrame: rAF does not fire in a background tab, so
+// a book rendered while the window is behind another would sit unfitted with the callback
+// permanently queued. A timer always fires, and the fit is a handful of style writes.
+let _shvFitTm=0;
+function shvizFitSoon(){ if(_shvFitTm) return;
+  _shvFitTm=setTimeout(()=>{ _shvFitTm=0; try{ shvizFitAll(); }catch(e){} },16); }
+(function _shvizFitBoot(){
+  const go=()=>{ try{
+      // Observes childList only. Fitting writes inline STYLE, which is an attribute
+      // mutation, so the observer cannot retrigger itself.
+      new MutationObserver(shvizFitSoon).observe(document.body,{childList:true,subtree:true});
+    }catch(e){}
+    window.addEventListener("resize",shvizFitSoon);
+    shvizFitSoon(); };
+  if(document.body) go(); else document.addEventListener("DOMContentLoaded",go);
+})();
 
 // ── Which views a product actually needs ─────────────────────────────────────
 // A side elevation of a round pot is the front elevation again. Rendering it costs money,
@@ -20382,10 +20488,11 @@ function _shvizPanel(x,kind){
     // No re-fit button: size is applied when the image is drawn, so changing the number
     // takes effect at once and there is nothing to re-process.
   }
-  if(have)
-    h+='<button class="pbk-btn" onclick="shvizRenorm(\''+kind+'\',\''+x.id+'\')">'
-      +'Re-frame to '+Math.round(shvizTargetFill(x)*100)+'% of frame '
-      +'<i style="font-style:normal;color:var(--tl)">free</i></button>';
+  // The "Re-frame" button is gone. Framing is normalised when the image is drawn now, on
+  // every surface and for every viewer, so the button fixed nothing that was still broken —
+  // it only re-encoded and re-uploaded a file to reach the same picture. It was also
+  // admin-only, which meant the thing it claimed to fix stayed visibly wrong in public view.
+  // shvizRenorm() is kept for baking framing into an exported file, but nothing needs it.
   h+='<button class="pbk-btn" onclick="shvizCopyPrompts(\''+kind+'\',\''+x.id+'\')">Copy the 5 prompts</button>';
   return h;
 }
@@ -20502,8 +20609,13 @@ function _goodsIns(kind){
   // A referenced brand with no Studio H visual yet says so, rather than borrowing the
   // manufacturer's photograph — which is the exact thing the state exists to prevent.
   const _permPending=!goodsIsAdminView() && brandStatus(x)==="referenced" && !x.studioHProductImage;
+  // Our own renders go out as a styled element, not an <img>, so shvizFitAll can normalise
+  // their framing here too — this inspector photo is the biggest view of a product outside
+  // the lightbox and was the one place still showing whatever the model happened to frame.
+  const _ourShot=shot && typeof shvizIsOurs==="function" && shvizIsOurs(x,shot);
   h+= _permPending ? '<div class="pbk-ph none gd-pend">Studio H visualization pending</div>'
-    : (shot ? '<img class="pbk-ph" src="'+escAttr(shot)+'" alt="" onerror="pbImgErr(this)" onclick="'+_lbx+'" title="Photos and financials">'
+    : (_ourShot ? '<span class="pbk-ph" style="'+goodsShotStyle(x,shot,"var(--surface2)")+'" onclick="'+_lbx+'" title="Photos and financials"></span>'
+      : shot ? '<img class="pbk-ph" src="'+escAttr(shot)+'" alt="" onerror="pbImgErr(this)" onclick="'+_lbx+'" title="Photos and financials">'
            : '<div class="pbk-ph none" onclick="'+_lbx+'">no photo</div>');
   h+='<div class="pbk-hd">'+esc(x.nm||"")+'<i>'+esc([x.brand&&x.brand!==x.sup?x.brand:"",x.sup,x.loc].filter(Boolean).join(" · "))+'</i></div>';
   // Subtle by design — one line, no icon on the card, and the wording never implies the
@@ -21567,7 +21679,10 @@ function _matGrid(host){
     const price=(matModel()==="resale"?m.bill:m.msrp);
     // A shot with its own saved framing (Frame this photo) has to show it here too —
     // this card was the whole reason that tool exists, not just the popup that opened it.
-    const framed=shot&&m.fr&&m.fr[shot];
+    // Our own renders take the styled-span branch too, not just hand-framed photos. The
+    // card grid was emitting a bare <img> for them, which is why every framing fix so far
+    // was invisible on the one screen you actually look at.
+    const framed=shot&&((m.fr&&m.fr[shot])||(typeof shvizIsOurs==="function"&&shvizIsOurs(m,shot)));
     return `<button data-gid="${m.id}" class="pb-cd${MAT_PICK===m.id?" on":""}${(GOODS_SEL.mat||{})[m.id]?" picked":""}" onclick="goodsCardTap('mat','${m.id}')">
       ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(m,shot,'var(--surface2)')}"></span>`
             :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
@@ -22553,7 +22668,10 @@ function _furGrid(host){
      const shot=goodsImg(f);
      // A shot with its own saved framing (Frame this photo) has to show it here too —
      // this card was the whole reason that tool exists, not just the popup that opened it.
-     const framed=shot&&f.fr&&f.fr[shot];
+     // Our own renders take the styled-span branch too, not just hand-framed photos. The
+     // card grid was emitting a bare <img> for them, which is why every framing fix so far
+     // was invisible on the one screen you actually look at.
+     const framed=shot&&((f.fr&&f.fr[shot])||(typeof shvizIsOurs==="function"&&shvizIsOurs(f,shot)));
      return `<button data-gid="${f.id}" class="pb-cd${FUR_PICK===f.id?" on":""}${(GOODS_SEL.fur||{})[f.id]?" picked":""}" onclick="goodsCardTap('fur','${f.id}')">
       ${shot?(framed?`<span class="pb-cdph" style="${goodsShotStyle(f,shot,'var(--surface2)')}"></span>`
             :`<img class="pb-cdph" src="${escAttr(shot)}" alt="" width="132" height="92" loading="lazy" decoding="async" onerror="pbImgErr(this)">`)
