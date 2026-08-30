@@ -5760,7 +5760,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1321</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1322</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -14302,6 +14302,13 @@ async function _goodsCall(payload){
     const r=await fetch(GOODS_URL,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify(payload)});
     const d=await r.json();
+    // Every library on the server writes through here, so announcing the change HERE is the
+    // one version that covers all of them and cannot be missed by the next one added. The
+    // alternative — a line at each save site — is how three books ended up live and six did
+    // not, without anything failing to say so.
+    if(d&&d.ok&&payload&&payload.type==="savegoods"&&payload.book){
+      try{ bookStampSet(payload.book); }catch(e){}
+    }
     if(d&&d.ok) return d;
     return Object.assign({},d||{},{err:(d&&d.error)||"failed"});
   }catch(e){ return {err:(e&&e.message)||"unreachable"}; }
@@ -16057,9 +16064,7 @@ async function goodsPush(book,force,retry){
   let out=false;
   try{ out=await _goodsPushOnce(book,key,force,retry); }
   finally{
-    // Announce it, so the other machine learns this book moved without downloading it to
-    // find out. See the note on BOOK_STAMP_KEY.
-    if(out) try{ bookStampSet(book); }catch(e){}
+    // (The announcement happens in _goodsCall now — one place for every library.)
     _goodsBusy[book]=false;
     const p=_goodsPending[book];
     if(p){
@@ -25064,10 +25069,31 @@ function bookStampSet(name){
   const seen=bookSeen(); seen[name]=now;
   try{ localStorage.setItem(BOOK_SEEN_KEY,JSON.stringify(seen)); }catch(e){}
 }
+// Repaint whatever is on screen after a pull. Each library has its own renderer and the
+// tab handler already knows which; rather than duplicate that mapping and let the two drift
+// apart, ask for the CURRENT view only — the others repaint when you switch to them anyway.
+function _bookRepaint(){
+  const v=(typeof S!=="undefined"&&S.view)||"";
+  const R={plantbook:"renderPlantBook",hoa:"renderHOA",moodboard:"renderMoodBoard",
+           colorlibrary:"renderColorLibrary",materials:"renderMaterials",
+           furnishings:"renderFurnishings",products:"renderProducts",
+           nurseries:"renderNurseryManager"};
+  const fn=R[v]; if(fn) try{ window[fn] && window[fn](); }catch(e){}
+}
+// EVERY library the server holds, not the three I happened to start with. Warwick: "don't
+// you think everything should sync live? i do." He is right — a library that only catches
+// up on reload is a library you cannot trust to be the same on both machines, and "some of
+// them are live" is a worse promise than either extreme.
 const BOOK_PULL={
-  plants: async()=>{ await masterBookLoad(true); try{ renderPlantBook(); }catch(e){} },
-  materials: async()=>{ await goodsPull("materials",true); _cfgPaintGoods(); },
-  furnishings: async()=>{ await goodsPull("furnishings",true); _cfgPaintGoods(); }
+  plants:         async()=>{ await masterBookLoad(true); _bookRepaint(); },
+  materials:      async()=>{ await goodsPull("materials",true); _cfgPaintGoods(); },
+  furnishings:    async()=>{ await goodsPull("furnishings",true); _cfgPaintGoods(); },
+  hoa:            async()=>{ await hoaPull(true); _bookRepaint(); },
+  elements:       async()=>{ await elementsPull(true); _bookRepaint(); },
+  swatches:       async()=>{ await swatchLibPull(true); _bookRepaint(); },
+  palettepresets: async()=>{ await palettePresetsPull(true); _bookRepaint(); },
+  colorpalettes:  async()=>{ await colorPalettesPull(true); _bookRepaint(); },
+  mfgcolors:      async()=>{ await mfgColorsPull(true); _bookRepaint(); }
 };
 let _bookPulling=false;
 async function bookSyncFrom(remote){
