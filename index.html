@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1294</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1297</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -19748,6 +19748,86 @@ function shvizSizeStyle(x,url){
   return "object-fit:contain;padding:"+pad+"% "+pad+"%;box-sizing:border-box;";
 }
 
+// ── Consistent framing, measured rather than instructed ─────────────────────
+// Measured on two real renders: AS-13.5's object fills 80% of its frame, AS-18's fills
+// 53%. Same prompt, same style — the model simply frames each one however it likes, and
+// no amount of asking has changed that. So the smaller planter looked bigger in the grid.
+//
+// The object can be FOUND, though: these are single objects on a near-uniform sweep, so
+// anything far enough from the background colour is the product. Once its box is known,
+// framing becomes arithmetic.
+function shvizObjectBox(im){
+  const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
+  if(!W||!H) return null;
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const g=c.getContext("2d"); g.drawImage(im,0,0);
+  const d=g.getImageData(0,0,W,H).data;
+  const at=(x,y)=>{ const i=(y*W+x)*4; return [d[i],d[i+1],d[i+2]]; };
+  // Background sampled from a band across the upper eighth — above the object, inset
+  // from the edge so a vignette does not skew it.
+  const by=Math.max(1,Math.round(H*0.06)), R=[],G=[],B=[];
+  for(let x=0;x<W;x+=Math.max(1,Math.round(W/200))){ const p=at(x,by); R.push(p[0]);G.push(p[1]);B.push(p[2]); }
+  const med=a=>{ a.sort((m,n)=>m-n); return a[Math.floor(a.length/2)]||0; };
+  const bg=[med(R),med(G),med(B)];
+  const step=Math.max(1,Math.round(Math.min(W,H)/320));
+  const cols=Math.ceil(W/step), rows=Math.ceil(H/step);
+  const colHit=new Int32Array(cols), rowHit=new Int32Array(rows);
+  let hit=0;
+  for(let y=0,ry=0;y<H;y+=step,ry++) for(let x=0,rx=0;x<W;x+=step,rx++){
+    const p=at(x,y);
+    if(Math.abs(p[0]-bg[0])+Math.abs(p[1]-bg[1])+Math.abs(p[2]-bg[2])>44){
+      hit++; colHit[rx]++; rowHit[ry]++;
+    }
+  }
+  if(hit<20) return null;
+  // A CONTACT SHADOW also differs from the background, and a naive bounding box swallowed
+  // it — a shadow spreading to both edges reported the object as filling 100% of the
+  // frame, which then framed everything wrongly. A shadow is a THIN band, so a column or
+  // row only counts as object where enough of it is covered. That distinguishes a 400px
+  // tall planter from a 12px smear of shadow beneath it.
+  const minCol=Math.max(2,Math.round(rows*0.10)), minRow=Math.max(2,Math.round(cols*0.06));
+  let minx=-1,maxx=-1,miny=-1,maxy=-1;
+  for(let i=0;i<cols;i++) if(colHit[i]>=minCol){ if(minx<0)minx=i; maxx=i; }
+  for(let j=0;j<rows;j++) if(rowHit[j]>=minRow){ if(miny<0)miny=j; maxy=j; }
+  if(minx<0||miny<0||maxx<=minx||maxy<=miny) return null;
+  minx*=step; maxx*=step; miny*=step; maxy*=step;
+  return {x:minx,y:miny,w:maxx-minx,h:maxy-miny,W:W,H:H,bg:bg,
+          fill:(maxx-minx)/W};
+}
+// Re-frame so the object occupies `target` of the width, on a canvas of `ar`.
+// Padding is done by EDGE EXTENSION, not a flat fill or a blur — both of those were
+// tried and both showed a boundary, because the render's background is graded and a
+// half-size copy compresses that gradient. Replicating the outermost row and column
+// outward matches the seam EXACTLY by construction, whatever the gradient is doing.
+async function shvizReframe(dataUrl,target,ar){
+  const im=await _loadImgEl(dataUrl);
+  const box=shvizObjectBox(im); if(!box) return dataUrl;
+  const OW=Math.max(900,Math.min(1600,box.W));
+  const OH=Math.round(OW/(ar||(box.W/box.H)));
+  // scale so the object lands at the target fraction of the output width
+  const k=(OW*target)/box.w;
+  const sw=box.W*k, sh=box.H*k;
+  // object centred horizontally, sitting a little below centre
+  const ox=box.x*k+(box.w*k)/2, oy=box.y*k+(box.h*k)/2;
+  const dx=Math.round(OW/2-ox), dy=Math.round(OH*0.54-oy);
+  const cv=document.createElement("canvas"); cv.width=OW; cv.height=OH;
+  const cx=cv.getContext("2d"); cx.imageSmoothingQuality="high";
+  cx.drawImage(im,0,0,box.W,box.H,dx,dy,Math.round(sw),Math.round(sh));
+  const L=dx, T=dy, Rr=dx+Math.round(sw), Bm=dy+Math.round(sh);
+  // stretch the border pixels of what we just drew out to each edge
+  if(T>0)   cx.drawImage(cv,L,T,      Math.round(sw),1, L,0,  Math.round(sw),T);
+  if(Bm<OH) cx.drawImage(cv,L,Bm-1,   Math.round(sw),1, L,Bm, Math.round(sw),OH-Bm);
+  if(L>0)   cx.drawImage(cv,L,0,      1,OH,            0,0,   L,OH);
+  if(Rr<OW) cx.drawImage(cv,Rr-1,0,   1,OH,            Rr,0,  OW-Rr,OH);
+  return cv.toDataURL("image/jpeg",0.93);
+}
+// What fraction of the frame this product should fill. Series-relative, so a 13.5 reads
+// smaller than a 22.5 — but expressed as a real measured target now, not a hope.
+function shvizTargetFill(x){
+  const p=Math.max(0.15,Math.min(1,(shvizScalePct(x)||100)/100));
+  return 0.72*p;
+}
+
 // ── Which views a product actually needs ─────────────────────────────────────
 // A side elevation of a round pot is the front elevation again. Rendering it costs money,
 // adds a tile to review and tells a designer nothing. For a four-sided or trough form it
@@ -20022,6 +20102,9 @@ async function shvizGenerate(kind,id,opts){
           data=await shvizCutoutPng(g.url);
         } else {
           data=await _fetchToMax(g.url,(SHVIZ_CFG.maxPx||SHVIZ_MAXPX),0.93);
+          // Normalise the framing before it is stored, so every product in the library
+          // sits at the same scale whatever the model decided to do with this one.
+          try{ data=await shvizReframe(data,shvizTargetFill(x),(v==="hero"?4/3:1)); }catch(e){}
           // NOT scaled here any more. Three attempts at shrinking a render inside its
           // own frame failed for one reason: the source has a graded background, so a
           // half-size copy compresses that whole gradient into the middle and can never
@@ -20113,6 +20196,52 @@ function shvizSetScale(kind,id,v){
   else { x.shvizScalePctOverride=n; goodsPermSet(id,"shvizScalePctOverride",n); }
   try{ goodsRepaint(kind); }catch(e){}
   try{ _toast("Size set to "+shvizScalePct(x)+"%. Applied when the image is drawn \u2014 nothing to re-process.","#4C7B3D"); }catch(e){}
+}
+// Re-frame renders that were made before framing was normalised. No model call, so it
+// costs nothing — the object is measured and the image re-composed locally.
+async function shvizRenorm(kind,id){
+  const x=_goodsFind(kind,id); if(!x) return {ok:false};
+  const key=_adminKey(); if(!key) return {ok:false,err:"No admin key on this device."};
+  const FL=[["shvizHero","Hero",4/3],["shvizFront","Front",1],["shvizSide","Side",1],["shvizTop","Top",1]];
+  const todo=FL.filter(f=>x[f[0]]);
+  if(!todo.length) return {ok:false,err:"Nothing rendered yet."};
+  const a=await askDlg({icon:"⤢",title:"Re-frame "+todo.length+" view"+(todo.length===1?"":"s")+"?",
+    body:"Finds the product in each image and re-composes it so every render in the library "
+      +"sits at the same scale.\n\nNo image is generated and nothing is charged — the object "
+      +"is measured and the frame rebuilt here.",
+    actions:["Cancel","Re-frame "+todo.length]});
+  if(a!==1) return {ok:false,err:"cancelled"};
+  gwOpen({title:"Re-framing "+(x.nm||"product"),sub:Math.round(shvizTargetFill(x)*100)+"% of frame",
+          steps:todo.map(f=>f[1]),pct:0,cancel:false});
+  let n=0; const fail=[];
+  for(let i=0;i<todo.length;i++){
+    const [fld,lbl,ar]=todo[i];
+    try{ gwStep&&gwStep(i,Math.round(i/todo.length*100)); }catch(e){}
+    try{
+      let src=null;
+      try{ const p=await _satBase64ViaWorker(AI_PROXY_URL,x[fld]);
+           if(p&&p.data) src="data:"+(p.media_type||"image/jpeg")+";base64,"+p.data; }catch(e){}
+      if(!src) src=await _urlToDataURL(x[fld]);
+      const out=await shvizReframe(src,shvizTargetFill(x),ar);
+      if(out===src){ fail.push(lbl+": could not find the product in the image"); continue; }
+      const up=await _uploadImageR2("shviz_"+id+"_"+fld+"_fr"+Date.now().toString(36),out);
+      if(up.ok&&up.url){
+        x[fld]=up.url; goodsPermSet(id,fld,up.url);
+        if(fld==="shvizHero"){ x.studioHProductImage=up.url; goodsPermSet(id,"studioHProductImage",up.url); }
+        n++;
+      } else fail.push(lbl+": "+(up.err||"upload failed"));
+    }catch(e){ fail.push(lbl+": "+((e&&e.message)||"failed")); }
+  }
+  try{
+    const card=await shvizCard(x,{hero:x.shvizHero,front:x.shvizFront,side:x.shvizSide,top:x.shvizTop});
+    const up=await _uploadImageR2("shviz_"+id+"_card_fr"+Date.now().toString(36),card);
+    if(up.ok&&up.url){ x.shvizCard=up.url; goodsPermSet(id,"shvizCard",up.url); }
+  }catch(e){}
+  gwClose();
+  try{ goodsRepaint(kind); }catch(e){}
+  if(fail.length) try{ await askTell("Re-framed "+n+", "+fail.length+" failed",fail.join("\n"),{icon:"!"}); }catch(e){}
+  else try{ _toast(n+" view"+(n===1?"":"s")+" re-framed — nothing was charged.","#4C7B3D"); }catch(e){}
+  return {ok:true,n:n};
 }
 function shvizApprove(kind,id){
   const x=_goodsFind(kind,id); if(!x) return;
@@ -20253,6 +20382,10 @@ function _shvizPanel(x,kind){
     // No re-fit button: size is applied when the image is drawn, so changing the number
     // takes effect at once and there is nothing to re-process.
   }
+  if(have)
+    h+='<button class="pbk-btn" onclick="shvizRenorm(\''+kind+'\',\''+x.id+'\')">'
+      +'Re-frame to '+Math.round(shvizTargetFill(x)*100)+'% of frame '
+      +'<i style="font-style:normal;color:var(--tl)">free</i></button>';
   h+='<button class="pbk-btn" onclick="shvizCopyPrompts(\''+kind+'\',\''+x.id+'\')">Copy the 5 prompts</button>';
   return h;
 }
