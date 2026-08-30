@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1307</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1308</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24833,9 +24833,34 @@ async function _autoPublish(reason){
     // Stale-device guard: if publishing now would delete AI images that exist on the server but not
     // locally, SKIP the autosave and warn — never silently clobber the server.
     const sr=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbook"})}); const sd=await sr.json();
-    if(sd&&sd.found&&sd.book){ const localHas={}; PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>{ if(p&&p.id&&p.img) localHas[p.id]=1; }));
-      let lost=0; PLANT_KINDS.forEach(k=>(sd.book[k]||[]).forEach(p=>{ if(p&&p.imgAI&&p.img&&!localHas[p.id]) lost++; }));
-      if(lost){ _toast("Auto-save skipped — this device is behind ("+lost+" server image"+(lost>1?"s":"")+" missing). Click ☁ Pull master.","#B23F3C"); _autoPubBusy=false; return; }
+    if(sd&&sd.found&&sd.book){
+      // This used to count the AI images the server had and this device did not, refuse to
+      // save, and tell you to go and press Pull master — every time, for as long as the
+      // gap existed. The guard is right (publishing would delete those images) but the
+      // remedy was a chore handed back to you, and it named a button that is on its way out.
+      //
+      // The gap is one-directional and trivially closable: take the missing images. It is
+      // purely additive — a plant that already has a photo here is untouched — so there is
+      // nothing to weigh up and nothing to ask. Once they are in, the reason to skip is gone
+      // and the save proceeds on the same pass.
+      const byId={}; PLANT_KINDS.forEach(k=>(PLANT_DB[k]||[]).forEach(p=>{ if(p&&p.id) byId[p.id]=p; }));
+      let took=0;
+      PLANT_KINDS.forEach(k=>(sd.book[k]||[]).forEach(p=>{
+        if(!p||!p.id||!p.img) return;
+        const mine=byId[p.id];
+        if(!mine || mine.img) return;                  // absent here, or already has one
+        mine.img=p.img;
+        if(p.imgAI) mine.imgAI=p.imgAI;
+        if(p.imgLic) mine.imgLic=p.imgLic;
+        if(p.imgAttr) mine.imgAttr=p.imgAttr;
+        if(p.imgSrc) mine.imgSrc=p.imgSrc;
+        took++;
+      }));
+      if(took){
+        try{ plantBookSave(); }catch(e){}
+        try{ if(typeof renderPlantBook==="function") renderPlantBook(); }catch(e){}
+        try{ _toast("Picked up "+took+" plant photo"+(took===1?"":"s")+" from the server","#4C7B3D"); }catch(e){}
+      }
     }
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebook",key,book:PLANT_DB,by:"Studio H (auto)"})}); const d=await r.json();
     if(d&&d.ok){ _bookDirty=false; _toast("Auto-saved to server ✓"); }
@@ -25199,7 +25224,14 @@ async function _saveConfigSilent(){
     // an edit it could never send: the save declined it for having no date, and the pull
     // kept it for being a local change. 825 on the MacBook, 800 everywhere else, forever.
     if(!a && cfgLocalChanged(k,v)) a=cfg.savedAt;
-    if(a && (!b || a>b)){ cfg.data[k]=v; cfg.times[k]=a; sent[k]=1; }
+    // >= NOT >. Equal stamps with DIFFERENT values is not a tie, it is a contradiction —
+    // and it is the state the old adopt-the-server's-clock bug left behind: this device
+    // took the server's timestamp for a key it was still holding a different value for.
+    // Identical values return above, so reaching here with a===b means one side changed
+    // afterwards without dating it, and the only side that can have done so is this one.
+    // With `>` that key was refused for ever: not newer, so never sent; changed here, so
+    // never overwritten. 825 on the MacBook and 800 on the server, from an equals sign.
+    if(a && (!b || a>=b)){ cfg.data[k]=v; cfg.times[k]=a; sent[k]=1; }
     else withheld.push(k);
     // else the server's copy is the newer edit (or this device cannot say when it changed)
     // — leave it alone. configLoad brings it down on the next pull.
