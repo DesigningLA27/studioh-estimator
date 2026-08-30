@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1301</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1302</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16416,7 +16416,7 @@ const GOODS_PERM_FIELDS=["studioHProductImage","studioHProductImageStatus","stud
   "officialManufacturerImage","officialManufacturerDescription",
   "sourceProductUrl","sourceBrandUrl","sourceCheckedDate","priceCheckedDate",
   "shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout","shvizColour",
-  "shvizScalePctOverride"];
+  "shvizScalePctOverride","shvizMadeBy"];
 // Renamed from "studioh_goodsperm_v1". That key was my abbreviation of "goods
 // permissions", but the config-conflict dialog labels a store by stripping the prefix
 // and version off its key — so it printed "goodsperm" at a user, which reads as
@@ -19272,9 +19272,17 @@ const SHVIZ_LIGHT_PRESET={
     text:d=>"A broad soft light directly above the object, dropping evenly down its sides "
       +"with a small pool of shadow beneath it. No side key, no rim light, no reflective floor."}
 };
+// "the shadow was way too long on the last one." It was — on AS-22.5 it ran off the right
+// edge of the frame. "falling to the lower right" invited a long directional cast, which
+// on a low wide object reads as late-afternoon sun rather than a studio. What a product
+// shot actually has is a shadow POOLED UNDER the object, so the length is now stated as a
+// limit rather than left to the model's idea of "diffuse".
 const SHVIZ_SHADOW_WORD={
-  soft:"a soft diffuse contact shadow falling to the lower right directly under the object",
-  minimal:"only the faintest contact shadow directly beneath the object, barely visible",
+  soft:"a soft diffuse contact shadow pooled directly beneath the object, extending no "
+    +"further than about a quarter of the object's width beyond its base on any side, and "
+    +"never reaching the edge of the frame",
+  minimal:"only the faintest contact shadow directly beneath the object, barely visible, "
+    +"not extending beyond the object's own footprint",
   none:"no cast shadow at all — the object sits on the background with no shadow"
 };
 const SHVIZ_MAXPX=1600;   // fallback; SHVIZ_CFG.maxPx is what is used
@@ -19293,9 +19301,11 @@ const SHVIZ_MAXPX=1600;   // fallback; SHVIZ_CFG.maxPx is what is used
 const SHVIZ_MODELS={
   "nano-2":{nm:"Nano Banana 2",cost:0.08,ready:true,
     hint:"What every render so far has used. Holds geometry from a reference well."},
-  "nano-banana-pro":{nm:"Nano Banana Pro",cost:0.15,ready:false,
+  // ready:true since the worker deploy — both are wired. Left as false, the picker was
+  // still captioning them "not wired", which is its own way of making you doubt what ran.
+  "nano-banana-pro":{nm:"Nano Banana Pro",cost:0.15,ready:true,
     hint:"Same family, higher tier. Takes up to 14 reference images against our 3."},
-  "gpt-image-2":{nm:"GPT Image 2",cost:0.053,ready:false,
+  "gpt-image-2":{nm:"GPT Image 2",cost:0.053,ready:true,
     hint:"Cheaper than Nano 2 at medium quality, and stronger at following instructions — which is exactly where camera angle keeps failing. Less proven on photoreal material."}
 };
 function shvizModel(){
@@ -19767,24 +19777,53 @@ function shvizObjectBox(im){
   const step=Math.max(1,Math.round(Math.min(W,H)/320));
   const cols=Math.ceil(W/step), rows=Math.ceil(H/step);
   const colHit=new Int32Array(cols), rowHit=new Int32Array(rows);
+  // Where each column's coverage STARTS. This is what separates a pot from its shadow.
+  const colTop=new Int32Array(cols).fill(-1);
   let hit=0;
   for(let y=0,ry=0;y<H;y+=step,ry++) for(let x=0,rx=0;x<W;x+=step,rx++){
     const p=at(x,y);
     if(Math.abs(p[0]-bg[0])+Math.abs(p[1]-bg[1])+Math.abs(p[2]-bg[2])>44){
       hit++; colHit[rx]++; rowHit[ry]++;
+      if(colTop[rx]<0) colTop[rx]=ry;          // rows run outer, so the first hit is the top
     }
   }
   if(hit<20) return null;
-  // A CONTACT SHADOW also differs from the background, and a naive bounding box swallowed
-  // it — a shadow spreading to both edges reported the object as filling 100% of the
-  // frame, which then framed everything wrongly. A shadow is a THIN band, so a column or
-  // row only counts as object where enough of it is covered. That distinguishes a 400px
-  // tall planter from a 12px smear of shadow beneath it.
-  const minCol=Math.max(2,Math.round(rows*0.10)), minRow=Math.max(2,Math.round(cols*0.06));
+  // ── Telling the object from its shadow ──────────────────────────────────────
+  // The old rule was "a column counts if enough of it is covered", on the theory that a
+  // shadow is thin. A LONG soft shadow is not thin — on AS-22.5 it reached the right edge
+  // and was tall enough to pass, so the box ran from the pot's left side to the frame
+  // edge. The midpoint of that box is not the pot: the measured centre came out at 0.571
+  // when the pot's own centre is 0.407, and centring on that pushed the pot left of centre.
+  // Warwick, looking at it: "these pots should always be centered on the space, but
+  // instead if there is a shadow it's centering it with the shade."
+  //
+  // What actually distinguishes them is not thickness but HEIGHT ON THE CANVAS. A cast
+  // shadow lies on the ground, so its columns begin far below where the object's do. So a
+  // column belongs to the object when its coverage STARTS in the upper part of everything
+  // covered. That is a statement about how light works, not a tuned constant, and it holds
+  // whatever shape the shadow takes.
+  const floorC=Math.max(1,Math.round(rows*0.02)), floorR=Math.max(1,Math.round(cols*0.02));
+  let ty=-1,yb2=-1;
+  for(let j=0;j<rows;j++) if(rowHit[j]>=floorR){ if(ty<0)ty=j; yb2=j; }
+  if(ty<0) return null;
+  const cut=ty+0.55*(yb2-ty);
   let minx=-1,maxx=-1,miny=-1,maxy=-1;
-  for(let i=0;i<cols;i++) if(colHit[i]>=minCol){ if(minx<0)minx=i; maxx=i; }
-  for(let j=0;j<rows;j++) if(rowHit[j]>=minRow){ if(miny<0)miny=j; maxy=j; }
-  if(minx<0||miny<0||maxx<=minx||maxy<=miny) return null;
+  for(let i=0;i<cols;i++){
+    if(colHit[i]<floorC || colTop[i]<0 || colTop[i]>cut) continue;
+    if(minx<0)minx=i; maxx=i;
+  }
+  if(minx<0||maxx<=minx) return null;
+  // Vertical extent is then measured ONLY within the object's own columns, so a shadow
+  // stretching away to one side cannot drag the bottom of the box down with it.
+  const minRow=Math.max(2,Math.round((maxx-minx)*0.06));
+  const rowIn=new Int32Array(rows);
+  for(let y=0,ry=0;y<H;y+=step,ry++) for(let i=minx;i<=maxx;i++){
+    const x=i*step; if(x>=W) continue;
+    const p=at(x,y);
+    if(Math.abs(p[0]-bg[0])+Math.abs(p[1]-bg[1])+Math.abs(p[2]-bg[2])>44) rowIn[ry]++;
+  }
+  for(let j=0;j<rows;j++) if(rowIn[j]>=minRow){ if(miny<0)miny=j; maxy=j; }
+  if(miny<0||maxy<=miny) return null;
   minx*=step; maxx*=step; miny*=step; maxy*=step;
   // The sweep is GRADED — brighter at the top than at the foot. So when the image is drawn
   // smaller than its tile, a single flat pad colour steps visibly at one end. Two colours
@@ -19846,7 +19885,10 @@ function shvizTargetFill(x){
 // the box, then set background-size and background-position in pixels so the object lands
 // at the same fraction of whatever tile it is in. Nothing is re-processed and nothing is
 // re-uploaded — the stored render is untouched and only the drawing changes.
-const SHVIZ_BOX_KEY="studioh_shvizbox_v1";
+// _v2: the measuring rule changed (shadow no longer counts toward the object), so every
+// cached box from v1 is wrong. Bumping the key throws them away rather than leaving
+// devices framing off an old measurement they have no reason to re-take.
+const SHVIZ_BOX_KEY="studioh_shvizbox_v2";
 let SHVIZ_BOX={}; try{ SHVIZ_BOX=JSON.parse(localStorage.getItem(SHVIZ_BOX_KEY)||"{}")||{}; }catch(e){ SHVIZ_BOX={}; }
 const _shvBoxPend={};
 // Deliberately NOT a shared config key. The box is derived from the image and is identical
@@ -20182,6 +20224,7 @@ async function shvizGenerate(kind,id,opts){
   // views on a single-view re-render so the card can be rebuilt, so counting urls told
   // the user "rendered 5, failed 1" when nothing new had been made at all.
   const urls={}; const fail=[]; const made=[];
+  let _usedModel="";
   try{
     gwOpen({title:"Rendering "+(x.nm||"product"),sub:"Studio H visualization",
             steps:want.map(v=>SHVIZ_VIEWS[v].label),pct:0,cancel:false});
@@ -20197,6 +20240,7 @@ async function shvizGenerate(kind,id,opts){
         g=await _genImageOne(ep,key,p,refs.length?refs:null,SHVIZ_VIEWS[v].aspect,shvizModel());
       }
       if(!g.ok){ fail.push(SHVIZ_VIEWS[v].label+": "+g.err); continue; }
+      if(g.model) _usedModel=g.model;   // the endpoint the worker actually called
       // The cut-out is keyed to alpha before storing, so what lands in R2 is already a
       // transparent PNG ready to drop into a scene.
       let data=null;
@@ -20250,6 +20294,11 @@ async function shvizGenerate(kind,id,opts){
     const map={hero:"shvizHero",front:"shvizFront",side:"shvizSide",top:"shvizTop",
                card:"shvizCard",cutout:"shvizCutout"};
     Object.keys(map).forEach(v=>{ if(urls[v]){ x[map[v]]=urls[v]; goodsPermSet(id,map[v],urls[v]); } });
+    // WHICH MODEL MADE IT. "This is the pot I made with the GPT. But I don't think it is
+    // GPT" — and there was no way to answer that, because nothing recorded it. The worker
+    // returns the endpoint it actually called; store that, not the one we asked for, so
+    // the record shows what ran rather than what was intended.
+    if(_usedModel){ x.shvizMadeBy=_usedModel; goodsPermSet(id,"shvizMadeBy",_usedModel); }
     // The library's public image is the hero — the clean product, not the spec sheet.
     const primary=urls.hero||urls.front;
     // Only the hero drives the public image, so re-rendering a side view must not quietly
@@ -20421,6 +20470,15 @@ function _shvizPanel(x,kind){
     +(nref?('Reference: '+nref+' manufacturer photo'+(nref===1?'':'s')+' — the model renders this exact product from them.')
           :'No reference photo on this record. A text-only render will be a generic shape.')+'</div>';
   const _m=shvizModel();
+  // What made the images that are actually on this record — read off the worker's reply at
+  // the time, not inferred from whatever the picker says today. Without this the only way
+  // to answer "is that really GPT?" was to measure the file's dimensions by hand.
+  const _made=String(x.shvizMadeBy||"");
+  if(_made){
+    const known=Object.keys(SHVIZ_MODELS).filter(k=>_made.indexOf(k.replace("nano-2","nano-banana-2"))>=0||_made.indexOf(k)>=0);
+    const nm=known.length?SHVIZ_MODELS[known[known.length-1]].nm:_made.replace(/^fal-ai\//,"");
+    h+='<div class="shv-eb">Made by<i>'+escAttr(nm)+'</i></div>';
+  }
   h+='<div class="shv-eb">Model<i>$'+(SHVIZ_MODELS[_m].cost.toFixed(3).replace(/0$/,""))+' per image</i></div>';
   h+='<div class="shv-mods">'+Object.keys(SHVIZ_MODELS).map(k=>{const M=SHVIZ_MODELS[k];
     return '<button class="'+(k===_m?"on":"")+(M.ready?"":" todo")+'" title="'+escAttr(M.hint)
@@ -25517,7 +25575,9 @@ async function _genImageOne(ep,key,prompt,refs,aspect,model){
     try{ console.error("[genimage] failed",{model:imgModel(),aspect,status:r&&r.status,body:raw&&raw.slice(0,600)}); }catch(e){}
     return {ok:false,err:err};
   }
-  return {ok:true,url:d.url};
+  // d.model is the fal endpoint the worker actually called. Passed back so the record can
+  // state which model made an image instead of which one was selected at the time.
+  return {ok:true,url:d.url,model:d.model||""};
 }
 async function _urlToDataURL(url){ if(/^data:/.test(url)) return url; const r=await fetch(url); const b=await r.blob(); return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(b); }); }
 function _loadImgEl(src){ return new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>rej(new Error("img load")); im.src=src; }); }
