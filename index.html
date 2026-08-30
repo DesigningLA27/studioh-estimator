@@ -5751,7 +5751,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1308</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1309</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -25295,6 +25295,26 @@ function _cfgFp(){
 // instead of needing someone to go and edit something to shake it loose.
 function _cfgSyncedFp(){ try{ return localStorage.getItem("studioh_cfg_fp_v2")||""; }catch(e){ return ""; } }
 function _cfgMarkSynced(){ try{ localStorage.setItem("studioh_cfg_fp_v2",_cfgFp()); }catch(e){} }
+// "In sync" is a claim about the SERVER, so it has to be checked against the server, not
+// asserted because a pull happened to finish. Every place that marked it blind is a place
+// a device could sit on an edit believing it had nothing to send — which is exactly what
+// froze a MacBook on 825 for an hour while the server stayed on 800, through four reloads.
+function _cfgMarkSyncedIf(serverData){
+  if(!serverData) return false;
+  const same=SHARED_CFG_KEYS.every(k=>{
+    let v=null; try{ v=localStorage.getItem(k); }catch(e){}
+    const s=serverData[k];
+    if(v==null && s===undefined) return true;
+    return v===s;
+  });
+  // Not marking it clean is not enough — a device already carrying a WRONG clean mark stays
+  // stuck for ever, which is why renaming the key and shipping three fixes changed nothing
+  // on the MacBook. Disagreeing with the server is positive evidence that this device has
+  // something to send, so say so: clearing the mark is what makes it recover by itself.
+  if(same) _cfgMarkSynced();
+  else try{ localStorage.removeItem("studioh_cfg_fp_v2"); }catch(e){}
+  return same;
+}
 // A device that has never synced has no fingerprint — and this used to return FALSE for
 // exactly that case, so a fresh device was permanently "clean" and never pushed anything.
 // That, not the design, is why the price book still needed a Publish button. No
@@ -25430,7 +25450,14 @@ async function configLoad(silent,force){
     // `force` skips the already-applied shortcut. A device that marked a stamp applied
     // without actually receiving everything in it (see the conflict note below) would
     // otherwise early-return on every future pull with no way back.
-    if(!force && serverStamp && serverStamp===applied){ if(!_cfgSyncedFp()) _cfgMarkSynced(); return; }
+    // THE FREEZE LIVED ON THIS LINE. It marked the device in sync simply because the
+    // server's stamp matched the one we last applied — without ever comparing the values.
+    // A device holding an unsent edit reaches here on every boot (the stamp DOES match: it
+    // is the stamp of the save that declined to send that edit), stamped itself clean, and
+    // _cfgDirty() went false before the save path ever ran. It survived every reload
+    // because studioh_cfg_applied still matched. Now it only counts as synced if the
+    // values actually agree; otherwise the device stays dirty and saves.
+    if(!force && serverStamp && serverStamp===applied){ _cfgMarkSyncedIf(d.config.data); return; }
 
     const snap=_cfgSnapshot();
     // A device with no snapshot yet has never synced — there is no baseline to diff
@@ -25473,9 +25500,9 @@ async function configLoad(silent,force){
     // with — one account, one user, two machines — so the later edit is simply the one
     // that was meant, and it is applied without stopping to ask.
 
-    if(!Object.keys(toApply).length){ // nothing actually differed -- just move the marker forward
+    if(!Object.keys(toApply).length){ // nothing to bring down — but that is not the same as agreeing
       try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
-      _cfgSaveSnapshot(); _cfgMarkSynced();
+      _cfgSaveSnapshot(d.config.data); _cfgMarkSyncedIf(d.config.data);
       return;
     }
 
@@ -25499,7 +25526,10 @@ async function configLoad(silent,force){
     // and this device becomes dirty, so it pushes the correction back up.
     try{ _lgtFixStoredPrices(); }catch(e){}
     try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
-    _cfgSaveSnapshot(); _cfgMarkSynced();
+    // Applying what the server sent does not make the rest of this device agree with it —
+    // a key we kept because WE changed it is still unsent, and marking it synced here is
+    // how it would be forgotten.
+    _cfgSaveSnapshot(d.config.data); _cfgMarkSyncedIf(d.config.data);
     // This used to reload the page. A reload is not live sync — it is discarding the
     // screen, and doing that under someone who is mid-edit on the other machine's
     // schedule is worse than being slightly behind. What arrived goes into the running
