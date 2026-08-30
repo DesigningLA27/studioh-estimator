@@ -5760,7 +5760,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1315</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1316</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -6492,8 +6492,10 @@ function algoRecalc(){
           <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>
         </button>
         <div class="pbt-menu" id="pb-more-menu">
-          <button type="button" onclick="pbCloseMore();configLoad(false)">Pull from the cloud</button>
-          <button type="button" onclick="pbCloseMore();cfgRestoreBackup()" title="If a sync conflict picked the server's copy over yours, this brings back what was on this device.">Restore this device's last backup</button>
+          <!-- "Pull from the cloud" stood here. The app checks continuously and on every
+               touch of the device, so pressing it could only ever do what had already
+               happened a second earlier. -->
+          <button type="button" onclick="pbCloseMore();cfgRestoreBackup()" title="If a newer edit from your other machine replaced something here, this puts back what was on this device.">Undo an overwrite from another device</button>
           <button type="button" onclick="pbCloseMore();cfgSyncReport()">Sync detail</button>
           <button type="button" onclick="pbCloseMore();pbExportCsv()">Export CSV</button>
           <button type="button" onclick="pbCloseMore();document.getElementById('pb-import-file').click()">Import CSV</button>
@@ -24543,7 +24545,15 @@ function _askPump(){
     +`</div></div>`;
   document.body.appendChild(x);
   _askOn=x;
-  requestAnimationFrame(()=>x.classList.add("in"));
+  // The "in" class is what makes this visible. It used to be added on requestAnimationFrame
+  // — which does not fire in a hidden tab. A dialog raised while you were on another tab or
+  // app therefore became an INVISIBLE MODAL: _askOn stayed set, so every dialog after it
+  // queued behind something nobody could see or dismiss, for the rest of the session. That
+  // is why "device cannot save" seemed to swallow the queue. A timer always fires; adding
+  // the class twice is harmless.
+  const reveal=()=>{ try{ x.classList.add("in"); }catch(e){} };
+  try{ requestAnimationFrame(reveal); }catch(e){}
+  setTimeout(reveal,60);
 
   let done=false;
   const finish=i=>{
@@ -25492,14 +25502,31 @@ function _cfgBackupLocal(keys){
   try{ localStorage.setItem("studioh_cfg_backup", JSON.stringify({savedAt:new Date().toISOString(), keys, data})); }catch(e){}
 }
 function cfgBackupInfo(){ try{ const b=JSON.parse(localStorage.getItem("studioh_cfg_backup")||"null"); return b?{savedAt:b.savedAt,keys:b.keys||Object.keys(b.data||{})}:null; }catch(e){ return null; } }
+// The one way back from last-write-wins. Nothing asks you to choose between two copies any
+// more, so when a newer edit from the other machine replaces something here, the value it
+// replaced is kept — quietly, automatically, and only ever one deep. This is how you get it
+// back. The old wording described the conflict dialog that no longer exists.
 function cfgRestoreBackup(){
   let b=null; try{ b=JSON.parse(localStorage.getItem("studioh_cfg_backup")||"null"); }catch(e){}
-  if(!b||!b.data){ alert("No backup on this device."); return; }
-  askDlg({title:"Restore this device's earlier copy?",
-    body:"This puts back what "+(b.keys||Object.keys(b.data)).map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k)).join(", ")+" looked like on this device before you last chose the server's version, from "+new Date(b.savedAt).toLocaleString()+".",
-    actions:["Cancel","Restore"]}).then(i=>{ if(i!==1) return;
+  if(!b||!b.data){
+    askTell("Nothing to bring back",
+      "Nothing on this device has been replaced by a newer edit from another machine, so "
+      +"there is no earlier copy stored.\n\nThis only fills up if you change the same "
+      +"setting in two places and the other one turns out to be newer.",{icon:"↺"});
+    return;
+  }
+  const names=(b.keys||Object.keys(b.data)).map(k=>CFG_KEY_LABEL[k]||_cfgKeyLabel(k));
+  askDlg({icon:"↺",title:"Put back this device's earlier copy?",
+    body:names.join(", ")+"\n\nA newer edit from another machine replaced "
+      +(names.length===1?"this":"these")+" on "+new Date(b.savedAt).toLocaleString()
+      +". This puts back what was here before that — and because it is the newer edit now, "
+      +"it will go back out to your other machine.",
+    actions:["Leave it","Put it back"]}).then(i=>{ if(i!==1) return;
     Object.keys(b.data).forEach(k=>{ try{ localStorage.setItem(k,b.data[k]); }catch(e){} });
-    _cfgSaveSnapshot(); _cfgMarkSynced();
+    // Deliberately NOT marking this synced: it is a change this device is making now, and
+    // it has to travel. Marking it clean is what would strand it here.
+    Object.keys(b.data).forEach(k=>{ try{ cfgStampKey(k); }catch(e){} });
+    try{ localStorage.removeItem("studioh_cfg_fp_v2"); }catch(e){}
     location.reload();
   });
 }
