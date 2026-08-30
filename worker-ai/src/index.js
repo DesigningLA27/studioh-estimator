@@ -100,6 +100,14 @@ async function handleSaveBook(body, env, origin){
   if(!body.book || typeof body.book!=="object") return json({error:"No book provided"},400,origin);
   const str = JSON.stringify(body.book);
   if(str.length > MAX_BOOK_BYTES) return json({error:"Book too large for KV ("+Math.round(str.length/1024/1024)+"MB). Move images to R2."},413,origin);
+  // Same compare-and-swap as the config, and it matters more here: the plant book is
+  // written whole, so a device that started from a stale copy does not merely lose the
+  // race, it reverts every plant the other machine added in the meantime.
+  if(body.ifSavedAt!==undefined){
+    let cur=""; try{ const m=await env.PLANTS_KV.get(BOOK_KEY+"_meta");
+      if(m){ cur=(JSON.parse(m)||{}).savedAt||""; } }catch(e){}
+    if(cur!==body.ifSavedAt) return json({error:"Book changed since you read it",conflict:true,savedAt:cur},409,origin);
+  }
   try{
     const counts={}; ["shrub","tree","gc","palm"].forEach(k=>{ counts[k]=Array.isArray(body.book[k])?body.book[k].length:0; });
     const now=new Date().toISOString();
@@ -384,6 +392,20 @@ async function handleSaveConfig(body, env, origin){
   if(!body.config || typeof body.config!=="object") return json({error:"No config provided"},400,origin);
   const str=JSON.stringify(body.config);
   if(str.length > MAX_BOOK_BYTES) return json({error:"Config too large"},413,origin);
+  // COMPARE-AND-SWAP. The client reads the bundle, merges its own changes into it, and
+  // writes the result back. If the other device writes in the gap between that read and
+  // this write, the second writer merged against a copy that is already stale and silently
+  // erases the first one. Per-key timestamps decide correctly WHAT should win; they cannot
+  // help when the losing value was never in the document being written.
+  //
+  // So the client says which version it based its merge on. If that is no longer what is
+  // stored, the write is refused and the client reads and merges again — which is cheap,
+  // because by then it knows exactly what it missed.
+  if(body.ifSavedAt!==undefined){
+    let cur=""; try{ const raw=await env.PLANTS_KV.get(CFG_KEY);
+      if(raw){ cur=(JSON.parse(raw)||{}).savedAt||""; } }catch(e){}
+    if(cur!==body.ifSavedAt) return json({error:"Config changed since you read it",conflict:true,savedAt:cur},409,origin);
+  }
   try{
     await env.PLANTS_KV.put(CFG_KEY, str);
     // The stamp is written second and separately so the cheap poll never has to read the
