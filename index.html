@@ -5760,7 +5760,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1320</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1321</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -24394,7 +24394,7 @@ async function masterBookLoad(silent){ const ep=(typeof AI_PROXY_URL!=="undefine
       // so images and edits published on ANY device always show up automatically. Before overwriting,
       // snapshot the current local book to a recovery key so a stale server read can never lose work.
       if(silent && window._hadLocalBook){ try{ const curLocal=localStorage.getItem("studioh_plantbook_v1"); if(curLocal) localStorage.setItem("studioh_plantbook_presync", curLocal); }catch(e){} }
-      plantBookMerge(d.book,"overwrite"); MASTER_META=d.meta||null; plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof plantRefresh==="function"&&document.getElementById("planting-builder")) plantRefresh(); if(!silent){ const c=d.meta&&d.meta.counts?d.meta.counts:{}; alert("Master plant book loaded from server."+(d.meta?"\nLast published: "+new Date(d.meta.savedAt).toLocaleString():"")); } return true; }
+      _bookApplying++; try{ plantBookMerge(d.book,"overwrite"); MASTER_META=d.meta||null; plantBookSave(); } finally { _bookApplying--; } if(typeof renderPlantBook==="function") renderPlantBook(); if(typeof plantRefresh==="function"&&document.getElementById("planting-builder")) plantRefresh(); if(!silent){ const c=d.meta&&d.meta.counts?d.meta.counts:{}; alert("Master plant book loaded from server."+(d.meta?"\nLast published: "+new Date(d.meta.savedAt).toLocaleString():"")); } return true; }
     else { if(!silent) alert("No master book on the server yet. Publish one first."); return false; }
   }catch(e){ if(!silent) alert("Couldn't reach the server ("+((e&&e.message)||"error")+")."); return false; }
 }
@@ -24840,7 +24840,12 @@ let _autoPubTimer=null, _autoPubBusy=false;
 let _bookDirty=false;
 // 2 seconds, like everything else. It was 90 — a plant edited here did not leave the device
 // for a minute and a half, which is not "saves itself", it is "saves eventually".
-function _scheduleAutoPublish(){ _bookDirty=true;
+// >0 while we are writing the SERVER's book into this device. Pulling a book calls
+// plantBookSave(), which schedules a save — so a pull announced itself as a change, the
+// other machine pulled that, announced it back, and the two of them would have traded the
+// same 5MB book forever. Same guard, same reason, as _cfgApplying on the settings.
+let _bookApplying=0;
+function _scheduleAutoPublish(){ if(_bookApplying) return; _bookDirty=true;
   try{ if(_autoPubTimer) clearTimeout(_autoPubTimer);
     _autoPubTimer=setTimeout(()=>{ _autoPubTimer=null; _autoPublish("idle"); }, 2000); }catch(e){} }
 try{
@@ -35132,6 +35137,7 @@ function _renderPlantBook_inner(){
                  machine through the settings poll, so both buttons could only ever
                  repeat what had already happened. Backups stay: that is history, not
                  sync. -->
+            <button onclick="cfgSyncReport()">◷&nbsp; Sync detail</button>
             <button onclick="openBackups()">↺&nbsp; Backups</button>
           </div>
         </div>
