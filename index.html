@@ -6246,7 +6246,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1352</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1353</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -50699,20 +50699,66 @@ function _ptWhyRowPaving(e, unit){
   if(p&&p.zone) sub.push(esc(p.zone));
   if(p&&p.demo) sub.push('<span style="color:#D9A441">demo</span>');
   const sel=(PT._traceSel===e.idx);
-  return `<tr onclick="ptTraceOpen(${e.idx})" style="cursor:pointer;${sel?'background:rgba(131,210,77,.13)':''}">
-    <td class="n">${esc(e.rawName||e.nm)}<small>${sub.join(" \u00b7 ")}</small></td>
+  return `<tr onclick="ptTraceOpen(${e.idx})" style="cursor:pointer;${sel?'background:rgba(131,210,77,.13)':''}"
+    onpointerdown="ptTrSwipeDown(event,${e.idx})" onpointermove="ptTrSwipeMove(event)" onpointerup="ptTrSwipeUp(event,${e.idx})">
+    <td class="n" ondblclick="event.stopPropagation();ptTraceRename(event,${e.idx})"
+      title="Double-tap to rename">${esc(e.rawName||e.nm)}<small>${sub.join(" \u00b7 ")}</small></td>
     <td class="q">${_tkFmt(e.net)}</td>
     <td class="r">${rate>0?(+rate).toFixed(2):"\u2014"}</td>
     <td class="t">${cost>0?_tkFmt(Math.round(cost)):"\u2014"}</td>
-    <td class="cv">\u203a</td></tr>`;
+    <td class="cv" onclick="event.stopPropagation();ptTraceDel(${e.idx})" title="Delete this trace"
+      style="cursor:pointer;color:#6E7C62">\u2715</td></tr>`;
 }
 function ptTraceOpen(idx){
   const openNow=document.getElementById("pt-buildup");
   if(openNow && PT._traceSel===idx){            // same row again — put both away
     PT._traceSel=null; try{ ptBuildupClose(); }catch(e){} try{ ptPopClose(); }catch(e){} return; }
   PT._traceSel=idx;
+  try{ ptSelect(idx); }catch(e){}   // the plan shows it selected, anchors and all
   try{ ptWhy(PT.polys[idx]?PT.polys[idx].mode:"paving"); }catch(e){}
   try{ ptBuildupPop(idx,1); }catch(e){} }
+// Double-tap the name → type the new one in place. No pencil icons.
+function ptTraceRename(ev,idx){
+  const p=PT.polys[idx]; if(!p) return;
+  const td=ev.target.closest("td"); if(!td||td.querySelector("input")) return;
+  const cur=p.name||"";
+  td.innerHTML='<input value="'+cur.replace(/"/g,"&quot;")+'" style="width:95%;font:650 13px var(--tkf);'
+    +'background:rgba(255,255,255,.10);border:0;border-radius:6px;color:#EAF0E4;padding:4px 7px;outline:none">';
+  const inp=td.querySelector("input"); inp.focus(); try{ inp.select(); }catch(e){}
+  inp.addEventListener("click",e=>e.stopPropagation());
+  let done=false;
+  const commit=()=>{ if(done) return; done=true;
+    const v=inp.value.trim(); if(v!==cur){ ptSnap(); p.name=v; try{ ptAutoSave(); }catch(e){} }
+    try{ ptWhy(p.mode); }catch(e){} };
+  inp.addEventListener("blur",commit);
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); inp.blur(); }
+    else if(e.key==="Escape"){ done=true; try{ ptWhy(p.mode); }catch(x){} } });
+}
+// Delete from the list: the ✕ on desktop, a left swipe on the iPad. Undo brings it back.
+async function ptTraceDel(idx){
+  const p=PT.polys[idx]; if(!p) return;
+  const nm=p.name||(_ptMode(p.mode).label+" trace");
+  const a=await askDlg({danger:true,icon:"\u2715",title:"Delete "+nm+"?",
+    body:"Removes this trace from the plan and the take-off. Undo brings it back.",
+    actions:["Keep","Delete"]});
+  if(a!==1) return;
+  ptSnap(); const mode=p.mode; PT.polys.splice(idx,1);
+  PT.selPoly=null; PT._traceSel=null; PT._selStart=null;
+  try{ ptBuildupClose(); }catch(e){}
+  try{ ptDrawOverlay(); ptUpdateInfo(); }catch(e){}
+  try{ ptAutoSave(); }catch(e){}
+  try{ ptWhy(mode); }catch(e){}
+}
+var _ptTrSw=null;
+function ptTrSwipeDown(ev,idx){ if(ev.pointerType!=="touch") return;
+  _ptTrSw={idx:idx,x:ev.clientX,y:ev.clientY,go:false}; }
+function ptTrSwipeMove(ev){ if(!_ptTrSw) return;
+  const dx=ev.clientX-_ptTrSw.x, dy=Math.abs(ev.clientY-_ptTrSw.y);
+  if(dx<-60&&dy<30){ _ptTrSw.go=true;
+    const tr=ev.target.closest&&ev.target.closest("tr"); if(tr) tr.style.transform="translateX(-24px)"; } }
+function ptTrSwipeUp(ev,idx){ const sw=_ptTrSw; _ptTrSw=null; if(!sw) return;
+  const tr=ev.target.closest&&ev.target.closest("tr"); if(tr) tr.style.transform="";
+  if(sw.go&&sw.idx===idx){ ev.stopPropagation(); ptTraceDel(idx); } }
 // The material cost for this trace: what the book says, and a box for the one you have in mind.
 // This is the only number a trace is allowed to carry, and it overrides for this project only.
 // ── Build-up card, wide, over the plan ───────────────────────────────────────
