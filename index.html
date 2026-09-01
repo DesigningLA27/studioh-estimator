@@ -5893,6 +5893,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .zmini i{display:block;height:100%}
 .zsum{font-size:11.5px;color:var(--tl)}
 .zamt{margin-left:auto;font-size:12.5px;font-weight:800}
+.st-phrow{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:420px}
+.st-ph{border:0;background:var(--brl,#F0EDE5);color:var(--tl);font:inherit;font-size:11.5px;
+  font-weight:700;padding:6px 11px;border-radius:99px;cursor:pointer}
+.st-ph.on{background:var(--brand-soft,#EAF1E5);color:var(--gd,#3C6330)}
 .tkdot{width:17px;height:17px;flex:none;margin-top:2px;padding:0;border:0;border-radius:50%;
   background:none;cursor:pointer;-webkit-appearance:none;appearance:none;overflow:hidden}
 .tkdot::-webkit-color-swatch-wrapper{padding:0}
@@ -6116,6 +6120,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .zmini i{display:block;height:100%}
 .zsum{font-size:11.5px;color:var(--tl)}
 .zamt{margin-left:auto;font-size:12.5px;font-weight:800}
+.st-phrow{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:420px}
+.st-ph{border:0;background:var(--brl,#F0EDE5);color:var(--tl);font:inherit;font-size:11.5px;
+  font-weight:700;padding:6px 11px;border-radius:99px;cursor:pointer}
+.st-ph.on{background:var(--brand-soft,#EAF1E5);color:var(--gd,#3C6330)}
 .tkdot{width:17px;height:17px;flex:none;margin-top:2px;padding:0;border:0;border-radius:50%;
   background:none;cursor:pointer;-webkit-appearance:none;appearance:none;overflow:hidden}
 .tkdot::-webkit-color-swatch-wrapper{padding:0}
@@ -6256,7 +6264,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1358</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1359</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7090,14 +7098,34 @@ function algoRecalc(){
 // One project moves through these; the estimate is the same model throughout,
 // what changes is how tight the number is and (later) which inputs are shown.
 // `band` is the ± accuracy typically claimed at that stage of design.
-const PHASES=[
-  {id:"consult", seq:"01", nm:"Consultation"},
-  {id:"pre",     seq:"02", nm:"Pre-Concept"},
-  {id:"concept", seq:"03", nm:"Concept"},
-  {id:"cd",      seq:"04", nm:"Construction Docs"},
-  {id:"bid",     seq:"05", nm:"Bid Estimate"},
+// The canonical list of every phase the app knows. Which of them a user actually
+// works in is a Settings choice: PREFS.phasesOff maps id → hidden. Ids never change
+// (snapshots are keyed by them), labels can. Design Development sits between
+// Schematic Design and CDs — where renderings and elevations happen — and starts
+// hidden until a firm that works that way turns it on.
+const PHASES_ALL=[
+  {id:"consult", nm:"Consultation"},
+  {id:"pre",     nm:"Pre-Concept"},
+  {id:"concept", nm:"Schematic Design"},
+  {id:"dd",      nm:"Design Development"},
+  {id:"cd",      nm:"Construction Docs"},
+  {id:"bid",     nm:"Bid Estimate"},
+  {id:"co",      nm:"Construction Observation"},
 ];
+let PHASES=[];
+function rebuildPhases(){
+  // PREFS and S are declared further down this same script, so the load-time call
+  // runs before they exist — try/catch, because even typeof throws inside the TDZ.
+  let off={dd:1,co:1};
+  try{ if(PREFS&&PREFS.phasesOff) off=PREFS.phasesOff; }catch(e){}
+  const act=PHASES_ALL.filter(p=>!off[p.id]);
+  PHASES.length=0;
+  (act.length?act:PHASES_ALL.slice(2,3)).forEach((p,i)=>PHASES.push({id:p.id, nm:p.nm, seq:String(i+1).padStart(2,"0")}));
+  // the working phase has to be one that exists
+  try{ if(S&&S.phase&&!PHASES.some(p=>p.id===S.phase)) S.phase=(PHASES.some(p=>p.id===PHASE_DEFAULT)?PHASE_DEFAULT:PHASES[0].id); }catch(e){}
+}
 const PHASE_DEFAULT="concept";
+rebuildPhases();
 // ── ESTIMATE CONFIDENCE ──────────────────────────────────────
 // The accuracy band is two independent things, not one number. Contractor spread —
 // cheap bidder to expensive bidder — is roughly constant across every phase, because
@@ -7113,7 +7141,7 @@ const PHASE_DEFAULT="concept";
 //   PREFS.defaults.confidence — this user's default, seeded into every new project
 //   CONF_DEFAULT            — the built-in fallback if neither above is set
 const CONF_DEFAULT={contrLo:25, contrHi:25,
-  scope:{consult:{lo:28,hi:28}, pre:{lo:18,hi:18}, concept:{lo:9,hi:9}, cd:{lo:3,hi:3}, bid:{lo:0,hi:0}}};
+  scope:{consult:{lo:28,hi:28}, pre:{lo:18,hi:18}, concept:{lo:9,hi:9}, dd:{lo:6,hi:6}, cd:{lo:3,hi:3}, bid:{lo:0,hi:0}, co:{lo:0,hi:0}}};
 function _confClone(o){ try{ return JSON.parse(JSON.stringify(o)); }catch(e){ return null; } }
 function confContrLo(){ if(S.confidence&&S.confidence.contrLo!=null) return S.confidence.contrLo;
   if(PREFS.defaults.confidence&&PREFS.defaults.confidence.contrLo!=null) return PREFS.defaults.confidence.contrLo;
@@ -7258,7 +7286,11 @@ function _confEditRender(){
 }
 function phaseIdx(id){ const i=PHASES.findIndex(p=>p.id===(id||S.phase)); return i<0?PHASES.findIndex(p=>p.id===PHASE_DEFAULT):i; }
 function phaseNow(){ return PHASES[phaseIdx()]; }
-function phaseAtLeast(id){ return phaseIdx() >= PHASES.findIndex(p=>p.id===id); }
+function phaseAtLeast(id){
+  const can=x=>PHASES_ALL.findIndex(p=>p.id===x);
+  const cur=can((PHASES[phaseIdx()]||{}).id), tgt=can(id);
+  if(tgt<0) return false;
+  return cur>=tgt; }
 // A phase snapshot is the ESTIMATE half of the project, copied whole. Project Info,
 // the plan PDF and the trace are deliberately left out — the property does not change
 // between phases, so those stay shared and are never duplicated.
@@ -7314,6 +7346,7 @@ if(!PREFS.theme) PREFS.theme="system";
 // Rows / Cards / Compact are all still one click away, and once someone picks
 // one of those it sticks — this runs a single time per device, never again.
 if(!PREFS._shareSeen){ PREFS._shareSeen=1; PREFS.plantRowView="share"; }
+try{ rebuildPhases(); }catch(e){}   // the load-time build ran before PREFS existed
 function prefsSave(){ try{ localStorage.setItem(PREFS_KEY, JSON.stringify(PREFS)); }catch(e){}
   try{ _cfgSchedulePush(); }catch(e){} }   // settings ride to the server with the rest
 function firmName(){ return (PREFS.profile.company||"Studio H").trim() || "Studio H"; }
@@ -24359,6 +24392,17 @@ function stHydroseed(v){ PREFS.showHydroseed=(v==="on"); prefsSave(); if(_stOpen
   try{ plantRefresh(); }catch(e){} }
 function stEarnings(v){ PREFS.showEarnings=(v==="on"); prefsSave(); if(_stOpen) _stRender();
   try{ plantRefresh(); }catch(e){} }
+function stPhaseToggle(id){
+  if(!PREFS.phasesOff) PREFS.phasesOff={dd:1,co:1};
+  const turningOff=!PREFS.phasesOff[id];
+  if(turningOff && PHASES_ALL.filter(p=>!PREFS.phasesOff[p.id]).length<=1){
+    try{ _toast("At least one phase stays on.","#8A6D1F"); }catch(e){} return; }
+  if(turningOff) PREFS.phasesOff[id]=1; else delete PREFS.phasesOff[id];
+  prefsSave(); rebuildPhases();
+  if(_stOpen) _stRender();
+  try{ renderPhaseBar(); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+}
 function stRailUpkeep(v){
   PREFS.railUpkeep=(v!=="off"); prefsSave(); if(_stOpen) _stRender();
   try{ goodsRepaint("mat"); }catch(e){}
@@ -24663,6 +24707,9 @@ function _stRender(){
           ${_stSeg(PREFS.showHydroseed?"on":"off",[{v:"off",nm:"Off"},{v:"on",nm:"On"}],"stHydroseed")}</div>
         <div class="st-row"><span class="l">Plant earnings<small>Shows the plant-material earnings panel (cost-plus / markup / commission) under the planting section.</small></span>
           ${_stSeg(PREFS.showEarnings?"on":"off",[{v:"off",nm:"Off"},{v:"on",nm:"On"}],"stEarnings")}</div>
+        <div class="st-row"><span class="l">Project phases<small>Which phases your projects move through. Saved work in a hidden phase is kept, just not shown. At least one stays on.</small></span>
+          <div class="st-phrow">${PHASES_ALL.map(p=>{ const on=!((PREFS.phasesOff||{dd:1,co:1})[p.id]);
+            return `<button class="st-ph${on?' on':''}" onclick="stPhaseToggle('${p.id}')">${p.nm}</button>`; }).join('')}</div></div>
         <div class="st-row"><span class="l">Sidebar<small>Pinned stays open. Hover expands it only while you are over it.</small></span>
           ${_stSeg(document.body.classList.contains("rail-pin")?"pinned":"hover",[{v:"pinned",nm:"Pinned"},{v:"hover",nm:"Hover"}],"stRailPin")}</div>
         ${isAdminUI()?`<div class="st-row"><span class="l">Book upkeep<small>Show "No photo" / "Price over 90 days" in the Materials, Furnishings and Products side panel. Only ever visible to you — normal users never see this section regardless.</small></span>
