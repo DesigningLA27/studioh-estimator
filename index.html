@@ -5940,7 +5940,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1330</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1331</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -36137,7 +36137,12 @@ function newPlanting(){ return {
 // shows that as over-allocated rather than quietly scaling the numbers down.
 function _zoneMigrateCov(z){
   if(!z.layers||typeof z.layers!=="object") z.layers={prep:true,mulch:(z.mulchPct==null?true:(+z.mulchPct>0)),topsoil:false};
-  if(z.cov&&typeof z.cov==="object"&&z.cov._seeded) return;
+  // A zone seeded by an earlier version never ran through the fit below, so it was
+  // left over-allocated forever. Keep its authored numbers, just make them fit once.
+  if(z.cov&&typeof z.cov==="object"&&z.cov._seeded){
+    if(!z.cov._fit2){ _covFit(z,+z.areaSF||0); z.cov._fit2=1; }
+    return;
+  }
   const area=+z.areaSF||0;
   const shrubCov=area*(Math.min(200,Math.max(0,+z.shrubDensity==null?100:+z.shrubDensity))/100);
   let basalSum=0;
@@ -36148,17 +36153,22 @@ function _zoneMigrateCov(z){
   const old=(z.cov&&typeof z.cov==="object")?z.cov:{};
   z.cov={ shrub:Math.round(+old.shrub||shrubCov), gc:Math.round(+old.gc||gcCov),
           lawn:Math.round(+old.lawn||0), turf:Math.round(+old.turf||0), seed:Math.round(+old.seed||0), _seeded:1 };
-  // Every cover is a band on one bar, so they have to fit inside the zone. The old
-  // model let shrub canopy and groundcover overlap (groundcover was a % of bare
-  // soil), which on a real zone seeds an impossible 9,172 SF into 7,084. Scale the
-  // bands down proportionally so the mix is preserved and the zone starts valid —
-  // an over-allocated warning on first load is not a state to hand someone.
+  _covFit(z,area); z.cov._fit2=1;
+}
+// Every cover is a band on one bar, so they have to fit inside the zone. The old
+// model let shrub canopy and groundcover overlap (groundcover was a % of bare
+// soil), which on a real zone means an impossible 9,172 SF inside 7,084. Scale the
+// bands down proportionally so the mix is preserved and the zone starts valid —
+// an over-allocated warning on first open is not a state to hand someone.
+function _covFit(z,area){
+  if(!z.cov) return;
+  area=(area==null)?(+z.areaSF||0):area;
   const keys=["shrub","gc","lawn","turf","seed"];
   const sum=keys.reduce((a,k)=>a+(+z.cov[k]||0),0);
-  if(area>0 && sum>area){ const f=area/sum;
-    keys.forEach(k=>{ z.cov[k]=Math.round((+z.cov[k]||0)*f); });
-    z.cov._fitted=Math.round(sum);   // what it was before the fit, for the note in the UI
-  }
+  if(!(area>0)||sum<=area) return;
+  const f=area/sum;
+  keys.forEach(k=>{ z.cov[k]=Math.round((+z.cov[k]||0)*f); });
+  z.cov._fitted=Math.round(sum);   // what it was before the fit
 }
 function ensurePlanting(){
   if(!S.planting) S.planting=newPlanting();
@@ -36471,7 +36481,7 @@ function covDown(ev,zi,i){
   const g=ev.currentTarget, bar=g.parentElement;
   const p=ensurePlanting(); const z=p.zones[zi]; const live=shvLive(z), cv=shvCov(z);
   const last=(i+1>=live.length);
-  _covDrag={zi:zi,i:i,bar:bar,live:live,area:(+z.areaSF||0),x:ev.clientX,w:bar.clientWidth,
+  _covDrag={zi:zi,i:i,bar:bar,live:live,area:Math.max(+z.areaSF||0,shvAssigned(z),1),x:ev.clientX,w:bar.clientWidth,
     a:(+cv[live[i].k]||0), b:last?shvExisting(z):(+cv[live[i+1].k]||0), last:last, g:g};
   g.classList.add("drag");
   try{ g.setPointerCapture(ev.pointerId); }catch(e){}
@@ -36494,19 +36504,20 @@ function _covPaint(zi){
   const p=ensurePlanting(), z=p.zones[zi], cv=shvCov(z), area=+z.areaSF||0;
   const bar=document.getElementById("shvbar-"+zi); if(!bar||!area) return;
   const live=shvLive(z);
+  const den=Math.max(area, shvAssigned(z), 1);
   let acc=0;
   live.forEach((s,i)=>{
-    const sf=+cv[s.k]||0, w=sf/area*100;
+    const sf=+cv[s.k]||0, w=sf/den*100;
     const seg=bar.querySelector('.sg[data-k="'+s.k+'"]');
     if(seg){ seg.style.width=w+"%";
-      seg.innerHTML=w>11?('<span>'+Math.round(sf).toLocaleString()+' SF<em>'+s.n+'</em></span>'):''; }
+      seg.innerHTML=w>11?('<span>'+Math.round(sf).toLocaleString()+' SF · '+(area>0?Math.round(sf/area*100):0)+'%<em>'+s.n+'</em></span>'):''; }
     acc+=sf;
     const gp=bar.querySelector('.gp[data-i="'+i+'"]');
-    if(gp) gp.style.left=Math.min(100,acc/area*100)+"%";
+    if(gp) gp.style.left=(acc/den*100)+"%";
   });
   const ex=Math.max(0,area-acc), exs=bar.querySelector(".sg.ex");
-  if(exs){ exs.style.width=(ex/area*100)+"%";
-    exs.innerHTML=(ex/area>0.11)?('<span>'+Math.round(ex).toLocaleString()+' SF<em>unchanged</em></span>'):''; }
+  if(exs){ exs.style.width=(ex/den*100)+"%";
+    exs.innerHTML=(ex/den>0.11)?('<span>'+Math.round(ex).toLocaleString()+' SF · '+(area>0?Math.round(ex/area*100):0)+'%<em>unchanged</em></span>'):''; }
 }
 function covUp(){
   if(!_covDrag) return; const d=_covDrag; _covDrag=null;
@@ -38446,20 +38457,26 @@ function renderPlantingBuilder(){
   // ---- surface allocation: selectable covers, the band bar, applied-to layers ----
   const coverPanel=(z,zi,zd)=>{
     const cv=shvCov(z), area=+z.areaSF||0, ex=shvExisting(z), over=shvOver(z);
+    const pctOf=sf=>area>0?Math.round(sf/area*100):0;
     const chips=SHV_SURF.map(s=>{ const sf=+cv[s.k]||0, on=sf>0;
       return `<button type="button" class="${on?'on':''}" onclick="toggleCover(${zi},'${s.k}')"
         title="${on?'Remove '+s.n+' from this zone':'Add '+s.n+' to this zone'}">
-        <i style="${on?'background:'+s.c:''}"></i>${s.n}${on?` <em>${Math.round(sf).toLocaleString()} SF</em>`:''}</button>`; }).join('');
+        <i style="${on?'background:'+s.c:''}"></i>${s.n}${on?` <em>${Math.round(sf).toLocaleString()} SF · ${pctOf(sf)}%</em>`:''}</button>`; }).join('');
     const live=shvLive(z);
+    // The bar is drawn against max(area, assigned). Dividing by the area alone made
+    // the segments overflow their box when over-allocated and pushed every grip past
+    // 100%, where they clamped and stacked on top of each other at the right edge —
+    // which is why the shrub band had no grip you could reach.
+    const den=Math.max(area, shvAssigned(z), 1);
     let segs='',grips='',acc=0;
-    live.forEach((s,i)=>{ const sf=+cv[s.k]||0, w=area>0?sf/area*100:0;
+    live.forEach((s,i)=>{ const sf=+cv[s.k]||0, w=sf/den*100;
       segs+=`<div class="sg ${s.cls}" data-k="${s.k}" style="width:${w}%${(s.cls.indexOf('tf')<0&&s.cls.indexOf('sd')<0)?';background:'+s.c:''}">`
-        +(w>11?`<span>${Math.round(sf).toLocaleString()} SF<em>${s.n}</em></span>`:'')+`</div>`; });
-    segs+=`<div class="sg ex" style="width:${area>0?ex/area*100:100}%">`
-      +((area>0&&ex/area>0.11)?`<span>${Math.round(ex).toLocaleString()} SF<em>unchanged</em></span>`:'')+`</div>`;
+        +(w>11?`<span>${Math.round(sf).toLocaleString()} SF · ${pctOf(sf)}%<em>${s.n}</em></span>`:'')+`</div>`; });
+    segs+=`<div class="sg ex" style="width:${ex/den*100}%">`
+      +((ex/den>0.11)?`<span>${Math.round(ex).toLocaleString()} SF · ${pctOf(ex)}%<em>unchanged</em></span>`:'')+`</div>`;
     live.forEach((s,i)=>{ acc+=+cv[s.k]||0;
-      grips+=`<div class="gp" data-i="${i}" style="left:${area>0?Math.min(100,acc/area*100):0}%"
-        onpointerdown="covDown(event,${zi},${i})" title="Drag to move area between ${s.n} and what follows"></div>`; });
+      grips+=`<div class="gp" data-i="${i}" style="left:${acc/den*100}%"
+        onpointerdown="covDown(event,${zi},${i})" title="Drag — ${s.n}"></div>`; });
     const L=z.layers||{prep:true,mulch:true,topsoil:false};
     const prepSF=(+cv.shrub||0)+(+cv.gc||0)+(+cv.lawn||0)+(+cv.seed||0);
     const lay=(k,label,val)=>`<button type="button" class="${L[k]?'on':''}" onclick="toggleZoneLayer(${zi},'${k}')">
