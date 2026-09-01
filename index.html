@@ -6256,7 +6256,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1357</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1358</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -49587,7 +49587,11 @@ function _ptPriceFor(mode, qty){
     }
   }
   if(TK_BUILT.indexOf(cat)>=0 && !_tkBuiltEmpty(cat)){
-    let total=0; try{ total=+catSubtotal(cat)||0; }catch(e){ return null; }
+    // Through the price-point wrapper, like every other builder — computing the
+    // designed subtotal raw meant Basic, Standard and Premium all showed the same
+    // number for planting, because the point never reached the builder's tiers.
+    // Hand-set unit costs and real nursery quotes stay put; only book-tier rates swing.
+    let total=0; try{ total=+_tkAtPoint(()=>catSubtotal(cat))||0; }catch(e){ return null; }
     if(total>0){
       // Planting is priced per square foot at the density you designed — the zones' own area,
       // not the area you traced. Otherwise two zones spread over a big trace collapse the rate.
@@ -50666,6 +50670,15 @@ function ptWhy(mode){
   PT.polys.forEach((o,j)=>{ if(!_holes.has(j)||o.kind!=="area") return;
     const h=_ptEnclosing(o,PT.polys); if(!h||h.mode!==o.mode) return;
     const hi=PT.polys.indexOf(h); _holeCut[hi]=(_holeCut[hi]||0)+(+o.sf||0); });
+  // the layer's cut-outs, listed in their own group so they can still be
+  // renamed, recoloured and deleted — just never priced
+  const cutRows=shapes.filter(p=>_holes.has(p._i)).map((p,i)=>{
+    // resolve the host from the ORIGINAL poly — a copied shape fails the identity
+    // check inside _ptEnclosing and matched itself, labelling every cut-out "Planting"
+    const h=_ptEnclosing(PT.polys[p._i]||p,PT.polys);
+    return {idx:p._i, nm:(p.name&&p.name.trim())||("Cut-out "+(i+1)), sf:Math.round(+p.sf||0),
+      host:h?((h.name&&h.name.trim())||_ptMode(h.mode).label):"", col:(p.fill&&p.fill.col)||"#FFFFFF"};
+  });
   // every shape traced in this category, with what each one is worth
   const each=shapes.filter(p=>!_holes.has(p._i)).map((p,i)=>{
     const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0);
@@ -50685,7 +50698,7 @@ function ptWhy(mode){
             rawName:(p.name||""), zone:(p.zone||""), mat:_mat, ov:_ov, loc:_loc, locAuto:_locAuto, matRate:_mrate,
             demoCost:dc.cost, sub:p.type&&p.name?p.type:"", rate:_rate, cost:_cost};
   });
-  _ptWhyPop(md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length});
+  _ptWhyPop(md, mode, {unit, qty, pr, src, cut, each, marks, shapes:shapes.length, cutRows});
 }
 function _ptWhyPop(md, mode, x){
   const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
@@ -51153,6 +51166,15 @@ function _ptWhyRender(d, md, mode, x){
       ${line("Quantity used", `${_tkFmt(qty)} ${unit}`)}
       ${pr?line("Rate", `$${pr.per.toFixed(2)} / ${unit||"ea"}`):""}
       ${pr?line("Cost", fmtN(pr.total), "#8FE07A"):line("Cost","not priced yet")}`}
+    ${(x.cutRows&&x.cutRows.length)?`<div style="padding:12px 0 3px;font:800 9.5px var(--tkf);letter-spacing:.11em;text-transform:uppercase;color:#8FA383;border-top:1px solid rgba(255,255,255,.10)">Cut-outs</div>
+      ${x.cutRows.map(ct=>`<div style="display:flex;align-items:center;gap:9px;padding:7px 0">
+        <input type="color" class="tkdot" value="${ct.col}" onclick="event.stopPropagation()"
+          oninput="ptTraceColor(${ct.idx},this.value,0)" onchange="ptTraceColor(${ct.idx},this.value,1)" title="This cut-out's colour">
+        <span style="flex:1;min-width:0;cursor:text" onclick="event.stopPropagation();ptTraceRename(event,${ct.idx})" title="Tap to rename">
+          <b style="display:block;font:650 13px var(--tkf);color:#C7D6BB">${ct.nm}</b>
+          <span style="display:block;font:600 10.5px var(--tkf);color:#8FA383">\u2212${ct.sf.toLocaleString()} ${unit}${ct.host?" \u00b7 cut from "+ct.host:""}</span></span>
+        <span onclick="event.stopPropagation();ptTraceDel(${ct.idx})" title="Delete this cut-out"
+          style="cursor:pointer;color:#6E7C62;font-size:13px;padding:4px 6px">\u2715</span></div>`).join('')}`:''}
     ${_ptWhyStyleRow(mode)}
     <div style="font:600 12px var(--tkf);color:#8FA383;margin-top:12px;line-height:1.5">
       The rate comes from ${src}.${cut?" Anything sitting on these has already been taken off above.":""}</div></div>`;
@@ -51615,14 +51637,15 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
       // Per-zone overrides beat the layer's own colour and the global fill slider. Absent, everything
       // below behaves exactly as it did.
       const _zf=(p.fill&&p.fill.col)?p.fill:null;
+      const _isHole=_holes.has(idx);
       const baseOp=md.noFill?0:(p._excl?Math.min(0.18,_ptFillOp(p.mode)):_ptFillOp(p.mode));
-      const zfc=_zf?_zf.col:c, op=_zf?((_zf.op==null)?baseOp:_zf.op):baseOp;
+      const zfc=_zf?_zf.col:(_isHole?"#FFFFFF":c), op=_zf?((_zf.op==null)?baseOp:_zf.op):(_isHole?0.82:baseOp);
       const _zl=(p.line&&(p.line.col||p.line.w))?p.line:null;
-      const sc=(_zl&&_zl.col)?_zl.col:c, sw=(_zl&&_zl.w)?_zl.w:(p.mode==="shade"?3.2:2.5);
+      const sc=(_zl&&_zl.col)?_zl.col:(_isHole?"#8B8B7C":c), sw=(_zl&&_zl.w)?_zl.w:(p.mode==="shade"?3.2:2.5);
       const hp=(p.hatch&&_HATCH[p.hatch.id])?("url(#"+_ptHatchId(p,idx)+")"):null;
-      const fv=hp||(usePat?hatch:zfc), fo=(hp||usePat)?1:op;
+      const fv=hp||((usePat&&!_isHole)?hatch:zfc), fo=(hp||(usePat&&!_isHole))?1:op;
       const cuts=(md.noFill)?[]:_ptCutRings(p, idx);      // pool/spa/etc. punched out so they show through
-      const stk=`stroke="${sc}" stroke-width="${sw}"${p._excl?' stroke-dasharray="9 6" stroke-opacity="0.7"':''}`;
+      const stk=`stroke="${sc}" stroke-width="${sw}"${(p._excl||_isHole)?' stroke-dasharray="9 6" stroke-opacity="0.7"':''}`;
       const _bf=(p.fillBase&&p.fillBase.col)?p.fillBase:null;      // opaque cover-up under the pattern
       const _bo=_bf?((_bf.op==null)?1:_bf.op):0;
       const _under=(_zf&&(hp||usePat))?_zf:null;          // a pattern sits on top, so the zone colour goes beneath it
