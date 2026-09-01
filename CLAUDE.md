@@ -39,6 +39,23 @@ An approved mockup is a spec, not a reference. Before writing any code:
    the same region as the mockup, and compare fill, border, radius, spacing, alignment and type
    weight. Looking at the build alone does not count.
 
+## Before saying a build is done — answer these in writing, in the reply
+Every failure on this project has been one of these four. Answer all four explicitly
+or the work is not done. No exceptions, no "mostly".
+
+1. **Did I open the mockup file and list every element in it?** Write the list, and mark
+   each one built / not built. If anything is "not built", say so BEFORE building, not
+   after shipping. A design is not a menu to pick from.
+2. **Did I measure the target styles from the live DOM?** Sample computed styles off the
+   real element (container background, pill radius/padding, thumb px, font px). Never
+   transcribe a value from memory or from a token name — the same token is a different
+   colour in a mockup than in `index.html`.
+3. **Is the new thing what the user sees by default?** Never gate approved work behind a
+   toggle, a new view mode, or a saved preference. If the old UI still renders on load,
+   the build is invisible and therefore not delivered.
+4. **Did I delete what the design replaces?** A redesign that leaves the old controls
+   sitting above it has doubled the confusion, not reduced it. Name the removals.
+
 ## Validation before shipping
 1. Python-extract each `<script>` block
 2. `node --check` each block — expect "ALL JS OK"
