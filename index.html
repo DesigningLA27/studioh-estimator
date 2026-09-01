@@ -5882,6 +5882,13 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .rst2{flex:none;border:0;background:none;color:var(--tl);font:inherit;font-size:11px;font-weight:700;
   cursor:pointer;padding:3px 6px;border-radius:7px}
 .rst2:hover{background:#EFECE3;color:var(--tm)}
+.zsec-h{cursor:pointer;border-radius:9px;padding:5px 7px;margin-left:-7px}
+.zsec-h:hover{background:#F7F5EE}
+.zcar2{font-size:11px;color:var(--gm);width:12px;flex:none}
+.zmini{display:flex;height:6px;border-radius:99px;overflow:hidden;width:120px;flex:none}
+.zmini i{display:block;height:100%}
+.zsum{font-size:11.5px;color:var(--tl)}
+.zamt{margin-left:auto;font-size:12.5px;font-weight:800}
 
 /* ── inspector rail — the Plant Book's panel, in its own .lib scope ───────── */
 .shv-wrap{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;align-items:start}
@@ -6030,6 +6037,13 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .rst2{flex:none;border:0;background:none;color:var(--tl);font:inherit;font-size:11px;font-weight:700;
   cursor:pointer;padding:3px 6px;border-radius:7px}
 .rst2:hover{background:#EFECE3;color:var(--tm)}
+.zsec-h{cursor:pointer;border-radius:9px;padding:5px 7px;margin-left:-7px}
+.zsec-h:hover{background:#F7F5EE}
+.zcar2{font-size:11px;color:var(--gm);width:12px;flex:none}
+.zmini{display:flex;height:6px;border-radius:99px;overflow:hidden;width:120px;flex:none}
+.zmini i{display:block;height:100%}
+.zsum{font-size:11.5px;color:var(--tl)}
+.zamt{margin-left:auto;font-size:12.5px;font-weight:800}
 
 /* 32px of LAYOUT height so the row matches the Plant Book's, but the hit box is
    padded out to ~48px so a finger still finds it. Height was what made the
@@ -6165,7 +6179,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1347</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1348</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -36472,6 +36486,11 @@ function snap5(v){ return Math.min(100,Math.max(0,Math.round((+v||0)/5)*5)); }
 
 // zones
 function addZone(){ const p=ensurePlanting(); const z=newZone("Zone "+(p.zones.length+1)); z._open=true; p.zones.push(z); S.cats.planting.on=true; plantRefresh(); }
+function toggleSecShut(zi,key){
+  const p=ensurePlanting(); const z=p.zones[zi]; if(!z) return;
+  if(window._shvDragT && Date.now()-window._shvDragT<450) return;
+  z._secShut=z._secShut||{}; z._secShut[key]=!z._secShut[key]; plantRefresh();
+}
 function toggleZone(zi){ const p=ensurePlanting(); const z=p.zones[zi]; if(z){ z._open=!z._open;
   if(z._open) shvShowZone(zi);   // opening a zone leads with its costs
   plantRefresh(); } }
@@ -36719,9 +36738,14 @@ var _shDrag=null;
 // number comfortably above the largest share, so precision grows as shares shrink.
 // The scale is fixed for the duration of a drag (rescaling mid-drag makes the
 // thumb slip under the finger) and recomputed on the re-render after release.
+// Track max = double the equal share (10 species → 0–20%), grown in 5% steps
+// only as far as the largest share needs, and shrinking back to the default when
+// shares come back down. Pushing a thumb into the track's end grows it live.
 function shareScale(rows){
+  const n=(rows||[]).length||1;
+  const def=Math.min(100, Math.max(10, Math.ceil((200/n)/5)*5));
   const mx=(rows||[]).reduce((a,r)=>Math.max(a,+r.pct||0),0);
-  return Math.min(100, Math.max(20, Math.ceil((mx*1.6)/10)*10));
+  return Math.min(100, Math.max(def, Math.ceil(mx/5)*5));
 }
 function shareDown(ev,kind,zi,i){
   const el=ev.currentTarget;
@@ -36741,6 +36765,16 @@ function shareMove(ev){
   const el=_shDrag.el, b=el.getBoundingClientRect(); if(!b.width) return;
   const f=Math.max(0,Math.min(1,(ev.clientX-b.left)/b.width));
   if(_shDrag.mode==="pct"){
+    // Held against the end, the track grows 5% about every 150ms — pushing
+    // through the ceiling instead of stopping at it. Shrink-back happens on the
+    // re-render after release, never under the finger.
+    if(f>=0.995 && (_shDrag.sc||100)<100){
+      const now=Date.now();
+      if(!_shDrag.gT || now-_shDrag.gT>150){
+        _shDrag.sc=Math.min(100,(_shDrag.sc||100)+5); _shDrag.gT=now;
+        try{ el.setAttribute("data-scale",_shDrag.sc); }catch(e){}
+      }
+    }
     const sc=_shDrag.sc||100;
     _shDrag.v=Math.round(f*sc*10)/10;
     const fil=el.querySelector(".shfil"), th=el.querySelector(".shth");
@@ -38937,23 +38971,32 @@ function renderPlantingBuilder(){
         ${p.zones.length>1?`<button class="bad" onclick="zhMenu(0,-1);delZone(${zi})">✕ Delete zone</button>`:''}
       </div></span>`;
     const header=`${coverPanel(z,zi,zd)}`;
-    // Title, the 8px bloom ribbon, and one status chip that says both "how much is
-    // assigned" and "how many are locked" — replacing the 22px strip, the
-    // locked/assigned text line, the Reset button row and the allocated badge.
-    const secLine=(kind,zi2,rows,label,ribbon)=>{
+    // Section header — always clickable to collapse. Open: title, status chip,
+    // Reset (and groundcover's ribbon). Shut: a one-row summary — mini ribbon,
+    // count, section cost — the mockup's collapsed face.
+    const secLine=(kind,zi2,rows,label,ribbon,key,cost,unit)=>{
+      const shut=!!(z._secShut&&z._secShut[key]);
       const tot=rows.reduce((a,r)=>a+(+r.pct||0),0);
       const un=Math.max(0,100-tot), lk=rows.filter(r=>r.lk).length;
       const segs=rows.map(r=>{ const db=plantDbFind(kind,r.pid)||{};
         return `<i style="flex:${Math.max(0.001,+r.pct||0)};background:${bloomHexOf(db)||'#9DB88E'}"></i>`; }).join('')
         +(un>0.5?`<i style="flex:${un};background:var(--pbwell,#E6E3D6)"></i>`:'');
+      const lkTxt=lk?(' \u00b7 '+lk+' locked'):'';
       const chip=tot>100.5?`<span class="rstat over">${Math.round(tot-100)}% over</span>`
-        :(un<=0.5?`<span class="rstat">✓ 100%${lk?' · '+lk+' locked':''}</span>`
+        :(un<=0.5?`<span class="rstat">\u2713 100%${lkTxt}</span>`
         :`<span class="rstat warn">${Math.round(un)}% left</span>`);
-      return `<div class="zsec"><b>${label}</b>
+      const car=`<span class="zcar2">${shut?'\u25b8':'\u25be'}</span>`;
+      const plural=(n,u)=>n+' '+(u==='species'?u:u+(n===1?'':'s'));
+      if(shut) return `<div class="zsec zsec-h" onclick="toggleSecShut(${zi2},'${key}')">${car}<b>${label}</b>
+        ${rows.length?`<span class="zmini">${segs}</span><span class="zsum">${plural(rows.length,unit)}</span><span class="zamt">${money(cost||0)}</span>`
+          :`<span class="zsum">none yet</span><span class="zamt"></span>`}</div>`;
+      return `<div class="zsec zsec-h" onclick="toggleSecShut(${zi2},'${key}')">${car}<b>${label}</b>
         ${rows.length?`${ribbon?`<span class="zribbon">${segs}</span>`:'<span style="flex:1"></span>'}${chip}
-        <button class="rst2" onclick="shareEqualise('${kind}',${zi2})" title="Even shares, all unlocked">Reset</button>`:''}
+        <button class="rst2" onclick="event.stopPropagation();shareEqualise('${kind}',${zi2})" title="Even shares, all unlocked">Reset</button>`:'<span style="flex:1"></span>'}
       </div>`;
     };
+    const secCost=arr=>(arr||[]).reduce((a,x)=>a+(+x.cost||0),0);
+    const shShut=k=>!!(z._secShut&&z._secShut[k]);
     const open=!!z._open; const nR=(z.shrubRows.length)+(z.gcRows.length)+(z.treeRows.length)+(z.palmRows.length);
     const bar=`<div class="zbar${open?' open':''}" onclick="toggleZone(${zi})">
       <span class="zcar">${open?'▾':'▸'}</span>
@@ -38969,24 +39012,24 @@ function renderPlantingBuilder(){
       ${bar}
       <div style="display:${open?'block':'none'}">
       ${header}
-      ${secLine("shrub",zi,z.shrubRows,"Shrubs",false)}
-      ${searchBox("shrub",zi,"🔍 Add shrub — common or botanical name")}
-      ${z.shrubRows.length?(plantRowView()==="share"?'<div class="shv-list">'+shvHdr("shrub",zi,z.shrubRows,"Qty","Size"):shrubHdr)+(plantRowView()==="cards"
+      ${secLine("shrub",zi,z.shrubRows,"Shrubs",false,"shrub",secCost(zd.shrubRows),"species")}
+      ${shShut("shrub")?"":searchBox("shrub",zi,"🔍 Add shrub — common or botanical name")}
+      ${shShut("shrub")?"":z.shrubRows.length?(plantRowView()==="share"?'<div class="shv-list">'+shvHdr("shrub",zi,z.shrubRows,"Qty","Size"):shrubHdr)+(plantRowView()==="cards"
         ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:.75rem;padding:.2rem 0">${z.shrubRows.map((r,i)=>shrubRow(zi,r,i,zd.shrubRows[i]||{count:0,cost:0})).join('')}</div>`
         : z.shrubRows.map((r,i)=>shrubRow(zi,r,i,zd.shrubRows[i]||{count:0,cost:0})).join(''))+(plantRowView()==="share"?'</div>':'')
         :`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No shrubs in this zone yet.</div>`}
-      ${secLine("gc",zi,z.gcRows,"Groundcover",true)}
-      ${searchBox("gc",zi,"🔍 Add groundcover — common or botanical name")}
-      ${z.gcRows.length?(plantRowView()==="share"?'<div class="shv-list">'+shvHdr("gc",zi,z.gcRows,"Flats","Density","$/SF"):gcHdr)+(plantRowView()==="cards"
+      ${secLine("gc",zi,z.gcRows,"Groundcover",true,"gc",secCost(zd.gcRows),"species")}
+      ${shShut("gc")?"":searchBox("gc",zi,"🔍 Add groundcover — common or botanical name")}
+      ${shShut("gc")?"":z.gcRows.length?(plantRowView()==="share"?'<div class="shv-list">'+shvHdr("gc",zi,z.gcRows,"Flats","Density","$/SF"):gcHdr)+(plantRowView()==="cards"
         ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:.75rem;padding:.2rem 0">${z.gcRows.map((r,i)=>gcRow(zi,r,i,zd.gcRows[i]||{flats:0,cost:0})).join('')}</div>`
         : z.gcRows.map((r,i)=>gcRow(zi,r,i,zd.gcRows[i]||{flats:0,cost:0})).join(''))+(plantRowView()==="share"?'</div>':'')
         :`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No groundcover in this zone yet.</div>`}
-      <div style="font-size:.82rem;font-weight:700;color:var(--gm);margin:.5rem 0 .15rem">Trees</div>
-      ${searchBox("tree",zi,"🔍 Add tree — common or botanical. Toggle 'specimen' for canopy sizing.")}
-      ${z.treeRows.length?'<div class="shv-list">'+shvTPHdr("Size","Qty")+z.treeRows.map((r,i)=>shvTreeRow(zi,r,i,zd.treeRows[i]||{count:0,cost:0})).join('')+'</div>':`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No trees in this zone yet.</div>`}
-      <div style="font-size:.82rem;font-weight:700;color:var(--gm);margin:.5rem 0 .15rem">Palms ${infoIcon("BTH = brown trunk height (feet of clear trunk). Palm price = $/ft × BTH. A crane allowance is added automatically at 16 ft and above.")}</div>
-      ${searchBox("palm",zi,"🔍 Add palm — e.g. Queen / Washingtonia / Bismarckia")}
-      ${z.palmRows.length?'<div class="shv-list">'+shvTPHdr("Trunk (BTH)","Qty")+z.palmRows.map((r,i)=>shvPalmRow(zi,r,i,zd.palmRows[i]||{count:0,cost:0})).join('')+'</div>':`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No palms in this zone yet.</div>`}
+      ${secLine("tree",zi,z.treeRows,"Trees",false,"tree",secCost(zd.treeRows),"tree")}
+      ${shShut("tree")?"":searchBox("tree",zi,"🔍 Add tree — common or botanical. Toggle 'specimen' for canopy sizing.")}
+      ${shShut("tree")?"":z.treeRows.length?'<div class="shv-list">'+shvTPHdr("Size","Qty")+z.treeRows.map((r,i)=>shvTreeRow(zi,r,i,zd.treeRows[i]||{count:0,cost:0})).join('')+'</div>':`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No trees in this zone yet.</div>`}
+      ${secLine("palm",zi,z.palmRows,"Palms",false,"palm",secCost(zd.palmRows),"palm")}
+      ${shShut("palm")?"":searchBox("palm",zi,"🔍 Add palm — e.g. Queen / Washingtonia / Bismarckia")}
+      ${shShut("palm")?"":z.palmRows.length?'<div class="shv-list">'+shvTPHdr("Trunk (BTH)","Qty")+z.palmRows.map((r,i)=>shvPalmRow(zi,r,i,zd.palmRows[i]||{count:0,cost:0})).join('')+'</div>':`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No palms in this zone yet.</div>`}
       <div style="display:flex;justify-content:flex-end;align-items:baseline;gap:.5rem;margin-top:.7rem;padding-top:.55rem;border-top:1px solid var(--br)">
         <span style="font-size:.72rem;color:var(--tm)">${escAttr(z.name||"Zone")} total — plants + mulch ${infoIcon("Total installed cost of everything planted in this zone (shrubs, groundcover, trees, palms) plus this zone's mulch. Project-wide items — the crane mobilization and the soil prep / lawn / turf line items below — are shared across zones and aren't included here.")}</span>
         <span style="font-size:1.05rem;font-weight:700;color:var(--gm)">${money(zd.cost||0)}</span>
