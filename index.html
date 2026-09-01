@@ -6246,7 +6246,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1353</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1354</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -50622,15 +50622,24 @@ function ptWhy(mode){
   }
   const marks=PT.trees.filter(t=>_ptMarkMode(t)===mode).length;
   const rate=pr?pr.per:0;
+  // A shape drawn inside a bigger one of the same category is a hole — a cut-out,
+  // not a zone. The lines stay on the plan, but it is not listed as if it were
+  // payable work; its SF simply comes off the shape it sits in, so the list's
+  // rows now sum to the same total the layer shows.
+  const _holes=_ptHoles();
+  const _holeCut={};
+  PT.polys.forEach((o,j)=>{ if(!_holes.has(j)||o.kind!=="area") return;
+    const h=_ptEnclosing(o,PT.polys); if(!h||h.mode!==o.mode) return;
+    const hi=PT.polys.indexOf(h); _holeCut[hi]=(_holeCut[hi]||0)+(+o.sf||0); });
   // every shape traced in this category, with what each one is worth
-  const each=shapes.map((p,i)=>{
+  const each=shapes.filter(p=>!_holes.has(p._i)).map((p,i)=>{
     const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0);
     let taken=0;
     PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0) return;
       if(_ptEnclosing(x,PT.polys)===p) taken+=_tkCutSF(x); });
     (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
       if(_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys)===p) taken+=fp; });
-    const net=Math.max(0, raw-taken);
+    const net=Math.max(0, raw-taken-(_holeCut[p._i]||0));
     const nm=(p.name&&p.name.trim())||p.type||`${md.label} ${i+1}`;
     const dc=ptDemoCost(mode, net, 1);
     let _rate=rate, _cost=rate*net, _mat="", _ov=false, _loc="", _mrate=0;
@@ -50793,6 +50802,16 @@ function _ptBuildupHtml(idx, side){
   const p=PT.polys[idx]; if(!p) return "";
   const F="var(--tkf)", MN="ui-monospace,Menlo,monospace";
   const nm=escAttr((p.name||"").trim()||_ptMode(p.mode).label);
+  // A hole prices nothing — it subtracts. Showing it as "$3,215" made a cut-out
+  // read like a zone that costs money.
+  try{ if(_ptHoles().has(idx)){
+    const host=_ptEnclosing(p,PT.polys);
+    const hn=host?escAttr((host.name||"").trim()||_ptMode(host.mode).label):"its surrounding shape";
+    return `<div class="tkh"><h3>${nm}</h3><button class="cls" onclick="ptBuildupClose()">\u2715</button></div>
+      <div style="font:600 12.5px ${F};color:#8FA383;line-height:1.6">This shape is a <b style="color:#EAF0E4">cut-out</b> —
+      it subtracts <b style="color:#EAF0E4">${_tkFmt(+p.sf||0)} SF</b> from <b style="color:#EAF0E4">${hn}</b>
+      and has no cost of its own. Delete it to give ${hn} the area back.</div>`;
+  } }catch(e){}
   const net=_ptTraceNet(p);
   const R=_pavAsmCost(p);
   const m2=v=>"$"+(+v||0).toFixed(2);
