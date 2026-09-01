@@ -6246,7 +6246,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1354</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1355</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -53539,10 +53539,18 @@ function _uniformTag(sources){ let L=null,P=null,T=null,okL=true,okP=true,okT=tr
 function _stampItem(it,tag){ if(!it||!tag) return; if(tag.loc) it.loc=tag.loc; if(tag.phase) it.phase=tag.phase; if(tag.tags) it.tags=tag.tags; }
 function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert("Trace at least one area, line, or tree first."); return; } if(!PT.ppf){ alert("Set the scale first so measurements convert to real dimensions."); return; }
   try{ ptAutoSave(); }catch(e){}   // persist the trace before applying, so a hiccup can never lose it
-  const areaSum={}, linSum={}, byType={}; PT.polys.forEach(p=>{
+  // Holes net out here exactly as they do in the take-off panel — a cut-out drawn
+  // inside a bigger shape of the same category SUBTRACTS on apply. Summing it
+  // positively pushed 8,672 SF of planting into the estimate off a 7,948 SF trace.
+  const _appHoles=_ptHoles();
+  const areaSum={}, linSum={}, byType={}; PT.polys.forEach((p,pi)=>{
     if(p._excl){ if(p.kind!=="linear") areaSum.exclude=(areaSum.exclude||0)+(p.sf||0); return; }
-    if(p._demo && p.kind!=="linear") areaSum.demo=(areaSum.demo||0)+(p.sf||0);   // torn out, then rebuilt
-    if(p.kind==="linear"){ linSum[p.mode]=(linSum[p.mode]||0)+(p.lf||0); } else { areaSum[p.mode]=(areaSum[p.mode]||0)+(p.sf||0); if(p.type){ byType[p.mode]=byType[p.mode]||{}; byType[p.mode][p.type]=(byType[p.mode][p.type]||0)+(p.sf||0); } } });
+    const _hole=_appHoles.has(pi);
+    if(p._demo && p.kind!=="linear" && !_hole) areaSum.demo=(areaSum.demo||0)+(p.sf||0);   // torn out, then rebuilt
+    if(p.kind==="linear"){ linSum[p.mode]=(linSum[p.mode]||0)+(p.lf||0); }
+    else { areaSum[p.mode]=(areaSum[p.mode]||0)+(p.sf||0)*(_hole?-1:1);
+      if(p.type&&!_hole){ byType[p.mode]=byType[p.mode]||{}; byType[p.mode][p.type]=(byType[p.mode][p.type]||0)+(p.sf||0); } } });
+  Object.keys(areaSum).forEach(k=>{ if(areaSum[k]<0) areaSum[k]=0; });
   const cmark={}; PT.trees.forEach(t=>{ if(t._excl) return; const m=_ptMarkMode(t); if(m==="tree"){ cmark.tree=cmark.tree||{}; cmark.tree[t.size]=(cmark.tree[t.size]||0)+1; } else { cmark[m]=(cmark[m]||0)+1; } });
   const treeBy=cmark.tree||{}; const cN=(m)=>cmark[m]||0;
   const R=(o,k)=>Math.round(o[k]||0);
