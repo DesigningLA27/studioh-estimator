@@ -6264,7 +6264,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1359</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1360</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -50056,6 +50056,29 @@ function ptRenderFloat(){ const el=document.getElementById("pt-float"); if(!el) 
     else PT._openRow=null; }
   try{ _ptRenderFlatBar(); }catch(e){}
   try{ _ptCenterAutobar(); }catch(e){}
+  try{ _ptActBarClamp(); }catch(e){}
+}
+function _ptActBarClamp(){
+  try{
+    const bar=document.querySelector("#pt-float .pt-actbar"); if(!bar) return;
+    const host=bar.parentElement.getBoundingClientRect();
+    const pops=["pt-why-pop","pt-buildup"].map(id=>document.getElementById(id)).filter(Boolean)
+      .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0&&r.top<120);
+    // default: centered — restore first so repeated calls measure honestly
+    bar.style.left=""; bar.style.transform=""; bar.style.top="";
+    if(!pops.length) return;
+    const br=bar.getBoundingClientRect();
+    const hit=pops.filter(r=>!(br.right<r.left-10||br.left>r.right+10||br.bottom<r.top||br.top>r.bottom));
+    if(!hit.length) return;
+    const clear=Math.min.apply(null,pops.map(r=>r.left))-12-br.width;   // right edge clears the leftmost pop
+    if(clear-host.left>=10){ bar.style.left=(clear-host.left)+"px"; bar.style.transform="none"; return; }
+    // no horizontal room at the top — tuck the bar below whatever pop owns the left edge
+    // (74px keeps it clear of the left tool rail)
+    bar.style.left="74px"; bar.style.transform="none";
+    const inWay=pops.filter(r=>r.left<74+br.width+12);
+    const drop=inWay.length?Math.max.apply(null,inWay.map(r=>r.bottom)):0;
+    bar.style.top=Math.min(Math.max(14, drop+12-host.top), host.height-64)+"px";
+  }catch(e){}
 }
 function ptUndoPoint(){ if(PT.cur&&PT.cur.length){ PT.cur.pop(); PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} } }
 function ptCancelDraw(){ PT.cur=[]; PT._rectCursor=null; try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){} }
@@ -50754,6 +50777,7 @@ function _ptWhyPop(md, mode, x){
   d.style.cssText+=`;top:20px;right:${off}px;width:min(380px,88vw);max-height:74vh;overflow:auto`;
   _ptPopOutside(d.id);
   _ptWhyRender(d, md, mode, x);
+  try{ _ptActBarClamp(); }catch(e){}
 }
 // The implied costs are worked out, not traced — so tapping one shows the working: what rule
 // fired, the quantity it used, the rate it came from, and what that adds up to.
@@ -50810,7 +50834,7 @@ function _ptWhyRowPaving(e, unit){
       <input type="color" class="tkdot" value="${(p&&((p.fill&&p.fill.col)||(p.line&&p.line.col)))||_ptMode(p?p.mode:'planting').color||'#5BA34A'}"
         onclick="event.stopPropagation()" oninput="ptTraceColor(${e.idx},this.value,0)" onchange="ptTraceColor(${e.idx},this.value,1)"
         title="This trace's colour on the plan">
-      <span style="min-width:0">${esc(e.rawName||e.nm)}<small style="display:block">${sub.join(" \u00b7 ")}</small></span></span></td>
+      <span class="tknm" style="min-width:0">${esc(e.rawName||e.nm)}<small style="display:block">${sub.join(" \u00b7 ")}</small></span></span></td>
     <td class="q">${_tkFmt(e.net)}</td>
     <td class="r">${rate>0?(+rate).toFixed(2):"\u2014"}</td>
     <td class="t">${cost>0?_tkFmt(Math.round(cost)):"\u2014"}</td>
@@ -50840,11 +50864,16 @@ function ptTraceColor(idx,col,final){
 // Double-tap the name → type the new one in place. No pencil icons.
 function ptTraceRename(ev,idx){
   const p=PT.polys[idx]; if(!p) return;
-  const td=ev.target.closest("td"); if(!td||td.querySelector("input")) return;
+  const td=ev.target.closest("td")||ev.target.closest("span[onclick]"); if(!td) return;
+  // the colour dot is ALSO an <input>, so "any input present" wrongly read as
+  // "already editing" and silently refused every rename — check for the rename
+  // input specifically, and edit only the name span so the dot survives
+  if(td.querySelector("input.tkrni")) return;
+  const host=td.querySelector(".tknm")||td;
   const cur=p.name||"";
-  td.innerHTML='<input value="'+cur.replace(/"/g,"&quot;")+'" style="width:95%;font:650 13px var(--tkf);'
+  host.innerHTML='<input class="tkrni" value="'+cur.replace(/"/g,"&quot;")+'" style="width:95%;font:650 13px var(--tkf);'
     +'background:rgba(255,255,255,.10);border:0;border-radius:6px;color:#EAF0E4;padding:4px 7px;outline:none">';
-  const inp=td.querySelector("input"); inp.focus(); try{ inp.select(); }catch(e){}
+  const inp=host.querySelector("input.tkrni"); inp.focus(); try{ inp.select(); }catch(e){}
   inp.addEventListener("click",e=>e.stopPropagation());
   let done=false;
   const commit=()=>{ if(done) return; done=true;
@@ -50904,8 +50933,9 @@ function ptBuildupPop(idx,side){
   }
   d.innerHTML=_ptBuildupHtml(idx, !!side);
   (document.getElementById("pt-modal")||document.body).appendChild(d);
+  try{ _ptActBarClamp(); }catch(e){}
 }
-function ptBuildupClose(){ const d=document.getElementById("pt-buildup"); if(d) d.remove(); }
+function ptBuildupClose(){ const d=document.getElementById("pt-buildup"); if(d) d.remove(); try{ _ptActBarClamp(); }catch(e){} }
 function ptBuildupRefresh(){ const d=document.getElementById("pt-buildup"); if(!d) return;
   const i=+d.getAttribute("data-idx"); if(isFinite(i)) d.innerHTML=_ptBuildupHtml(i, d.getAttribute("data-side")==="1"); }
 function _ptBuildupHtml(idx, side){
@@ -51584,7 +51614,7 @@ function _ptPopOutside(id){
     document.addEventListener("pointerdown",off,true);
   },0);
 }
-function ptPopClose(){ ["pt-smooth-pop","pt-why-pop","pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-point-pop","pt-set-pop","pt-sheet"]
+function ptPopClose(){ try{ setTimeout(_ptActBarClamp,0); }catch(e){} ["pt-smooth-pop","pt-why-pop","pt-cat-pop","pt-ovf-pop","pt-ui-pop","pt-file-pop","pt-list-pop","pt-base-pop","pt-layers-pop","pt-point-pop","pt-set-pop","pt-sheet"]
   .forEach(id=>{ const e=document.getElementById(id); if(e) e.remove(); }); }
 // Everything that isn't a decision you make while drawing.
 function ptOverflow(){ let d=document.getElementById("pt-ovf-pop"); if(d){ d.remove(); return; }
