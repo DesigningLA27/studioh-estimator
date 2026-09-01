@@ -6246,7 +6246,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1355</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1356</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -46782,7 +46782,16 @@ function ptAddAt(p,c,e){
     ptDrawOverlay(); ptUpdateInfo(); return; }
   const kind=_ptKind(PT.mode);
   let _snapped=false;
-  if(kind!=="count"){ const sn=_ptSnapTarget(c); if(sn){ c={x:sn.x,y:sn.y}; p=_toPdf(c); _snapped=true; } }
+  if(kind!=="count"){
+    // a fingertip is not a mouse pointer — give touch nearly double the grab radius,
+    // and FLASH the marker at the snapped point so the glue is visible on a device
+    // that has no hover to preview it
+    const _tk=(e&&e.pointerType==="touch")?1.8:1;
+    const sn=_ptSnapTarget(c,_tk);
+    if(sn){ c={x:sn.x,y:sn.y}; p=_toPdf(c); _snapped=true;
+      try{ _ptSnapMarker(sn); clearTimeout(window._snFlashT);
+        window._snFlashT=setTimeout(()=>{ try{ _ptSnapMarker(null); }catch(_){}} ,500); }catch(_){}}
+  }
   if(!_snapped && _orthoOn() && kind!=="count" && PT.cur.length>=2){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
   if(_ptGuideTool()){
     if(PT.cur.length>=2){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<16){ _ptCommitGuide(); return; } }
@@ -46967,11 +46976,15 @@ function ptDown(e){ const cv=e.currentTarget;
 function ptMove(e){ if(e.pointerType==="touch"&&_ptTouch.has(e.pointerId)){ _ptTouch.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(_ptPinch&&_ptTouch.size>=2){ _ptPinchMove(); return; } }
   if(ptVertexMove(e)) return;
   if(_ptPan){ const dx=e.clientX-_ptPan.x, dy=e.clientY-_ptPan.y; if(Math.abs(dx)+Math.abs(dy)>5){ _ptPan.moved=true; const st=document.getElementById("pt-stage"); if(st){ st.scrollLeft=_ptPan.sl-dx; st.scrollTop=_ptPan.stp-dy; } } return; }
-  if(!PT.selectMode && !PT.stamp && !PT.calibrating && _ptKind(PT.mode)!=="count") _ptSnapMarker(_ptSnapTarget(ptCanvasXY(e)));
+  let _hsn=null;
+  if(!PT.selectMode && !PT.stamp && !PT.calibrating && _ptKind(PT.mode)!=="count"){ _hsn=_ptSnapTarget(ptCanvasXY(e)); _ptSnapMarker(_hsn); }
   else _ptSnapMarker(null);
-  if((_toolRect()||PT.tool==="circle") && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); }
+  // the preview line glues to the snapped point, not the raw cursor — before this,
+  // the marker lit up but the rubber band ignored it, which read as "not snapping"
+  const _cursPt=()=>_hsn?_toPdf({x:_hsn.x,y:_hsn.y}):_toPdf(ptCanvasXY(e));
+  if((_toolRect()||PT.tool==="circle") && _ptKind(PT.mode)==="area" && PT.cur.length>=1 && !PT.selectMode){ PT._rectCursor=_cursPt(); ptDrawOverlay(); }
   if(PT._aiStart){ PT._aiCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); }
-  else if(PT.cur&&PT.cur.length>=1 && !PT.selectMode && !_toolRect() && !_aiTool()){ PT._drawCursor=_toPdf(ptCanvasXY(e)); ptDrawOverlay(); } }
+  else if(PT.cur&&PT.cur.length>=1 && !PT.selectMode && !_toolRect() && !_aiTool()){ PT._drawCursor=_cursPt(); ptDrawOverlay(); } }
 function ptUp(e){ if(e.pointerType==="touch"&&_ptTouch.has(e.pointerId)){ _ptTouch.delete(e.pointerId); if(_ptTouch.size<2){ if(_ptPinch){ _ptPinch=null; _ptPan=null; return; } _ptPinch=null; } }
   if(ptVertexUp()) return;
   if(!_ptPan) return; const moved=_ptPan.moved; _ptPan=null; if(!moved) ptCanvasClick(e); }
@@ -50248,6 +50261,18 @@ function _tkLedgerBar(tot,live){
 }
 // The card closes on its own arrow only — swiping across it is for the rows inside it.
 function ptTkShut(){ return !!PT._tkShut; }
+// Where a popup may start so it clears the docked take-off card. Measured from the
+// real #pt-card, because the old hardcoded 132/432 guessed wrong whenever the dock
+// was wider — and the popup slid underneath it, hiding its right-hand columns.
+function _ptPopOff(){
+  try{
+    if(ptTkDock()!=="right") return 24;
+    const c=document.getElementById("pt-card");
+    if(c){ const r=c.getBoundingClientRect();
+      if(r.width>0) return Math.max(24, Math.round(window.innerWidth-r.left)+12); }
+    return ptTkShut()?132:432;
+  }catch(e){ return 24; }
+}
 function ptTkShutSet(v){ PT._tkShut=!!v; ptRenderFloat(); }
 const TK_TABS=[["traced","Take-off"],["budget","Budget"],["assumed","Assumed"],["phases","Phases"],["compare","Compare"]];
 function ptTkTab(k){ PT._tkTab=k; ptRenderFloat(); }
@@ -50655,7 +50680,7 @@ function ptWhy(mode){
 function _ptWhyPop(md, mode, x){
   const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
-  const off=(ptTkDock()==="right")?(ptTkShut()?132:432):24;
+  const off=_ptPopOff();
   d.style.cssText+=`;top:20px;right:${off}px;width:min(380px,88vw);max-height:74vh;overflow:auto`;
   _ptPopOutside(d.id);
   _ptWhyRender(d, md, mode, x);
@@ -50667,7 +50692,7 @@ function ptWhyDerived(label){
   const r=(ptDerived().rows||[]).find(x=>x.label===label); if(!r) return;
   const d=document.createElement("div"); d.id="pt-why-pop"; d.className="tkpop";
   (document.getElementById("pt-modal")||document.body).appendChild(d);
-  const off=(ptTkDock()==="right")?(ptTkShut()?132:432):24;
+  const off=_ptPopOff();
   d.style.cssText+=`;top:20px;right:${off}px;width:min(380px,88vw);max-height:74vh;overflow:auto`;
   _ptPopOutside(d.id);
   const F="var(--tkf)", MN="ui-monospace,Menlo,monospace";
@@ -50710,8 +50735,8 @@ function _ptWhyRowPaving(e, unit){
   const sel=(PT._traceSel===e.idx);
   return `<tr onclick="ptTraceOpen(${e.idx})" style="cursor:pointer;${sel?'background:rgba(131,210,77,.13)':''}"
     onpointerdown="ptTrSwipeDown(event,${e.idx})" onpointermove="ptTrSwipeMove(event)" onpointerup="ptTrSwipeUp(event,${e.idx})">
-    <td class="n" ondblclick="event.stopPropagation();ptTraceRename(event,${e.idx})"
-      title="Double-tap to rename">${esc(e.rawName||e.nm)}<small>${sub.join(" \u00b7 ")}</small></td>
+    <td class="n" onclick="event.stopPropagation();ptTraceRename(event,${e.idx})" style="cursor:text"
+      title="Tap to rename">${esc(e.rawName||e.nm)}<small>${sub.join(" \u00b7 ")}</small></td>
     <td class="q">${_tkFmt(e.net)}</td>
     <td class="r">${rate>0?(+rate).toFixed(2):"\u2014"}</td>
     <td class="t">${cost>0?_tkFmt(Math.round(cost)):"\u2014"}</td>
@@ -50781,7 +50806,7 @@ function ptBuildupPop(idx,side){
   d.setAttribute("data-idx", String(idx));
   if(side) d.setAttribute("data-side","1");
   // Beside the take-off card when there is room, so the layer totals stay on screen while you edit.
-  const off=(function(){ try{ return (ptTkDock()==="right")?(ptTkShut()?132:432):24; }catch(e){ return 24; } })();
+  const off=_ptPopOff();
   const roomy=(window.innerWidth>=820);
   if(side&&roomy){
     d.className="tkpop";                      // identical background, border and blur to the take-off card
@@ -50802,6 +50827,9 @@ function _ptBuildupHtml(idx, side){
   const p=PT.polys[idx]; if(!p) return "";
   const F="var(--tkf)", MN="ui-monospace,Menlo,monospace";
   const nm=escAttr((p.name||"").trim()||_ptMode(p.mode).label);
+  const _delBtn='<button onclick="ptTraceDel('+idx+')" style="margin-top:12px;border:0;background:rgba(214,92,88,.14);'
+    +'color:#E08B88;font:700 12px var(--tkf);padding:8px 14px;border-radius:9px;cursor:pointer">\u2715 Delete this trace</button>';
+
   // A hole prices nothing — it subtracts. Showing it as "$3,215" made a cut-out
   // read like a zone that costs money.
   try{ if(_ptHoles().has(idx)){
@@ -50810,7 +50838,7 @@ function _ptBuildupHtml(idx, side){
     return `<div class="tkh"><h3>${nm}</h3><button class="cls" onclick="ptBuildupClose()">\u2715</button></div>
       <div style="font:600 12.5px ${F};color:#8FA383;line-height:1.6">This shape is a <b style="color:#EAF0E4">cut-out</b> —
       it subtracts <b style="color:#EAF0E4">${_tkFmt(+p.sf||0)} SF</b> from <b style="color:#EAF0E4">${hn}</b>
-      and has no cost of its own. Delete it to give ${hn} the area back.</div>`;
+      and has no cost of its own. Delete it to give ${hn} the area back.</div>${_delBtn}`;
   } }catch(e){}
   const net=_ptTraceNet(p);
   const R=_pavAsmCost(p);
@@ -50844,6 +50872,7 @@ function _ptBuildupHtml(idx, side){
       +'<span style="flex:1;font:750 12px '+F+'">Total</span><b style="font:800 13.5px '+MNx+';color:#8FE07A">'+fmtN(Math.round(rate*net))+'</b></div>'
       +'<div style="font:600 9.5px '+F+';color:#68765B;margin-top:8px;line-height:1.55">'+why
       +' A component-by-component build-up appears here once one exists.</div>'
+      +_delBtn
       +'</div></div>';
     return h;
   }
@@ -50893,6 +50922,9 @@ function _ptBuildupHtml(idx, side){
   h+='<div style="font:600 9.5px '+F+';color:#68765B;margin-top:8px;line-height:1.55">'
     +R.baseHours.toFixed(3)+' hr \u00d7 '+R.patternCx.toFixed(2)+' pattern \u00d7 '+R.areaMult.toFixed(2)+' size \u00d7 '+R.productivity.toFixed(2)+' crew \u00d7 '+m2(R.laborRate)+'/hr \u00b7 before O&amp;P. '
     +'Every figure is read from the price book. Ticking a line changes this project\u2019s scope, not the price of it.</div>';
+  // Delete lives here so it can never be hidden behind another popup — the row's ✕
+  // sat under the docked take-off card at some widths.
+  h+=_delBtn;
   h+='</div></div>';
   return h;
 }
@@ -51097,7 +51129,7 @@ function _ptWhyRender(d, md, mode, x){
       ${pr?line("Cost", fmtN(pr.total), "#8FE07A"):line("Cost","not priced yet")}`}
     ${_ptWhyStyleRow(mode)}
     <div style="font:600 12px var(--tkf);color:#8FA383;margin-top:12px;line-height:1.5">
-      The rate comes from ${src}.${cut?" Anything sitting on these has already been taken off above.":""}</div>`;
+      The rate comes from ${src}.${cut?" Anything sitting on these has already been taken off above.":""}</div></div>`;
 }
 // Price this one category on its own. Shown here rather than behind a swipe, because it is a
 // decision about money and it belongs next to the money — and because seeing all three totals
@@ -52347,7 +52379,8 @@ function _ptSnapTarget(c){
   const kind=_ptKind(PT.mode); if(kind==="count") return null;
   const doC=_ptSnapOn("corner"),doL=_ptSnapOn("line"),doM=_ptSnapOn("mid"),doCtr=_ptSnapOn("center"),doP=_ptSnapOn("perp"),doT=_ptSnapOn("tangent"),doX=_ptSnapOn("intersect");
   if(!(doC||doL||doM||doCtr||doP||doT||doX)) return null;
-  const THV=17, THE=13; let bV=null,bVd=THV, bE=null,bEd=THE;
+  const _k=(arguments.length>1&&arguments[1]>0)?arguments[1]:1;
+  const THV=17*_k, THE=13*_k; let bV=null,bVd=THV, bE=null,bEd=THE;
   const last=(PT.cur&&PT.cur.length>=1)?_toCanvas(PT.cur[PT.cur.length-1]):null; const edges=[];
   const consider=(cp,closed)=>{
     if(doC) cp.forEach(q=>{ const d=Math.hypot(q.x-c.x,q.y-c.y); if(d<bVd){ bVd=d; bV={x:q.x,y:q.y,type:"corner"}; } });
