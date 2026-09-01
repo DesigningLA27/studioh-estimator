@@ -5936,6 +5936,22 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .pe-cov{margin-top:11px;font-size:11.5px;color:var(--tl);display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .pe-cov .bar{flex:0 0 140px;height:6px;border-radius:99px;background:var(--pbwell,#E6E3D6);overflow:hidden}
 .pe-cov .bar i{display:block;height:100%;background:var(--gm)}
+/* ── planting totals — option A ─────────────────────────────────────────── */
+.ptz-row{display:grid;grid-template-columns:12px minmax(120px,1fr) 92px 74px 100px;align-items:center;
+  column-gap:12px;background:var(--pbcard,#FBFAF6);border-radius:12px;padding:11px 14px;margin-bottom:6px}
+.ptz-row .sw{width:10px;height:10px;border-radius:3px}
+.ptz-row b{font-size:13px;min-width:0}
+.ptz-row b i{display:block;font-style:normal;font-size:10.5px;color:var(--tl);font-weight:600}
+.ptz-row .sf,.ptz-row .psf{text-align:right;font-size:12px;color:var(--tm);font-variant-numeric:tabular-nums}
+.ptz-row .psf{color:var(--tl)}
+.ptz-row .amt{text-align:right;font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.ptz-band{display:flex;align-items:center;gap:14px;background:var(--brand-soft,#EAF1E5);
+  border-radius:13px;padding:13px 16px;margin-top:8px;flex-wrap:wrap}
+.ptz-band b{font-size:14px;color:var(--gd,#3C6330)}
+.ptz-band .meta{font-size:11.5px;color:var(--tm)}
+.ptz-band .amt{margin-left:auto;font-size:20px;font-weight:800;color:var(--gd,#3C6330);font-variant-numeric:tabular-nums}
+@media (max-width:640px){.ptz-row{grid-template-columns:12px minmax(100px,1fr) 90px}
+  .ptz-row .sf,.ptz-row .psf{display:none}}
 
 /* ── inspector rail — the Plant Book's panel, in its own .lib scope ───────── */
 .shv-wrap{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;align-items:start}
@@ -6230,7 +6246,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1351</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1352</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8733,10 +8749,10 @@ function buildProCats(){
             <button type="button" onclick="stepLump('${cat.id}',500)">+</button>
           </span>
         </div>
-        <div class="sec-subrow">
+        ${cat.id==="planting"?"":`<div class="sec-subrow">
           <span class="l">Subtotal — ${cat.name}</span>
           <span id="catsubrow-${cat.id}" class="v">$0</span>
-        </div>
+        </div>`}
       </div>
     `;
     cont.appendChild(wrap);
@@ -39207,15 +39223,40 @@ function renderPlantingBuilder(){
 
   // ---- water + totals ----
   const waterPanel="";
-  const pr=(l,v,dim)=>`<div style="display:flex;justify-content:space-between;font-size:.78rem;padding:.14rem 0"><span style="color:var(--tm)">${l}</span><span style="font-weight:600${dim?';color:var(--tl)':''}">${money(v)}</span></div>`;
-  // Per-zone subtotals, not a repeat of the per-type numbers the sections already
-  // show. Collapsed zones read as their subtotal lines; the surfaces & soil line
-  // carries the bar-priced lawn / turf / hydroseed / soil prep for the project.
-  const totals=`<div style="margin-top:.6rem;padding-top:.2rem">
-      ${p.zones.map((zx,xi)=>pr(escAttr(zx.name||("Zone "+(xi+1))),(calc.detail.zones[xi]||{}).cost||0)).join('')}
-      ${calc.parts.sundry>0?pr("Surfaces & soil — lawn, turf, hydroseed, soil prep",calc.parts.sundry):''}
-      ${calc.parts.crane>0?pr(`Crane / specimen set (${calc.detail.craneUnits} lift${calc.detail.craneUnits===1?'':'s'})`,calc.parts.crane):''}
-      <div style="display:flex;justify-content:space-between;font-size:.92rem;font-weight:700;color:var(--gm);margin-top:.35rem"><span>Planting total — all zones</span><span>${money(calc.total)}</span></div>
+  // Option A from the totals mockup: each zone is a pill row (swatch, name with
+  // location/phase, SF, $/SF, total), Surfaces & soil is one more row, and the
+  // soft-green band at the bottom is THE total — planting's app-wide subtotal row
+  // is gone, because two identical totals two rows apart was furniture.
+  const ZSW=["#4C7B3D","#7FA05C","#5E8C6B","#8FA35C","#3E6B50","#94A66B"];
+  const zoneRows=p.zones.map((zx,xi)=>{
+    const zc=(calc.detail.zones[xi]||{}).cost||0, za=+zx.areaSF||0;
+    const sub=[zx.location,zx.phase].filter(Boolean).join(" · ");
+    return `<div class="ptz-row"><span class="sw" style="background:${ZSW[xi%ZSW.length]}"></span>
+      <b>${escAttr(zx.name||("Zone "+(xi+1)))}${sub?`<i>${escAttr(sub)}</i>`:""}</b>
+      <span class="sf">${za?Math.round(za).toLocaleString()+" SF":""}</span>
+      <span class="psf">${za>0&&zc>0?"$"+(zc/za).toFixed(2)+"/SF":""}</span>
+      <span class="amt">${money(zc)}</span></div>`;}).join('');
+  const sunSF=p.zones.reduce((a,zx)=>{ const cv=shvCov(zx), L3=zx.layers||{};
+    return a+(+cv.lawn||0)+(+cv.turf||0)+(+cv.seed||0)+(L3.prep?((+cv.shrub||0)+(+cv.gc||0)+(+cv.lawn||0)+(+cv.seed||0)):0); },0);
+  const sunRow=calc.parts.sundry>0?`<div class="ptz-row"><span class="sw" style="background:#C9C0A8"></span>
+      <b>Surfaces &amp; soil<i>lawn · turf · hydroseed · soil prep</i></b>
+      <span class="sf">${sunSF?Math.round(sunSF).toLocaleString()+" SF":""}</span><span class="psf"></span>
+      <span class="amt">${money(calc.parts.sundry)}</span></div>`:'';
+  const craneRow=calc.parts.crane>0?`<div class="ptz-row"><span class="sw" style="background:#B9995A"></span>
+      <b>Crane / specimen set<i>${calc.detail.craneUnits} lift${calc.detail.craneUnits===1?"":"s"}</i></b>
+      <span class="sf"></span><span class="psf"></span>
+      <span class="amt">${money(calc.parts.crane)}</span></div>`:'';
+  const totArea=p.zones.reduce((a,zx)=>a+(+zx.areaSF||0),0);
+  const totPlants=p.zones.reduce((a,zx)=>a+_zonePlantCount(zx),0);
+  const lumpOn=!!(S.cats.planting&&S.cats.planting.lumpOn);
+  const bandAmt=lumpOn?(+S.cats.planting.lumpSum||0):calc.total;
+  const bandMeta=lumpOn?"overridden — one lump sum (see ⋯)":
+    [`${p.zones.length} zone${p.zones.length===1?"":"s"}`,`${totPlants} plant${totPlants===1?"":"s"}`,
+     totArea>0?`$${(calc.total/totArea).toFixed(2)}/SF avg`:""].filter(Boolean).join(" · ");
+  const totals=`<div style="margin-top:.7rem">
+      ${zoneRows}${sunRow}${craneRow}
+      <div class="ptz-band"><b>Planting total</b><span class="meta">${bandMeta}</span>
+        <span class="amt">${money(bandAmt)}</span></div>
     </div>`;
 
   // ── the panel's zone face: cost breakdown for the zone being worked on ──
