@@ -6090,7 +6090,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1337</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1338</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -28393,6 +28393,12 @@ function bestPlantCost(kind,pid,sizeKey,prefNid){
   if(prefNid){ const st=NURSERY_DB.stock[prefNid]; if(st&&st[pid]){ const cell=st[pid][normSize(sizeKey)]; if(cell&&cell.p!=null) return {price:cell.p,src:"nursery",nid:prefNid}; } }
   const w=wholesaleFor(pid,sizeKey); if(w&&w.price!=null) return {price:w.price, src:"nursery", nid:w.nid};
   const p=plantDbFind(kind,pid); const want=normSize(sizeKey);
+  // p.mp is the price typed into the inspector's "Sizes & prices". It was displayed
+  // there and read by nothing — a book price that never priced anything. Real nursery
+  // quotes still win (same order the inspector displays them in); the manual entry
+  // covers the sizes no nursery has quoted.
+  if(p&&p.mp){ if(p.mp[sizeKey]!=null) return {price:+p.mp[sizeKey], src:"book"};
+    for(const k in p.mp){ if(normSize(k)===want && p.mp[k]!=null) return {price:+p.mp[k], src:"book"}; } }
   if(p&&p.price){ if(p.price[sizeKey]!=null) return {price:+p.price[sizeKey], src:"book"};
     for(const k in p.price){ if(normSize(k)===want && p.price[k]!=null) return {price:+p.price[k], src:"book"}; } }
   return null; }
@@ -35240,9 +35246,21 @@ function _pbkTree(){
   return h;
 }
 function pbkToggleInJob(){ PB_BOOK.injob=!PB_BOOK.injob; try{ renderPlantBook(); }catch(e){} }
-function _pbkInsRender(){ const el=document.getElementById("pbk-ins"); if(!el) return;
-  try{ el.innerHTML=_pbkInspector(); }
-  catch(e){ el.innerHTML='<div class="pbk-empty">Could not read this plant: '+String(e&&e.message||e)+'</div>'; } }
+function _pbkInsRender(){
+  let html;
+  try{ html=_pbkInspector(); }
+  catch(e){ html='<div class="pbk-empty">Could not read this plant: '+String(e&&e.message||e)+'</div>'; }
+  const el=document.getElementById("pbk-ins"); if(el) el.innerHTML=html;
+  // The estimate's rail hosts the SAME inspector on the SAME record, so an edit
+  // there is an edit to the Plant Book. Every edit control routes through this
+  // function, and it only knew the Plant Book's element — which is why Read/Edit
+  // was dead in the rail. The rail re-renders through plantRefresh so the zone's
+  // quantities and prices recalc off the edited record at the same time.
+  if(document.getElementById("shv-ins")){
+    try{ plantRefresh(); }
+    catch(e){ const r=document.getElementById("shv-ins"); if(r) r.innerHTML=html; }
+  }
+}
 /* Nursery prices for a plant, cheapest per size, plus who quoted it. */
 function _pbNurseryPrices(p){
   const out={};
@@ -36526,7 +36544,7 @@ function shvRailHTML(){
            onclick="mbAddExistingPlant('${escAttr(_shvSel.kind)}','${escAttr(_shvSel.pid)}')">💡 Add to Mood Board</button>`;
     }
   }catch(e){} }
-  return `<div class="lib shvw"><aside class="pbk-ins card">${body}</aside></div>`;
+  return `<div class="lib shvw"><aside class="pbk-ins card" id="shv-ins">${body}</aside></div>`;
 }
 function _shareArr(kind,zi){ const p=ensurePlanting(); const z=p.zones[zi]; return (z&&z[kind+"Rows"])||null; }
 function _shareSpread(arr,skip){
