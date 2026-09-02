@@ -2795,6 +2795,17 @@ body:not(.sp-on) #sp-open{display:grid}
 .pbk-pop h4{margin:0 0 8px;font:700 9.5px ui-monospace,Menlo,monospace;letter-spacing:.13em;
   text-transform:uppercase;color:var(--gm)}
 .pbe-pills{display:flex;flex-wrap:wrap;gap:4px;padding:1px}
+/* Bloom colour is picked, not typed — same swatches as the Plant Book, so the two
+   faces of the same record cannot disagree about what the colours are. */
+.pbe-sw{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:2px 1px}
+.pbe-swb{width:26px;height:26px;padding:0;border:0;border-radius:50%;cursor:pointer;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.16);display:grid;place-items:center}
+.pbe-swb i{width:9px;height:9px;border-radius:50%;background:transparent}
+.pbe-swb.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 0 0 2.5px var(--gm)}
+.pbe-swb.on i{background:rgba(0,0,0,.42)}
+.pbe-swx{border:0;background:var(--pbpill,#fff);color:var(--tl);border-radius:999px;
+  padding:5px 11px;font:700 11px inherit;cursor:pointer}
+.pbe-swx:hover{color:#B23F3C}
 /* An option with no fill reads as loose text, which is what made the form hard to scan.
    Every choice is a pill; the live one is the solid green one. */
 .pbe-p{border:0;background:var(--pbpill,#fff);color:var(--tm);border-radius:999px;padding:7px 13px;
@@ -6349,7 +6360,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1368</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1369</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -35436,6 +35447,13 @@ function pbkSelect(pid){
   try{ _pbkInsRender(); }catch(e){} }
 function pbkOpenLightbox(){ if(PB_BOOK.sel) try{ openPlantLightbox(PB_BOOK.kind, PB_BOOK.sel); }catch(e){} }
 function _pbkPlant(pid){ return (PLANT_DB[PB_BOOK.kind]||[]).find(p=>p.id===pid)||null; }
+function _pbkKindOf(p){
+  if(!p||!p.id) return PB_BOOK.kind||"shrub";
+  for(const k of ["shrub","gc","tree","palm"]){
+    if((PLANT_DB[k]||[]).some(x=>x.id===p.id)) return k;
+  }
+  return PB_BOOK.kind||"shrub";
+}
 function _pbkTree(){
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const q=v=>String(v==null?"":v).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
@@ -35669,7 +35687,10 @@ const PB_FIELDS=[
    read:p=>{ let z=null; try{ z=dsZoneOf(p); }catch(e){}
      return z?({"0":"Zone 0","1":"Zone 1","2":"Zone 2",avoid:"Avoid"}[z]||z):""; }},
   {k:"bloomSeason",sec:"Bloom", lab:"Season", type:"text", ph:"e.g. Spring–Summer", read:p=>p.bloomSeason||""},
-  {k:"color", sec:"Bloom", lab:"Colour", type:"text", ph:"e.g. Purple", read:p=>p.color||""}
+  {k:"color", sec:"Bloom", lab:"Colour", type:"swatch", ph:"pick one or more",
+   read:p=>{ try{ const a=bloomColorsOf(p).filter(x=>x!=="none");
+     if(a.length) return a.map(k=>(BLOOM_COLOR_MAP[k]||{}).lab||k).join(", ");
+     return p.color||""; }catch(e){ return p.color||""; } }}
 ];
 function _pbFieldHas(f,p){ return f.has?f.has(p):!!String(f.read(p)||"").trim(); }
 /* Writing a value is the same call whichever face you are on, and it is what clears the
@@ -35686,6 +35707,11 @@ function pbFieldSet(pid,k,v,b){
       if(i>=0) set.splice(i,1); else set.push(v);
       set.sort((x,y)=>LIGHT_ORDER.indexOf(x)-LIGHT_ORDER.indexOf(y));
       p.light=set; }catch(e){}
+  } else if(f.type==="swatch"){
+    // one code path for bloom colour everywhere: the Plant Book's own toggle, which
+    // keeps bloomColors / bloomColor / bloomHex / color consistent and repaints live
+    try{ togglePlantBloomColor(_pbkKindOf(p)||"shrub", p.id, v); }catch(e){}
+    return;
   } else if(f.type==="one"){
     p[k]=(String(p[k]||"")===String(v))?"":v;          // tapping the live one clears it
   } else {
@@ -35715,6 +35741,18 @@ function _pbFieldControl(p,f,pop){
     return '<div class="pbe-pills">'+f.opts.map(o=>
       '<button class="pbe-p'+(cur.indexOf(o[0])>=0?" on":"")+'" onclick="event.stopPropagation();'
       +call(o[0])+'">'+esc(o[1])+'</button>').join('')+'</div>';
+  }
+  if(f.type==="swatch"){
+    let sel=[]; try{ sel=bloomColorsOf(p)||[]; }catch(e){}
+    const kind=(function(){ try{ return _pbkKindOf(p)||"shrub"; }catch(e){ return "shrub"; } })();
+    return '<div class="pbe-sw">'+BLOOM_COLORS.map(c=>{
+        const on=sel.indexOf(c.k)>=0;
+        return '<button class="pbe-swb'+(on?" on":"")+'" title="'+esc(c.lab)+'"'
+          +' onclick="event.stopPropagation();pbFieldSet(\''+p.id+'\',\''+q(f.k)+'\',\''+q(c.k)+'\')"'
+          +' style="background:'+c.hex+'"><i></i></button>';
+      }).join('')
+      +(sel.length?'<button class="pbe-swx" onclick="event.stopPropagation();clearPlantBloomColors(\''+kind+'\',\''+p.id+'\')">clear</button>':'')
+      +'</div>';
   }
   if(f.type==="num2"){
     return '<div class="pbk-f"><span class="k">'+esc(f.aLab)+'</span>'
@@ -36495,9 +36533,42 @@ function lightBadge(codeOrPlant){
 // ── Flower / bloom color (searchable). Seeded from existing color text where the plant blooms; user-editable. ──
 const BLOOM_COLORS=[{k:"white",lab:"White",hex:"#FCFCF8"},{k:"cream",lab:"Cream",hex:"#F1E7C2"},{k:"yellow",lab:"Yellow",hex:"#F2C230"},{k:"orange",lab:"Orange",hex:"#E8862E"},{k:"red",lab:"Red",hex:"#C43D30"},{k:"pink",lab:"Pink",hex:"#E58AA6"},{k:"purple",lab:"Purple",hex:"#8E5AA8"},{k:"lavender",lab:"Lavender",hex:"#B9A4D6"},{k:"blue",lab:"Blue",hex:"#4A78C0"},{k:"magenta",lab:"Magenta",hex:"#B0338C"},{k:"green",lab:"Green",hex:"#6F9A4A"},{k:"bronze",lab:"Bronze",hex:"#9A6B3A"},{k:"multi",lab:"Multi",hex:"linear-gradient(120deg,#E8862E,#C43D30,#8E5AA8)"},{k:"none",lab:"No bloom",hex:"#DDD8CC"}];
 const BLOOM_COLOR_MAP={}; BLOOM_COLORS.forEach(c=>{ BLOOM_COLOR_MAP[c.k]=c; });
-function _deriveBloomColor(p){ const bl=(p.bloom||"").trim(); if(!bl||bl==="—") return ""; const t=(p.color||"").toLowerCase(); if(!t||t.indexOf("foliage")>=0) return "";
-  const words=[["magenta","magenta"],["lavender","lavender"],["purple","purple"],["violet","purple"],["blue","blue"],["scarlet","red"],["red","red"],["orange","orange"],["apricot","orange"],["gold","yellow"],["yellow","yellow"],["pink","pink"],["rose","pink"],["white","white"],["cream","cream"],["bronze","bronze"]];
-  for(const wk of words){ if(t.indexOf(wk[0])>=0) return wk[1]; } return ""; }
+// Free-text colour -> one of BLOOM_COLORS. Order matters: the most specific word wins,
+// so "hot pink" is magenta before "pink" can claim it and "blue-violet" reads purple.
+// Modifiers (light / pale / dark / deep / bright) fall out for free — the base colour
+// is still a substring, so "light pink", "dark purple" and "deep lavender" all land.
+const BLOOM_WORDS=[
+  ["hot pink","magenta"],["magenta","magenta"],["fuchsia","magenta"],["cerise","magenta"],
+  ["lavender","lavender"],["lilac","lavender"],["mauve","lavender"],["periwinkle","lavender"],
+  ["violet","purple"],["purple","purple"],["plum","purple"],
+  ["indigo","blue"],["azure","blue"],["blue","blue"],
+  ["burgundy","red"],["crimson","red"],["scarlet","red"],["ruby","red"],["wine","red"],["red","red"],
+  ["salmon","pink"],["blush","pink"],["rose","pink"],["pink","pink"],
+  ["apricot","orange"],["peach","orange"],["coral","orange"],["tangerine","orange"],
+  ["rust","orange"],["terracotta","orange"],["orange","orange"],
+  ["chartreuse","green"],["lime","green"],["green","green"],
+  ["gold","yellow"],["lemon","yellow"],["butter","yellow"],["yellow","yellow"],
+  ["ivory","white"],["white","white"],
+  ["cream","cream"],["buff","cream"],
+  ["copper","bronze"],["bronze","bronze"],["brown","bronze"],["tan","bronze"],
+  ["bicolor","multi"],["bi-color","multi"],["two-tone","multi"],["mixed","multi"],
+  ["multi","multi"],["various","multi"],["assorted","multi"]
+];
+function bloomKeyFromText(txt){
+  let t=String(txt||"").toLowerCase();
+  if(!t||t.indexOf("foliage")>=0) return "";
+  // "greenish white" is a white flower with a green cast — an -ish word qualifies the
+  // colour that follows it, so drop it before matching or it wins on word order alone.
+  t=t.replace(/\b[a-z]+ish\b/g," ");
+  for(const wk of BLOOM_WORDS){ if(t.indexOf(wk[0])>=0) return wk[1]; }
+  return "";
+}
+function _deriveBloomColor(p){
+  // bloomSeason is what the inspector writes; p.bloom is what the seed data carries.
+  // Only checking p.bloom meant a season typed in the panel left the colour underived.
+  const bl=(p.bloom||p.bloomSeason||"").trim(); if(!bl||bl==="\u2014") return "";
+  return bloomKeyFromText(p.color);
+}
 function bloomColorsOf(p){ if(!p) return []; if(Array.isArray(p.bloomColors)&&p.bloomColors.length) return p.bloomColors.filter(Boolean); if(p.bloomColor) return [p.bloomColor]; const d=_deriveBloomColor(p); return d?[d]:[]; }
 function bloomColorOf(p){ const a=bloomColorsOf(p); return a[0]||""; }   // primary colour (back-compat for single-colour consumers)
 function togglePlantBloomColor(kind,id,key){ const p=plantDbFind(kind,id); if(!p) return; let arr=bloomColorsOf(p).slice();
@@ -36505,8 +36576,10 @@ function togglePlantBloomColor(kind,id,key){ const p=plantDbFind(kind,id); if(!p
   else { arr=arr.filter(x=>x!=="none"); const i=arr.indexOf(key); if(i>=0) arr.splice(i,1); else arr.push(key); }
   p.bloomColors=arr; p.bloomColor=arr[0]||"";
   const c=BLOOM_COLOR_MAP[p.bloomColor]; p.bloomHex=(c&&(""+c.hex).indexOf("gradient")<0&&p.bloomColor&&p.bloomColor!=="none")?c.hex:"";
-  plantBookSave(); }
-function clearPlantBloomColors(kind,id){ const p=plantDbFind(kind,id); if(!p) return; p.bloomColors=[]; p.bloomColor=""; p.bloomHex=""; plantBookSave(); }
+  // Keep the readable text in step, so the plant card and exports say what was picked.
+  p.color=arr.filter(x=>x!=="none").map(k=>(BLOOM_COLOR_MAP[k]||{}).lab||k).join(", ");
+  plantBookSave(); _afterColorChange(kind,id); }
+function clearPlantBloomColors(kind,id){ const p=plantDbFind(kind,id); if(!p) return; p.bloomColors=[]; p.bloomColor=""; p.bloomHex=""; p.color=""; plantBookSave(); _afterColorChange(kind,id); }
 function colorDot(k,sz){ const c=BLOOM_COLOR_MAP[k]; if(!c) return ""; const s=sz||14; return `<span title="${c.lab}" style="display:inline-block;width:${s}px;height:${s}px;border-radius:50%;background:${c.hex};border:1px solid rgba(0,0,0,.25);vertical-align:middle"></span>`; }
 function colorDotHex(hex,sz,title){ const s=sz||14; return `<span title="${escAttr(title||hex||'')}" style="display:inline-block;width:${s}px;height:${s}px;border-radius:50%;background:${hex||'#ccc'};border:1px solid rgba(0,0,0,.25);vertical-align:middle"></span>`; }
 function _hex2rgb(h){ h=(""+(h||"")).replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); const n=parseInt(h||"888888",16); return [(n>>16)&255,(n>>8)&255,n&255]; }
