@@ -6305,7 +6305,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1364</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1365</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -16845,7 +16845,16 @@ let _goodsFullWarned={};
    not take it AND the server refused, so the rows exist nowhere but this tab. */
 function _goodsWrite(key,arr,label){
   try{ localStorage.setItem(key, JSON.stringify(arr)); return true; }
-  catch(e){ const book=(label==="materials")?"materials":"furnishings";
+  catch(e){
+    // Quota. The biggest tenant is the manufacturer-colours cache (~1.8MB) — a
+    // dataset the server can re-serve any time. Evict it and retry before treating
+    // this as an emergency; the in-memory copy keeps working, the next pull re-caches.
+    try{
+      localStorage.removeItem("studioh_mfgcolors_v1");
+      localStorage.removeItem("studioh_goods_mfgcolors_at");
+      localStorage.setItem(key, JSON.stringify(arr)); return true;
+    }catch(e2){}
+    const book=(label==="materials")?"materials":"furnishings";
     _goodsRecover(book,arr,label); return false; }
 }
 /* The cache would not take it. Get it onto the server, and work out what a refusal
@@ -16856,6 +16865,12 @@ function _goodsWrite(key,arr,label){
 async function _goodsRecover(book,arr,label){
   let saved=false;
   try{ saved=await goodsPushNow(book); }catch(e){}
+  // Safari reports any dropped request as "Load failed" — a wifi blip, not a verdict.
+  // Try twice more with a pause before telling anyone their work is stranded.
+  if(!saved){ for(const wait of [2500,7000]){
+    await new Promise(r=>setTimeout(r,wait));
+    try{ saved=await goodsPushNow(book); }catch(e){}
+    if(saved) break; } }
   if(saved) return "saved";                      // on the server; nothing to say
   const why=_goodsLastErr[book]||"";
   if(/would drop|stale|newer|behind/i.test(why)){
@@ -16870,8 +16885,20 @@ async function _goodsRecover(book,arr,label){
   await askTell("Not saved anywhere yet",
     "This browser is full ("+_kbytes(rep.total)+" used) and the server refused too: "
     +(why||"no reason given")+"\n\n"
-    +"Your "+arr.length+" "+label+" are only in this tab — do not reload until this is sorted.",
+    +"Your "+arr.length+" "+label+" are only in this tab — keep it open. "
+    +"Retrying the server automatically; you'll see a toast when they land.",
     {icon:"!", note:"Biggest users of this browser's space:\n"+rep.lines.join("\n")});
+  // Keep trying quietly for as long as the tab lives — the moment a push lands,
+  // say so and stand down. One interval covers every warned book.
+  if(!window._goodsRetryT) window._goodsRetryT=setInterval(async()=>{
+    const open=Object.keys(_goodsFullWarned).filter(b=>_goodsFullWarned[b]);
+    if(!open.length){ clearInterval(window._goodsRetryT); window._goodsRetryT=null; return; }
+    for(const b of open){
+      let ok=false; try{ ok=await goodsPushNow(b); }catch(e){}
+      if(ok){ _goodsFullWarned[b]=false;
+        try{ _toast("Back online — your "+b+" are saved to the server","#4C7B3D"); }catch(e){} }
+    }
+  },45000);
   return "warned";
 }
 // ARTO -> Materials. name:[hex,img,materialType,textures,collections,applications,
