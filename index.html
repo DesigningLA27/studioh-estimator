@@ -5886,7 +5886,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .zsec-h:hover{background:#F7F5EE}
 /* shut, the header IS the section — a cream pill row, like the mockup */
 .zsec-h.shut{background:var(--pbcard,#FBFAF6);border-radius:13px;padding:12px 14px;
-  margin:0 0 16px;gap:12px}
+  margin:16px 0;gap:12px}
+/* consecutive pills already have the gap from the one above — only the first
+   pill after an open section's plant list needs its own top margin */
+.zsec-h.shut + .zsec-h.shut{margin-top:0}
 .zsec-h.shut:hover{background:#F5F3EA}
 .zcar2{font-size:11px;color:var(--gm);width:12px;flex:none}
 .zmini{display:flex;height:6px;border-radius:99px;overflow:hidden;width:120px;flex:none}
@@ -6113,7 +6116,10 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .zsec-h:hover{background:#F7F5EE}
 /* shut, the header IS the section — a cream pill row, like the mockup */
 .zsec-h.shut{background:var(--pbcard,#FBFAF6);border-radius:13px;padding:12px 14px;
-  margin:0 0 16px;gap:12px}
+  margin:16px 0;gap:12px}
+/* consecutive pills already have the gap from the one above — only the first
+   pill after an open section's plant list needs its own top margin */
+.zsec-h.shut + .zsec-h.shut{margin-top:0}
 .zsec-h.shut:hover{background:#F5F3EA}
 .zcar2{font-size:11px;color:var(--gm);width:12px;flex:none}
 .zmini{display:flex;height:6px;border-radius:99px;overflow:hidden;width:120px;flex:none}
@@ -6145,6 +6151,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .shv-segs u{flex:1;text-align:center;font-size:10.5px;font-weight:700;color:var(--tm);
   text-decoration:none;border-radius:99px;line-height:20px;cursor:pointer;padding:0 4px}
 .shv-segs u:hover{background:rgba(255,255,255,.7)}
+/* a locked row IS brand-soft, so a brand-soft pill track vanished into it —
+   the track flips to the row colour used everywhere else instead */
+.shv-row.lk .shv-segs,.shv-row.lk .shv-szs{background:var(--pbpill,#fff)}
 .shv-segs u.on{background:var(--gm);color:#fff}
 .shv-pin{font-style:normal;font-size:10px;font-weight:800;color:var(--gm);text-decoration:none}
 .shv-szs{height:26px;border-radius:999px;background:var(--brand-soft,#EAF1E5);position:relative;
@@ -6305,7 +6314,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1365</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1366</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -36540,7 +36549,19 @@ function snap6(v){ return Math.max(6, Math.round((+v||6)/6)*6); }
 function plantGalYr(wFt,wu){ const info=WU_INFO[wu]||WU_INFO.L; const canopy=Math.PI*Math.pow((+wFt||3)/2,2);
   return PLANT_WATER.et0*info.k*canopy*PLANT_WATER.conv/PLANT_WATER.ie; }
 function waterCostPerGal(){ const p=(S.planting&&S.planting.waterHCF>0)?S.planting.waterHCF:8.5; return p/748; }  // 1 HCF = 748 gal
-function plantDbFind(kind,id){ return (PLANT_DB[kind]||[]).find(p=>p.id===id)||null; }
+// Shrub and groundcover are PRICING MODELS here (spread-spaced containers vs flats),
+// not botanical truth — plenty of plants are legitimately either. So a row may hold a
+// plant whose record lives in the sibling list; resolve it there rather than falling
+// back to generic defaults, which would price it wrong. Only shrub<->gc cross over;
+// trees and palms stay exact.
+const _PLANT_SIB={shrub:"gc", gc:"shrub"};
+function plantDbFind(kind,id){
+  const hit=(PLANT_DB[kind]||[]).find(p=>p.id===id);
+  if(hit) return hit;
+  const sib=_PLANT_SIB[kind];
+  if(sib){ const h2=(PLANT_DB[sib]||[]).find(p=>p.id===id); if(h2) return h2; }
+  return null;
+}
 function botName(p){ if(!p) return ""; const b=(p.b||"").trim(); const cv=(p.cv||"").trim(); if(!cv) return b; return b ? (b+" '"+cv+"'") : ("'"+cv+"'"); }
 
 // ── component map from the editable price book ───────────────────
@@ -37945,16 +37966,19 @@ function _hoaBadge(pid,quiet){
     background:${ok?"var(--brand-soft)":"#FBEDEC"};color:${ok?"var(--gm)":"#8C3B38"};
     border:1px solid ${ok?"var(--gm)":"#E0B4B2"}">${ok?"HOA ✓":"PROHIBITED"}</span>`;
 }
-function _plantHit(kind,scope,p,info){
+function _plantHit(kind,scope,p,info,cross){
   // The row itself carries the status — a tint and a green edge for approved, a red
   // edge for prohibited — so you can see where the approved ones stop without reading.
   const _st=hoaPlantState(p.id);
   const _rowCss=_st==="ok" ? "background:var(--brand-soft);box-shadow:inset 3px 0 0 var(--gm)"
     : _st==="no" ? "background:#FBEDEC;box-shadow:inset 3px 0 0 #B23F3C" : "";
+  const crossTag = cross ? `<span title="Listed under ${kind==="gc"?"shrubs":"groundcover"} — adding it here prices it as ${kind==="gc"?"groundcover (by flats)":"a shrub (by spacing)"}"
+      style="margin-left:.35rem;background:#EFECE3;color:var(--tm);border-radius:9px;padding:.02rem .4rem;
+      font-size:.62rem;font-weight:700">${kind==="gc"?"shrub":"groundcover"}</span>` : '';
   const priceBadge = info&&info.has ? `<span style="margin-left:.35rem;background:${info.nursery?'var(--gm)':'#EAF3EA'};color:${info.nursery?'#fff':'var(--gm)'};border:1px solid var(--gm);border-radius:9px;padding:.02rem .4rem;font-size:.62rem;font-weight:700">${info.nursery?'✓ ':''}${info.label}</span>` : '';
   const _img=plantImgOf(p); const thumb=`<img src="${escAttr(_img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:30px;height:30px;object-fit:cover;border-radius:5px;border:1px solid var(--br);background:#EEF3EA;flex:none">`;
   return `<div class="plant-hit" style="display:flex;align-items:center;gap:.5rem;padding:.35rem .6rem;cursor:pointer;font-size:.78rem;border-bottom:1px solid var(--br);${_rowCss||(info&&info.nursery?'background:#F4F9F2':'')}" onmousedown="event.preventDefault();pickPlant('${kind}',${scope},'${p.id}');var b=document.getElementById('plant-search-${kind}-${scope}');if(b)b.value='';document.getElementById('plant-results-${kind}-${scope}').style.display='none'">
-      ${thumb}<div><span style="font-weight:600">${p.c}</span> <span style="color:var(--tl);font-style:italic">${botName(p)}</span>${priceBadge}${_hoaBadge(p.id)}${p.spec?' · <span style="color:var(--gold)">specimen</span>':''}</div></div>`; }
+      ${thumb}<div><span style="font-weight:600">${p.c}</span> <span style="color:var(--tl);font-style:italic">${botName(p)}</span>${priceBadge}${crossTag}${_hoaBadge(p.id)}${p.spec?' · <span style="color:var(--gold)">specimen</span>':''}</div></div>`; }
 function plantSearchInput(kind,scope){
   const inp=document.getElementById("plant-search-"+kind+"-"+scope);
   const box=document.getElementById("plant-results-"+kind+"-"+scope);
@@ -38000,13 +38024,23 @@ function plantSearchInput(kind,scope){
       + _hoaSort(used).map(p=>_plantHit(kind,scope,p,plantPricedInfo(kind,p.id))).join('');
     box.style.display="block"; return;
   }
-  let hits=(PLANT_DB[kind]||[]).filter(p=>p.c.toLowerCase().includes(q)||botName(p).toLowerCase().includes(q)).slice(0,40).map(p=>({p,info:plantPricedInfo(kind,p.id)}));
+  // Search this list plus its sibling — a shrub that works as groundcover (and the
+  // reverse) is findable from either box, tagged so you can see which list it is from.
+  const _mt=p=>p.c.toLowerCase().includes(q)||botName(p).toLowerCase().includes(q);
+  const _own=(PLANT_DB[kind]||[]).filter(_mt).map(p=>({p,info:plantPricedInfo(kind,p.id),x:0}));
+  const _sib=_PLANT_SIB[kind]
+    ? (PLANT_DB[_PLANT_SIB[kind]]||[]).filter(_mt)
+        .filter(p=>!_own.some(o=>o.p.id===p.id))
+        .map(p=>({p,info:plantPricedInfo(kind,p.id),x:1}))
+    : [];
+  let hits=_own.concat(_sib).slice(0,40);
   hits.sort((a,b)=>{ const wa=a.info.nursery?2:(a.info.has?1:0), wb=b.info.nursery?2:(b.info.has?1:0); return wb-wa; });
+  hits.sort((a,b)=>(a.x||0)-(b.x||0));   // this section's own plants first
   const _r=hoaPlantRules();
   if(_r&&hoaFirst()){ const w=x=>_r.ok[x.p.id]?0:(_r.no[x.p.id]?2:1); hits.sort((a,b)=>w(a)-w(b)); }
   hits=hits.slice(0,10);
   if(!hits.length){ box.innerHTML=`<div style="padding:.4rem .6rem;font-size:.76rem;color:var(--tl)">No match — type a common or botanical name</div>`; box.style.display="block"; return; }
-  box.innerHTML=_hoaHdr()+hits.map(({p,info})=>_plantHit(kind,scope,p,info)).join("");
+  box.innerHTML=_hoaHdr()+hits.map(({p,info,x})=>_plantHit(kind,scope,p,info,x)).join("");
   box.style.display="block";
 }
 
@@ -38552,7 +38586,10 @@ function plantingCalc(){
     });
     z.gcRows.forEach(r=>{
       const db=plantDbFind("gc",r.pid)||{oc:12,pf:36,wu:"L"};
-      const ocIn=(r.ocIn>0)?r.ocIn:(+db.oc>0?+db.oc:12); const perFlat=(r.pf>0)?r.pf:(+db.pf>0?+db.pf:36); const ocFt=ocIn/12; const app=Math.max(0.05,ocFt*ocFt);
+      // a cross-listed shrub carries a spread, not an O.C. — space it by the same
+      // 75%-of-mature-width rule the shrub side uses instead of the 12" default
+      const _ocDb=(+db.oc>0)?+db.oc:(+db.w>0?ocInFromSpread(db.w):12);
+      const ocIn=(r.ocIn>0)?r.ocIn:_ocDb; const perFlat=(r.pf>0)?r.pf:(+db.pf>0?+db.pf:36); const ocFt=ocIn/12; const app=Math.max(0.05,ocFt*ocFt);
       const subSF=gcCov*(+r.pct||0)/100; const plants=Math.ceil(subSF/app); const flats=Math.ceil(plants/Math.max(1,perFlat));
       const realFlat=bestPlantCost("gc",r.pid,"flat"); const matCost=flats*(realFlat?realFlat.price:flatUC), install=subSF*instUC, cost=matCost+install;
       const galEa=gcGalYr(app,db.wu), costEa=galEa*cpg, gal=gcGalYr(subSF,db.wu), galCost=gal*cpg;
