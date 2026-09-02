@@ -6264,7 +6264,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1361</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1362</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -23712,7 +23712,7 @@ const INS_CARDS=[
  {id:"zones", g:"prop", nm:"Cost by planting zone", w:2, client:1, desc:"Which zone eats the planting budget",
   need:d=>{ try{ return (S.planting&&S.planting.zones&&S.planting.zones.length>1)?"":"Needs two or more planting zones"; }catch(e){ return "Needs planting zones"; } },
   draw:d=>{ let rows=[]; try{ const c=plantingCalc(); rows=(S.planting.zones||[]).map((z,i)=>({
-        nm:z.name||("Zone "+(i+1)), sf:+z.areaSF||0, cost:((c.detail.zones[i]||{}).cost||0) })); }catch(e){ rows=[]; }
+        nm:z.name||("Zone "+(i+1)), sf:+z.areaSF||0, cost:(function(zd2){ return zd2.costAll!=null?zd2.costAll:(zd2.cost||0); })(c.detail.zones[i]||{}) })); }catch(e){ rows=[]; }
     rows=rows.filter(r=>r.cost>0).sort((a,b)=>b.cost-a.cost);
     if(!rows.length) return `<span class="ic-empty">No zone costs yet</span>`;
     const mx=rows[0].cost, COL=["var(--k3)","var(--k4)","var(--k2)","var(--k1)"];
@@ -38427,6 +38427,10 @@ async function aiLookupSun(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retu
 
 // ── calc ─────────────────────────────────────────────────────────
 function plantingCalc(){
+  // The allocation bars are the only author of lawn/turf/seed/prep areas, but the
+  // sync into the priced sundry quantities only ran on bar edits — a freshly loaded
+  // project priced its plants and silently dropped its surfaces. Sync on every calc.
+  try{ _covSyncSundry(); }catch(e){}
   const p=ensurePlanting(); const c=plantingComponents();
   const cmult=cls=>PLANT_CLASS_MULT[cls]||1;
   const ucv=it=>it?installedUC(it):0;
@@ -38510,6 +38514,20 @@ function plantingCalc(){
     });
     parts.openMulch+=zd.openMulch;
     zd.cost = zd.shrubRows.reduce((s,x)=>s+(x.cost||0),0) + zd.gcRows.reduce((s,x)=>s+(x.cost||0),0) + zd.treeRows.reduce((s,x)=>s+(x.cost||0),0) + zd.palmRows.reduce((s,x)=>s+(x.cost||0),0) + (zd.openMulch||0);
+    // Surfaces & soil belong to the zone that authored them on its allocation bar —
+    // same bands and rates _covSyncSundry pushes into the sundry quantities, so the
+    // per-zone split always sums back to parts.sundry (minus manual items like topsoil).
+    {
+      const _sun=re=>{ const it=(c.sundry||[]).find(x=>re.test(x.n)); return it?(+it.uc||0):0; };
+      const _L=z.layers||{};
+      const _sl=[["Lawn / Sod",+_cv.lawn||0,_sun(/^Lawn \/ Sod/i)],
+                 ["Artificial Turf",+_cv.turf||0,_sun(/^Artificial Turf/i)],
+                 ["Hydroseed",+_cv.seed||0,_sun(/^Hydroseed/i)],
+                 ["Soil prep",(_L.prep?((+_cv.shrub||0)+(+_cv.gc||0)+(+_cv.lawn||0)+(+_cv.seed||0)):0),_sun(/^Soil Prep/i)]];
+      zd.surf={rows:_sl.filter(x=>x[1]>0).map(x=>({n:x[0],sf:x[1],uc:x[2],cost:x[1]*x[2]}))};
+      zd.surf.cost=zd.surf.rows.reduce((a,x)=>a+x.cost,0);
+      zd.costAll=zd.cost+zd.surf.cost;
+    }
     detail.totals.shrubGal+=zd.shrubGal; detail.totals.shrubGalCost+=zd.shrubGalCost;
     detail.totals.gcGal+=zd.gcGal; detail.totals.gcGalCost+=zd.gcGalCost;
     detail.zones.push(zd);
@@ -39149,7 +39167,7 @@ function renderPlantingBuilder(){
       ${z.location?`<span class="zloc">${escAttr(z.location)}</span>`:''}
       ${z.phase?`<span class="zph">${escAttr(z.phase)}</span>`:''}
       <span class="zmeta">${Math.round(z.areaSF||0).toLocaleString()} SF · ${nR} plant${nR===1?'':'s'}</span>
-      <span class="ztot">${money(zd.cost||0)}</span>
+      <span class="ztot">${money(zd.costAll!=null?zd.costAll:(zd.cost||0))}</span>
       ${menu}
     </div>`;
     return `<div style="border-radius:16px;padding:.7rem .95rem;margin-bottom:.7rem;background:#fff;box-shadow:0 1px 2px rgba(28,43,22,.05)">
@@ -39174,9 +39192,23 @@ function renderPlantingBuilder(){
       ${secLine("palm",zi,z.palmRows,"Palms",false,"palm",secCost(zd.palmRows),"palm")}
       ${shShut("palm")?"":searchBox("palm",zi,"🔍 Add palm — e.g. Queen / Washingtonia / Bismarckia")}
       ${shShut("palm")?"":z.palmRows.length?'<div class="shv-list">'+shvTPHdr("Trunk (BTH)","Qty")+z.palmRows.map((r,i)=>shvPalmRow(zi,r,i,zd.palmRows[i]||{count:0,cost:0})).join('')+'</div>':`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">No palms in this zone yet.</div>`}
+      ${(()=>{ const sr=((zd.surf&&zd.surf.rows)||[]).slice();
+        if(+zd.openMulch>0) sr.push({n:"Mulch",sf:+zd.mulchSF||0,uc:(+zd.mulchSF>0?zd.openMulch/zd.mulchSF:0),cost:+zd.openMulch});
+        const sCost=sr.reduce((a,x)=>a+(+x.cost||0),0);
+        const shut=shShut("surf");
+        const head=shut
+          ? `<div class="zsec zsec-h shut" onclick="toggleSecShut(${zi},'surf')"><span class="zcar2">\u25b8</span><b>Surfaces &amp; soil</b>
+              ${sr.length?`<span class="zsum">${sr.map(x=>escAttr(x.n.toLowerCase())).join(' \u00b7 ')}</span><span class="zamt">${money(sCost)}</span>`:`<span class="zsum">nothing on the bar yet</span><span class="zamt"></span>`}</div>`
+          : `<div class="zsec zsec-h" onclick="toggleSecShut(${zi},'surf')"><span class="zcar2">\u25be</span><b>Surfaces &amp; soil</b><span style="flex:1"></span></div>`;
+        const rowsH=shut?"":(sr.length?sr.map(x=>`<div style="display:flex;align-items:center;gap:10px;background:var(--pbcard,#FBFAF6);border-radius:10px;padding:8px 12px;margin:4px 0">
+              <b style="font-size:.8rem">${escAttr(x.n)}</b>
+              <span style="margin-left:auto;font-size:.74rem;color:var(--tm);font-variant-numeric:tabular-nums">${Math.round(x.sf).toLocaleString()} SF \u00b7 $${(+x.uc||0).toFixed(2)}/SF</span>
+              <b style="font-size:.8rem;min-width:76px;text-align:right;font-variant-numeric:tabular-nums">${money(x.cost)}</b></div>`).join("")
+            :`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">Nothing on this zone's allocation bar yet \u2014 lawn, turf, hydroseed and soil prep are authored there.</div>`);
+        return head+rowsH; })()}
       <div style="display:flex;justify-content:flex-end;align-items:baseline;gap:.5rem;margin-top:.4rem">
-        <span style="font-size:.72rem;color:var(--tm)">${escAttr(z.name||"Zone")} total — plants + mulch ${infoIcon("Total installed cost of everything planted in this zone (shrubs, groundcover, trees, palms) plus this zone's mulch. Project-wide items — the crane mobilization and the soil prep / lawn / turf line items below — are shared across zones and aren't included here.")}</span>
-        <span style="font-size:1.05rem;font-weight:700;color:var(--gm)">${money(zd.cost||0)}</span>
+        <span style="font-size:.72rem;color:var(--tm)">${escAttr(z.name||"Zone")} total ${infoIcon("Everything this zone costs: plants (shrubs, groundcover, trees, palms) plus its surfaces & soil from the allocation bar (lawn, turf, hydroseed, soil prep) and mulch. Only the crane mobilization and hand-entered items like import topsoil are project-wide and stay outside the zones.")}</span>
+        <span style="font-size:1.05rem;font-weight:700;color:var(--gm)">${money(zd.costAll!=null?zd.costAll:(zd.cost||0))}</span>
       </div>
       </div>
     </div>`;
@@ -39184,7 +39216,7 @@ function renderPlantingBuilder(){
   const gb=p._groupBy||"none"; const sb=p._sortBy||"none";
   const gbBtn=(v,lbl)=>`<button class="${gb===v?'on':''}" onclick="setZoneGroupBy('${v}')">${lbl}</button>`;
   const sbBtn=(v,lbl)=>`<button class="${sb===v?'on':''}" onclick="setZoneSortBy('${v}')">${lbl}</button>`;
-  const sortEntries=(arr)=>{ if(sb==="none") return arr; const cost=e=>((calc.detail.zones[e.zi]||{}).cost||0); const cp=arr.slice();
+  const sortEntries=(arr)=>{ if(sb==="none") return arr; const cost=e=>{ const zd2=calc.detail.zones[e.zi]||{}; return zd2.costAll!=null?zd2.costAll:(zd2.cost||0); }; const cp=arr.slice();
     if(sb==="size") cp.sort((a,b)=>(+b.z.areaSF||0)-(+a.z.areaSF||0));
     else if(sb==="cost") cp.sort((a,b)=>cost(b)-cost(a));
     else if(sb==="name") cp.sort((a,b)=>(a.z.name||"").localeCompare(b.z.name||""));
@@ -39194,7 +39226,7 @@ function renderPlantingBuilder(){
     const keyOf=e=>{ const v=gb==="phase"?(e.z.phase||""):gb==="location"?(e.z.location||""):(e.z.name||""); return v||"Unassigned"; };
     const groups={},order=[]; entries.forEach(e=>{ const k=keyOf(e); if(!(k in groups)){ groups[k]=[]; order.push(k); } groups[k].push(e); });
     order.sort((a,b)=>{ if(a==="Unassigned")return 1; if(b==="Unassigned")return -1; if(gb==="phase"){ const pi=x=>{ const i=PHASE_OPTS.indexOf(x); return i<0?98:i; }; return pi(a)-pi(b); } return a.localeCompare(b); });
-    return order.map(k=>{ const es=sortEntries(groups[k]); const subSF=es.reduce((s,e)=>s+(+e.z.areaSF||0),0); const subCost=es.reduce((s,e)=>s+((calc.detail.zones[e.zi]||{}).cost||0),0);
+    return order.map(k=>{ const es=sortEntries(groups[k]); const subSF=es.reduce((s,e)=>s+(+e.z.areaSF||0),0); const subCost=es.reduce((s,e)=>{ const zd2=calc.detail.zones[e.zi]||{}; return s+(zd2.costAll!=null?zd2.costAll:(zd2.cost||0)); },0);
       return `<div style="display:flex;align-items:center;gap:.5rem;margin:.8rem 0 .4rem;padding:.35rem .6rem;background:#EAF1E4;border-radius:8px">
           <strong style="font-size:.84rem;color:var(--gm)">${escAttr(k)}</strong>
           <span style="font-size:.7rem;color:var(--tm)">${es.length} zone${es.length===1?'':'s'} · ${Math.round(subSF).toLocaleString()} SF</span>
@@ -39280,25 +39312,15 @@ function renderPlantingBuilder(){
 
   // ---- water + totals ----
   const waterPanel="";
-  // Option A from the totals mockup: each zone is a pill row (swatch, name with
-  // location/phase, SF, $/SF, total), Surfaces & soil is one more row, and the
-  // soft-green band at the bottom is THE total — planting's app-wide subtotal row
-  // is gone, because two identical totals two rows apart was furniture.
-  const ZSW=["#4C7B3D","#7FA05C","#5E8C6B","#8FA35C","#3E6B50","#94A66B"];
-  const zoneRows=p.zones.map((zx,xi)=>{
-    const zc=(calc.detail.zones[xi]||{}).cost||0, za=+zx.areaSF||0;
-    const sub=[zx.location,zx.phase].filter(Boolean).join(" · ");
-    return `<div class="ptz-row"><span class="sw" style="background:${ZSW[xi%ZSW.length]}"></span>
-      <b>${escAttr(zx.name||("Zone "+(xi+1)))}${sub?`<i>${escAttr(sub)}</i>`:""}</b>
-      <span class="sf">${za?Math.round(za).toLocaleString()+" SF":""}</span>
-      <span class="psf">${za>0&&zc>0?"$"+(zc/za).toFixed(2)+"/SF":""}</span>
-      <span class="amt">${money(zc)}</span></div>`;}).join('');
-  const sunSF=p.zones.reduce((a,zx)=>{ const cv=shvCov(zx), L3=zx.layers||{};
-    return a+(+cv.lawn||0)+(+cv.turf||0)+(+cv.seed||0)+(L3.prep?((+cv.shrub||0)+(+cv.gc||0)+(+cv.lawn||0)+(+cv.seed||0)):0); },0);
-  const sunRow=calc.parts.sundry>0?`<div class="ptz-row"><span class="sw" style="background:#C9C0A8"></span>
-      <b>Surfaces &amp; soil<i>lawn · turf · hydroseed · soil prep</i></b>
-      <span class="sf">${sunSF?Math.round(sunSF).toLocaleString()+" SF":""}</span><span class="psf"></span>
-      <span class="amt">${money(calc.parts.sundry)}</span></div>`:'';
+  // Zone costs (plants + that zone's surfaces & soil) live on the zone headers now,
+  // so repeating them here was furniture. Only costs no zone owns remain as rows:
+  // the crane, and hand-entered sundry items like import topsoil.
+  const zSurfSum=calc.detail.zones.reduce((a,zd2)=>a+((zd2.surf&&zd2.surf.cost)||0),0);
+  const otherSun=Math.max(0,calc.parts.sundry-zSurfSum);
+  const sunRow=otherSun>1?`<div class="ptz-row"><span class="sw" style="background:#C9C0A8"></span>
+      <b>Other soil items<i>topsoil &amp; extras not tied to a zone</i></b>
+      <span class="sf"></span><span class="psf"></span>
+      <span class="amt">${money(otherSun)}</span></div>`:'';
   const craneRow=calc.parts.crane>0?`<div class="ptz-row"><span class="sw" style="background:#B9995A"></span>
       <b>Crane / specimen set<i>${calc.detail.craneUnits} lift${calc.detail.craneUnits===1?"":"s"}</i></b>
       <span class="sf"></span><span class="psf"></span>
@@ -39311,7 +39333,7 @@ function renderPlantingBuilder(){
     [`${p.zones.length} zone${p.zones.length===1?"":"s"}`,`${totPlants} plant${totPlants===1?"":"s"}`,
      totArea>0?`$${(calc.total/totArea).toFixed(2)}/SF avg`:""].filter(Boolean).join(" · ");
   const totals=`<div style="margin-top:.7rem">
-      ${zoneRows}${sunRow}${craneRow}
+      ${sunRow}${craneRow}
       <div class="ptz-band"><b>Planting total</b><span class="meta">${bandMeta}</span>
         <span class="amt">${money(bandAmt)}</span></div>
     </div>`;
