@@ -6419,7 +6419,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1377</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1378</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7467,12 +7467,26 @@ function projBudget(){ const v=+(S&&S.budget); return (isFinite(v)&&v>0)?v:0; }
    just budget minus everything that is not furnishings. A target share is optional and
    only appears once the designer sets one. */
 function furnPct(){ const v=+(S&&S.furnPct); return (isFinite(v)&&v>0)?v:0; }
-/* Furnishings sit INSIDE the construction budget by default, because that is how a
-   client hears "the budget" and it is the case where they get squeezed out. Toggling
-   them separate pulls them out of the construction subtotal entirely and gives them
-   their own budget — the right model when the client is funding furniture from a
-   different pot and construction should not be judged against it. */
-function furnIsSeparate(){ return !!(S&&S.furnSeparate); }
+/* Furnishings relate to the budget one of two ways, and the difference is the whole
+   conversation with a client:
+     OUT OF the budget (default) — the budget covers everything, so furniture competes
+       with construction for the same money and is the thing that gets cut. Headroom is
+       the budget less everything that is not furnishings.
+     ON TOP of the budget — the budget is for the build and furnishings are quoted in
+       addition. Construction is then judged against the budget on its own, and the card
+       reports the combined figure so nobody is surprised by the real total.
+   The pieces and prices are identical either way; what changes is which total the
+   budget is measured against. (furnSeparate is the older flag and still means on-top,
+   so saved jobs carry across.) */
+function furnIsOnTop(){ return !!(S&&(S.furnOnTop||S.furnSeparate)); }
+function furnIsSeparate(){ return furnIsOnTop(); }     // the totals code calls this name
+function furnToggleOnTop(){
+  const now=!furnIsOnTop();
+  S.furnOnTop=now;
+  if(now) S.furnSeparate=true; else { delete S.furnSeparate; delete S.furnOnTop; }
+  try{ _bidSchedule(); }catch(e){}
+  try{ buildProCats(); renderProSummary(); renderTotal(); }catch(e){}
+}
 /* ── furnishings pricing & earnings ───────────────────────────────────────────
    Every furnishings line carries three decisions, because furniture is bought and
    resold rather than built:
@@ -7551,22 +7565,6 @@ function setItemClientUC(catId,idx,v){
   try{ _bidSchedule(); }catch(e){}
   renderProCatRows(catId); refreshCatTotals(catId); renderProSummary();
 }
-function furnOwnBudget(){ const v=+(S&&S.furnBudget); return (isFinite(v)&&v>0)?v:0; }
-function furnToggleSeparate(){
-  S.furnSeparate=!S.furnSeparate;
-  if(S.furnSeparate&&!furnOwnBudget()) askFurnBudget(true);
-  try{ _bidSchedule(); }catch(e){}
-  try{ buildProCats(); renderProSummary(); renderTotal(); }catch(e){}
-}
-function askFurnBudget(quiet){
-  const v=prompt("Furnishings budget — priced and judged on its own, separate from construction."
-    +"\n\nLeave empty to clear it.", furnOwnBudget()?String(furnOwnBudget()):"");
-  if(v===null){ if(!quiet) return; }
-  const n=parseFloat(String(v||"").replace(/[^0-9.]/g,""));
-  if(isFinite(n)&&n>0) S.furnBudget=n; else delete S.furnBudget;
-  try{ _bidSchedule(); }catch(e){}
-  try{ renderProSummary(); }catch(e){}
-}
 function furnSubtotalClient(){
   const cs=(S.cats&&S.cats.furnish)||{items:[]};
   let t=0;
@@ -7577,7 +7575,9 @@ function furnSpecified(){ try{ return catSubtotal("furnish"); }catch(e){ return 
 function furnState(grand){
   const bud=projBudget();
   const spec=furnSpecified();
-  const constr=Math.max(0,(+grand||0)-spec);          // everything that is not furnishings
+  // When furnishings are on top, the grand handed in already excludes them, so it IS the
+  // construction figure; when they come out of the budget, take them back off it.
+  const constr=furnIsOnTop()?(+grand||0):Math.max(0,(+grand||0)-spec);
   const head=bud>0?(bud-constr):0;                    // what the budget still has room for
   const pct=furnPct();
   const target=(bud>0&&pct>0)?bud*pct/100:0;
@@ -43816,7 +43816,12 @@ function renderProSummary(){
   // Grouped breakdown, matching the Price Book / estimator spine. Group order and
   // membership come from PB_GROUPS; a section in no group lands in a final catch-all.
   const inGrp={}; PB_GROUPS.forEach(g=>g.secs.forEach(id=>{inGrp[id]=1;}));
-  const priced=id=>(S.cats[id]&&S.cats[id].on)?catSubtotal(id):0;
+  // On top means construction is judged on its own, so furnishings leave this subtotal
+   // entirely and are reported as their own line below. _proCardData() already does this;
+   // doing it in one place and not the other put a different grand total on screen than
+   // the one phase snapshots recorded.
+  const _fTop=furnIsOnTop();
+  const priced=id=>(S.cats[id]&&S.cats[id].on&&!(_fTop&&id==="furnish"))?catSubtotal(id):0;
   const plan=PB_GROUPS.map((g,i)=>({
     nm:g.name, c:`var(--k${i+1})`,
     lines:g.secs.map(id=>{const c=PB.find(x=>x&&x.id===id); return c?{nm:c.name,amt:priced(id)}:null})
@@ -43863,7 +43868,9 @@ function renderProSummary(){
       <div class="r"><span class="l">Construction subtotal</span><span>${fmtN(sub)}</span></div>
       ${madjPct?`<div class="r"><span class="l">Market adjustment (${madjPct>0?'+':''}${madjPct}%)</span><span class="adj">${madj>=0?'+':'−'}${fmtN(Math.abs(madj))}</span></div>`:''}
       <div class="r"><span class="l">Markup (${S.markup}%)</span><span class="adj">+${fmtN(mu)}</span></div>
-      <div class="r grand"><span class="l">Grand total</span><span class="v">${fmtN(grand)}</span></div>`;
+      <div class="r grand"><span class="l">Grand total</span><span class="v">${fmtN(grand)}</span></div>`
+      + (_fTop&&furnSpecified()>0?`<div class="r"><span class="l">Furnishings — on top</span><span class="adj">+${fmtN(furnSpecified())}</span></div>
+      <div class="r grand"><span class="l">Total with furnishings</span><span class="v">${fmtN(grand+furnSpecified())}</span></div>`:"");
   }
   // where the money is — the four groups, biggest first
   const mon=document.getElementById("pro-money");
@@ -43934,24 +43941,26 @@ function renderProSummary(){
            <span class="rs">${fmtN(_r.lo)} – ${fmtN(_r.hi)}</span>
            <span class="rchip amb" style="margin-top:10px">${_esc((PHASES[phaseIdx()]||{}).nm||"")}</span>
            <span class="rs" style="margin-top:9px">Tracing the plan in Take-offs is what narrows this.</span>`); })()
-      + (function(){ const F=furnState(grand), sep=furnIsSeparate(), ob=furnOwnBudget();
-           const tgl=`<button type="button" class="rbtn" onclick="furnToggleSeparate()">${
-             sep?"Fold into construction budget":"Give it a separate budget"}</button>`;
-           if(sep){
-             const gap=ob?(F.spec-ob):0;
-             return card("Furnishings budget", ob
-               ? `<span class="rv ${gap>0?"up":"dn"}">${gap>0?"+":gap<0?"−":""}${fmtN(Math.abs(gap))}</span>
-                  <span class="rs">${gap>0?"over":gap<0?"under":"on"} a ${fmtN(ob)} furnishings budget</span>
-                  <span class="rbar"><i style="width:${Math.max(2,Math.min(100,F.spec/ob*100))}%;background:${gap>0?"var(--gold)":"var(--gm)"}"></i></span>
-                  <span class="rs">${fmtN(F.spec)} specified · kept out of the construction total</span>
-                  <button type="button" class="rbtn" onclick="askFurnBudget()">Change</button>${tgl}`
-               : `<span class="rv">${fmtN(F.spec)}</span>
-                  <span class="rs">specified, and kept out of the construction total</span>
-                  <button type="button" class="rbtn pri" onclick="askFurnBudget()">Set a furnishings budget</button>${tgl}`);
+      + (function(){ const F=furnState(grand), top=furnIsOnTop();
+           const tgl=`<button type="button" class="rbtn" onclick="furnToggleOnTop()">${
+             top?"Take it out of the budget":"Put it on top of the budget"}</button>`;
+           if(top){
+             // On top: construction is judged against the budget alone and furnishings add
+             // to it, so the number that matters is the combined one nobody else shows.
+             const combined=F.constr+F.spec;
+             const tgt=(F.bud&&F.pct)?F.bud*F.pct/100:0;
+             return card("Furnishings on top", `
+               <span class="rv">${fmtN(F.spec)}</span>
+               <span class="rs">on top of ${fmtN(F.constr)} of construction</span>
+               ${F.bud?`<span class="rbar"><i style="width:${Math.max(2,Math.min(100,F.spec/Math.max(tgt||F.spec,1)*100))}%;background:var(--gm)"></i></span>`:""}
+               <span class="rs"><b>${fmtN(combined)}</b> all in${F.bud?" · budget covers the build only":""}</span>
+               ${tgt?`<span class="rs" style="margin-top:8px">Your ${F.pct}% allowance = ${fmtN(tgt)}${
+                 F.spec>tgt?" · specified "+fmtN(F.spec-tgt)+" over it":" · within it"}<br><i style="opacity:.75">a heuristic you set, not an industry standard</i></span>`:""}
+               <button type="button" class="rbtn" onclick="askFurnPct()">${F.pct?"Change":"Set"} reserve %</button>${tgl}`);
            }
            if(!F.bud) return card("Furnishings", F.spec
              ? `<span class="rv">${fmtN(F.spec)}</span>
-                <span class="rs">specified so far, inside the construction budget</span>
+                <span class="rs">specified, inside the construction budget</span>
                 <span class="rs" style="margin-top:9px">Set a budget and this shows whether there is
                   room left for them once construction is paid for.</span>${tgl}`
              : `<span class="rv dim">Nothing yet</span>
