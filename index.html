@@ -6397,7 +6397,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1374</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1375</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7436,6 +7436,60 @@ function _phaseRestore(d){ if(!d) return; PHASE_KEYS.forEach(k=>{ if(k in d){ tr
 function phaseSnap(id){ return (S.snaps||{})[id||S.phase]||null; }
 // A budget is the client's number, not ours — nothing assumes one until it is entered.
 function projBudget(){ const v=+(S&&S.budget); return (isFinite(v)&&v>0)?v:0; }
+/* ── furnishings reserve ───────────────────────────────────────────────────────
+   The problem this solves is an ordering problem, not a pricing one: construction is
+   estimated first and consumes the whole budget, and the furniture that decides whether
+   the finished place looks like the drawings gets whatever is left, which is nothing.
+   So the reserve is carved out of the budget and reported against what construction has
+   already taken. No invented percentage is required for the useful part — headroom is
+   just budget minus everything that is not furnishings. A target share is optional and
+   only appears once the designer sets one. */
+function furnPct(){ const v=+(S&&S.furnPct); return (isFinite(v)&&v>0)?v:0; }
+/* Furnishings sit INSIDE the construction budget by default, because that is how a
+   client hears "the budget" and it is the case where they get squeezed out. Toggling
+   them separate pulls them out of the construction subtotal entirely and gives them
+   their own budget — the right model when the client is funding furniture from a
+   different pot and construction should not be judged against it. */
+function furnIsSeparate(){ return !!(S&&S.furnSeparate); }
+function furnOwnBudget(){ const v=+(S&&S.furnBudget); return (isFinite(v)&&v>0)?v:0; }
+function furnToggleSeparate(){
+  S.furnSeparate=!S.furnSeparate;
+  if(S.furnSeparate&&!furnOwnBudget()) askFurnBudget(true);
+  try{ _bidSchedule(); }catch(e){}
+  try{ buildProCats(); renderProSummary(); renderTotal(); }catch(e){}
+}
+function askFurnBudget(quiet){
+  const v=prompt("Furnishings budget — priced and judged on its own, separate from construction."
+    +"\n\nLeave empty to clear it.", furnOwnBudget()?String(furnOwnBudget()):"");
+  if(v===null){ if(!quiet) return; }
+  const n=parseFloat(String(v||"").replace(/[^0-9.]/g,""));
+  if(isFinite(n)&&n>0) S.furnBudget=n; else delete S.furnBudget;
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+}
+function furnSpecified(){ try{ return catSubtotal("furnish"); }catch(e){ return 0; } }
+function furnState(grand){
+  const bud=projBudget();
+  const spec=furnSpecified();
+  const constr=Math.max(0,(+grand||0)-spec);          // everything that is not furnishings
+  const head=bud>0?(bud-constr):0;                    // what the budget still has room for
+  const pct=furnPct();
+  const target=(bud>0&&pct>0)?bud*pct/100:0;
+  return {bud, spec, constr, head, pct, target,
+    short:(bud>0)?Math.max(0,spec-head):0,            // how far furnishings push it over
+    targetShort:(target>0)?Math.max(0,target-head):0};
+}
+function askFurnPct(){
+  // Same plain prompt the project budget uses, so the two read as one idea.
+  const v=prompt("Furnishings reserve — the share of the budget to hold back for furniture, "
+    +"shade, pots and accessories, as a percent.\n\nLeave empty to just track the headroom.",
+    furnPct()?String(furnPct()):"");
+  if(v===null) return;
+  const n=parseFloat(String(v).replace(/[^0-9.]/g,""));
+  if(isFinite(n)&&n>0) S.furnPct=Math.min(60,n); else delete S.furnPct;
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+}
 // Section totals at the moment a phase is saved. Without these a phase can say what it moved
 // but not where — which is the half of the answer a client actually asks for.
 function _phaseCats(){
@@ -7826,6 +7880,33 @@ const CATS=[
     {n:"Structural Engineering",                u:"LS",q:0, lo:1500,hi:6000, std:3000, role:"eng"},
     {n:"Permit & Inspections",                  u:"LS",q:0, lo:800, hi:3500, std:1800, role:"permit"},
     {n:"Startup & Chemicals",                   u:"LS",q:0, lo:300, hi:900,  std:500,  role:"startup"},
+   ]},
+  /* FURNISHINGS — a section, not an allowance buried in Amenities.
+     The reason it exists: a client with a fixed budget spends all of it on construction
+     and then has nothing left for the furniture, umbrellas and pots that decide whether
+     the finished place looks like the drawings. Making it a line from the first phase is
+     the only way it survives the budget. Priced per piece, from the Furnishings library
+     where an item has been specified, and every rate is the designer's to set. */
+  {id:"furnish", name:"Furnishings", desc:"Furniture, umbrellas, pots, rugs & accessories — priced per piece", lo:0,hi:0, maxA:0, defA:0,
+   items:[
+    {n:"Lounge / Club Chair",              u:"EA",q:0, lo:0,hi:0, role:"seating"},
+    {n:"Sofa / Sectional — per piece",     u:"EA",q:0, lo:0,hi:0, role:"seating"},
+    {n:"Chaise Longue / Sun Lounger",      u:"EA",q:0, lo:0,hi:0, role:"seating"},
+    {n:"Daybed / Canopy Bed",              u:"EA",q:0, lo:0,hi:0, role:"seating"},
+    {n:"Dining Table (6–8 seat)",          u:"EA",q:0, lo:0,hi:0, role:"dining"},
+    {n:"Dining Chair",                     u:"EA",q:0, lo:0,hi:0, role:"dining"},
+    {n:"Bar / Counter Stool",              u:"EA",q:0, lo:0,hi:0, role:"dining"},
+    {n:"Coffee / Side Table",              u:"EA",q:0, lo:0,hi:0, role:"tables"},
+    {n:"Umbrella — Market",                u:"EA",q:0, lo:0,hi:0, role:"shade"},
+    {n:"Umbrella — Cantilever / Large",    u:"EA",q:0, lo:0,hi:0, role:"shade"},
+    {n:"Shade Sail — Fabric",              u:"SF",q:0, lo:0,hi:0, role:"shade"},
+    {n:"Decorative Planter — Large",       u:"EA",q:0, lo:0,hi:0, role:"pots"},
+    {n:"Outdoor Rug",                      u:"EA",q:0, lo:0,hi:0, role:"soft"},
+    {n:"Cushions & Pillows — Allowance",   u:"LS",q:0, lo:0,hi:0, role:"soft"},
+    {n:"Patio Heater",                     u:"EA",q:0, lo:0,hi:0, role:"comfort"},
+    {n:"Outdoor TV / Media",               u:"EA",q:0, lo:0,hi:0, role:"comfort"},
+    {n:"Hammock / Swing / Hanging Chair",  u:"EA",q:0, lo:0,hi:0, role:"seating"},
+    {n:"Delivery, Assembly & Placement",   u:"LS",q:0, lo:0,hi:0, role:"labor"},
    ]},
   {id:"firepit", name:"Fire Pit / Fire Feature", desc:"Prefab or custom-built — structure, burner, media & gas", lo:0,hi:0, maxA:400, defA:0,
    items:[
@@ -8362,6 +8443,7 @@ const PB_GROUPS=[
     {nm:"Cooking & Dining", secs:["kitchen"]},
     {nm:"Specialty",        secs:["amenities"]},
   ]},
+  {id:"furn", seq:"05", name:"Furnishings", blurb:"Furniture, shade, pots & accessories", secs:["furnish"]},
 ];
 // Flatten sub-categories so every consumer can rely on g.secs being the full ordered list.
 PB_GROUPS.forEach(g=>{ if(g.subs && !g.secs) g.secs=g.subs.reduce((a,s)=>a.concat(s.secs),[]); });
@@ -13543,10 +13625,20 @@ const MAT_PB_NEW={
 // table or grill needs a gas hookup, not a full masonry fireplace/kitchen build, and
 // guessing that wrong is exactly the class of bug this whole guard exists to prevent —
 // those correctly fall through to "needs a rate" until set by hand.
+/* Specifying from the Furnishings library used to land everything on one generic
+   "Site Furniture — Allowance" line inside Amenities, which is how furnishings got
+   lost. Each category now routes to its own line in the Furnishings section. */
 const FUR_PB_MATCH={
-  "Pottery & Planters": ["amenities","Planter — Set, Waterproof & Plant"],
-  "Seating":            ["amenities","Site Furniture — Allowance (per piece)"],
-  "Tables":             ["amenities","Site Furniture — Allowance (per piece)"],
+  "Pottery & Planters": ["furnish","Decorative Planter — Large"],
+  "Seating":            ["furnish","Lounge / Club Chair"],
+  "Tables":             ["furnish","Coffee / Side Table"],
+  "Dining":             ["furnish","Dining Chair"],
+  "Umbrellas & Shade":  ["furnish","Umbrella — Market"],
+  "Shade":              ["furnish","Umbrella — Market"],
+  "Rugs":               ["furnish","Outdoor Rug"],
+  "Accessories":        ["furnish","Cushions & Pillows — Allowance"],
+  "Heating":            ["furnish","Patio Heater"],
+  "Lighting & Media":   ["furnish","Outdoor TV / Media"],
 };
 function _pbFind(catId,itemName){
   const ci=PB.findIndex(c=>c&&c.id===catId); if(ci<0) return null;
@@ -43635,6 +43727,40 @@ function renderProSummary(){
            <span class="rs">${fmtN(_r.lo)} – ${fmtN(_r.hi)}</span>
            <span class="rchip amb" style="margin-top:10px">${_esc((PHASES[phaseIdx()]||{}).nm||"")}</span>
            <span class="rs" style="margin-top:9px">Tracing the plan in Take-offs is what narrows this.</span>`); })()
+      + (function(){ const F=furnState(grand), sep=furnIsSeparate(), ob=furnOwnBudget();
+           const tgl=`<button type="button" class="rbtn" onclick="furnToggleSeparate()">${
+             sep?"Fold into construction budget":"Give it a separate budget"}</button>`;
+           if(sep){
+             const gap=ob?(F.spec-ob):0;
+             return card("Furnishings budget", ob
+               ? `<span class="rv ${gap>0?"up":"dn"}">${gap>0?"+":gap<0?"−":""}${fmtN(Math.abs(gap))}</span>
+                  <span class="rs">${gap>0?"over":gap<0?"under":"on"} a ${fmtN(ob)} furnishings budget</span>
+                  <span class="rbar"><i style="width:${Math.max(2,Math.min(100,F.spec/ob*100))}%;background:${gap>0?"var(--gold)":"var(--gm)"}"></i></span>
+                  <span class="rs">${fmtN(F.spec)} specified · kept out of the construction total</span>
+                  <button type="button" class="rbtn" onclick="askFurnBudget()">Change</button>${tgl}`
+               : `<span class="rv">${fmtN(F.spec)}</span>
+                  <span class="rs">specified, and kept out of the construction total</span>
+                  <button type="button" class="rbtn pri" onclick="askFurnBudget()">Set a furnishings budget</button>${tgl}`);
+           }
+           if(!F.bud) return card("Furnishings", F.spec
+             ? `<span class="rv">${fmtN(F.spec)}</span>
+                <span class="rs">specified so far, inside the construction budget</span>
+                <span class="rs" style="margin-top:9px">Set a budget and this shows whether there is
+                  room left for them once construction is paid for.</span>${tgl}`
+             : `<span class="rv dim">Nothing yet</span>
+                <span class="rs">Furniture, shade, pots and rugs are their own section — adding them
+                  early is what stops the budget being spent before they are considered.</span>${tgl}`);
+           const over=F.short>0;
+           return card("Furnishings reserve", `
+             <span class="rv ${over?"up":"dn"}">${fmtN(F.head)}</span>
+             <span class="rs">left for furnishings after ${fmtN(F.constr)} of construction</span>
+             <span class="rbar"><i style="width:${Math.max(2,Math.min(100,F.spec/Math.max(F.head,F.spec,1)*100))}%;background:${over?"var(--gold)":"var(--gm)"}"></i></span>
+             <span class="rs">${F.spec?fmtN(F.spec)+" specified":"nothing specified yet"}${
+               over?" · over by "+fmtN(F.short):""}</span>
+             ${F.pct?`<span class="rs" style="margin-top:8px">Target ${F.pct}% of budget = ${fmtN(F.target)}${
+               F.targetShort>0?" · construction leaves "+fmtN(F.targetShort)+" short of it":" · there is room"}</span>`:""}
+             <button type="button" class="rbtn" onclick="askFurnPct()">${F.pct?"Change":"Set"} reserve %</button>${tgl}`);
+         })()
       + card("Against budget", bud
         ? `<span class="rv ${gap>0?"up":"dn"}">${gap>0?"+":gap<0?"−":""}${fmtN(Math.abs(gap))}</span>
            <span class="rs">${gap>0?"over":gap<0?"under":"on"} a ${fmtN(bud)} budget</span>
@@ -44236,7 +44362,8 @@ function _proCardData(){
   const lot=+S.proLotSize||+S.lotSize||0;
   const land=+S.proLandscapeArea||0;
   const plant=+S.plantingAreaSF||0;
-  const on=PB.filter(c=>S.cats[c.id]&&S.cats[c.id].on);
+  const _sep=furnIsSeparate();
+  const on=PB.filter(c=>S.cats[c.id]&&S.cats[c.id].on&&!(_sep&&c.id==="furnish"));
   // Each section wears the colour of the group it belongs to, so a bar in Top 3
   // reads against the same key as Cost distribution instead of its own palette.
   const grpCol={}; PB_GROUPS.forEach((g,i)=>g.secs.forEach(id=>{ grpCol[id]=`var(--k${i+1})`; }));
@@ -44247,7 +44374,7 @@ function _proCardData(){
   const grand=sub+madj+mu;
   const groups=PB_GROUPS.map((g,i)=>({
     nm:g.name, c:`var(--k${i+1})`,
-    amt:g.secs.reduce((a,id)=>a+((S.cats[id]&&S.cats[id].on)?catSubtotal(id):0),0)
+    amt:g.secs.reduce((a,id)=>a+((S.cats[id]&&S.cats[id].on&&!(_sep&&id==="furnish"))?catSubtotal(id):0),0)
   })).filter(g=>g.amt>0);
   const top3=subs.filter(s=>s.amt>0).sort((a,b)=>b.amt-a.amt).slice(0,3);
   const empty=subs.filter(s=>s.amt===0).map(s=>s.nm);
