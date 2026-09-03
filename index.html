@@ -6219,6 +6219,12 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 @media (max-width:900px){
   .shv-hdr,.shv-row{grid-template-columns:48px minmax(90px,1fr) 96px 40px 96px 44px 58px 68px 30px 24px;column-gap:7px}
 }
+/* merged movement + confidence card */
+.rsep{display:block;height:1px;background:var(--br);margin:11px 0 9px}
+.rsub{display:block;font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--tl);margin-bottom:2px}
+.rline{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.rline b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
+.rline span{font-size:11.5px;color:var(--tm);font-variant-numeric:tabular-nums}
 /* ── furnishings earnings strip ─────────────────────────────────────────────── */
 .furn-earn{background:var(--surface2);border-radius:13px;padding:13px 15px;margin:10px 4px 4px}
 .fe-h{display:flex;flex-direction:column;gap:2px;margin-bottom:11px}
@@ -6419,7 +6425,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1378</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1379</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7466,7 +7472,24 @@ function projBudget(){ const v=+(S&&S.budget); return (isFinite(v)&&v>0)?v:0; }
    already taken. No invented percentage is required for the useful part — headroom is
    just budget minus everything that is not furnishings. A target share is optional and
    only appears once the designer sets one. */
-function furnPct(){ const v=+(S&&S.furnPct); return (isFinite(v)&&v>0)?v:0; }
+/* The reserve defaults to 10% of the construction budget and sits ON TOP of it, because
+   that is the arrangement that actually protects the money: the build is quoted against
+   the budget, and furnishings are quoted in addition rather than competing for the same
+   pot. Both halves are adjustable — the share, or a flat figure instead of a share. */
+const FURN_PCT_DEFAULT=10;
+function furnPct(){
+  if(S&&+S.furnAmt>0) return 0;                       // a flat figure replaces the share
+  const v=+(S&&S.furnPct);
+  if(S&&S.furnPct===0) return 0;                      // deliberately cleared
+  return (isFinite(v)&&v>0)?v:FURN_PCT_DEFAULT;
+}
+function furnFlat(){ const v=+(S&&S.furnAmt); return (isFinite(v)&&v>0)?v:0; }
+// The allowance in dollars: a flat figure if set, else the share of the build budget.
+function furnAllowance(){
+  const flat=furnFlat(); if(flat>0) return flat;
+  const bud=projBudget(), p=furnPct();
+  return (bud>0&&p>0)?bud*p/100:0;
+}
 /* Furnishings relate to the budget one of two ways, and the difference is the whole
    conversation with a client:
      OUT OF the budget (default) — the budget covers everything, so furniture competes
@@ -7478,12 +7501,16 @@ function furnPct(){ const v=+(S&&S.furnPct); return (isFinite(v)&&v>0)?v:0; }
    The pieces and prices are identical either way; what changes is which total the
    budget is measured against. (furnSeparate is the older flag and still means on-top,
    so saved jobs carry across.) */
-function furnIsOnTop(){ return !!(S&&(S.furnOnTop||S.furnSeparate)); }
+function furnIsOnTop(){
+  if(!S) return true;
+  if(S.furnOnTop===false) return false;               // explicitly folded in
+  return true;                                        // default, and the legacy flag agrees
+}
 function furnIsSeparate(){ return furnIsOnTop(); }     // the totals code calls this name
 function furnToggleOnTop(){
   const now=!furnIsOnTop();
   S.furnOnTop=now;
-  if(now) S.furnSeparate=true; else { delete S.furnSeparate; delete S.furnOnTop; }
+  if(now) S.furnSeparate=true; else delete S.furnSeparate;
   try{ _bidSchedule(); }catch(e){}
   try{ buildProCats(); renderProSummary(); renderTotal(); }catch(e){}
 }
@@ -7579,9 +7606,9 @@ function furnState(grand){
   // construction figure; when they come out of the budget, take them back off it.
   const constr=furnIsOnTop()?(+grand||0):Math.max(0,(+grand||0)-spec);
   const head=bud>0?(bud-constr):0;                    // what the budget still has room for
-  const pct=furnPct();
-  const target=(bud>0&&pct>0)?bud*pct/100:0;
-  return {bud, spec, constr, head, pct, target,
+  const pct=furnPct(), flat=furnFlat();
+  const target=furnAllowance();
+  return {bud, spec, constr, head, pct, flat, target,
     short:(bud>0)?Math.max(0,spec-head):0,            // how far furnishings push it over
     targetShort:(target>0)?Math.max(0,target-head):0};
 }
@@ -7593,6 +7620,27 @@ function furnState(grand){
    patterns, not rules". So the reserve percentage stays OPTIONAL, off by default, and
    the prompt says plainly that it is a planning heuristic and not a standard. The
    allowance built from the priced lines above is the defensible number. */
+function askFurnAllowance(){
+  const cur=furnFlat()?("$"+Math.round(furnFlat())):(furnPct()?(furnPct()+"%"):"");
+  const v=prompt("Furnishings allowance — how much to hold for furniture, shade, pots and "
+    +"accessories.\n\nEnter a share of the build budget (e.g. 10%) or a flat figure "
+    +"(e.g. $45,000).\n\nDefault is 10% of the construction budget. Leave empty to clear it.", cur);
+  if(v===null) return;
+  const t=String(v).trim();
+  if(!t){ S.furnPct=0; delete S.furnAmt; }
+  else if(t.indexOf("%")>=0){
+    const n=parseFloat(t.replace(/[^0-9.]/g,""));
+    delete S.furnAmt; S.furnPct=(isFinite(n)&&n>0)?Math.min(60,n):0;
+  } else {
+    const n=parseFloat(t.replace(/[^0-9.]/g,""));
+    // a bare number under 60 reads as a percent — nobody budgets $45 for furnishings
+    if(isFinite(n)&&n>0&&n<=60&&t.indexOf("$")<0){ delete S.furnAmt; S.furnPct=n; }
+    else if(isFinite(n)&&n>0){ S.furnAmt=n; delete S.furnPct; }
+    else { S.furnPct=0; delete S.furnAmt; }
+  }
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+}
 function askFurnPct(){
   // Same plain prompt the project budget uses, so the two read as one idea.
   const v=prompt("Furnishings reserve — the share of the budget to hold back for furniture, "
@@ -43928,54 +43976,62 @@ function renderProSummary(){
            <span class="rbk"><span>$${SCLO}</span><span>typical $${LO}–${HI}</span><span>$${SCHI}</span></span>
            <span class="rchip ${psfCls}">${psfState}</span>`
         : `<span class="rv dim">—</span><span class="rs">Set the landscape area to see this.</span>`)
-      + card(prevNm?("Since "+_esc(prevNm)):"Since the last phase", prevTot
-        ? `<span class="rv ${dTot>0?"up":dTot<0?"dn":""}">${dTot>0?"+":dTot<0?"−":""}${fmtN(Math.abs(dTot))}</span>
-           <span class="rs">on ${fmtN(prevTot)} · ${pct>0?"+":""}${pct.toFixed(1)}%</span>
-           ${movers.length?movers.map(m=>`<span class="rmv"><span>${_esc(m.nm)}</span><b class="${m.d<0?"dn":"up"}">${m.d>0?"+":"−"}${fmtN(Math.abs(m.d))}</b></span>`).join("")
-             :(hadCats?`<span class="rs" style="margin-top:8px">No section moved by more than $500.</span>`
-                      :`<span class="rs" style="margin-top:8px">Section detail starts from the next phase you save.</span>`)}`
-        : `<span class="rv dim">—</span><span class="rs">No earlier phase saved yet.</span>`)
-      + (function(){ const _pid=(PHASES[phaseIdx()]||{}).id||S.phase, _r=confRange(grand,_pid);
-           return card("How firm is this", `
-           <span class="rv">${confPMLabel(_r.totLo,_r.totHi)}</span>
-           <span class="rs">${fmtN(_r.lo)} – ${fmtN(_r.hi)}</span>
-           <span class="rchip amb" style="margin-top:10px">${_esc((PHASES[phaseIdx()]||{}).nm||"")}</span>
-           <span class="rs" style="margin-top:9px">Tracing the plan in Take-offs is what narrows this.</span>`); })()
+      + (function(){
+           /* Movement and confidence are one question — how solid is this figure right
+              now — so they are one card. It also keeps the home row at four across;
+              both still stand alone in Insights. */
+           const _pid=(PHASES[phaseIdx()]||{}).id||S.phase, _r=confRange(grand,_pid);
+           const title=prevNm?("Since "+_esc(prevNm)+" · confidence"):"Movement · confidence";
+           const head=prevTot
+             ? `<span class="rv ${dTot>0?"up":dTot<0?"dn":""}">${dTot>0?"+":dTot<0?"−":""}${fmtN(Math.abs(dTot))}</span>
+                <span class="rs">on ${fmtN(prevTot)} · ${pct>0?"+":""}${pct.toFixed(1)}%</span>
+                ${movers.length?movers.map(m=>`<span class="rmv"><span>${_esc(m.nm)}</span><b class="${m.d<0?"dn":"up"}">${m.d>0?"+":"−"}${fmtN(Math.abs(m.d))}</b></span>`).join("")
+                  :(hadCats?`<span class="rs">No section moved by more than $500.</span>`
+                           :`<span class="rs">Section detail starts from the next phase you save.</span>`)}`
+             : `<span class="rv dim">—</span><span class="rs">No earlier phase saved yet.</span>`;
+           return card(title, head
+             + `<span class="rsep"></span>
+                <span class="rsub">How firm is this</span>
+                <span class="rline"><b>${confPMLabel(_r.totLo,_r.totHi)}</b>
+                  <span>${fmtN(_r.lo)} – ${fmtN(_r.hi)}</span></span>
+                <span class="rchip amb">${_esc((PHASES[phaseIdx()]||{}).nm||"")}</span>
+                <span class="rs">Tracing the plan in Take-offs narrows this.</span>`);
+         })()
       + (function(){ const F=furnState(grand), top=furnIsOnTop();
+           const unit=F.flat?fmtN(F.flat):(F.pct?F.pct+"% of the build budget":"");
            const tgl=`<button type="button" class="rbtn" onclick="furnToggleOnTop()">${
-             top?"Take it out of the budget":"Put it on top of the budget"}</button>`;
+             top?"Include it in the construction budget":"Put it on top of the budget"}</button>`;
+           const setBtn=`<button type="button" class="rbtn" onclick="askFurnAllowance()">${
+             F.target?"Change allowance":"Set an allowance"}</button>`;
            if(top){
-             // On top: construction is judged against the budget alone and furnishings add
-             // to it, so the number that matters is the combined one nobody else shows.
              const combined=F.constr+F.spec;
-             const tgt=(F.bud&&F.pct)?F.bud*F.pct/100:0;
+             const over=(F.target>0)?Math.max(0,F.spec-F.target):0;
              return card("Furnishings on top", `
-               <span class="rv">${fmtN(F.spec)}</span>
-               <span class="rs">on top of ${fmtN(F.constr)} of construction</span>
-               ${F.bud?`<span class="rbar"><i style="width:${Math.max(2,Math.min(100,F.spec/Math.max(tgt||F.spec,1)*100))}%;background:var(--gm)"></i></span>`:""}
-               <span class="rs"><b>${fmtN(combined)}</b> all in${F.bud?" · budget covers the build only":""}</span>
-               ${tgt?`<span class="rs" style="margin-top:8px">Your ${F.pct}% allowance = ${fmtN(tgt)}${
-                 F.spec>tgt?" · specified "+fmtN(F.spec-tgt)+" over it":" · within it"}<br><i style="opacity:.75">a heuristic you set, not an industry standard</i></span>`:""}
-               <button type="button" class="rbtn" onclick="askFurnPct()">${F.pct?"Change":"Set"} reserve %</button>${tgl}`);
+               <span class="rv ${over>0?"up":""}">${fmtN(F.spec||F.target)}</span>
+               <span class="rs">${F.spec
+                 ?("specified, on top of "+fmtN(F.constr)+" of construction")
+                 :("allowed"+(unit?" ("+unit+")":"")+", on top of "+fmtN(F.constr)+" of construction")}</span>
+               ${F.target?`<span class="rbar"><i style="width:${Math.max(2,Math.min(100,(F.spec||0)/F.target*100))}%;background:${over>0?"var(--gold)":"var(--gm)"}"></i></span>`:""}
+               <span class="rs"><b>${fmtN(combined||(F.constr+F.target))}</b> all in · the budget covers the build only</span>
+               ${F.target?`<span class="rs">Allowance ${fmtN(F.target)}${unit&&!F.flat?" · "+unit:""}${
+                 over>0?" · specified "+fmtN(over)+" over it":(F.spec?" · within it":"")}</span>`:""}
+               ${setBtn}${tgl}`);
            }
-           if(!F.bud) return card("Furnishings", F.spec
-             ? `<span class="rv">${fmtN(F.spec)}</span>
-                <span class="rs">specified, inside the construction budget</span>
-                <span class="rs" style="margin-top:9px">Set a budget and this shows whether there is
-                  room left for them once construction is paid for.</span>${tgl}`
-             : `<span class="rv dim">Nothing yet</span>
-                <span class="rs">Furniture, shade, pots and rugs are their own section — adding them
-                  early is what stops the budget being spent before they are considered.</span>${tgl}`);
            const over=F.short>0;
+           if(!F.bud) return card("Furnishings", `
+             <span class="rv">${fmtN(F.spec)}</span>
+             <span class="rs">${F.spec?"specified, inside the construction budget":"nothing specified yet"}</span>
+             <span class="rs">Set a budget and this shows whether there is room left once
+               construction is paid for.</span>${setBtn}${tgl}`);
            return card("Furnishings reserve", `
              <span class="rv ${over?"up":"dn"}">${fmtN(F.head)}</span>
              <span class="rs">left for furnishings after ${fmtN(F.constr)} of construction</span>
              <span class="rbar"><i style="width:${Math.max(2,Math.min(100,F.spec/Math.max(F.head,F.spec,1)*100))}%;background:${over?"var(--gold)":"var(--gm)"}"></i></span>
              <span class="rs">${F.spec?fmtN(F.spec)+" specified":"nothing specified yet"}${
                over?" · over by "+fmtN(F.short):""}</span>
-             ${F.pct?`<span class="rs" style="margin-top:8px">Your ${F.pct}% planning target = ${fmtN(F.target)}${
-               F.targetShort>0?" · construction leaves "+fmtN(F.targetShort)+" short of it":" · there is room"}<br><i style="opacity:.75">a heuristic you set, not an industry standard</i></span>`:""}
-             <button type="button" class="rbtn" onclick="askFurnPct()">${F.pct?"Change":"Set"} reserve %</button>${tgl}`);
+             ${F.target?`<span class="rs">Allowance ${fmtN(F.target)}${unit&&!F.flat?" · "+unit:""}${
+               F.targetShort>0?" · construction leaves "+fmtN(F.targetShort)+" short":""}</span>`:""}
+             ${setBtn}${tgl}`);
          })()
       + card("Against budget", bud
         ? `<span class="rv ${gap>0?"up":"dn"}">${gap>0?"+":gap<0?"−":""}${fmtN(Math.abs(gap))}</span>
