@@ -6219,6 +6219,28 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 @media (max-width:900px){
   .shv-hdr,.shv-row{grid-template-columns:48px minmax(90px,1fr) 96px 40px 96px 44px 58px 68px 30px 24px;column-gap:7px}
 }
+/* ── furnishings earnings strip ─────────────────────────────────────────────── */
+.furn-earn{background:var(--surface2);border-radius:13px;padding:13px 15px;margin:10px 4px 4px}
+.fe-h{display:flex;flex-direction:column;gap:2px;margin-bottom:11px}
+.fe-h b{font-size:12.5px}
+.fe-h span{font-size:11px;color:var(--tl)}
+.fe-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+.fe-f{display:flex;flex-direction:column;gap:3px;min-width:150px}
+.fe-f label{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--tl)}
+.fe-f em{font-style:normal;font-size:10.5px;color:var(--tl);line-height:1.4}
+.fe-f .num{display:inline-flex;align-items:center;gap:3px;background:var(--card);border-radius:9px;padding:6px 10px;width:fit-content}
+.fe-f .num input{width:46px;border:0;background:none;font:inherit;font-size:13px;font-weight:700;text-align:right;outline:none;color:var(--tx)}
+.fe-f .num span{font-size:11px;color:var(--tl);font-weight:700}
+.fe-conf{display:flex;gap:8px;align-items:flex-start;background:#FBF4E4;color:#7A5E1E;border-radius:10px;
+  padding:9px 12px;font-size:11px;line-height:1.5;margin:8px 0 2px;max-width:70ch}
+.fe-tiles{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.fe-t{flex:1;min-width:130px;background:var(--card);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column}
+.fe-t small{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--tl)}
+.fe-t b{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:1px}
+.fe-t i{font-style:normal;font-size:10.5px;color:var(--tm);margin-top:1px;line-height:1.4}
+.fe-t.you{background:var(--brand-soft)} .fe-t.you b{color:var(--gd,#3C6330)}
+.fe-n{font-size:10.5px;color:var(--tl);line-height:1.55;padding:10px 2px 0;max-width:88ch}
+:root[data-theme="dark"] .fe-conf{background:#33291A;color:#D6B25E}
 /* ── tree growth timeline, in the plant inspector ─────────────────────────── */
 .gw-none{background:var(--pbcard,#FBFAF6);border-radius:11px;padding:10px 12px;
   font-size:11.5px;line-height:1.6;color:var(--tm)}
@@ -6397,7 +6419,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1376</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1377</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7451,6 +7473,84 @@ function furnPct(){ const v=+(S&&S.furnPct); return (isFinite(v)&&v>0)?v:0; }
    their own budget — the right model when the client is funding furniture from a
    different pot and construction should not be judged against it. */
 function furnIsSeparate(){ return !!(S&&S.furnSeparate); }
+/* ── furnishings pricing & earnings ───────────────────────────────────────────
+   Every furnishings line carries three decisions, because furniture is bought and
+   resold rather than built:
+     · the LIST price (the line's unit cost — MSRP)
+     · the TRADE DISCOUNT available on it, which is negotiated per brand and per
+       account, so it is typed in and never guessed
+     · what the CLIENT is shown — list, list less the discount passed on, or a price
+       you set outright
+   Your cost is always list less the discount. What you earn is whatever the client
+   pays above that, so the per-line decisions drive the money and the panel reports it,
+   rather than a second markup model quietly double-counting.
+   A sourcing fee and a commission sit on top for the cases where you are not taking
+   margin at all. */
+const FURN_PMODES=[["msrp","Client pays list"],["trade","Pass the discount on"],["client","Price I set"]];
+function furnTradeDefault(){ const v=+(S&&S.furnTradeDefault); return (isFinite(v)&&v>0)?v:0; }
+function furnLine(it){
+  const q=Math.max(0,+it.q||0), list=+it.uc||0;
+  const pct=(it.tradePct!=null&&it.tradePct!=="")?(+it.tradePct||0):furnTradeDefault();
+  const cost=list*(1-Math.min(90,Math.max(0,pct))/100);
+  const mode=it.pmode||"msrp";
+  let client=list;
+  if(mode==="trade") client=cost;
+  else if(mode==="client") client=(+it.clientUC>0)?+it.clientUC:list;
+  return {q, list, pct, cost, client, mode,
+          listTot:list*q, costTot:cost*q, clientTot:client*q,
+          discTot:(list-cost)*q, marginTot:(client-cost)*q};
+}
+function furnEarnCalc(){
+  const cs=(S.cats&&S.cats.furnish)||{items:[]};
+  const t={list:0,cost:0,client:0,disc:0,margin:0,passed:0,n:0,noPct:0};
+  (cs.items||[]).forEach(it=>{ if(!it.checked||!(+it.q>0)) return;
+    const L=furnLine(it); t.n++;
+    if(!(L.pct>0)) t.noPct++;
+    t.list+=L.listTot; t.cost+=L.costTot; t.client+=L.clientTot;
+    t.disc+=L.discTot; t.margin+=L.marginTot;
+    if(L.mode==="trade") t.passed+=L.discTot;
+  });
+  const E=(S.furnEarn=S.furnEarn||{});
+  const fee=(+E.fee||0), comm=(+E.comm||0);
+  t.fee=t.cost*fee/100;
+  t.comm=E.commOk?(t.client*comm/100):0;
+  t.feePct=fee; t.commPct=comm; t.commOk=!!E.commOk;
+  t.youEarn=t.margin+t.fee+t.comm;
+  return t;
+}
+function setFurnEarn(k,v){
+  S.furnEarn=S.furnEarn||{};
+  if(k==="commOk") S.furnEarn.commOk=!!v;
+  else { const n=parseFloat(String(v).replace(/[^0-9.]/g,"")); S.furnEarn[k]=isFinite(n)?n:0; }
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderProCatRows("furnish"); refreshCatTotals("furnish"); renderProSummary(); }catch(e){}
+}
+function setFurnTradeDefault(v){
+  const n=parseFloat(String(v).replace(/[^0-9.]/g,""));
+  if(isFinite(n)&&n>0) S.furnTradeDefault=Math.min(90,n); else delete S.furnTradeDefault;
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderProCatRows("furnish"); refreshCatTotals("furnish"); renderProSummary(); }catch(e){}
+}
+function setItemTrade(catId,idx,v){
+  const it=S.cats[catId].items[idx]; if(!it) return;
+  const t=String(v).trim();
+  if(t==="") delete it.tradePct; else { const n=parseFloat(t.replace(/[^0-9.]/g,"")); it.tradePct=isFinite(n)?Math.min(90,Math.max(0,n)):0; }
+  try{ _bidSchedule(); }catch(e){}
+  renderProCatRows(catId); refreshCatTotals(catId); renderProSummary();
+}
+function setItemPmode(catId,idx,v){
+  const it=S.cats[catId].items[idx]; if(!it) return;
+  it.pmode=v||"msrp";
+  try{ _bidSchedule(); }catch(e){}
+  renderProCatRows(catId); refreshCatTotals(catId); renderProSummary();
+}
+function setItemClientUC(catId,idx,v){
+  const it=S.cats[catId].items[idx]; if(!it) return;
+  const n=parseFloat(String(v).replace(/[^0-9.]/g,""));
+  if(isFinite(n)&&n>0) it.clientUC=n; else delete it.clientUC;
+  try{ _bidSchedule(); }catch(e){}
+  renderProCatRows(catId); refreshCatTotals(catId); renderProSummary();
+}
 function furnOwnBudget(){ const v=+(S&&S.furnBudget); return (isFinite(v)&&v>0)?v:0; }
 function furnToggleSeparate(){
   S.furnSeparate=!S.furnSeparate;
@@ -7466,6 +7566,12 @@ function askFurnBudget(quiet){
   if(isFinite(n)&&n>0) S.furnBudget=n; else delete S.furnBudget;
   try{ _bidSchedule(); }catch(e){}
   try{ renderProSummary(); }catch(e){}
+}
+function furnSubtotalClient(){
+  const cs=(S.cats&&S.cats.furnish)||{items:[]};
+  let t=0;
+  (cs.items||[]).forEach(it=>{ if(!it.checked) return; t+=furnLine(it).clientTot; });
+  return t;
 }
 function furnSpecified(){ try{ return catSubtotal("furnish"); }catch(e){ return 0; } }
 function furnState(grand){
@@ -9284,6 +9390,24 @@ function renderProCatRows(catId){
         <span class="fld"><label>Location</label>${_locSelect(`setItemLoc('${catId}',${idx},this.value)`, it.loc)}</span>
         <span class="fld"><label>Phase</label>${_phaseSelect(`setItemPhase('${catId}',${idx},this.value)`, it.phase)}</span>
         <span class="fld" style="flex:1;min-width:150px"><label>Tags</label><input class="inp" value="${escAttr(it.tags||'')}" placeholder="e.g. Automatic louvre, LED" onchange="setItemTags('${catId}',${idx},this.value)"></span>
+        ${catId!=="furnish"?"":(function(){ const L=furnLine(it);
+          return `<span class="fld"><label>Trade discount %</label>
+            <span class="num"><input type="text" inputmode="decimal" placeholder="${furnTradeDefault()||'—'}"
+              value="${it.tradePct!=null&&it.tradePct!==""?it.tradePct:""}"
+              onchange="setItemTrade('${catId}',${idx},this.value)"><span>%</span></span></span>
+          <span class="fld" style="min-width:190px"><label>Client sees</label>
+            <select class="inp" onchange="setItemPmode('${catId}',${idx},this.value)">
+              ${FURN_PMODES.map(m=>`<option value="${m[0]}" ${L.mode===m[0]?"selected":""}>${m[1]}</option>`).join("")}
+            </select></span>
+          ${L.mode==="client"?`<span class="fld"><label>Client price ea</label>
+            <span class="num"><span>$</span><input type="text" inputmode="decimal"
+              value="${it.clientUC!=null?Math.round(it.clientUC):""}"
+              onchange="setItemClientUC('${catId}',${idx},this.value)"></span></span>`:""}
+          <span class="fld" style="flex:1;min-width:200px"><label>This line</label>
+            <span style="font-size:.7rem;color:var(--tm);line-height:1.5">
+              cost ${fmtN(L.costTot)} · client ${fmtN(L.clientTot)} ·
+              <b style="color:${L.marginTot>0?'var(--gm)':'var(--tl)'}">${L.marginTot>0?"you keep "+fmtN(L.marginTot):"no margin"}</b>
+              ${L.pct>0?"":" · no discount entered"}</span></span>`; })()}
         ${it.bd?"":`<span class="fld"><label>Price range</label><span class="rngrow">
           <span class="num"><span>$</span><input type="text" value="${it.lo}" onchange="setItemRange('${catId}',${idx},'lo',+String(this.value).replace(/[^0-9.]/g,'')||0)"></span>
           <span class="rngdash">to</span>
@@ -9293,6 +9417,44 @@ function renderProCatRows(catId){
     `;
     tbody.appendChild(row);
   });
+  if(catId==="furnish"){ try{
+    const T=furnEarnCalc();
+    const w=document.createElement("div"); w.className="furn-earn";
+    w.innerHTML=`
+      <div class="fe-h"><b>What you earn on furnishings</b>
+        <span>from the per-line decisions above — nothing here is a second markup</span></div>
+      <div class="fe-row">
+        <span class="fe-f"><label>Default trade discount</label>
+          <span class="num"><input type="text" inputmode="decimal" value="${furnTradeDefault()||""}"
+            placeholder="—" onchange="setFurnTradeDefault(this.value)"><span>%</span></span>
+          <em>used where a line has none of its own</em></span>
+        <span class="fe-f"><label>Sourcing fee on cost</label>
+          <span class="num"><input type="text" inputmode="decimal" value="${T.feePct||""}"
+            placeholder="0" onchange="setFurnEarn('fee',this.value)"><span>%</span></span>
+          <em>for when the client buys and you bill for sourcing</em></span>
+        <span class="fe-f"><label>Nursery/brand commission</label>
+          <span class="num"><input type="text" inputmode="decimal" value="${T.commPct||""}"
+            placeholder="0" onchange="setFurnEarn('comm',this.value)"><span>%</span></span>
+          <em>paid to you by the brand on the order</em></span>
+      </div>
+      ${T.commPct>0?`<label class="fe-conf"><input type="checkbox" ${T.commOk?"checked":""}
+        onchange="setFurnEarn('commOk',this.checked)"> Brand-paid commissions are legal and disclosed
+        in my jurisdiction and contract. It counts as nothing until confirmed.</label>`:""}
+      <div class="fe-tiles">
+        <span class="fe-t"><small>Client pays</small><b>${fmtN(T.client)}</b>
+          <i>${T.n} line${T.n===1?"":"s"} specified</i></span>
+        <span class="fe-t"><small>Your cost</small><b>${fmtN(T.cost)}</b>
+          <i>list ${fmtN(T.list)} less trade</i></span>
+        <span class="fe-t you"><small>You earn</small><b>${fmtN(T.youEarn)}</b>
+          <i>${[T.margin>0?"margin "+fmtN(T.margin):"", T.fee>0?"fee "+fmtN(T.fee):"", T.comm>0?"commission "+fmtN(T.comm):""].filter(Boolean).join(" · ")||"nothing yet"}</i></span>
+        <span class="fe-t"><small>Discount available</small><b>${fmtN(T.disc)}</b>
+          <i>${T.passed>0?fmtN(T.passed)+" passed to the client":"none passed on"}</i></span>
+      </div>
+      ${T.noPct?`<div class="fe-n">${T.noPct} of ${T.n} lines have no trade discount entered, so their
+        cost reads as full list and they show no margin. Trade terms are negotiated per brand and per
+        account, so they are yours to enter — nothing is assumed.</div>`:""}`;
+    tbody.appendChild(w);
+  }catch(e){} }
   refreshCatTotals(catId);
 }
 
@@ -9306,6 +9468,10 @@ function catSubtotalRaw(catId){
   else if(catId==="water") base=waterFeaturesSubtotal();
   else if(catId==="pool") base=poolsSubtotal();
   else if(catId==="planting") base=plantingSubtotal();
+  // Furnishings lines each decide what the client is shown — list, list less a passed-on
+  // trade discount, or a price you set — so the section total is the sum of those, not of
+  // list prices. Summing list would put a number in the proposal the client is not paying.
+  else if(catId==="furnish") base=furnSubtotalClient();
   else { const cs=S.cats[catId]; base=(cs&&cs.items)?cs.items.reduce((a,it)=>a+(it.checked?it.q*it.uc*(1+(+it.madj||0)/100):0),0):0; }
   return base * sectionMult(catId);
 }
