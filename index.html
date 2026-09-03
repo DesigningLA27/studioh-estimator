@@ -6254,10 +6254,23 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .sv-none{font-size:11.5px;color:var(--tl);line-height:1.6;padding:6px 2px}
 
 /* the explanation, hovered or pinned */
-.vew{position:fixed;z-index:10050;width:320px;max-width:calc(100vw - 20px);
-  background:var(--card);border-radius:14px;padding:13px 15px;
-  box-shadow:0 18px 50px -14px rgba(0,0,0,.45);font-size:12px;color:var(--tm);line-height:1.55}
-.vew.pin{box-shadow:0 18px 50px -14px rgba(0,0,0,.55),0 0 0 2px var(--gm)}
+/* Two surfaces, deliberately: a small anchored peek on hover, and a centred lightbox on
+   tap. The first version used one anchored panel for both, which meant the full
+   explanation got clamped against the bottom of the screen on any row low on the page. */
+.vew{background:var(--card);border-radius:14px;padding:13px 15px;
+  font-size:12px;color:var(--tm);line-height:1.55}
+.vew.peek{position:fixed;z-index:10050;width:290px;max-width:calc(100vw - 20px);
+  box-shadow:0 14px 38px -12px rgba(0,0,0,.4)}
+.vew.peek .vew-why{max-height:66px;overflow:hidden}
+.vew-more{margin-top:8px;font-size:9.5px;font-weight:800;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--gm)}
+.vew-back{position:fixed;inset:0;z-index:10060;background:rgba(20,28,18,.55);
+  display:flex;align-items:center;justify-content:center;padding:5vh 16px;overflow:auto;
+  -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.vew.box{position:relative;width:430px;max-width:100%;max-height:88vh;overflow:auto;
+  padding:17px 19px;box-shadow:0 30px 70px -18px rgba(0,0,0,.6)}
+.vew.box .vew-h b{font-size:15px}
+.vew.box .vew-amt{font-size:23px}
 .vew-h{display:flex;align-items:flex-start;gap:8px;margin-bottom:5px}
 .vew-h b{font-size:13px;color:var(--tx);line-height:1.3;flex:1}
 .vew-t{font-size:8.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:#fff;
@@ -6520,7 +6533,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1381</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1382</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -56168,41 +56181,61 @@ function _veWhyHTML(c){
 function veWhyHover(id,el){
   if(VE_WHY_PIN) return;                       // a pinned one wins
   clearTimeout(VE_WHY_T);
-  VE_WHY_T=setTimeout(()=>{ _veWhyShow(id,el,false); },260);
+  VE_WHY_T=setTimeout(()=>{ _veWhyPeek(id,el); },260);
 }
 function veWhyOut(){
   clearTimeout(VE_WHY_T);
   if(!VE_WHY_PIN) _veWhyKill();
 }
 function veWhyPop(id){
-  const el=document.querySelector('.sv-r[onclick*="'+String(id).replace(/"/g,'\\"')+'"]');
-  VE_WHY_PIN=(VE_WHY_PIN===id)?null:id;
-  if(!VE_WHY_PIN){ _veWhyKill(); return; }
-  _veWhyShow(id,el,true);
+  clearTimeout(VE_WHY_T);
+  _veWhyKill();
+  VE_WHY_PIN=id;
+  _veWhyBox(id);
 }
-function _veWhyKill(){ const d=document.getElementById("ve-why"); if(d) d.remove(); }
-function _veWhyShow(id,el,pinned){
+function _veWhyKill(){
+  ["ve-peek","ve-why"].forEach(k=>{ const d=document.getElementById(k); if(d) d.remove(); });
+}
+/* Hover: a short preview beside the row — title, figure, and the one sentence that says
+   what the change does. Kept small on purpose so it can always find room. It prefers the
+   left of the card, flips right when there is none, and is centred on the row then
+   clamped, so a row low on the page cannot push it off the bottom. */
+function _veWhyPeek(id,el){
   const c=_veCard(id); if(!c) return;
   _veWhyKill();
   const d=document.createElement("div");
-  d.id="ve-why"; d.className="vew"+(pinned?" pin":"");
-  d.innerHTML=_veWhyHTML(c)
-    +(pinned?`<button class="vew-x" onclick="event.stopPropagation();VE_WHY_PIN=null;_veWhyKill()">\u2715</button>`:"");
-  d.addEventListener("click",e=>e.stopPropagation());
+  d.id="ve-peek"; d.className="vew peek";
+  d.innerHTML='<div class="vew-h"><b>'+_esc(c.nm)+'</b></div>'
+    +'<div class="vew-amt">'+fmtN(c.amt)+'<em>off'+(c.q?" \u00b7 "+_esc(c.q):"")+'</em></div>'
+    +(c.why?'<div class="vew-why">'+c.why+'</div>':'')
+    +'<div class="vew-more">Tap for the full reasoning</div>';
   document.body.appendChild(d);
-  // Anchored to the row, flipped to whichever side has room, clamped on screen.
   try{
     const r=(el||document.getElementById("pro-save")).getBoundingClientRect();
-    const w=d.offsetWidth, h=d.offsetHeight;
+    const w=d.offsetWidth, h=d.offsetHeight, M=10;
     let left=r.left-w-12;
-    if(left<10) left=Math.min(window.innerWidth-w-10, r.right+12);
-    let top=Math.min(Math.max(10,r.top-8), window.innerHeight-h-10);
+    if(left<M) left=Math.min(window.innerWidth-w-M, r.right+12);
+    let top=r.top+r.height/2-h/2;
+    top=Math.max(M, Math.min(top, window.innerHeight-h-M));
     d.style.left=Math.round(left)+"px"; d.style.top=Math.round(top)+"px";
   }catch(e){}
-  if(pinned) setTimeout(()=>{
-    const off=()=>{ VE_WHY_PIN=null; _veWhyKill(); document.removeEventListener("click",off); };
-    document.addEventListener("click",off);
-  },10);
+}
+/* Click: a centred lightbox. Anchoring a tall panel to a row near the foot of the page
+   can only end up jammed against an edge — which is what the first version did — so the
+   full explanation stops being anchored at all. It takes the middle of the screen over a
+   dimmed page, like the app's other dialogs, and closes on the backdrop or Escape. */
+function _veWhyBox(id){
+  const c=_veCard(id); if(!c) return;
+  const back=document.createElement("div");
+  back.id="ve-why"; back.className="vew-back";
+  back.innerHTML='<div class="vew box" role="dialog" aria-modal="true">'
+    +_veWhyHTML(c)+'<button class="vew-x" aria-label="Close">\u2715</button></div>';
+  document.body.appendChild(back);
+  const esc=(e)=>{ if(e.key==="Escape") close(); };
+  function close(){ VE_WHY_PIN=null; _veWhyKill(); document.removeEventListener("keydown",esc); }
+  back.addEventListener("click",e=>{ if(e.target===back) close(); });
+  const x=back.querySelector(".vew-x"); if(x) x.addEventListener("click",e=>{ e.stopPropagation(); close(); });
+  document.addEventListener("keydown",esc);
 }
 function veRender(){
   const main=document.getElementById("ve-main"), rail=document.getElementById("ve-rail");
