@@ -1226,6 +1226,34 @@ input[type=checkbox]{accent-color:var(--gm);cursor:pointer;width:15px;height:15p
    is why these bars read as empty rails */
 .krank .fill{display:block;height:100%;border-radius:4px;transition:width .25s}
 .krank-f{font-size:10.5px;color:var(--tl);margin-top:2px}
+/* ── Budget bar (Real headroom) ────────────────────────────────────────────────
+   Not a meter: the track is the budget, so the pin is the TARGET rather than the
+   value, and the bar running past the pin is the whole point. Two fills — solid for
+   what is priced, pale for the top of the confidence band behind it. */
+.hrbar{position:relative;height:14px;border-radius:7px;background:var(--brl);margin-top:7px;overflow:visible}
+.hrbar i{position:absolute;left:0;top:0;bottom:0;border-radius:7px;display:block;transition:width .25s}
+.hrbar i.hi{background:color-mix(in srgb,var(--gm) 26%,transparent)}
+.hrbar i.now{background:var(--zc,var(--gm))}
+.hrbar u{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;background:var(--tx);
+  box-shadow:0 0 0 2px var(--card);margin-left:-1.5px}
+/* ── Diverging bars (What moved each section) ─────────────────────────────────
+   A centre axis with growth to the right and cuts to the left, so the shape of the
+   change reads before any of the numbers do. */
+.kdiv{display:flex;flex-direction:column;gap:6px;margin-top:7px}
+.kdiv .r{display:grid;grid-template-columns:minmax(0,1fr) 84px 62px;gap:8px;align-items:center}
+.kdiv.wide .r{grid-template-columns:minmax(0,1fr) 1fr 74px}
+.kdiv .lbl{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  text-transform:none;letter-spacing:normal;color:var(--tx)}
+.kdiv .tr{position:relative;height:9px;border-radius:5px;background:var(--brl);display:block}
+.kdiv .tr .ax{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--tl)}
+.kdiv .tr i{position:absolute;top:0;bottom:0;border-radius:3px;display:block;transition:width .25s}
+.kdiv .tr i.up{left:50%;background:var(--gold)}
+.kdiv .tr i.dn{right:50%;background:var(--v-ok)}
+.kdiv.oneway .tr .ax{display:none}
+.kdiv.oneway .tr i.up,.kdiv.oneway .tr i.dn{left:0;right:auto}
+.kdiv .amt{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+.kdiv .amt.up{color:var(--gold)} .kdiv .amt.dn{color:var(--v-ok)}
+.kdiv-f{font-size:10.5px;color:var(--tl);margin-top:1px}
 /* ── ONE meter ─────────────────────────────────────────────────────────────────
    "Where one value sits against a target or a range": a quiet track, a pale band for
    the range or the distance travelled, and a single saturated pin carrying the verdict.
@@ -6579,7 +6607,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1388</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1389</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -11397,6 +11425,11 @@ function _buildSampleProject(){
   try{
     S.snaps={};
     const full=_phaseCapture(), grand=Math.round(_grandNow());
+    // cats has to be scaled the same way total is. Reading _phaseCats() inside the loop
+    // sampled LIVE state, so every earlier phase stored today's per-section numbers
+    // against a scaled-down total — the sections then summed to a different figure than
+    // the snapshot's own headline, and any per-section diff came out empty.
+    const liveCats=_phaseCats();
     const back=[["consult",0.78,-46],["pre",0.92,-18]];
     back.forEach(([pid,scale,days])=>{
       const d=JSON.parse(JSON.stringify(full));
@@ -11404,9 +11437,11 @@ function _buildSampleProject(){
       (d.pools||[]).forEach(p=>{ p.spa=false; p.baja=false; });
       if(pid==="consult") d.kitchens=[];
       const dt=new Date(); dt.setDate(dt.getDate()+days);
-      S.snaps[pid]={ data:d, savedAt:dt.toISOString(), total:Math.round(grand*scale), cats:_phaseCats() };
+      const cats={}; Object.keys(liveCats).forEach(k=>{ cats[k]=Math.round(liveCats[k]*scale); });
+      if(pid==="consult") delete cats.kitchen;              // the BBQ counter did not exist yet
+      S.snaps[pid]={ data:d, savedAt:dt.toISOString(), total:Math.round(grand*scale), cats };
     });
-    S.snaps.concept={ data:full, savedAt:new Date().toISOString(), total:grand };
+    S.snaps.concept={ data:full, savedAt:new Date().toISOString(), total:grand, cats:liveCats };
   }catch(e){}
   try{ _refreshProjectName(); }catch(e){}
   try{ resolveAddress(SAMPLE_ADDRESS); }catch(e){}   // seed the map without a typed pick
@@ -24358,6 +24393,80 @@ const INS_CARDS=[
       <div class="kstack" style="height:10px"><span style="width:${p}%;background:var(--v-high)"></span>
         <span style="width:${100-p}%;background:var(--kn)"></span></div>`;}},
 
+ {id:"solid", g:"cost", nm:"How solid each dollar is", w:2, client:0, desc:"Measured, priced, book rate or allowance",
+  need:d=>(d.prov&&d.prov.tot>0)?"":"Nothing priced yet",
+  draw:d=>{ const pv=d.prov;
+    return `<span class="v" style="color:${pv.firm>=60?"var(--v-ok)":pv.firm>=30?"var(--v-high)":"var(--v-low)"}">${Math.round(pv.firm)}<small>% established</small></span>
+      <span class="s">${fmtN(pv.by.set+pv.by.trace)} of ${fmtN(pv.tot)} has a number someone actually set</span>
+      <div class="kstack">${pv.rows.map(r=>`<span style="width:${r.pct}%;background:${r.c}">${r.pct>11?Math.round(r.pct)+"%":""}</span>`).join("")}</div>
+      <div class="kleg">${pv.rows.map(r=>`<div style="--lc:${r.c}"><i></i><em>${escAttr(r.nm)}</em><b>${fmtN(r.amt)}</b></div>`).join("")}</div>`;}
+  ,drawFull:(d,t)=>{ const pv=d.prov;
+    return `<span class="v" style="color:${pv.firm>=60?"var(--v-ok)":pv.firm>=30?"var(--v-high)":"var(--v-low)"}">${Math.round(pv.firm)}<small>% established</small></span>
+      <span class="ic-pill ${pv.firm>=60?"ok":pv.firm>=30?"warn":"bad"}">${pv.firm>=60?"Mostly real numbers":pv.firm>=30?"Half still assumed":"Mostly assumptions"}</span>
+      <div class="kstack" style="height:20px">${pv.rows.map(r=>`<span style="width:${r.pct}%;background:${r.c}">${r.pct>9?Math.round(r.pct)+"%":""}</span>`).join("")}</div>
+      <div class="ivlg">${pv.rows.map(r=>`<div class="r"><i style="background:${r.c}"></i>
+        <span class="nm">${escAttr(r.nm)} <em style="color:var(--tl);font-style:normal">&middot; ${escAttr(r.note)}</em></span>
+        <span class="amt">${r.n} line${r.n===1?"":"s"}</span><span class="pc">${fmtN(r.amt)}</span></div>`).join("")}</div>
+      <span class="s">A measured quantity or a rate you entered by hand is a number someone
+        established. A book default and an allowance are both still assumptions &mdash; they are
+        what moves when a real bid arrives.</span>`;}
+  },
+
+ {id:"headroom", g:"cost", nm:"Real headroom", w:2, client:0, desc:"Budget against priced work, not against hope",
+  need:d=>(d.head&&d.head.bud>0)?"":"Set a project budget",
+  draw:d=>{ const h=d.head, cap=Math.max(h.bud,h.hi,1), w=v=>Math.max(0,Math.min(100,v/cap*100));
+    const zc=h.left<0?"var(--v-high)":h.hiLeft<0?"var(--gold)":"var(--v-ok)";
+    return `<span class="v" style="color:${zc}">${h.left<0?"&minus;":""}${fmt(Math.abs(h.left))}<small>${h.left<0?"over":"left"}</small></span>
+      <span class="s">${fmtN(h.priced)} priced of a ${fmtN(h.bud)} budget &middot; ${Math.round(h.pct)}%</span>
+      <div class="hrbar"><i class="hi" style="width:${w(h.hi)}%"></i><i class="now" style="width:${w(h.priced)}%"></i>
+        <u style="left:${w(h.bud)}%"></u></div>
+      <div class="ins-sc"><span>priced ${fmt(h.priced)}</span><span>budget ${fmt(h.bud)}</span><span>band top ${fmt(h.hi)}</span></div>
+      ${(()=>{ const miss=[
+          h.unpriced.length?h.unpriced.length+" section"+(h.unpriced.length===1?"":"s")+" on but unpriced":"",
+          h.off.length?h.off.length+" switched off":"",
+          h.furnSep&&h.furnAmt>0?fmtN(h.furnAmt)+" of furnishings, held on top":""].filter(Boolean);
+        return miss.length?`<span class="s"><b style="color:var(--v-high)">Not in that number:</b> ${miss.join(" &middot; ")}</span>`:""; })()}`;}
+  ,drawFull:(d,t)=>{ const h=d.head, cap=Math.max(h.bud,h.hi,1), w=v=>Math.max(0,Math.min(100,v/cap*100));
+    const zc=h.left<0?"var(--v-high)":h.hiLeft<0?"var(--gold)":"var(--v-ok)";
+    return `<span class="v" style="color:${zc}">${h.left<0?"&minus;":""}${fmt(Math.abs(h.left))}<small>${h.left<0?"over budget":"headroom"}</small></span>
+      <span class="ic-pill ${h.left<0?"bad":h.hiLeft<0?"warn":"ok"}">${h.left<0?"Over the budget as priced":h.hiLeft<0?"Fits now, not at the band top":"Fits across the whole band"}</span>
+      <div class="hrbar" style="height:22px">${""}<i class="hi" style="width:${w(h.hi)}%"></i><i class="now" style="width:${w(h.priced)}%"></i>
+        <u style="left:${w(h.bud)}%"></u></div>
+      <div class="ins-sc"><span>priced ${fmt(h.priced)}</span><span>budget ${fmt(h.bud)}</span><span>band top ${fmt(h.hi)}</span></div>
+      <div class="ivlg">
+        <div class="r"><i style="background:var(--gm)"></i><span class="nm">Priced work</span><span class="amt">${Math.round(h.pct)}% of budget</span><span class="pc">${fmtN(h.priced)}</span></div>
+        ${h.atRisk>0?`<div class="r"><i style="background:var(--v-high)"></i><span class="nm">Of that, sitting in allowances</span><span class="amt">could move either way</span><span class="pc">${fmtN(h.atRisk)}</span></div>`:""}
+        <div class="r"><i style="background:color-mix(in srgb,var(--gm) 32%,transparent)"></i><span class="nm">At the top of the confidence band</span><span class="amt">${h.hiLeft<0?"over by":"still leaves"}</span><span class="pc">${fmt(Math.abs(h.hiLeft))}</span></div>
+      </div>
+      <span class="s">Headroom is the budget minus what is <b>priced</b>. It is not what the project
+        will cost: ${h.unpriced.length?`<b>${h.unpriced.map(escAttr).join(", ")}</b> ${h.unpriced.length===1?"is":"are"} switched on with nothing priced in ${h.unpriced.length===1?"it":"them"}`:"every active section has priced work"}${h.off.length?`, and ${h.off.length} section${h.off.length===1?" is":"s are"} switched off entirely`:""}${h.furnSep&&h.furnAmt>0?`, and <b>${fmtN(h.furnAmt)}</b> of furnishings is set to sit on top of the construction budget rather than inside it`:""}. No figure is
+        guessed for that scope here &mdash; price it and this number moves.</span>`;}
+  },
+
+ {id:"moved", g:"prog", nm:"What moved each section", w:2, client:0, desc:"Which sections changed since the last saved phase",
+  need:d=>{ const m=d.moved; if(!m) return "Save an earlier phase first";
+    return m.rows.length?"":"No section has moved since "+m.from.toLowerCase(); },
+  draw:d=>{ const m=d.moved;
+    return `<span class="v" style="color:${m.net>0?"var(--gold)":"var(--v-ok)"}">${m.net>0?"+":"&minus;"}${fmt(Math.abs(m.net))}</span>
+      <span class="s">across ${m.rows.length} section${m.rows.length===1?"":"s"} since ${escAttr(m.from.toLowerCase())} &middot; section scope, before markup</span>
+      <div class="kdiv${m.oneWay?" oneway":""}">${m.rows.slice(0,6).map(r=>`<div class="r">
+        <span class="lbl" title="${escAttr(r.nm)}">${escAttr(r.nm)}</span>
+        <span class="tr"><span class="ax"></span><i class="${r.d>0?"up":"dn"}" style="width:${Math.abs(r.d)/m.mx*(m.oneWay?100:50)}%"></i></span>
+        <span class="amt ${r.d>0?"up":"dn"}">${r.d>0?"+":"&minus;"}${fmt(Math.abs(r.d))}</span></div>`).join("")}
+        ${m.rows.length>6?`<div class="kdiv-f">+${m.rows.length-6} smaller</div>`:""}</div>`;}
+  ,drawFull:(d,t)=>{ const m=d.moved;
+    return `<span class="v" style="color:${m.net>0?"var(--gold)":"var(--v-ok)"}">${m.net>0?"+":"&minus;"}${fmt(Math.abs(m.net))}</span>
+      <span class="ic-pill ${m.net>0?"warn":"ok"}">${m.up?"+"+fmt(m.up)+" added":""}${m.up&&m.dn?" &middot; ":""}${m.dn?fmt(m.dn)+" cut":""}</span>
+      <div class="kdiv wide${m.oneWay?" oneway":""}">${m.rows.map(r=>`<div class="r">
+        <span class="lbl" title="${escAttr(r.nm)}">${escAttr(r.nm)}</span>
+        <span class="tr"><span class="ax"></span><i class="${r.d>0?"up":"dn"}" style="width:${Math.abs(r.d)/m.mx*(m.oneWay?100:50)}%"></i></span>
+        <span class="amt ${r.d>0?"up":"dn"}">${r.d>0?"+":"&minus;"}${fmt(Math.abs(r.d))}</span></div>`).join("")}</div>
+      <span class="s">Measured against the <b>${escAttr(m.from)}</b> snapshot${m.savedAt?` saved ${escAttr(_phDate(m.savedAt))}`:""}.
+        Section scope moved ${m.net>0?"up":"down"} ${fmt(Math.abs(m.net))}, but that is ${m.up?"+"+fmt(m.up)+" of growth":""}${m.up&&m.dn?" against ":""}${m.dn?fmt(Math.abs(m.dn))+" of cuts":""} &mdash;
+        a flat total can still hide a lot of movement. These are section subtotals, so they
+        run <b>before</b> market adjustment and markup: the headline total moves by more.</span>`;}
+  },
+
  {id:"lot", g:"prop", nm:"Lot composition", w:2, client:1, desc:"Built, paved, planted, unassigned",
   need:d=>(d.lot>0&&d.land>0)?"":"Set a lot size and landscape area",
   draw:d=>{ const parts=[{nm:"Home footprint",v:d.fp,c:"var(--kn)"},{nm:"Hardscape",v:d.hard,c:"var(--k2)"},
@@ -24659,14 +24768,21 @@ const INS_CARDS=[
       <div class="idnote">Ratings come from your plant book and are AI-assisted where marked ⚠ — verify anything you are relying on for a client conversation.</div>`;}
   },
 ];
-const INS_DEFAULT={total:1,psf:1,dist:1,phase:1,phaseline:1,allow:1,lot:1,value:1,water:1,palette:1,ready:1,bloomcal:1,coverage:1,climfit:1,toxicity:1};   // firesafe folds into climfit on the wide board
-function insOn(){ const o=(PREFS.insights&&PREFS.insights.on)||null; return o||Object.assign({},INS_DEFAULT); }
+const INS_DEFAULT={total:1,psf:1,dist:1,phase:1,phaseline:1,allow:1,lot:1,value:1,water:1,palette:1,ready:1,bloomcal:1,coverage:1,climfit:1,toxicity:1,solid:1,headroom:1,moved:1};   // firesafe folds into climfit on the wide board
+// Absent keys fall back to how the card ships, so a card added in a later version is
+// not hidden forever by a selection saved before it existed. insToggle writes an
+// explicit 0 rather than deleting, which is what keeps a card you turned off turned off.
+function insOn(){ const o=(PREFS.insights&&PREFS.insights.on)||null;
+  if(!o) return Object.assign({},INS_DEFAULT);
+  const out=Object.assign({},o);
+  Object.keys(INS_DEFAULT).forEach(k=>{ if(!Object.prototype.hasOwnProperty.call(out,k)) out[k]=INS_DEFAULT[k]; });
+  return out; }
 function insSave(on,group){ PREFS.insights=PREFS.insights||{};
   if(on) PREFS.insights.on=on; if(group) PREFS.insights.group=group; prefsSave(); }
 function insGroupBy(){ return (PREFS.insights&&PREFS.insights.group)||"subject"; }
 function insSetGroup(g){ insSave(null,g); renderInsights(); }
 function insToggle(id){ const on=insOn(); const c=INS_CARDS.find(x=>x.id===id); if(!c) return;
-  if(on[id]) delete on[id]; else on[id]=1;
+  if(on[id]) on[id]=0; else on[id]=1;
   insSave(on); renderInsights(); if(document.getElementById("inslib-lb")) _insLibRender(); }
 function insSetPropValue(v){
   S.pi=S.pi||{}; S.pi.propValue = v==="" ? 0 : Math.max(0,Math.round(+String(v).replace(/[^0-9.]/g,"")||0));
@@ -44324,6 +44440,9 @@ const PRO_CARDS=[
   {id:"confidence", nm:"Estimate confidence", row:1, g:"cost"},
   {id:"dist",    nm:"Cost distribution",    row:2, g:"cost"},
   {id:"allow",   nm:"Allowance exposure",   row:2, g:"cost"},
+  {id:"solid",   nm:"How solid each dollar is", row:2, g:"cost"},
+  {id:"headroom",nm:"Real headroom",        row:2, g:"cost"},
+  {id:"moved",   nm:"What moved each section", row:2, g:"cost"},
   {id:"ready",   nm:"Scope readiness",      row:1, g:"site"},
   {id:"site",    nm:"Site composition",     row:2, g:"site"},
   {id:"palette", nm:"Plant palette",        row:1, needs:"planting", g:"plant"},
@@ -44342,12 +44461,19 @@ let _cardFilter="all";
 function cardFilterSet(g){ _cardFilter=g; renderCardsMenu(); }
 function cardGroupOf(id){ const c=PRO_CARDS.find(x=>x.id===id); return (c&&c.g)||"cost"; }
 
-const PRO_CARDS_DEFAULT={total:1,psf:1,phases:1,top3:1,ready:1,dist:1,site:1,allow:1};
+const PRO_CARDS_DEFAULT={total:1,psf:1,phases:1,top3:1,ready:1,dist:1,site:1,allow:1,
+                         solid:1,headroom:1,moved:1};
 let PRO_CARDS_ON=(function(){
   try{ const s=localStorage.getItem("studioh_cards_v1"); if(s) return JSON.parse(s); }catch(e){}
   return Object.assign({},PRO_CARDS_DEFAULT);
 })();
-function cardOn(id){ const c=PRO_CARDS.find(x=>x.id===id); return !!(c&&c.core) || !!PRO_CARDS_ON[id]; }
+// A card shipped after this device last saved its selection has no key in the stored
+// object at all. Reading absent as "off" would hide every new default card forever, so
+// absent falls back to how the card ships — and toggleCard always writes an explicit
+// false, which is what makes turning one off stick.
+function cardOn(id){ const c=PRO_CARDS.find(x=>x.id===id); if(c&&c.core) return true;
+  if(Object.prototype.hasOwnProperty.call(PRO_CARDS_ON,id)) return !!PRO_CARDS_ON[id];
+  return !!PRO_CARDS_DEFAULT[id]; }
 // Display order, dragged in the picker. Stored as a list of ids; anything the
 // stored list doesn't know about (a card added in a later version) lands at the end.
 let PRO_CARDS_ORDER=(function(){
@@ -44847,6 +44973,87 @@ function _plantTally(){
   return out;
 }
 // Every figure below is derived from live state — nothing is a placeholder.
+// ── Where each priced dollar's number actually came from ────────────────────
+// Buckets are tested weakest-first: an allowance is a placeholder however carefully it
+// is rated, and an assembly-written rate is not "a rate you set" even though it differs
+// from the book default — so trace beats set, and set beats book.
+const PROV_KINDS=[
+  {k:"set",  nm:"Rate you set",  c:"var(--v-ok)",   note:"unit price entered by hand, not a book default"},
+  {k:"trace",nm:"Off the trace", c:"var(--v-low)",  note:"quantity measured on the plan"},
+  {k:"book", nm:"Book rate",     c:"var(--kn)",     note:"price-book default at this section's tier"},
+  {k:"allow",nm:"Allowance",     c:"var(--v-high)", note:"a placeholder sum, not priced work"},
+];
+function _bookUCFor(catId,it){
+  try{
+    const cat=PB.find(c=>c.id===catId); if(!cat) return null;
+    const src=(cat.items||[]).find(x=>x.n===it.n); if(!src) return null;
+    const tiers=SEC_TIERS[catId]||["Low","Standard","High"];
+    const cs=S.cats[catId], ti=(cs&&cs.tier!=null)?cs.tier:0;
+    const v=+itemUC(src,tiers,ti); return isFinite(v)?v:null;
+  }catch(e){ return null; }
+}
+function _provOf(catId,it){
+  if(/allowance/i.test(it.n||"")) return "allow";
+  if(it._assumed || it.loc || (it.tags&&it.tags.length)) return "trace";
+  const bk=_bookUCFor(catId,it);
+  if(bk!=null && Math.abs((+it.uc||0)-bk)>0.5) return "set";
+  return "book";
+}
+function _provTally(ids){
+  const by={set:0,trace:0,book:0,allow:0}, n={set:0,trace:0,book:0,allow:0};
+  (ids||[]).forEach(id=>{ const cs=S.cats[id]; if(!cs||!cs.items) return;
+    cs.items.forEach(it=>{ if(!it.checked) return;
+      const amt=(+it.q||0)*(+it.uc||0); if(amt<=0) return;
+      const k=_provOf(id,it); by[k]+=amt; n[k]++; }); });
+  const tot=by.set+by.trace+by.book+by.allow;
+  // "Firm" is the share whose number someone actually established — measured or priced
+  // by hand. Book defaults and allowances are both still assumptions.
+  return {by,n,tot,firm:tot>0?(by.set+by.trace)/tot*100:0,
+          rows:PROV_KINDS.map(p=>({...p,amt:by[p.k],n:n[p.k],pct:tot>0?by[p.k]/tot*100:0})).filter(r=>r.amt>0)};
+}
+// ── Real headroom ───────────────────────────────────────────────────────────
+// Budget against what is priced, then against the top of the confidence band, then a
+// plain count of what is still not priced. No dollar figure is invented for unpriced
+// scope — that number is genuinely unknown and saying otherwise would be a guess.
+function _headroomOf(d){
+  const bud=projBudget();
+  let r={lo:d.grand,hi:d.grand}; try{ r=confRange(d.grand,phaseNow().id); }catch(e){}
+  const off=PB.filter(c=>!(S.cats[c.id]&&S.cats[c.id].on)).map(c=>c.name);
+  // Furnishings held on top are deliberately outside d.grand, so they are outside this
+  // comparison too — but that is real money, and a headroom figure that silently omits
+  // it while reporting "everything is priced" is worse than no figure at all.
+  let fSep=false, fAmt=0;
+  try{ fSep=!!(typeof furnIsSeparate==="function" && furnIsSeparate() && S.cats.furnish && S.cats.furnish.on);
+       if(fSep) fAmt=+catSubtotal("furnish")||0; }catch(e){}
+  return {bud, priced:d.grand, left:bud-d.grand, atRisk:d.allow,
+          hi:r.hi, lo:r.lo, hiLeft:bud-r.hi, loLeft:bud-r.lo,
+          unpriced:d.empty, off, furnSep:fSep, furnAmt:fAmt,
+          pct:bud>0?d.grand/bud*100:0, hiPct:bud>0?r.hi/bud*100:0};
+}
+// ── What moved each section ─────────────────────────────────────────────────
+// The existing "How the number moved" card tracks the grand total across phases. This
+// one answers the next question — which sections did the moving — by diffing the current
+// per-section totals against the last earlier phase that was actually saved.
+function _movedBySection(){
+  const cur=phaseIdx();
+  let bi=-1; for(let i=cur-1;i>=0;i--){ if(phaseSnap(PHASES[i].id)){ bi=i; break; } }
+  if(bi<0) return null;
+  const base=phaseSnap(PHASES[bi].id); const prev=base&&base.cats;
+  if(!prev||!Object.keys(prev).length) return null;   // snapshots saved before per-section capture
+  const now=_phaseCats();
+  const ids={}; Object.keys(prev).forEach(k=>{ids[k]=1;}); Object.keys(now).forEach(k=>{ids[k]=1;});
+  const rows=Object.keys(ids).map(id=>{ const c=PB.find(x=>x.id===id);
+      return {id, nm:(c&&c.name)||id, was:+prev[id]||0, is:+now[id]||0, d:(+now[id]||0)-(+prev[id]||0)}; })
+    .filter(r=>Math.abs(r.d)>=1).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+  const up=rows.filter(r=>r.d>0).reduce((a,r)=>a+r.d,0);
+  const dn=rows.filter(r=>r.d<0).reduce((a,r)=>a+r.d,0);
+  // With growth and cuts both present the bars need a centre axis to diverge from. When
+  // every section moved the same way that axis just throws away half the width, so the
+  // bars run from the left edge instead and the colour carries the direction.
+  const oneWay = rows.every(r=>r.d>0) || rows.every(r=>r.d<0);
+  return {from:PHASES[bi].nm, savedAt:base.savedAt, rows, up, dn, net:up+dn, oneWay,
+          mx:Math.max(1,...rows.map(r=>Math.abs(r.d)))};
+}
 function _proCardData(){
   const lot=+S.proLotSize||+S.lotSize||0;
   const land=+S.proLandscapeArea||0;
@@ -44885,9 +45092,13 @@ function _proCardData(){
   const soft=secArea("planting")||plant;
   const watr=secArea("pool")+secArea("water");
   const alloc=hard+soft+watr;
-  return {lot,land,plant,fp,hard,soft,watr,alloc,unassigned:Math.max(0,land-alloc),
+  const out={lot,land,plant,fp,hard,soft,watr,alloc,unassigned:Math.max(0,land-alloc),
           over:alloc>land, sub,madjPct,madj,mu,grand,groups,top3,empty,active:on.length,
           total:PB.length,allow,allowRows};
+  try{ out.prov=_provTally(on.map(c=>c.id)); }catch(e){ out.prov=null; }
+  try{ out.head=_headroomOf(out); }catch(e){ out.head=null; }
+  try{ out.moved=_movedBySection(); }catch(e){ out.moved=null; }
+  return out;
 }
 // Summary cards at the top of the Pro view.
 function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); if(!el) return;
@@ -44959,6 +45170,70 @@ function _renderProTiles(grand){ const el=document.getElementById("pro-tiles"); 
         <span>Every active section has priced work</span>
       </div>`}
     </div>`);
+  {
+    const pv=d.prov;
+    H.solid=(`
+    <div class="ptile">
+      <span class="ptile-lbl">How solid each dollar is</span>
+      ${(pv&&pv.tot>0)?`
+        <span class="ptile-k" style="color:${pv.firm>=60?"var(--v-ok)":pv.firm>=30?"var(--v-high)":"var(--v-low)"}">${Math.round(pv.firm)}<small>% established</small></span>
+        <div class="kstack" style="height:16px">${pv.rows.map(r=>
+          `<span style="width:${r.pct}%;background:${r.c}" title="${_esc(r.nm)} — ${fmtN(r.amt)}">${r.pct>13?Math.round(r.pct)+"%":""}</span>`).join("")}</div>
+        <div class="kleg">${pv.rows.map(r=>
+          `<div style="--lc:${r.c}"><i></i><em>${_esc(r.nm)}</em><b>${fmtN(r.amt)}</b></div>`).join("")}</div>`
+      :`<span class="ptile-sub">Nothing priced yet</span>`}
+    </div>`);
+  }
+  {
+    const hd=d.head;
+    // The track is the budget. The solid fill is what is priced, the pale extension is
+    // the top of the confidence band — so overrun shows as the bar running past its end.
+    const cap=hd?Math.max(hd.bud, hd.hi, 1):1;
+    const w=v=>Math.max(0,Math.min(100,(v/cap)*100));
+    const zc=!hd?"var(--tx)":hd.left<0?"var(--v-high)":hd.hiLeft<0?"var(--gold)":"var(--v-ok)";
+    H.headroom=(`
+    <div class="ptile" style="--zc:${zc}">
+      <span class="ptile-lbl">Real headroom</span>
+      ${(hd&&hd.bud>0)?`
+        <span class="kval">
+          <span class="ptile-k" style="color:${zc}">${hd.left<0?"−":""}${fmt(Math.abs(hd.left))}<small>${hd.left<0?"over":"left"}</small></span>
+          <span class="kchip">${Math.round(hd.pct)}% of ${fmt(hd.bud)}</span>
+        </span>
+        <div class="hrbar"><i class="hi" style="width:${w(hd.hi)}%"></i><i class="now" style="width:${w(hd.priced)}%"></i>
+          <u style="left:${w(hd.bud)}%"></u></div>
+        <div class="kmlbl"><span>priced ${fmt(hd.priced)}</span><span>at band top ${fmt(hd.hi)}</span></div>
+        ${(()=>{ const miss=[
+            hd.unpriced.length?hd.unpriced.length+" section"+(hd.unpriced.length===1?"":"s")+" on but unpriced":"",
+            hd.off.length?hd.off.length+" section"+(hd.off.length===1?"":"s")+" switched off":"",
+            hd.furnSep&&hd.furnAmt>0?fmtN(hd.furnAmt)+" of furnishings, held on top":""].filter(Boolean);
+          return miss.length?`<div class="kflag warn">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.6v4M8 11.2v.1"/></svg>
+            <span><b>Not in that number</b><br>${miss.join(" · ")}</span></div>`
+          :`<div class="kflag good">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5,8.4 6.6,11.5 12.5,4.8"/></svg>
+            <span>Every section is on and priced</span></div>`; })()}`
+      :`<span class="ptile-sub">Set a project budget to see headroom</span>`}
+    </div>`);
+  }
+  {
+    const mv=d.moved;
+    H.moved=(`
+    <div class="ptile">
+      <span class="ptile-lbl">What moved each section</span>
+      ${(mv&&mv.rows.length)?`
+        <span class="kval">
+          <span class="ptile-k" style="color:${mv.net>0?"var(--gold)":"var(--v-ok)"}">${mv.net>0?"+":"−"}${fmt(Math.abs(mv.net))}</span>
+          <span class="kchip">since ${_esc(mv.from.toLowerCase())}</span>
+        </span>
+        <div class="kdiv${mv.oneWay?" oneway":""}">${mv.rows.slice(0,5).map(r=>`
+          <div class="r"><span class="lbl" title="${_esc(r.nm)}">${_esc(r.nm)}</span>
+            <span class="tr"><span class="ax"></span>
+              <i class="${r.d>0?"up":"dn"}" style="width:${Math.abs(r.d)/mv.mx*(mv.oneWay?100:50)}%"></i></span>
+            <span class="amt ${r.d>0?"up":"dn"}">${r.d>0?"+":"−"}${fmt(Math.abs(r.d))}</span></div>`).join("")}
+          <div class="kdiv-f">${mv.rows.length>5?`+${mv.rows.length-5} smaller move${mv.rows.length-5===1?"":"s"} · `:""}section scope, before markup</div></div>`
+      :`<span class="ptile-sub">${mv?"No section has moved since "+_esc(mv.from.toLowerCase()):"Save an earlier phase to compare"}</span>`}
+    </div>`);
+  }
   H.palette=(`
     <div class="ptile">
       <span class="ptile-lbl">Plant palette</span>
