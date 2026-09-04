@@ -4226,6 +4226,18 @@ body:not(.pro-view) #dlay-btn{display:none}
 .rv{font-family:-apple-system,'SF Pro Display',system-ui,sans-serif;font-size:26px;font-weight:800;
   letter-spacing:-.026em;font-variant-numeric:tabular-nums;line-height:1.1;margin-top:3px;color:var(--tx)}
 .rv.dim{color:var(--tl);font-size:20px}
+/* A figure that needs room for a unit or a fraction beside it — "16 of 17 on",
+   "$75 /plant" — at 26px those wrap and blow the card's fixed height. */
+.rv.sm{font-size:21px}
+/* .rv had no rule for its unit, so <small> fell back to the browser default: roughly
+   the right size by luck, but the wrong colour and weight. Matches .ptile-k now. */
+.rv small{font-size:12px;color:var(--tl);font-weight:700;margin-left:4px}
+/* One tick per countable thing: checklist items, sections. Caps at 24 so a long list
+   thins the ticks rather than overflowing the card. */
+.rticks{display:flex;gap:3px;height:20px;margin-top:9px;flex:none}
+.rticks i{flex:1;min-width:2px;border-radius:3px;background:var(--brl)}
+.rticks i.f{background:var(--gm)}
+.rticks i.x{background:var(--v-high)}
 .rv.up{color:var(--gold)} .rv.dn{color:var(--gm)}
 .rs{font-size:11.5px;color:var(--tl);margin-top:3px;font-variant-numeric:tabular-nums;line-height:1.45}
 .rbm{position:relative;display:block;height:8px;border-radius:4px;background:var(--brl);margin:13px 0 5px}
@@ -6769,7 +6781,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1393</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1394</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8013,6 +8025,14 @@ function askProjBudget(){
                  cur?String(cur):"");
   if(v===null) return;
   setProjBudget(v);
+}
+// Same shape as askProjBudget, so the Margin card's tap-to-set behaves like the
+// budget figure right beside it rather than inventing a second way to edit a number.
+function askMarkup(){
+  const v=prompt("Markup — the percentage taken on top of cost.\n\nLeave empty for none.",
+                 (+S.markup>0)?String(S.markup):"");
+  if(v===null) return;
+  updateMarkup(String(v).replace(/[^0-9.]/g,""));
 }
 function phaseTotal(id){ const sn=phaseSnap(id); return sn?(+sn.total||0):null; }
 
@@ -44543,6 +44563,106 @@ function renderProSummary(){
            <span class="rs">Set one and this shows the gap.</span>
            <span class="rgrow"></span>
            <button type="button" class="rbtn pri" onclick="askProjBudget()">Set a budget</button>`);
+    // ── The read cards designed for this slot ─────────────────────────────────
+    // Fixed anatomy: label, figure, one qualifying line, then one graphic pinned to
+    // the bottom by .rgrow. Four cards only read as a row if their parts line up.
+    const X=d&&d.x?d.x:{};
+    const meter=(pin,fill,zc,band)=>`<div class="kmeter" style="--zc:${zc||"var(--gm)"}">`
+      +(band?`<div class="band" style="left:${band[0]}%;right:${100-band[1]}%"></div>`:"")
+      +(fill!=null?`<div class="band" style="left:0;right:${100-fill}%;background:color-mix(in srgb,${zc||"var(--gm)"} 26%,transparent)"></div>`:"")
+      +`<div class="pin" style="left:${Math.max(0,Math.min(100,pin))}%"></div></div>`;
+    const bk=a=>`<span class="rbk">${a.map(v=>`<span>${v}</span>`).join("")}</span>`;
+    const ticks=(n,doneN,warnN)=>`<span class="rticks">`
+      +Array.from({length:Math.min(n,24)},(_,i)=>
+        `<i class="${i<doneN?"f":(warnN&&i<doneN+warnN)?"x":""}"></i>`).join("")+`</span>`;
+
+    RD.margin=()=>{
+      const set=X.markupPct>0||X.madjPct!==0;
+      return card("Margin on this job", set
+        ? `<span class="rbig"><span class="rv">${X.markupPct}<small>%</small></span>
+             <span class="rchip">${fmtN(X.marginAmt)}</span></span>
+           <span class="rs">markup${X.madjPct?` · market ${X.madjPct>0?"+":""}${X.madjPct}%`:""} on ${fmtN(d.sub)} of scope</span>
+           <span class="rgrow"></span>
+           ${meter(Math.min(100,X.marginPct/50*100), Math.min(100,X.marginPct/50*100), "var(--v-ok)")}
+           ${bk([Math.round(X.marginPct)+"% over cost", fmtN(X.marginAmt)])}`
+        : `<span class="rbig"><span class="rv dim">0<small>%</small></span>
+             <span class="rchip" style="background:#F7DEDC;color:var(--red)">Not set</span></span>
+           <span class="rs">no markup and no market adjustment applied</span>
+           <span class="rgrow"></span>
+           <div class="kflag warn">
+             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.6v4M8 11.2v.1"/></svg>
+             <span>You are billing this at <b>cost</b> — <b class="rtap" onclick="askMarkup()">set a markup</b></span></div>`);
+    };
+    RD.bigline=()=>card("Biggest single line", X.big
+      ? `<span class="rbig"><span class="rv sm">${fmtN(X.big.amt)}</span>
+           <span class="rchip">${Math.round(X.bigPct)}% in one line</span></span>
+         <span class="rs"><b>${_esc(X.big.sec)}</b> · ${_esc(X.big.nm)}</span>
+         <span class="rgrow"></span>
+         <div class="kstack" style="height:16px">
+           <span style="width:${Math.max(3,X.bigPct)}%;background:var(--gm)">${X.bigPct>9?Math.round(X.bigPct)+"%":""}</span>
+           <span style="width:${100-Math.max(3,X.bigPct)}%;background:var(--kn)"></span></div>
+         ${bk(["this line","rest of the job"])}`
+      : `<span class="rv dim">—</span><span class="rs">Nothing priced yet.</span>`);
+    RD.perplant=()=>{ const q=t.qty||0, per=q>0?X.plantCost/q:0;
+      const LO=20,HI=200,B1=45,B2=110;
+      const zc=!per?"var(--tx)":per<B1?"var(--v-low)":per>B2?"var(--v-high)":"var(--v-ok)";
+      return card("Cost per plant", q>0&&X.plantCost>0
+        ? `<span class="rbig"><span class="rv sm" style="color:${zc}">$${Math.round(per)}<small>/plant</small></span>
+             <span class="rchip">${q.toLocaleString()} placed</span></span>
+           <span class="rs">${fmtN(X.plantCost)} of planting &amp; soil, all in</span>
+           <span class="rgrow"></span>
+           ${meter((per-LO)/(HI-LO)*100, null, zc, [(B1-LO)/(HI-LO)*100,(B2-LO)/(HI-LO)*100])}
+           ${bk(["$"+LO,"typical $"+B1+"–$"+B2,"$"+HI])}`
+        : `<span class="rv dim">—</span><span class="rs">Place plants and price the planting section.</span>`);
+    };
+    RD.hardsoft=()=>{ const tot=X.hard+X.soft;
+      return card("Hardscape vs planting", tot>0
+        ? `<span class="rbig"><span class="rv sm">${X.soft>0?X.hsRatio.toFixed(1)+"×":"—"}</span>
+             <span class="rchip">${X.hard>=X.soft?"Hardscape led":"Planting led"}</span></span>
+           <span class="rs">${fmtN(X.hard)} of hardscape to ${fmtN(X.soft)} of softscape</span>
+           <span class="rgrow"></span>
+           <div class="kstack" style="height:16px">
+             <span style="width:${X.hard/tot*100}%;background:var(--k1)">${X.hard/tot>0.09?Math.round(X.hard/tot*100)+"%":""}</span>
+             <span style="width:${X.soft/tot*100}%;background:var(--k3)">${X.soft/tot>0.09?Math.round(X.soft/tot*100)+"%":""}</span></div>
+           ${bk(["hardscape","softscape"])}`
+        : `<span class="rv dim">—</span><span class="rs">Price some hardscape or planting first.</span>`);
+    };
+    RD.unpriced=()=>card("Sections not priced", X.unpriced>0
+      ? `<span class="rbig"><span class="rv sm" style="color:var(--v-high)">${X.unpriced}</span>
+           <span class="rchip" style="background:#F7EBD5;color:var(--gold)">On, unpriced</span></span>
+         <span class="rs">${(d.empty||[]).slice(0,2).map(_esc).join(" · ")}${d.empty.length>2?" +"+(d.empty.length-2):""}</span>
+         <span class="rgrow"></span>
+         ${ticks(X.onN, X.onN-X.unpriced, X.unpriced)}
+         ${bk([(X.onN-X.unpriced)+" priced", X.unpriced+" empty · "+X.offN+" off"])}`
+      : `<span class="rbig"><span class="rv sm" style="color:var(--gm)">0</span>
+           <span class="rchip">All clear</span></span>
+         <span class="rs">every switched-on section carries priced work</span>
+         <span class="rgrow"></span>
+         ${ticks(X.onN, X.onN, 0)}
+         ${bk([X.onN+" on and priced", X.offN+" off"])}`);
+    RD.traced=()=>card("Traced vs typed", X.lines>0
+      ? `<span class="rbig"><span class="rv sm" style="color:${X.tracedPct>0?"var(--v-ok)":"var(--v-low)"}">${Math.round(X.tracedPct)}<small>% traced</small></span>
+           <span class="rchip"${X.tracedPct?"":' style="background:#E4EFF9;color:var(--v-low)"'}>${X.tracedPct?X.tracedLines+" of "+X.lines:"Nothing traced"}</span></span>
+         <span class="rs">${X.tracedPct?"quantities measured on the plan":"every quantity was entered by hand"}</span>
+         <span class="rgrow"></span>
+         ${meter(X.tracedPct, X.tracedPct, X.tracedPct>0?"var(--v-ok)":"var(--v-low)")}
+         ${bk([X.tracedLines+" of "+X.lines+" lines", X.tracedPct?"":"trace to firm this up"])}`
+      : `<span class="rv dim">—</span><span class="rs">Nothing priced yet.</span>`);
+    RD.chk=()=>{
+      let st={n:0,done:0,blockers:0};
+      try{ st=chkPhaseStats(phaseNow().id)||st; }catch(e){}
+      const pct=st.n>0?Math.round(st.done/st.n*100):0;
+      const zc=st.blockers?"var(--v-high)":pct>=100?"var(--v-ok)":pct>=50?"var(--gold)":"var(--v-low)";
+      return card("Phase checklist", st.n>0
+        ? `<span class="rbig"><span class="rv sm" style="color:${zc}">${st.done}<small>of ${st.n}</small></span>
+             <span class="rchip"${st.blockers?' style="background:#F7DEDC;color:var(--red)"':''}>${st.blockers?st.blockers+" blocking":pct+"%"}</span></span>
+           <span class="rs">${_esc(phaseNow().nm)}${st.done===st.n?" — every item done":st.done===0?" — nothing ticked yet":""}</span>
+           <span class="rgrow"></span>
+           ${ticks(st.n, st.done, 0)}
+           ${bk([pct+"% complete", (st.n-st.done)+" to go"])}`
+        : `<span class="rv dim">—</span><span class="rs">No checklist items for this phase.</span>`);
+    };
+
     // Anything from the library renders through its Insights draw(), so a card cannot
     // look one way here and another way on the board — it is the same function.
     const insRead=(c)=>{
@@ -44668,12 +44788,21 @@ const DASH_ZONES=[{k:"feature",nm:"Feature",n:2},{k:"read",nm:"Read",n:4}];
 // the PDF exports and Furnishings owns the on-top/in-budget switch, so they stay hand
 // written; the rest of the library is generated below.
 const DASH_BUILTIN={
-  cost:  {nm:"Project cost",         sizes:["feature"]},
-  save:  {nm:"Savings on the table", sizes:["feature"]},
-  psf:   {nm:"Cost per SF",          sizes:["read"]},
-  since: {nm:"Since last phase",     sizes:["read"]},
-  furn:  {nm:"Furnishings",          sizes:["read"]},
-  budget:{nm:"Against budget",       sizes:["read"]},
+  cost:    {nm:"Project cost",           sizes:["feature"]},
+  save:    {nm:"Savings on the table",   sizes:["feature"]},
+  psf:     {nm:"Cost per SF",            sizes:["read"]},
+  since:   {nm:"Since last phase",       sizes:["read"]},
+  furn:    {nm:"Furnishings",            sizes:["read"]},
+  budget:  {nm:"Against budget",         sizes:["read"]},
+  // Designed for the read slot rather than borrowed from the Insights board — each one
+  // reads state the app already holds, and none of them can grow past 152px.
+  margin:  {nm:"Margin on this job",     sizes:["read"]},
+  bigline: {nm:"Biggest single line",    sizes:["read"]},
+  perplant:{nm:"Cost per plant",         sizes:["read"]},
+  hardsoft:{nm:"Hardscape vs planting",  sizes:["read"]},
+  unpriced:{nm:"Sections not priced",    sizes:["read"]},
+  traced:  {nm:"Traced vs typed",        sizes:["read"]},
+  chk:     {nm:"Phase checklist",        sizes:["read"]},
 };
 // Every Insights card is also a dashboard card. Its own w already declares whether it
 // needs room, so w:2 with a drawFull can fill a feature slot and anything can fill a
@@ -44933,6 +45062,8 @@ function _dashSwapRender(){
 // Thumbnails are keyed by the rail's card ids; a library card strips its "i:" prefix
 // and the built-ins map onto the nearest equivalent shape.
 const DASH_MINI_MAP={cost:"total",save:"top3",since:"phases",furn:"allow",budget:"headroom",
+  margin:"psf",bigline:"allow",perplant:"psf",hardsoft:"site",unpriced:"ready",
+  traced:"solid",chk:"ready",
   "i:phase":"phases","i:phaseline":"confidence","i:fire":"firesafe","i:value":"psf",
   "i:zones":"dist","i:lot":"site","i:toxicity":"toxicity"};
 function _dashMiniKey(c){ return DASH_MINI_MAP[c.id] || c.id.replace(/^i:/,""); }
@@ -45718,6 +45849,43 @@ function _movedBySection(){
   return {from:PHASES[bi].nm, savedAt:base.savedAt, rows, up, dn, net:up+dn, oneWay,
           mx:Math.max(1,...rows.map(r=>Math.abs(r.d)))};
 }
+// ── Extra reads the small dashboard cards need ──────────────────────────────────
+// Everything here comes off state the app already holds; nothing is estimated. Kept
+// beside _proCardData so a card can never compute a figure the rest of the view
+// disagrees with.
+function _dashExtra(d){
+  const x={};
+  // What is actually being taken on top of cost — markup plus market adjustment.
+  x.markupPct=+S.markup||0;
+  x.madjPct=+GSET.marketAdj||0;
+  x.marginAmt=(+d.mu||0)+(+d.madj||0);
+  x.marginPct=d.sub>0?x.marginAmt/d.sub*100:0;
+  // The single biggest checked line anywhere in the active scope. One line carrying a
+  // quarter of a job is worth seeing before a client does.
+  let big=null;
+  try{ PB.forEach(c=>{ const cs=S.cats[c.id]; if(!cs||!cs.on||!cs.items) return;
+    cs.items.forEach(it=>{ if(!it.checked) return;
+      const amt=(+it.q||0)*(+it.uc||0); if(amt<=0) return;
+      if(!big||amt>big.amt) big={nm:it.n, sec:c.name, amt}; }); }); }catch(e){}
+  x.big=big;
+  x.bigPct=(big&&d.sub>0)?big.amt/d.sub*100:0;
+  // Hardscape against softscape, straight off the group subtotals.
+  const gAmt=nm=>{ const g=(d.groups||[]).find(y=>y.nm===nm); return g?+g.amt||0:0; };
+  x.hard=gAmt("Hardscape"); x.soft=gAmt("Softscape");
+  x.hsRatio=x.soft>0?x.hard/x.soft:0;
+  // Sections switched on with nothing priced in them, and sections switched off.
+  x.unpriced=(d.empty||[]).length;
+  x.offN=PB.filter(c=>!(S.cats[c.id]&&S.cats[c.id].on)).length;
+  x.onN=d.active||0;
+  // How much of the priced work has a measured quantity behind it.
+  const p=d.prov;
+  x.lines=p?(p.n.set+p.n.trace+p.n.book+p.n.allow):0;
+  x.tracedLines=p?p.n.trace:0;
+  x.tracedPct=x.lines>0?x.tracedLines/x.lines*100:0;
+  // Planting and soil only — the section, not the whole softscape group.
+  try{ x.plantCost=+catSubtotal("planting")||0; }catch(e){ x.plantCost=0; }
+  return x;
+}
 function _proCardData(){
   const lot=+S.proLotSize||+S.lotSize||0;
   const land=+S.proLandscapeArea||0;
@@ -45762,6 +45930,7 @@ function _proCardData(){
   try{ out.prov=_provTally(on.map(c=>c.id)); }catch(e){ out.prov=null; }
   try{ out.head=_headroomOf(out); }catch(e){ out.head=null; }
   try{ out.moved=_movedBySection(); }catch(e){ out.moved=null; }
+  try{ out.x=_dashExtra(out); }catch(e){ out.x=null; }
   return out;
 }
 // Summary cards at the top of the Pro view.
