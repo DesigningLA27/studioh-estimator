@@ -4092,12 +4092,25 @@ body.sp-on .tb-sp:hover{background:var(--brand-soft);color:var(--gm)}
 .sumc{background:var(--surface2);border:0;border-radius:16px;padding:11px 13px;position:relative}
 /* ── Editable dashboard ────────────────────────────────────────────────────────
    Every feature slot is taken out of flow the way the savings card already was, so
-   whatever card lands in it cannot stretch the row. Tall cards scroll inside. */
+   whatever card lands in it cannot stretch the row. */
 .dfeat{position:relative;min-width:0}
 .dfeat>.sumc{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden}
-.dfeat-b{flex:1;min-height:0;overflow:auto;background:none;border:0;padding:0;border-radius:0;
-  display:flex;flex-direction:column;gap:6px}
-.dfeat-b::-webkit-scrollbar{width:0;height:0}
+/* The body carries .ic so the insights child selectors (.ic .v, .ic .s, .ic .ivlg)
+   still apply — but .ic is declared 850 lines further down at the same specificity,
+   so it won on source order and drew its own white card, border and padding INSIDE
+   the slot. Two classes beats one; this has to stay .dfeat-b.ic. */
+.dfeat-b.ic{flex:1;min-height:0;background:none;border:0;padding:0;border-radius:0;
+  display:flex;flex-direction:column;gap:6px;overflow:hidden}
+/* Fit, don't scroll. A slot is wide and short; drawFull assumes vertical room, and its
+   closing note is the part that overflows. Clamp the note and let the graphic have the
+   space — the full text is one click away in the card's own detail view. */
+.dfeat-b.ic>.s:last-child{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;margin-top:auto}
+.dfeat-b.ic>.ivlg{flex:none}
+.dfeat-b.ic>.ivsvg{flex:none}
+.dfeat-tap{cursor:pointer}
+.dfeat-go{float:right;color:var(--tl);font-weight:700;font-size:12px}
+.dfeat-tap:hover .dfeat-go{color:var(--gm)}
 /* Layout only means something on the dashboard, and the top bar it sits in is shared
    by every view — so it is present only while the dashboard is the active view. */
 body:not(.pro-view) #dlay-btn{display:none}
@@ -6756,7 +6769,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1392</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1393</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -44698,6 +44711,24 @@ function dashRow(size){
   return out;
 }
 function dashSave(){ try{ localStorage.setItem("studioh_dash_v1", JSON.stringify(DASH_ON)); }catch(e){} }
+// One card, one place on the dashboard. A library card and its rail twin are the same
+// card under two ids ("i:headroom" here, "headroom" in PRO_CARDS), so comparing needs
+// the prefix stripped — otherwise the duplicate check silently never matches.
+function dashRailId(id){ return String(id||"").replace(/^i:/,""); }
+function dashUsedInWork(railId){
+  const want=dashRailId(railId);
+  return dashRow("feature").concat(dashRow("read")).some(id=>id&&dashRailId(id)===want);
+}
+// Called after a work-area slot changes: if the rail is carrying the same card, it
+// gives it up. The work area is the bigger, more deliberate placement.
+function _dashDropRailTwin(id){
+  const rid=dashRailId(id);
+  const c=PRO_CARDS.find(x=>x.id===rid);
+  if(!c || c.core || !cardOn(rid)) return "";
+  PRO_CARDS_ON[rid]=false;
+  try{ localStorage.setItem("studioh_cards_v1", JSON.stringify(PRO_CARDS_ON)); }catch(e){}
+  return c.nm;
+}
 function dashSet(size,idx,id){
   if(!dashFits(id,size)) return;
   DASH_ON[size]=dashRow(size);
@@ -44709,7 +44740,10 @@ function dashSet(size,idx,id){
   // The layout no longer matches the preset it came from. Saying otherwise in the
   // picker would be a lie about what is on screen.
   DASH_DIRTY=true; try{ localStorage.setItem("studioh_dashdirty_v1","1"); }catch(e){}
-  dashSave(); renderProSummary();
+  dashSave();
+  const dropped=_dashDropRailTwin(id);
+  renderProSummary();
+  if(dropped){ try{ _toast("Moved here — the rail gave up its copy of "+dropped,"#4C7B3D"); }catch(e){} }
 }
 let DASH_DIRTY=(function(){ try{ return localStorage.getItem("studioh_dashdirty_v1")==="1"; }catch(e){ return false; } })();
 function _dashClearDirty(){ DASH_DIRTY=false; try{ localStorage.removeItem("studioh_dashdirty_v1"); }catch(e){} }
@@ -44740,14 +44774,19 @@ const DASH_PRESETS=[
 let DASH_MINE=(function(){ try{ const s=localStorage.getItem("studioh_dashmine_v1"); if(s) return JSON.parse(s); }catch(e){} return null; })();
 function dashPresets(){ return DASH_MINE ? DASH_PRESETS.concat([DASH_MINE]) : DASH_PRESETS; }
 function dashApplyPreset(pid){
-  const p=dashPresets().find(x=>x.id===pid); if(!p) return;
+  let p=dashPresets().find(x=>x.id===pid); if(!p) return;
   DASH_ON={feature:p.feature.slice(0,2), read:p.read.slice(0,4)};
   dashSave();
   // The rail is the third zone, and a layout that left it alone would only ever be
   // half applied. Core cards stay on whatever the preset says.
   if(p.rail){
-    const next={}; PRO_CARDS.forEach(c=>{ next[c.id]=p.rail.indexOf(c.id)>=0; });
+    // A card belongs on the dashboard once. Budget watch shipped Real headroom in the
+    // feature pair AND in the rail, so the same card sat twice on one screen a few
+    // hundred pixels apart. The work area wins; the rail drops its copy.
+    const rail=p.rail.filter(id=>!dashUsedInWork(id));
+    const next={}; PRO_CARDS.forEach(c=>{ next[c.id]=rail.indexOf(c.id)>=0; });
     PRO_CARDS_ON=next;
+    p=Object.assign({},p,{rail});
     try{ localStorage.setItem("studioh_cards_v1", JSON.stringify(PRO_CARDS_ON)); }catch(e){}
     PRO_CARDS_ORDER=p.rail.concat(PRO_CARDS.map(c=>c.id).filter(id=>p.rail.indexOf(id)<0));
     saveCardOrder();
@@ -44796,7 +44835,10 @@ function _dashRenderFeature(d,t){
       if(reason) body=`<span class="ptile-sub">${_esc(reason)}</span>`;
       else { try{ body=c.ins.drawFull?c.ins.drawFull(d,t):c.ins.draw(d,t); }
              catch(e){ body=`<span class="ptile-sub">Cannot read this yet</span>`; } }
-      inner=`<div class="sumc"><div class="sumc-t">${_esc(c.nm)}</div>
+      // Tapping opens the card's own detail view — the same one the Insights board
+      // uses — so the note this slot has to clamp is one click from being readable.
+      inner=`<div class="sumc dfeat-tap" onclick="insOpen('${c.ins.id}')" title="Open ${escAttr(c.nm)}">
+        <div class="sumc-t">${_esc(c.nm)}<span class="dfeat-go">&#8599;</span></div>
         <div class="dfeat-b ic">${body}</div></div>`;
     }
     return `<div class="dfeat">${_dashSlot(inner,"feature",i)}</div>`;
@@ -44871,8 +44913,11 @@ function _dashSwapRender(){
       <div class="clib-g">${fit.map(c=>{
         const isCur=c.id===cur, inRow=row.indexOf(c.id)>=0&&!isCur;
         let reason=""; if(c.ins&&d){ try{ reason=c.ins.need(d,t)||""; }catch(e){ reason="no data yet"; } }
-        const note=isCur?"in this slot":inRow?"swaps with the other slot":reason?reason.toLowerCase():
-          (c.sizes.length>1?"fits feature &amp; read":"fits "+size+" only");
+        // Say it before it happens: picking a card the rail is showing moves it here
+        // and the rail gives up its copy, rather than the same card appearing twice.
+        const inRail=!isCur&&!inRow&&cardOn(dashRailId(c.id));
+        const note=isCur?"in this slot":inRow?"swaps with the other slot":inRail?"moves out of the rail":
+          reason?reason.toLowerCase():(c.sizes.length>1?"fits feature &amp; read":"fits "+size+" only");
         return `<div class="clib-i${isCur?" on":""}${reason?" need":""}"
             ${isCur?'title="Already here"':`onclick="dashSwapPick('${c.id}')" title="Put this in the slot"`}>
           <span class="tick">${isCur?"&#10003;":""}</span>
