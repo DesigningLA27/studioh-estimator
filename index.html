@@ -2,8 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!-- viewport-fit=cover so the app can reach under the iPad's rounded corners and home
+     indicator; the safe-area insets below put the padding back where it matters.
+     user-scalable=no because pinch-zoom on a dense estimate fights the trace tool. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
 <title>Studio H — Landscape Cost Estimator</title>
+<!-- Installed-app metadata. iOS ignores the manifest's display/theme_color and reads
+     these instead, so both sets have to be present. -->
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#4C7B3D"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Studio H"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<link rel="apple-touch-icon" href="icons/icon-180.png"/>
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap"/>
 <style>
@@ -630,7 +643,11 @@ body.pb-tight .pb-thumb{width:60px;height:60px}
 .pb-exp svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
 .pb-row.open .pb-exp{background:var(--gm);color:#fff;border-color:var(--gm)}
 .pb-row.open .pb-exp svg{transform:rotate(180deg)}
-.pb-body{padding:16px 16px 18px;background:var(--bg)}
+.pb-/* Installed on the iPad there is no browser chrome, so the app sits against the
+   status bar and the home indicator. viewport-fit=cover let it reach the edges;
+   these insets give the padding back only on the sides that need it. max() keeps
+   the original 16px on any device that reports no inset at all. */
+body{padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));background:var(--bg)}
 .pb-body .card{margin:0!important;background:transparent!important;border:none!important;box-shadow:none!important;padding:0!important}
 .pb-topbar{margin-bottom:12px}
 .pb-seg{display:inline-flex;background:var(--surface2);border:1px solid var(--br);border-radius:11px;padding:3px;gap:2px;flex-wrap:wrap}
@@ -6943,7 +6960,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1403</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1404</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -59692,5 +59709,45 @@ function _convexHull(pts){
 
 </script>
 
+<script>
+/* ── Installable app ─────────────────────────────────────────────────────────────
+   Registers the service worker so the estimator can be added to the iPad home
+   screen and opened without Safari's chrome.
+
+   The worker is network-first for the document, so a push still reaches the device.
+   The one thing that needs handling is the gap between "a new version downloaded"
+   and "the tab is running it": the browser keeps the old worker until every tab
+   closes. Rather than wait for that, the new one is told to take over and the page
+   reloads once — so a push lands on the next visit, not eventually.
+
+   Registered on load rather than immediately: the app is a single 4.8MB file and the
+   install precache would otherwise compete with it for bandwidth on first open. */
+(function(){
+  if(!("serviceWorker" in navigator)) return;
+  if(location.protocol==="file:") return;            // no worker from the filesystem
+  window.addEventListener("load",function(){
+    navigator.serviceWorker.register("sw.js").then(function(reg){
+      // Take over as soon as a replacement is waiting, then reload exactly once.
+      var reloaded=false;
+      navigator.serviceWorker.addEventListener("controllerchange",function(){
+        if(reloaded) return; reloaded=true; location.reload();
+      });
+      if(reg.waiting) reg.waiting.postMessage("skipWaiting");
+      reg.addEventListener("updatefound",function(){
+        var sw=reg.installing;
+        if(!sw) return;
+        sw.addEventListener("statechange",function(){
+          if(sw.state==="installed" && navigator.serviceWorker.controller) sw.postMessage("skipWaiting");
+        });
+      });
+      // Coming back to a backgrounded app is the moment a new version is most likely
+      // to be sitting on the server, so ask then too.
+      document.addEventListener("visibilitychange",function(){
+        if(document.visibilityState==="visible"){ try{ reg.update(); }catch(e){} }
+      });
+    }).catch(function(){ /* offline on first open, or no HTTPS — app still runs */ });
+  });
+})();
+</script>
 </body>
 </html>
