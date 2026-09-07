@@ -2272,11 +2272,21 @@ body:not(.sp-on) #sp-open{display:grid}
 .clib-i .tick{position:absolute;top:8px;right:9px;width:17px;height:17px;border-radius:6px;
   background:var(--brl);display:grid;place-items:center;font-size:10px;color:transparent;font-weight:800}
 .clib-i.on .tick{background:var(--gm);color:#fff}
-.clib-i .grip{position:absolute;bottom:6px;right:7px;color:var(--tl);cursor:grab;opacity:0;
-  line-height:0;padding:2px;transition:opacity .12s}
-.clib-i:hover .grip{opacity:.75}
+/* The grip used to be opacity:0 until :hover — which an iPad does not have, so the one
+   control the hint tells you to use was invisible and unfindable on the device this app
+   targets. It is always visible on touch, and hover only sharpens it on a mouse.
+   touch-action:none is what actually makes the drag work: without it the browser claims
+   the gesture for scrolling and pointermove stops firing after the first event. */
+.clib-i .grip{position:absolute;bottom:1px;right:2px;width:34px;height:34px;display:grid;
+  place-items:center;color:var(--tl);cursor:grab;opacity:.5;transition:opacity .12s;
+  touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+@media (hover:hover){
+  .clib-i .grip{opacity:0}
+  .clib-i:hover .grip{opacity:.75}
+}
 .clib-i .grip:hover{opacity:1;color:var(--gm)}
-.clib-i .grip svg{width:13px;height:13px;fill:currentColor}
+.clib-i .grip:active{opacity:1;color:var(--gm)}
+.clib-i .grip svg{width:15px;height:15px;fill:currentColor}
 .clib-i.dragging{box-shadow:0 8px 22px -8px rgba(0,0,0,.4),inset 0 0 0 2px var(--gm);opacity:.96}
 .clib-i.dragging .grip{cursor:grabbing;opacity:1}
 /* the thumbnail itself — fixed height so every tile is the same size */
@@ -7186,7 +7196,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1419</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1420</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -46466,9 +46476,14 @@ function cardDragStart(e,id){
   const row=e.target.closest(".cards-row")||e.target.closest(".clib-i"); if(!row) return;
   const sel=row.classList.contains("clib-i")?".clib-i":".cards-row";
   e.preventDefault(); e.stopPropagation();
+  // Capture the pointer on the grip itself. Without it the events retarget the moment
+  // the finger leaves the grip — which is immediately, since dragging is the point.
+  const grip=e.currentTarget||e.target;
+  try{ grip.setPointerCapture && grip.setPointerCapture(e.pointerId); }catch(_){}
   const list=row.parentNode;
   row.classList.add("dragging");
   const move=ev=>{
+    if(ev.cancelable) ev.preventDefault();          // stop the modal scrolling under the drag
     let ref=null;
     Array.from(list.querySelectorAll(sel)).forEach(r=>{
       if(r===row || ref) return;
@@ -46480,6 +46495,7 @@ function cardDragStart(e,id){
   };
   const up=()=>{
     row.classList.remove("dragging");
+    try{ grip.releasePointerCapture && grip.releasePointerCapture(e.pointerId); }catch(_){}
     document.removeEventListener("pointermove",move);
     document.removeEventListener("pointerup",up);
     document.removeEventListener("pointercancel",up);
@@ -46489,7 +46505,7 @@ function cardDragStart(e,id){
     PRO_CARDS_ORDER=out;
     saveCardOrder(); renderProSummary();
   };
-  document.addEventListener("pointermove",move);
+  document.addEventListener("pointermove",move,{passive:false});
   document.addEventListener("pointerup",up);
   document.addEventListener("pointercancel",up);
 }
