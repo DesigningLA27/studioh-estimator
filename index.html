@@ -5629,6 +5629,29 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .conf-grid-row>.l small{display:block;font-weight:500;font-size:11px;color:var(--tl);line-height:1.35;margin-top:2px}
 .conf-grid-row .st-in.num{width:100%}
 @media(max-width:700px){ .conf-grid-hd,.conf-grid-row{grid-template-columns:1fr 60px 60px;gap:6px} }
+/* Contractor cost bands. Two settings live in this one editor now, so each gets a
+   heading rather than the rows running together. */
+.conf-sect{font-size:12.5px;font-weight:750;color:var(--tx);margin-top:6px;
+  padding-top:12px;border-top:1px solid var(--br)}
+.conf-sect:first-of-type{margin-top:0;padding-top:0;border-top:0}
+.conf-sect small{display:block;font-weight:500;font-size:11px;color:var(--tl);line-height:1.45;margin-top:3px}
+.clvl-hd>span:first-child{text-transform:none;letter-spacing:.04em}
+.clvl-row{padding:5px 6px;border-radius:9px;margin:0 -6px}
+.clvl-row>.l{font-weight:600;font-variant-numeric:tabular-nums;font-size:12px;
+  display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+/* The band this project actually falls in — the one number on screen that is about
+   this job rather than the settings table. */
+.clvl-row.on{background:var(--brand-soft)}
+.clvl-row.on>.l{font-weight:800;color:var(--gd)}
+.clvl-row>.l small{font-weight:700;color:var(--gm);font-size:10px;letter-spacing:.03em;
+  text-transform:uppercase;flex-basis:100%}
+/* Beats .conf-grid-row .st-in.num{width:100%} — two classes there, so the threshold
+   needs the same reach or it goes full width and wraps its own row. */
+.conf-grid-row .st-in.num.clvl-max{width:96px;padding:3px 7px;font-size:11.5px}
+.clvl-ro{font-size:12px;font-weight:700;text-align:center;color:var(--tm);font-variant-numeric:tabular-nums}
+.clvl-note{font-size:10.5px;color:var(--tl);line-height:1.55;margin-top:2px}
+.clvl-reset{color:var(--gm);font-weight:700;cursor:pointer;text-decoration:none;border-bottom:1px solid currentColor}
+.clvl-reset:hover{color:var(--gd)}
 /* Estimate-confidence editor modal — opened from the ⚙ on the confidence card,
    either scoped to this project (S.confidence) or to the user's default. */
 .conf-edit-box{width:min(460px,100%);max-height:86vh;overflow:auto;background:var(--card);
@@ -7053,7 +7076,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1409</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1410</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -7943,15 +7966,17 @@ rebuildPhases();
 //   S.confidence           — this project's own override (saved with the project)
 //   PREFS.defaults.confidence — this user's default, seeded into every new project
 //   CONF_DEFAULT            — the built-in fallback if neither above is set
-const CONF_DEFAULT={contrLo:25, contrHi:25,
+const CONF_DEFAULT={
   scope:{consult:{lo:28,hi:28}, pre:{lo:18,hi:18}, concept:{lo:9,hi:9}, dd:{lo:6,hi:6}, cd:{lo:3,hi:3}, bid:{lo:0,hi:0}, co:{lo:0,hi:0}}};
 function _confClone(o){ try{ return JSON.parse(JSON.stringify(o)); }catch(e){ return null; } }
-function confContrLo(){ if(S.confidence&&S.confidence.contrLo!=null) return S.confidence.contrLo;
-  if(PREFS.defaults.confidence&&PREFS.defaults.confidence.contrLo!=null) return PREFS.defaults.confidence.contrLo;
-  return CONF_DEFAULT.contrLo; }
-function confContrHi(){ if(S.confidence&&S.confidence.contrHi!=null) return S.confidence.contrHi;
-  if(PREFS.defaults.confidence&&PREFS.defaults.confidence.contrHi!=null) return PREFS.defaults.confidence.contrHi;
-  return CONF_DEFAULT.contrHi; }
+// Contractor spread now comes from the cost-band multipliers (CLVL_DEFAULT / GSET.costBands)
+// rather than one flat percentage. A small job has a wider bid spread than a large one,
+// which a single ±25% could never say. The low side is how far an Economy contractor
+// sits below standard, the high side how far a Premium one sits above — read at the
+// project's own standard market cost, so the band is chosen before any multiplier is
+// applied and can never recalculate itself.
+function confContrLo(std){ return Math.round((1-clvlMult(std,"eco"))*1000)/10; }
+function confContrHi(std){ return Math.round((clvlMult(std,"pre")-1)*1000)/10; }
 function confScopeLo(id){ let v=S.confidence&&S.confidence.scope&&S.confidence.scope[id]&&S.confidence.scope[id].lo;
   if(v!=null) return v;
   v=PREFS.defaults.confidence&&PREFS.defaults.confidence.scope&&PREFS.defaults.confidence.scope[id]&&PREFS.defaults.confidence.scope[id].lo;
@@ -7966,7 +7991,7 @@ function confPMLabel(lo,hi){ return lo===hi ? `±${lo}%` : `−${lo}% / +${hi}%`
 // One phase's low/mid/high given a midpoint total — shared by the phase strip,
 // the summary card and the Insights card, so the three can never disagree.
 function confRange(mid,id){
-  const cl=confContrLo(), ch=confContrHi(), sl=confScopeLo(id), sh=confScopeHi(id);
+  const cl=confContrLo(mid), ch=confContrHi(mid), sl=confScopeLo(id), sh=confScopeHi(id);
   const totLo=cl+sl, totHi=ch+sh;
   return {cl,ch,sl,sh,totLo,totHi, lo:Math.round(mid*(1-totLo/100)), hi:Math.round(mid*(1+totHi/100))};
 }
@@ -7992,7 +8017,7 @@ function _phTipShow(e,id){
   d.innerHTML = skipped
     ? `<b style="color:var(--tx)">${escAttr(PHASES[idx].nm)}</b><br>Not bid or saved separately`
     : `<b style="color:var(--tx)">${escAttr(PHASES[idx].nm)}</b><br>
-    Contractor spread ${confPMLabel(confContrLo(),confContrHi())}<br>Scope uncertainty ${confPMLabel(confScopeLo(id),confScopeHi(id))} at this phase`;
+    Contractor spread ${confPMLabel(confContrLo(_clvlTipStd()),confContrHi(_clvlTipStd()))} <span style="color:var(--tl)">(${_clvlBandLabel(_clvlTipStd())})</span><br>Scope uncertainty ${confPMLabel(confScopeLo(id),confScopeHi(id))} at this phase`;
   document.body.appendChild(d);
   const r=e.currentTarget.getBoundingClientRect(), w=d.offsetWidth||220, h=d.offsetHeight||50;
   d.style.left=Math.max(8,Math.min(r.left+r.width/2-w/2, window.innerWidth-w-8))+"px";
@@ -8018,13 +8043,9 @@ let _confEditTarget="project";
 function _confDisplayVal(target,field,id){
   if(target==="default"){
     const o=PREFS.defaults.confidence||{};
-    if(field==="contrLo") return o.contrLo!=null?o.contrLo:CONF_DEFAULT.contrLo;
-    if(field==="contrHi") return o.contrHi!=null?o.contrHi:CONF_DEFAULT.contrHi;
     if(field==="scopeLo") return (o.scope&&o.scope[id]&&o.scope[id].lo!=null)?o.scope[id].lo:CONF_DEFAULT.scope[id].lo;
     return (o.scope&&o.scope[id]&&o.scope[id].hi!=null)?o.scope[id].hi:CONF_DEFAULT.scope[id].hi;
   }
-  if(field==="contrLo") return confContrLo();
-  if(field==="contrHi") return confContrHi();
   if(field==="scopeLo") return confScopeLo(id);
   return confScopeHi(id);
 }
@@ -8037,8 +8058,6 @@ function _confAfterEdit(target){
   renderPhaseBar(); try{ renderProSummary(); }catch(e){} if(_stOpen) _stRender();
   if(document.getElementById("conf-edit-modal")) _confEditRender();
 }
-function stConfContrLo(target,v){ const o=_confTargetObj(target); o.contrLo=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
-function stConfContrHi(target,v){ const o=_confTargetObj(target); o.contrHi=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
 function stConfScopeLo(target,id,v){ const o=_confTargetObj(target); o.scope=o.scope||{}; o.scope[id]=o.scope[id]||{}; o.scope[id].lo=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
 function stConfScopeHi(target,id,v){ const o=_confTargetObj(target); o.scope=o.scope||{}; o.scope[id]=o.scope[id]||{}; o.scope[id].hi=Math.max(0,Math.min(100,Math.round(+v||0))); _confAfterEdit(target); }
 function stConfReset(){ delete PREFS.defaults.confidence; prefsSave(); renderPhaseBar();
@@ -8047,7 +8066,7 @@ function stConfReset(){ delete PREFS.defaults.confidence; prefsSave(); renderPha
 // Promote this project's live (effective) values into the user's default for new projects.
 function confSaveAsDefault(){
   const scope={}; PHASES.forEach(p=>{ scope[p.id]={lo:confScopeLo(p.id),hi:confScopeHi(p.id)}; });
-  PREFS.defaults.confidence={contrLo:confContrLo(),contrHi:confContrHi(),scope};
+  PREFS.defaults.confidence={scope};   // contractor spread is global now, not per project
   prefsSave();
   try{ _toast("Saved as your default for new projects","#4C7B3D"); }catch(e){}
   if(document.getElementById("conf-edit-modal")) _confEditRender();
@@ -8073,10 +8092,13 @@ function _confEditRender(){
     <div class="conf-edit-sub">${isDef
       ? "Seeds every new project. Open a project and use its own ⚙ to adjust that project only."
       : "Adjusts this project only — saved with it. Most contractor quotes skew, and scope almost always grows rather than shrinks, so low and high don't have to match."}</div>
+    <div class="conf-sect">Contractor spread<small>What the same drawings get bid at by a
+      cheaper or a dearer contractor. Set by budget — a small job spreads wider than a large one.
+      Shared across every project.</small></div>
+    ${_clvlEditHTML(_clvlTipStd())}
+    <div class="conf-sect">Scope uncertainty<small>What is still undecided at each phase. Closes
+      to nothing by Bid. ${isDef?"Seeds new projects.":"This project only."}</small></div>
     <div class="conf-grid-hd"><span></span><span>Low %</span><span>High %</span></div>
-    <div class="conf-grid-row"><span class="l">Contractor spread<small>Cheap bidder to expensive bidder.</small></span>
-      <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'contrLo')}" onchange="stConfContrLo('${t}',this.value)">
-      <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'contrHi')}" onchange="stConfContrHi('${t}',this.value)"></div>
     ${PHASES.map(p=>`<div class="conf-grid-row"><span class="l">${escAttr(p.nm)} scope<small>Materials and details still unresolved at this phase.</small></span>
       <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'scopeLo',p.id)}" onchange="stConfScopeLo('${t}','${p.id}',this.value)">
       <input type="number" class="st-in num" min="0" max="100" step="1" value="${_confDisplayVal(t,'scopeHi',p.id)}" onchange="stConfScopeHi('${t}','${p.id}',this.value)"></div>`).join("")}
@@ -9315,6 +9337,135 @@ if(GSET.marketAdj==null) GSET.marketAdj = 0;                 // global market/es
 if(GSET.pbMode==null) GSET.pbMode = "concept";              // price-book lens: 'concept' (Low/Std/High range) | 'contractor' (single committed price)
 function marketMult(){ return 1 + ((+GSET.marketAdj||0)/100); }
 function gsetSave(){ try{ localStorage.setItem("studioh_settings_v1", JSON.stringify(GSET)); }catch(e){} }
+// ── CONTRACTOR COST BANDS ────────────────────────────────────
+// The same drawings get bid at different money depending on who builds them, and the
+// gap is wider on a small job than a large one. This table is what the estimate's
+// contractor spread is read from — see confContrLo()/confContrHi(). It replaced a flat
+// ±25% that claimed a $60k courtyard and a $2M estate carried the same bid risk.
+//
+// Nothing here touches a line item, a unit cost, a section subtotal or the Price Book.
+// The estimate is the STANDARD cost and stays exactly as calculated; these multipliers
+// only widen the range shown around it.
+//
+// Economy means a legitimate lower-cost contractor working at the low end of a
+// competitive market. It does not mean unlicensed, uninsured or improperly run, and no
+// text in this feature may imply that.
+//
+// Shared across devices for free: it lives on GSET, which is studioh_settings_v1, which
+// is already in SHARED_CFG_KEYS.
+const CLVL_KEYS=["eco","std","pre"];
+// Bands are read as "up to and including max"; the last band has max:null and catches
+// everything above. Defaults per the brief.
+const CLVL_DEFAULT=[
+  {max:74999,  eco:0.78, std:1.00, pre:1.35},
+  {max:149999, eco:0.82, std:1.00, pre:1.30},
+  {max:299999, eco:0.85, std:1.00, pre:1.25},
+  {max:749999, eco:0.87, std:1.00, pre:1.20},
+  {max:null,   eco:0.89, std:1.00, pre:1.17},
+];
+function clvlBands(){
+  const b=GSET.costBands;
+  if(!Array.isArray(b)||!b.length) return CLVL_DEFAULT;
+  return b;
+}
+function clvlBandsSave(bands){
+  if(bands==null) delete GSET.costBands; else GSET.costBands=bands;
+  gsetSave();
+}
+function clvlIsDefault(){ return !Array.isArray(GSET.costBands)||!GSET.costBands.length; }
+// The band is chosen from the STANDARD market cost and never from the adjusted figure.
+// Choosing it from the adjusted number would let a multiplier push the job into a
+// neighbouring band, which would pick a different multiplier, which would move it back.
+function clvlBandFor(std){
+  const bands=clvlBands(), v=Math.max(0,+std||0);
+  for(let i=0;i<bands.length;i++){
+    const mx=bands[i].max;
+    if(mx==null||mx==="") return {i,b:bands[i]};
+    if(v<=+mx) return {i,b:bands[i]};
+  }
+  return {i:bands.length-1, b:bands[bands.length-1]};
+}
+function clvlMult(std,lvl){
+  const k=CLVL_KEYS.indexOf(lvl)>=0?lvl:"std";
+  const m=+clvlBandFor(std).b[k];
+  return (isFinite(m)&&m>0)?m:1;
+}
+// The project total the bands are read at. PRO_GRAND is the last painted grand total;
+// falling back to a fresh read keeps the tooltip honest before the first paint.
+function _clvlTipStd(){
+  let v=+PRO_GRAND||0;
+  if(!(v>0)){ try{ v=+_proCardData().grand||0; }catch(e){ v=0; } }
+  return v;
+}
+function _clvlMoney(n){ return n==null?"":"$"+Math.round(n).toLocaleString(); }
+// "$300,000 – $749,999" for the band a given standard cost falls in.
+function _clvlBandRange(i){
+  const bands=clvlBands();
+  const lo=i===0?0:((+bands[i-1].max||0)+1);
+  const hi=bands[i].max;
+  return hi==null||hi===""?`${_clvlMoney(lo)}+`:`${_clvlMoney(lo)} – ${_clvlMoney(hi)}`;
+}
+function _clvlBandLabel(std){
+  const f=clvlBandFor(std);
+  return `${(+f.b.eco||1).toFixed(2)}× – ${(+f.b.pre||1).toFixed(2)}× on ${_clvlBandRange(f.i)}`;
+}
+// ── band editing ─────────────────────────────────────────────
+// Live edit, like every other setting in this app — no Edit/Save/Cancel mode to get
+// stranded in. Reset puts the shipped table back.
+function _clvlWorking(){
+  const b=clvlBands();
+  return b.map(x=>({max:(x.max==null||x.max==="")?null:+x.max, eco:+x.eco, std:1, pre:+x.pre}));
+}
+function stClvlMult(i,key,v){
+  const b=_clvlWorking(); if(!b[i]) return;
+  let n=+v; if(!isFinite(n)||n<=0) n=b[i][key];          // never let a project zero out
+  b[i][key]=Math.max(0.1,Math.min(5,Math.round(n*100)/100));
+  clvlBandsSave(b); _clvlAfterEdit();
+}
+// Thresholds must climb. Bands are "up to and including max", so keeping them strictly
+// ascending is the whole validation — contiguous by construction, no gaps to leave and
+// no overlaps to create.
+function stClvlMax(i,v){
+  const b=_clvlWorking(); if(!b[i]||b[i].max==null) return;
+  let n=Math.round(+v||0);
+  const prev=i>0?(+b[i-1].max||0):0;
+  const next=(i+1<b.length&&b[i+1].max!=null)?+b[i+1].max:null;
+  n=Math.max(prev+1,n);
+  if(next!=null) n=Math.min(next-1,n);
+  b[i].max=n; clvlBandsSave(b); _clvlAfterEdit();
+}
+function stClvlReset(){ clvlBandsSave(null); _clvlAfterEdit(); }
+function _clvlAfterEdit(){
+  try{ renderPhaseBar(); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+  try{ if(_stOpen) _stRender(); }catch(e){}
+  if(document.getElementById("conf-edit-modal")) _confEditRender();
+}
+// The editor rows. Admin-only for editing — the table is a shared global setting, so a
+// non-admin sees the same figures without inputs rather than a screen that silently
+// refuses to save.
+function _clvlEditHTML(std){
+  const bands=clvlBands(), cur=clvlBandFor(std).i, adm=(typeof isAdminUI==="function")?isAdminUI():true;
+  const cell=(i,k)=>adm
+    ? `<input type="number" class="st-in num" min="0.1" max="5" step="0.01" value="${(+bands[i][k]||1).toFixed(2)}" onchange="stClvlMult(${i},'${k}',this.value)">`
+    : `<span class="clvl-ro">${(+bands[i][k]||1).toFixed(2)}×</span>`;
+  return `<div class="conf-grid-hd clvl-hd"><span>Standard market cost</span><span>Economy</span><span>Premium</span></div>`
+    + bands.map((b,i)=>{
+        const last=b.max==null||b.max==="";
+        const lo=i===0?0:((+bands[i-1].max||0)+1);
+        const range=adm&&!last
+          ? `${_clvlMoney(lo)} – <input type="number" class="st-in num clvl-max" step="1000" value="${+b.max||0}" onchange="stClvlMax(${i},this.value)">`
+          : (last?`${_clvlMoney(lo)} and above`:`${_clvlMoney(lo)} – ${_clvlMoney(b.max)}`);
+        return `<div class="conf-grid-row clvl-row${i===cur?" on":""}">
+          <span class="l">${range}${i===cur?`<small>This project · ${_clvlMoney(std)}</small>`:""}</span>
+          ${cell(i,"eco")}${cell(i,"pre")}</div>`;
+      }).join("")
+    + `<div class="clvl-note">Standard is always 1.00× — it is the estimate itself. Economy is a
+        legitimate lower-cost contractor at the low end of a competitive market, not an unlicensed
+        or uninsured one; Premium is a higher-overhead, higher-service contractor. Actual bids vary
+        with scope, market conditions, contractor availability, complexity, insurance, supervision
+        and warranty.${adm?` <u onclick="stClvlReset()" class="clvl-reset">Reset to defaults</u>`:""}</div>`;
+}
 // ── CONTRACTOR LENS: single committed price per item, optionally itemized into sub-line components ──
 function compTotal(it){ return (it.comp||[]).reduce((s,c)=>s+(+c.qty||0)*(+c.uc||0),0); }
 function contractorPrice(it){ if(it.cmode==="itemized" && (it.comp||[]).length) return Math.round(compTotal(it)); if(it.cprice!=null && it.cprice!=="") return +it.cprice; return (it.std!=null&&it.std!=="") ? Math.round(+it.std) : Math.round(((+it.lo||0)+(+it.hi||0))/2); }
@@ -26106,11 +26257,14 @@ function _stRender(){
 
       <div class="st-card">
         <h3 style="display:flex;align-items:center;gap:7px">Estimate confidence — your default
-          ${ihint("The band on each phase is two things added, each with its own low and high: contractor spread (who builds it — roughly constant) and scope uncertainty (what is being built — closes as design firms up). Most contractor quotes skew — a low bidder rarely undercuts by as much as a high bidder overshoots — so low and high don't have to match. This is what seeds a brand-new project; open a project and use the ⚙ on its Estimate confidence card to adjust that project only.")}</h3>
+          ${ihint("The band on each phase is two things added, each with its own low and high: contractor spread (who builds it — set by budget in the table below, and shared across every project) and scope uncertainty (what is being built — closes as design firms up). Most contractor quotes skew — a low bidder rarely undercuts by as much as a high bidder overshoots — so low and high don't have to match. The scope figures seed a brand-new project; open a project and use the ⚙ on its Estimate confidence card to adjust that project only.")}</h3>
+        <div class="conf-sect">Contractor spread<small>What the same drawings get bid at by a
+          cheaper or a dearer contractor, as a multiplier on the standard market cost. A small job
+          spreads wider than a large one. Shared across every project, not seeded per project.</small></div>
+        ${_clvlEditHTML(_clvlTipStd())}
+        <div class="conf-sect">Scope uncertainty<small>What is still undecided at each phase.
+          Closes to nothing by Bid. Seeds every new project.</small></div>
         <div class="conf-grid-hd"><span></span><span>Low %</span><span>High %</span></div>
-        <div class="conf-grid-row"><span class="l">Contractor spread<small>Cheap bidder to expensive bidder.</small></span>
-          <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','contrLo')}" step="1" onchange="stConfContrLo('default',this.value)">
-          <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','contrHi')}" step="1" onchange="stConfContrHi('default',this.value)"></div>
         ${PHASES.map(p=>`<div class="conf-grid-row"><span class="l">${escAttr(p.nm)} scope<small>Materials and details still unresolved at this phase.</small></span>
           <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','scopeLo',p.id)}" step="1" onchange="stConfScopeLo('default','${p.id}',this.value)">
           <input type="number" class="st-in num" min="0" max="100" value="${_confDisplayVal('default','scopeHi',p.id)}" step="1" onchange="stConfScopeHi('default','${p.id}',this.value)"></div>`).join("")}
