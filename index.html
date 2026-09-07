@@ -2258,8 +2258,17 @@ body:not(.sp-on) #sp-open{display:grid}
   transition:box-shadow .12s,background .12s}
 .clib-i:hover{box-shadow:inset 0 0 0 1px var(--gm)}
 .clib-i.on{box-shadow:inset 0 0 0 2px var(--gm);background:var(--brand-soft)}
-.clib-i.core{cursor:default;opacity:.8}
-.clib-i.core:hover{box-shadow:inset 0 0 0 2px var(--gm)}
+/* Lifted by a long press: it grows, casts a shadow and wobbles, so the tile visibly
+   says "I am the one moving now" before the finger travels anywhere. touch-action is
+   dropped at the same moment so the list underneath stops trying to scroll. */
+.clib-i.lift{transform:scale(1.06);z-index:6;touch-action:none;cursor:grabbing;
+  box-shadow:0 16px 34px -12px rgba(0,0,0,.45),inset 0 0 0 2px var(--gm);
+  animation:clibWob .26s ease-in-out infinite alternate}
+@keyframes clibWob{
+  from{transform:scale(1.06) rotate(-1deg)}
+  to{transform:scale(1.06) rotate(1deg)}
+}
+@media (prefers-reduced-motion:reduce){ .clib-i.lift{animation:none} }
 .clib-i .nm{font-size:11.5px;font-weight:700;line-height:1.25;padding-right:22px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .clib-i .cat{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--tl);
@@ -2288,6 +2297,8 @@ body:not(.sp-on) #sp-open{display:grid}
 .clib-i .grip:active{opacity:1;color:var(--gm)}
 .clib-i .grip svg{width:15px;height:15px;fill:currentColor}
 .clib-i.dragging{box-shadow:0 8px 22px -8px rgba(0,0,0,.4),inset 0 0 0 2px var(--gm);opacity:.96}
+/* A long press must not also raise iOS's own text-selection / callout UI. */
+.clib-i{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .clib-i.dragging .grip{cursor:grabbing;opacity:1}
 /* the thumbnail itself — fixed height so every tile is the same size */
 .clib-i .mini{height:40px;margin-top:6px;display:flex;flex-direction:column;justify-content:flex-end;
@@ -7196,7 +7207,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1420</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1421</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -45326,7 +45337,9 @@ function toggleProTotal(){
 // bottom of the screen with nothing to scroll. Group order is also panel order.
 const CARD_GROUPS=[{id:"cost",nm:"Cost"},{id:"site",nm:"Site"},{id:"plant",nm:"Planting"}];
 const PRO_CARDS=[
-  {id:"total",   nm:"Project total",        row:1, core:true, g:"cost"},
+  // Was core:true — always on, never movable. It repeats the Project cost card and the
+  // phase strip, so being unable to remove it made the rail longer for no extra reading.
+  {id:"total",   nm:"Project total",        row:1, g:"cost"},
   {id:"psf",     nm:"Cost per SF",          row:1, g:"cost"},
   {id:"top3",    nm:"Top 3 costs",          row:1, g:"cost"},
   {id:"phases",  nm:"Phase totals",        row:1, g:"cost"},
@@ -46469,33 +46482,33 @@ function cardOrder(){
 function saveCardOrder(){ PRO_CARDS_ORDER=cardOrder();
   try{ localStorage.setItem("studioh_cardorder_v1", JSON.stringify(PRO_CARDS_ORDER)); }catch(e){} }
 function resetCardOrder(){ PRO_CARDS_ORDER=PRO_CARDS.map(c=>c.id); saveCardOrder(); _cardsUIRender(); renderProSummary(); }
-function cardDragStart(e,id){
-  // Works for both pickers: the Materials list (one column) and the Summary grid. In a
-  // grid the drop target cannot be found by Y alone — two tiles on the same row have
-  // the same top — so reading order is row first, then X within the row.
-  const row=e.target.closest(".cards-row")||e.target.closest(".clib-i"); if(!row) return;
+// ── Reordering ────────────────────────────────────────────────────────────────
+// Two ways in, because the two devices want different things. A mouse gets the grip.
+// A finger gets the pattern it already knows from the home screen: hold until the tile
+// lifts and wobbles, slide, let go. Hunting for a 34px grip on a tile you might equally
+// be trying to tap was never going to work on an iPad.
+let _cardPress=null, _cardDidDrag=false;
+function _cardDragRun(row, pointerId, capEl){
   const sel=row.classList.contains("clib-i")?".clib-i":".cards-row";
-  e.preventDefault(); e.stopPropagation();
-  // Capture the pointer on the grip itself. Without it the events retarget the moment
-  // the finger leaves the grip — which is immediately, since dragging is the point.
-  const grip=e.currentTarget||e.target;
-  try{ grip.setPointerCapture && grip.setPointerCapture(e.pointerId); }catch(_){}
   const list=row.parentNode;
   row.classList.add("dragging");
+  try{ capEl && capEl.setPointerCapture && capEl.setPointerCapture(pointerId); }catch(_){}
+  // In a grid the drop target cannot be found by Y alone — two tiles on the same row
+  // share a top — so reading order is row first, then X within the row.
   const move=ev=>{
-    if(ev.cancelable) ev.preventDefault();          // stop the modal scrolling under the drag
+    if(ev.cancelable) ev.preventDefault();
     let ref=null;
     Array.from(list.querySelectorAll(sel)).forEach(r=>{
       if(r===row || ref) return;
       const b=r.getBoundingClientRect();
-      if(ev.clientY < b.top){ ref=r; return; }                       // a whole row above
-      if(ev.clientY <= b.bottom && ev.clientX < b.left + b.width/2) ref=r;  // same row, left half
+      if(ev.clientY < b.top){ ref=r; return; }
+      if(ev.clientY <= b.bottom && ev.clientX < b.left + b.width/2) ref=r;
     });
     if(ref!==row) list.insertBefore(row, ref);
   };
   const up=()=>{
-    row.classList.remove("dragging");
-    try{ grip.releasePointerCapture && grip.releasePointerCapture(e.pointerId); }catch(_){}
+    row.classList.remove("dragging"); row.classList.remove("lift");
+    try{ capEl && capEl.releasePointerCapture && capEl.releasePointerCapture(pointerId); }catch(_){}
     document.removeEventListener("pointermove",move);
     document.removeEventListener("pointerup",up);
     document.removeEventListener("pointercancel",up);
@@ -46509,8 +46522,50 @@ function cardDragStart(e,id){
   document.addEventListener("pointerup",up);
   document.addEventListener("pointercancel",up);
 }
+function cardDragStart(e,id){
+  const row=e.target.closest(".cards-row")||e.target.closest(".clib-i"); if(!row) return;
+  e.preventDefault(); e.stopPropagation();
+  _cardDidDrag=true;
+  _cardDragRun(row, e.pointerId, e.currentTarget||e.target);
+}
+// Hold to lift. Any real movement before the timer cancels it, so a scroll that starts
+// on a tile still scrolls — only a stationary finger arms the drag.
+function cardPressStart(e,id){
+  if(e.pointerType==="mouse") return;                 // the mouse has the grip
+  if(e.target.closest&&e.target.closest(".grip")) return;
+  const tile=e.target.closest(".clib-i"); if(!tile) return;
+  cardPressCancel();
+  const sx=e.clientX, sy=e.clientY, pid=e.pointerId;
+  const watch=ev=>{ if(!_cardPress) return;
+    if(Math.abs(ev.clientX-sx)>9||Math.abs(ev.clientY-sy)>9) cardPressCancel(); };
+  const done=()=>cardPressCancel();
+  _cardPress={tile, watch, done,
+    t:setTimeout(()=>{
+      if(!_cardPress) return;
+      const T=_cardPress.tile;
+      document.removeEventListener("pointermove",_cardPress.watch);
+      document.removeEventListener("pointerup",_cardPress.done);
+      document.removeEventListener("pointercancel",_cardPress.done);
+      _cardPress=null;
+      _cardDidDrag=true;
+      T.classList.add("lift");
+      try{ navigator.vibrate && navigator.vibrate(14); }catch(_){}
+      _cardDragRun(T, pid, T);
+    },340)};
+  document.addEventListener("pointermove",watch,{passive:true});
+  document.addEventListener("pointerup",done);
+  document.addEventListener("pointercancel",done);
+}
+function cardPressCancel(){
+  if(!_cardPress) return;
+  clearTimeout(_cardPress.t);
+  document.removeEventListener("pointermove",_cardPress.watch);
+  document.removeEventListener("pointerup",_cardPress.done);
+  document.removeEventListener("pointercancel",_cardPress.done);
+  _cardPress=null;
+}
 function toggleCard(id,on){
-  const c=PRO_CARDS.find(x=>x.id===id); if(!c||c.core) return;
+  const c=PRO_CARDS.find(x=>x.id===id); if(!c) return;
   PRO_CARDS_ON[id]=!!on;
   try{ localStorage.setItem("studioh_cards_v1", JSON.stringify(PRO_CARDS_ON)); }catch(e){}
   renderProSummary();
@@ -46793,20 +46848,21 @@ function _cardsLibRender(){
     <div class="clib-bar">
       <button class="cchip${_cardFilter==="all"?" on":""}" onclick="cardFilterSet('all')">All ${order.length}</button>
       ${CARD_GROUPS.map(g=>`<button class="cchip${_cardFilter===g.id?" on":""}" onclick="cardFilterSet('${g.id}')">${GN[g.id]||g.nm} ${counts[g.id]}</button>`).join("")}
-      <span class="clib-hint">${canDrag?"Tap a card to add or remove &middot; drag to reorder":"Clear the filter to reorder"}</span>
+      <span class="clib-hint">${canDrag?"Tap to add or remove &middot; hold to move":"Clear the filter to reorder"}</span>
     </div>
     <div class="st-b clib-b">
       <div class="clib-g" id="clib-g">${shown.map(id=>{
         const c=byId[id], is=cardOn(id);
         const need = (c.needs==="planting"&&t.qty===0) ? "needs plants"
                    : (avail && !avail.has(c.id)) ? "no data yet" : "";
-        return `<div class="clib-i${is?" on":""}${c.core?" core":""}${need?" need":""}" data-cid="${c.id}"
-            ${c.core?'title="Always shown"':`onclick="cardLibTap('${c.id}')" title="${need?escAttr("On, but "+need+" — it will appear once it can compute"):(is?"Tap to remove":"Tap to add")}"`}>
+        return `<div class="clib-i${is?" on":""}${need?" need":""}" data-cid="${c.id}"
+            onpointerdown="cardPressStart(event,'${c.id}')"
+            onclick="cardLibTap('${c.id}')" title="${need?escAttr("On, but "+need+" — it will appear once it can compute"):(is?"Tap to remove &middot; hold to move":"Tap to add &middot; hold to move")}">
           <span class="tick">${is?"&#10003;":""}</span>
-          ${(canDrag&&!c.core)?`<span class="grip" onpointerdown="cardDragStart(event,'${c.id}')" title="Drag to reorder">
+          ${canDrag?`<span class="grip" onpointerdown="cardDragStart(event,'${c.id}')" title="Drag to reorder">
             <svg viewBox="0 0 16 16"><circle cx="6" cy="4" r="1.4"/><circle cx="10" cy="4" r="1.4"/><circle cx="6" cy="8" r="1.4"/><circle cx="10" cy="8" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="10" cy="12" r="1.4"/></svg></span>`:""}
           <span class="nm">${escAttr(c.nm)}</span>
-          <span class="cat">${GN[c.g]||c.g}${c.core?" &middot; always on":need?" &middot; "+need:""}</span>
+          <span class="cat">${GN[c.g]||c.g}${need?" &middot; "+need:""}</span>
           <span class="mini">${_cardMini(c.id)}</span></div>`;}).join("")}
       </div>
     </div>
@@ -46816,7 +46872,11 @@ function _cardsLibRender(){
         <button class="btn btn-o" onclick="closeCardsLib()">Done</button></span></div>
    </div>`;
 }
-function cardLibTap(id){ const c=PRO_CARDS.find(x=>x.id===id); if(!c||c.core) return;
+function cardLibTap(id){
+  // A drag ends with a click on the tile it landed on; without this the drop would also
+  // toggle that card off.
+  if(_cardDidDrag){ _cardDidDrag=false; return; }
+  const c=PRO_CARDS.find(x=>x.id===id); if(!c) return;
   toggleCard(id,!cardOn(id)); _cardsLibRender(); }
 function cardLibResetAll(){
   PRO_CARDS_ON=Object.assign({},PRO_CARDS_DEFAULT);
