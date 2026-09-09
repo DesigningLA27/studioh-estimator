@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1425</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1426</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12445,6 +12445,7 @@ function _demoTopUpQty(){
   Object.keys(S.cats).forEach(id=>{
     const cs=S.cats[id]; if(!cs) return;
     if(_SAMPLE_BUILDER_CATS.indexOf(id)>=0){ cs.on=true; return; }
+    if(id==="furnish"){ _demoSeedFurnish(); return; }           // counted, not measured
     if(cs.lumpOn) { cs.on=true; return; }                       // an allowance Apply set
     if((cs.items||[]).some(it=>it&&it.checked)) { cs.on=true; return; }   // already priced
     cs.on=true;
@@ -12460,10 +12461,39 @@ function _demoSeedQty(){
     const cs=S.cats[id]; cs.on=true; cs.lumpOn=false;
     if(pct[id]!=null) cs.secPct=pct[id];
     if(_SAMPLE_BUILDER_CATS.indexOf(id)>=0) return;
+    if(id==="furnish") return;                 // furniture is counted, not measured
     const area=(typeof secArea==="function")?secArea(id):0;
     (cs.items||[]).slice(0,5).forEach(it=>{
       it.checked=true; it.q=Math.max(1,Math.round(_sampleQty(it.u,area||land)*DEMO_QTY)); });
   });
+  _demoSeedFurnish();
+}
+// Furnishings are pieces of furniture, so they get counts a person would recognise — six
+// lounge chairs, eight dining chairs, two umbrellas — and then the whole package is scaled
+// once to sit near the project's furnishings allowance, whatever the price book says.
+const DEMO_FURN_N=[["seating",6],["dining",8],["shade",2],["pottery",10],["fire",1],["rug",2],["accessory",4]];
+function _demoSeedFurnish(){
+  const cs=S.cats.furnish; if(!cs||!cs.items) return;
+  cs.on=true; cs.lumpOn=false;
+  const byRole={}; DEMO_FURN_N.forEach(([r,n])=>{ byRole[r]=n; });
+  cs.items.forEach(it=>{ if(it) { it.checked=false; it.q=0; } });
+  const pick=cs.items.slice(0,12);
+  pick.forEach(it=>{
+    if(!it) return;
+    const u=String(it.u||"").toUpperCase();
+    let n=byRole[it.role]!=null?byRole[it.role]:(u==="EA"?4:1);
+    if(/whole set|daybed|dining table|fire|pergola/i.test(it.n||"")) n=1;
+    it.checked=true; it.q=Math.max(1,n);
+  });
+  // one scale pass so the package lands near the allowance rather than wherever list prices fall
+  try{
+    const target=furnAllowance();
+    const now=furnSubtotalClient();
+    if(target>0 && now>0){
+      const f=target/now;
+      if(f<0.9||f>1.1){ pick.forEach(it=>{ if(it&&it.checked) it.q=Math.max(1,Math.round(it.q*f)); }); }
+    }
+  }catch(e){}
 }
 function _demoMoodBoard(){
   const mb=_mbEnsure();
@@ -12662,12 +12692,32 @@ async function _buildDemoProject(keepTrace){
   try{
     const g=Math.round(_grandNow());
     if(g>0){ S.budget=Math.max(25000, Math.round(g*1.07/25000)*25000);
+      // The furnishings allowance is a share of the budget, and the budget is only known
+      // now — so the package is sized once more against the real allowance rather than the
+      // placeholder it was first scaled to.
+      try{ _demoSeedFurnish(); buildProCats(); }catch(e){}
       try{ _piRenderBudget(); }catch(e){} }
   }catch(e){}
   try{ _refreshProjectName(); }catch(e){}
   try{ renderProSummary(); renderPhaseBar(); }catch(e){}
   try{ if(typeof _bidSchedule==="function") _bidSchedule(); }catch(e){}
   const t=document.querySelector('.tab[data-view="pro"]'); if(t) t.click();
+  // A demo is shown to people. A section that has run away — furnishings priced by the acre
+  // was $49M against a $125k allowance — must be caught here, not on a projector.
+  const odd=[];
+  try{
+    const g=Math.round(_grandNow());
+    PB.forEach(c=>{ const cs=S.cats[c.id]; if(!cs||!cs.on) return;
+      const amt=Math.round(catSubtotal(c.id));
+      if(amt>g*0.75 && amt>0) odd.push(c.name+" "+fmtN(amt));
+    });
+    const fa=Math.round(furnAllowance()), fs=Math.round(furnSpecified());
+    if(fa>0 && fs>fa*3) odd.push("Furnishings "+fmtN(fs)+" against a "+fmtN(fa)+" allowance");
+  }catch(e){}
+  if(odd.length){
+    try{ _toast("DEMO built, but check: "+odd.join(" · "),"#B23F3C"); }catch(e){}
+    try{ console.warn("DEMO sanity:",odd); }catch(e){}
+  }
   const bits=[];
   bits.push(traced?(traced+" areas traced"):(parcel?"trace could not fit the parcel":"no parcel — trace skipped"));
   bits.push(specs.length?(specs.length+" products specified"):"no products matched a line");
@@ -15732,7 +15782,13 @@ async function specAdd(book,gid){
   }
   let seeded=0;
   if(!(+it.q>0)){
-    try{ const A=matAreaAuto(m); seeded=(+m.areaSF>0)?Math.round(+m.areaSF):(A&&A.sf?A.sf:0); }catch(e){}
+    // Only an area line takes an area. Seeding square footage onto a per-piece line put the
+    // whole landscape's SF against a coffee table and a market umbrella — 7,312 of each, a
+    // $49M furnishings section. A piece is one piece until someone says otherwise.
+    const _u=String(L.u||it.u||"").toUpperCase();
+    if(_u==="SF"||_u==="SY"){
+      try{ const A=matAreaAuto(m); seeded=(+m.areaSF>0)?Math.round(+m.areaSF):(A&&A.sf?A.sf:0); }catch(e){}
+    } else if(_u==="EA"||_u==="LS"){ seeded=1; }
   }
   // Remember what the line was doing so removing the spec puts it back exactly.
   const rec={ id:"sp"+Date.now().toString(36)+Math.round(performance.now()%1000),
