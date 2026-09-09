@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1423</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1424</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12272,6 +12272,407 @@ function _buildSampleProject(){
   try{ renderPhaseBar(); renderProSummary(); }catch(e){}
   const t=document.querySelector('.tab[data-view="pro"]'); if(t) t.click();
   try{ _toast("Sample project loaded — save it to keep a copy","#4C7B3D"); }catch(e){}
+}
+
+
+// ── DEMO PROJECT ─────────────────────────────────────────────
+// A full estate on the sample address, built to be shown rather than reviewed: every tab
+// carries real work, so the Mood Board, the plant reports and the exports all have
+// something true to draw. It is the sample project's machinery at estate scale, plus the
+// three things the sample never had — a traced site, specified products and a mood board.
+const DEMO_NAME="DEMO";
+// Metres east / north of a centre, as {x:lng, y:lat} — the shape satellite traces are stored in.
+function _demoLL(c,e,n){
+  const dLat=n/111320, dLng=e/(111320*Math.cos(c.lat*Math.PI/180));
+  return {x:c.lng+dLng, y:c.lat+dLat};
+}
+function _demoRect(c,e,n,w,d,rot){
+  const t=(rot||0)*Math.PI/180, co=Math.cos(t), si=Math.sin(t);
+  return [[-w/2,-d/2],[w/2,-d/2],[w/2,d/2],[-w/2,d/2]]
+    .map(([a,b])=>_demoLL(c, e+a*co-b*si, n+a*si+b*co));
+}
+// Planar area in square feet. Google's geometry library is what the tracer uses, but it is
+// not loaded until the map is, and the polygons need their area at build time.
+function _demoPolySF(pts){
+  if(!pts||pts.length<3) return 0;
+  let cx=0,cy=0; pts.forEach(q=>{ cx+=q.x/pts.length; cy+=q.y/pts.length; });
+  const k=Math.cos(cy*Math.PI/180);
+  const xy=pts.map(q=>({x:(q.x-cx)*111320*k, y:(q.y-cy)*111320}));
+  let a=0; for(let i=0;i<xy.length;i++){ const j=(i+1)%xy.length; a+=xy[i].x*xy[j].y-xy[j].x*xy[i].y; }
+  return Math.round(Math.abs(a/2)*10.7639104);
+}
+// The traced site, fitted to the county parcel. The property line is the county's own
+// ring — real data, not drawn by me — and everything else is laid out inside its minimum
+// area rectangle, so the garden runs parallel to the real boundary instead of to north.
+//
+// Local frame: u across the lot, v along it, metres, origin at the rectangle's centre.
+function _demoFrame(ring){
+  if(!ring||ring.length<4) return null;
+  let cx=0,cy=0; ring.forEach(q=>{ cx+=q.lng/ring.length; cy+=q.lat/ring.length; });
+  const k=Math.cos(cy*Math.PI/180);
+  const P=ring.map(q=>({x:(q.lng-cx)*111320*k, y:(q.lat-cy)*111320}));
+  // Minimum-area rectangle: the best one always shares an edge with the hull, so testing
+  // every edge angle is enough at parcel scale and needs no hull code.
+  let best=null;
+  for(let i=0;i<P.length;i++){
+    const j=(i+1)%P.length, dx=P[j].x-P[i].x, dy=P[j].y-P[i].y;
+    const L=Math.hypot(dx,dy); if(L<0.5) continue;
+    const ux=dx/L, uy=dy/L;
+    let a0=1e9,a1=-1e9,b0=1e9,b1=-1e9;
+    P.forEach(q=>{ const a=q.x*ux+q.y*uy, b=-q.x*uy+q.y*ux;
+      if(a<a0)a0=a; if(a>a1)a1=a; if(b<b0)b0=b; if(b>b1)b1=b; });
+    const area=(a1-a0)*(b1-b0);
+    if(area>1 && (!best||area<best.area)) best={area,ux,uy,a0,a1,b0,b1};
+  }
+  if(!best) return null;
+  let W=best.a1-best.a0, D=best.b1-best.b0;
+  const ca=(best.a0+best.a1)/2, cb=(best.b0+best.b1)/2;
+  let ux=best.ux, uy=best.uy;
+  const ox=ca*ux-cb*uy, oy=ca*uy+cb*ux;
+  // v is always the long axis — a lot is deeper than it is wide, and the layout assumes it.
+  if(W>D){ const t=W; W=D; D=t; const tx=ux; ux=-uy; uy=tx; }
+  return {cx,cy,k,ux,uy,ox,oy,W,D};
+}
+function _demoPt(F,u,v){
+  const x=F.ox+u*F.ux-v*F.uy, y=F.oy+u*F.uy+v*F.ux;
+  return {x:F.cx+x/(111320*F.k), y:F.cy+y/111320};
+}
+function _demoBox(F,u,v,w,d){
+  return [[-w/2,-d/2],[w/2,-d/2],[w/2,d/2],[-w/2,d/2]].map(([a,b])=>_demoPt(F,u+a,v+b));
+}
+// Which end of the lot faces the street. A geocoder puts the pin at the address, which is
+// the street-facing side far more often than not, so the pin's end is the front.
+function _demoFrontSign(F,home){
+  if(!home) return -1;
+  const x=(home.lng-F.cx)*111320*F.k-F.ox, y=(home.lat-F.cy)*111320-F.oy;
+  const v=-x*F.uy+y*F.ux;
+  return v<0?-1:1;
+}
+function _demoTrace(F,home,parcelRings){
+  const P=[];
+  const add=(mode,pts,name,sub,extra)=>{ const o=Object.assign({mode,kind:"area",page:1,pts,name},extra||{});
+    o.sf=_demoPolySF(pts); if(sub) o.type=sub; P.push(o); return o; };
+  // The county's own boundary, verbatim.
+  (parcelRings||[]).forEach(ring=>{ if(!ring||ring.length<3) return;
+    add("lot", ring.map(ll=>({x:ll.lng,y:ll.lat})), "Property line", null, {_parcel:true}); });
+  const W=F.W, D=F.D, f=_demoFrontSign(F,home);
+  const V=t=>f*(D/2-D*t);                    // t = 0 at the street, 1 at the rear boundary
+  const inset=Math.min(3.5, W*0.06);
+  add("limit",    _demoBox(F,0,0,W-inset*2,D-inset*2), "Limit of work");
+  add("building", _demoBox(F,0,V(0.30),W*0.50,D*0.20), "Residence");
+  add("driveway", _demoBox(F,-W*0.30,V(0.13),W*0.20,D*0.20), "Motor court","Poured-in-place concrete");
+  add("paving",   _demoBox(F,0,V(0.46),W*0.66,D*0.09), "Rear terrace","Natural stone");
+  add("paving",   _demoBox(F,W*0.16,V(0.63),W*0.44,D*0.16), "Pool deck","Porcelain pavers");
+  add("pool",     _demoBox(F,W*0.16,V(0.63),12.2,5.5),  "Pool");
+  add("spa",      _demoBox(F,W*0.16+8.2,V(0.63),2.6,2.6), "Spa");
+  add("shade",    _demoBox(F,-W*0.28,V(0.45),5.6,4.6), "Dining pergola","Louvered");
+  add("kitchen",  _demoBox(F,-W*0.06,V(0.44),5.5,1.2), "Outdoor kitchen","Main run");
+  add("water",    _demoBox(F,-W*0.34,V(0.62),2.2,4.6), "Spillway basin");
+  add("turf",     _demoBox(F,-W*0.18,V(0.68),W*0.36,D*0.18), "Rear lawn","Real sod");
+  add("planting", _demoBox(F,0,V(0.88),W*0.80,D*0.10), "Rear screen border");
+  add("planting", _demoBox(F,-W*0.42,V(0.55),W*0.09,D*0.52), "West border");
+  add("planting", _demoBox(F, W*0.42,V(0.55),W*0.09,D*0.52), "East border");
+  add("planting", _demoBox(F,W*0.14,V(0.14),W*0.36,D*0.13), "Front garden");
+  return P;
+}
+function _demoSeedTrace(){
+  const home=_ptHome(); if(!home || typeof PT==="undefined") return 0;
+  const pd=(typeof window!=="undefined")?window._parcelData:null;
+  const rings=(pd&&pd.paths&&pd.paths.length)?pd.paths:null;
+  // Without the county ring there is no honest property line and no frame to lay out in.
+  const ring=rings?rings.slice().sort((a,b)=>b.length-a.length)[0]:null;
+  const F=ring?_demoFrame(ring):null;
+  if(!F) return 0;
+  PT.live=true; PT.doc=null; PT.pdfData=null; PT.ppf=1; PT.page=1; PT.numPages=1;
+  PT.satBase={center:{lat:+home.lat,lng:+home.lng}, zoom:20, live:true, for:(S.pi&&S.pi.address)||""};
+  PT.polys=_demoTrace(F,home,rings); PT.trees=[]; PT.cur=[]; PT.guides=[]; PT.ai=[];
+  PT.subtype={}; PT.undo=[]; PT.redo=[]; PT.hidden={}; PT.demoN={}; PT.pointBy={};
+  try{ PT.polys.forEach(q=>{ if(q.type) PT.subtype[q.mode]=q.type; }); }catch(e){}
+  try{ Object.keys(measured).forEach(k=>{ measured[k]=0; });
+    const M={building:"building",driveway:"driveway",planting:"planting",paving:"paving",lot:"lot",limit:"limit",exclude:"exclusion"};
+    PT.polys.forEach(q=>{ const k=M[q.mode]; if(k) measured[k]=(measured[k]||0)+(+q.sf||0); });
+  }catch(e){}
+  try{ window._traceBackup=null; }catch(e){}
+  return PT.polys.length;
+}
+// Products, from what is actually in the library on this device. specAdd opens a dialog on
+// a line clash or a price that looks wrong for the line, and a dialog inside an automated
+// build hangs it — so both conditions are checked here first and such an item is skipped.
+function _demoSpecs(limit){
+  const added=[];
+  const canSpec=m=>{
+    if(!m||specIsOn(m.id)) return null;
+    let price=0; try{ price=goodsEstPrice(m); }catch(e){}
+    if(!price) return null;
+    let L=null; try{ L=specLineOf(m); }catch(e){}
+    if(!L) return null;
+    if(projSpecs().some(sp=>sp&&sp.cat===L.catId&&sp.idx===L.idx)) return null;   // would prompt
+    try{
+      const it=S.cats[L.catId].items[L.idx];
+      const typical=+it.std||Math.max(+it.hi||0,(+it.lo||0)*2)||0;
+      const inst=specInstalled(m);
+      if(!L.skipSanity && typical>0 && inst.total>typical*5) return null;          // would prompt
+    }catch(e){ return null; }
+    return L;
+  };
+  const sweep=(book,arr,cats,perCat)=>{
+    const n={};
+    (arr||[]).forEach(m=>{
+      if(added.length>=limit) return;
+      const c=(m&&(m.cat||m.category))||"";
+      if(cats && cats.indexOf(c)<0) return;
+      if((n[c]||0)>=perCat) return;
+      if(!canSpec(m)) return;
+      try{ specAdd(book,m.id); n[c]=(n[c]||0)+1; added.push((m.nm||m.id)+" · "+c); }catch(e){}
+    });
+  };
+  sweep("materials", typeof MATERIALS!=="undefined"?MATERIALS:[], MAT_MB_CATS, 2);
+  sweep("furnishings", typeof FURNISHINGS!=="undefined"?FURNISHINGS:[], FUR_CATS, 2);
+  sweep("furnishings", typeof FURNISHINGS!=="undefined"?FURNISHINGS:[], PROD_CATS, 1);
+  return added;
+}
+// Section quantities. Run once up front so the builders have somewhere to sit, then again
+// after the county parcel has resized the property — every quantity keys off section area,
+// so seeding before the real lot size lands would price a different site.
+const DEMO_QTY=0.8;
+// The studio's margin. Fixed rather than read from preferences so the demo shows the same
+// number on any device, and so "Markup & adjustments" has something to open.
+const DEMO_MARKUP=15;
+// Sections the trace says nothing about — permits, drainage, electrical, general conditions.
+// Anything already carrying a checked line was decided by the trace or by hand; it is left alone.
+function _demoTopUpQty(){
+  const land=+S.proLandscapeArea||0;
+  Object.keys(S.cats).forEach(id=>{
+    const cs=S.cats[id]; if(!cs) return;
+    if(_SAMPLE_BUILDER_CATS.indexOf(id)>=0){ cs.on=true; return; }
+    if(cs.lumpOn) { cs.on=true; return; }                       // an allowance Apply set
+    if((cs.items||[]).some(it=>it&&it.checked)) { cs.on=true; return; }   // already priced
+    cs.on=true;
+    const area=(typeof secArea==="function")?secArea(id):0;
+    (cs.items||[]).slice(0,4).forEach(it=>{
+      it.checked=true; it.q=Math.max(1,Math.round(_sampleQty(it.u,area||land)*DEMO_QTY)); });
+  });
+}
+function _demoSeedQty(){
+  const land=+S.proLandscapeArea||0;
+  const pct={paving:26, planting:42, irrigation:42, lighting:100, sitework:100, drainage:100};
+  Object.keys(S.cats).forEach(id=>{
+    const cs=S.cats[id]; cs.on=true; cs.lumpOn=false;
+    if(pct[id]!=null) cs.secPct=pct[id];
+    if(_SAMPLE_BUILDER_CATS.indexOf(id)>=0) return;
+    const area=(typeof secArea==="function")?secArea(id):0;
+    (cs.items||[]).slice(0,5).forEach(it=>{
+      it.checked=true; it.q=Math.max(1,Math.round(_sampleQty(it.u,area||land)*DEMO_QTY)); });
+  });
+}
+function _demoMoodBoard(){
+  const mb=_mbEnsure();
+  const want=["palette","plants","materials","insights","siteelements"];
+  try{ _mbSectionDefs().forEach(s=>{ if(s.group==="furnishings"||s.group==="materials"){
+    try{ if(_mbItemsForSection(s).shown.length) want.push(s.key); }catch(e){} } }); }catch(e){}
+  mb.sections=want.filter((k,i)=>want.indexOf(k)===i);
+  mb.hidden=[];
+  return mb.sections.length;
+}
+// Is there a real trace on this project, drawn against this address?
+function _demoHasTrace(){
+  try{
+    if(typeof PT==="undefined"||!PT.polys||PT.polys.length<3) return false;
+    const real=PT.polys.filter(q=>q&&q.pts&&q.pts.length>=3&&(+q.sf||0)>0);
+    return real.length>=3;
+  }catch(e){ return false; }
+}
+function loadDemoProject(){
+  const msg=_projectHasWork()
+    ? "You have a project open with work in it.\n\nLoading DEMO replaces it — save yours first if you need it.\n\nLoad DEMO anyway?"
+    : "Load the DEMO project?";
+  if(!confirm(msg)) return;
+  _buildDemoProject(false);
+}
+// Build the demo around a trace that is already drawn. Everything the trace decides — the
+// property line, the areas, the section quantities Apply wrote from them — is left exactly
+// as it is; only the parts the trace says nothing about are filled in.
+function buildDemoOnTrace(){
+  if(!_demoHasTrace()){
+    alert("No trace found on this project.\n\nOpen the plan, trace the property on the satellite image and press Apply, then run this.");
+    return;
+  }
+  const n=PT.polys.length;
+  if(!confirm("Build the DEMO project around the "+n+" areas you have traced?\n\nThe trace and the areas it applied are kept. Everything else — builders, planting zones, products, mood board, phases — is replaced.")) return;
+  _buildDemoProject(true);
+}
+async function _buildDemoProject(keepTrace){
+  closeSettings();
+  S._sample=true; S._demo=true;
+  const today=new Date().toISOString().slice(0,10);
+  const addr=(keepTrace && S.pi && S.pi.address) ? S.pi.address : SAMPLE_ADDRESS;
+  S.pi=Object.assign({}, S.pi||{}, {
+        client:(keepTrace&&S.pi&&S.pi.client)||"Whitmore Residence",
+        project:DEMO_NAME+" — San Marino Estate", address:addr, date:today,
+        notes:"Demonstration project. A whole-property renovation carried from consultation through schematic design, with every tool in the app exercised on real data."});
+  S.phase="sd";
+  S.ql=2; S.markup=DEMO_MARKUP;
+  S.fpMode="calc"; S.stories=2;
+  S.permitTier="complex";
+  S.budget=1050000;                       // replaced at the end by one derived from the total
+  if(!keepTrace){
+    // ── site: a placeholder until the county parcel replaces it further down
+    S.homeSF=5200;
+    S.lotSize=24000; S.proLotSize=24000; S.dwySF=1400; S.dwyInclude=false;
+    const land=24000-5200-1400;
+    S.landscapeArea=land; S.proLandscapeArea=land; S.plantingAreaSF=Math.round(land*0.42);
+    _demoSeedQty();
+  } else {
+    // The trace already sized the site and Apply already wrote the quantities it implies.
+    // Only sections the trace could say nothing about get filled in.
+    S.dwySF=Math.max(1,Math.round(+S.dwySF||0))||1400;
+    if(!(+S.plantingAreaSF>0)) S.plantingAreaSF=Math.round((+S.proLandscapeArea||0)*0.42);
+    _demoTopUpQty();
+  }
+  const setv=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
+  setv("pro-lot-sf",S.proLotSize); setv("pro-footprint-sf",S.homeSF); setv("pro-driveway-sf",S.dwySF);
+  setv("pi-client",S.pi.client); setv("pi-project",S.pi.project); setv("pi-address",S.pi.address);
+  try{ _piRenderStyle(); }catch(e){}
+  try{ _piRenderBudget(); }catch(e){}
+  const dwycb=document.getElementById("pro-dwy-include"); if(dwycb) dwycb.checked=false;
+  try{ updateProSiteDims(); }catch(e){}
+  try{ buildProCats(); }catch(e){}
+  // ── the builders, at estate scale
+  try{ S.walls=[]; newWallSegment();
+    Object.assign(S.walls[0],{label:"Seat wall — rear terrace", height:1.5, length:46, finishIdx:0, sides:2, capIdx:0});
+    newWallSegment(); Object.assign(S.walls[1],{label:"Retaining — east slope", height:3.5, length:62, finishIdx:1, sides:1, capIdx:0, drain:true});
+  }catch(e){}
+  try{ S.pergolas=[]; newPergola();
+    Object.assign(S.pergolas[0],{label:"Dining pergola", dimMode:"dim", L:20, W:14, height:10, attachedSides:1, lights:6});
+    newPergola(); Object.assign(S.pergolas[1],{label:"Poolside shade", dimMode:"dim", L:14, W:10, height:9, attachedSides:0, lights:4});
+  }catch(e){}
+  try{ S.kitchens=[]; newKitchen();
+    Object.assign(S.kitchens[0],{label:"Outdoor kitchen", dimMode:"run", runLF:18, segs:[{len:18}], hasBar:true, barLF:10});
+    S.kitchens[0].util.gas=true; S.kitchens[0].util.elec=true; S.kitchens[0].util.cold=true; S.kitchens[0].util.drain=true;
+  }catch(e){}
+  try{ S.waterFeatures=[]; addWaterFeature("custom");
+    Object.assign(S.waterFeatures[0],{title:"Spillway basin", basinLen:14, basinWidth:5, wallLen:14, uplights:4});
+  }catch(e){}
+  try{ S.pools=[]; addPool();
+    Object.assign(S.pools[0],{title:"Pool & spa", lenFt:40, widFt:18, spa:true, baja:true, bajaSF:80, ledQty:6, automation:true});
+  }catch(e){}
+  // ── planting: four zones, real plants from the book, priced ones first
+  try{
+    const pl=ensurePlanting();
+    pl.zones=[newZone("Front garden"), newZone("Rear lawn borders"), newZone("Pool surround"), newZone("West screen")];
+    const shares=[0.16,0.34,0.18,0.32];
+    shares.forEach((s,i)=>{ if(pl.zones[i]){ pl.zones[i].areaSF=Math.round(S.plantingAreaSF*s); pl.zones[i]._touched=true; } });
+    const priced=(kind,n)=>{
+      const all=(PLANT_DB[kind]||[]);
+      const withPrice=all.filter(p=>p&&p.price&&Object.keys(p.price).some(k=>+p.price[k]>0));
+      return (withPrice.length>=n?withPrice:all).slice(0,n).map(p=>p.id);
+    };
+    priced("shrub",10).forEach((id,i)=>{ try{ addShrubRow(i%4,id); }catch(e){} });
+    priced("gc",4).forEach((id,i)=>{ try{ addGcRow(i%4,id); }catch(e){} });
+    priced("tree",6).forEach((id,i)=>{ try{ addTreeRow(i%4,id); }catch(e){} });
+    try{ (pl.zones[1].treeRows||[]).forEach(r=>{ r.sz="36"; r.n=2; }); }catch(e){}
+    S.cats.planting.on=true;
+  }catch(e){}
+  // ── checklist: a project mid-flight, not a blank one. Everything through Concept is
+  // signed off; Schematic Design is half done, which is where the phase strip says we are.
+  try{
+    const st=chkState(); st.done={};
+    st.applies={fire:true, mwelo:true, coastal:false, hillside:true, historic:false,
+                trees:true, geotech:false, septic:false};
+    const past={consult:1, pre:1, concept:1};
+    let sd=0;
+    CHK_MASTER.forEach(it=>{
+      if(past[it.ph]) st.done[it.id]=true;
+      else if(it.ph==="sd" && sd++<Math.round(CHK_MASTER.filter(x=>x.ph==="sd").length*0.55)) st.done[it.id]=true;
+    });
+    st.notes=st.notes||{};
+    st.notes.c_visit="Walked the property with both owners. Rear slope is the constraint.";
+  }catch(e){}
+  try{ updateProSiteDims(); buildProCats(); }catch(e){}
+  try{ renderQLBtns(); renderCatCards(); updatePrep(); }catch(e){}
+  try{ plantRefresh(); }catch(e){}
+  try{ renderProSummary(); renderAreaBudget(); renderTotal(); updateProBar(); }catch(e){}
+  // ── the map. The county parcel carries the real property line, lot size and house
+  // footprint; it arrives after the geocode, and everything downstream is derived from it,
+  // so the build waits for it rather than pricing a lot I made up.
+  let traced=0, parcel=false;
+  if(keepTrace){
+    // The trace is the site. Nothing here re-reads the county or re-draws a shape — the
+    // zones are simply sized to the planting area the trace actually measured.
+    traced=(typeof PT!=="undefined"&&PT.polys)?PT.polys.length:0; parcel=true;
+    try{
+      const tp=Math.round((measured&&measured.planting)||0);
+      if(tp>0) S.plantingAreaSF=tp;
+      const pl2=ensurePlanting();
+      const shares=[0.16,0.34,0.18,0.32];
+      shares.forEach((s,i)=>{ if(pl2.zones[i]) pl2.zones[i].areaSF=Math.round(S.plantingAreaSF*s); });
+      buildProCats(); plantRefresh();
+    }catch(e){}
+  } else {
+    // ── the map. The county parcel carries the real property line, lot size and house
+    // footprint; it arrives after the geocode, and everything downstream derives from it.
+    try{ resolveAddress(SAMPLE_ADDRESS); }catch(e){}
+    for(let i=0;i<80;i++){
+      const pd=(typeof window!=="undefined")?window._parcelData:null;
+      if(_ptHome() && pd && pd.paths && pd.paths.length){ parcel=true; break; }
+      await new Promise(r=>setTimeout(r,250));
+    }
+    try{
+      const pd=(typeof window!=="undefined"&&window._parcelData)||{};
+      if(+pd.lotSF>1000){ S.lotSize=S.proLotSize=Math.round(+pd.lotSF); setv("pro-lot-sf",S.proLotSize); }
+      if(+pd.homeSF>500){ S.homeSF=Math.round(+pd.homeSF); setv("pro-footprint-sf",S.homeSF); }
+      setv("pro-driveway-sf",S.dwySF);
+      const dcb=document.getElementById("pro-dwy-include"); if(dcb) dcb.checked=false;
+      updateProSiteDims();
+      S.plantingAreaSF=Math.round((+S.proLandscapeArea||0)*0.42);
+      const pl2=ensurePlanting();
+      [0.16,0.34,0.18,0.32].forEach((s,i)=>{ if(pl2.zones[i]) pl2.zones[i].areaSF=Math.round(S.plantingAreaSF*s); });
+      _demoSeedQty();
+      buildProCats(); plantRefresh();
+    }catch(e){}
+    try{ traced=_demoSeedTrace(); }catch(e){}
+  }
+  // ── products from the library, then the mood board that reads them
+  let specs=[]; try{ specs=_demoSpecs(12); }catch(e){}
+  let secs=0; try{ secs=_demoMoodBoard(); }catch(e){}
+  try{ buildProCats(); renderProSummary(); renderAreaBudget(); renderTotal(); updateProBar(); }catch(e){}
+  // ── phase history, captured last so every earlier phase is a share of the real total
+  try{
+    S.snaps={};
+    const full=_phaseCapture(), grand=Math.round(_grandNow());
+    const liveCats=_phaseCats();
+    const back=[["consult",0.62,-124],["pre",0.79,-86],["concept",0.93,-38]];
+    back.forEach(([pid,scale,days])=>{
+      const d=JSON.parse(JSON.stringify(full));
+      Object.keys(d.cats||{}).forEach(k=>{ (d.cats[k].items||[]).forEach(it=>{ if(it.checked) it.q=Math.round((+it.q||0)*scale*100)/100; }); });
+      if(pid!=="concept"){ (d.pools||[]).forEach(q=>{ q.baja=false; }); }
+      if(pid==="consult"){ d.kitchens=[]; d.waterFeatures=[]; (d.pools||[]).forEach(q=>{ q.spa=false; }); }
+      if(pid==="pre") d.waterFeatures=[];
+      const dt=new Date(); dt.setDate(dt.getDate()+days);
+      const cats={}; Object.keys(liveCats).forEach(k=>{ cats[k]=Math.round(liveCats[k]*scale); });
+      if(pid==="consult"){ delete cats.kitchen; delete cats.water; }
+      if(pid==="pre") delete cats.water;
+      S.snaps[pid]={ data:d, savedAt:dt.toISOString(), total:Math.round(grand*scale), cats };
+    });
+    S.snaps.sd={ data:full, savedAt:new Date().toISOString(), total:grand, cats:liveCats };
+  }catch(e){}
+  // The budget is derived from what the job actually came to, rounded to something a client
+  // would have said out loud. A fixed figure would read "under budget" on my price book and
+  // "over" on someone else's — this reads a little under wherever it is opened.
+  try{
+    const g=Math.round(_grandNow());
+    if(g>0){ S.budget=Math.max(25000, Math.round(g*1.07/25000)*25000);
+      try{ _piRenderBudget(); }catch(e){} }
+  }catch(e){}
+  try{ _refreshProjectName(); }catch(e){}
+  try{ renderProSummary(); renderPhaseBar(); }catch(e){}
+  try{ if(typeof _bidSchedule==="function") _bidSchedule(); }catch(e){}
+  const t=document.querySelector('.tab[data-view="pro"]'); if(t) t.click();
+  const bits=[];
+  bits.push(traced?(traced+" areas traced"):(parcel?"trace could not fit the parcel":"no parcel — trace skipped"));
+  bits.push(specs.length?(specs.length+" products specified"):"no products matched a line");
+  bits.push(secs+" mood-board sections");
+  try{ _toast("DEMO loaded — "+bits.join(" · "),"#4C7B3D"); }catch(e){}
 }
 
 // ── PHASE STRIP ──────────────────────────────────────────────
@@ -26484,6 +26885,12 @@ function _stRender(){
                  <button class="btn btn-o" onclick="removeSampleProject()">Remove sample</button>`
               : `<button class="btn btn-o" onclick="loadSampleProject()">Load sample project</button>`}
             ${ihint("Fills a demo estimate that turns on every section and one of every builder — pool, spa, kitchen, pergola, water feature, walls, planting — so you can review the whole app. It replaces whatever project is open, and the total is not a realistic bid.")}
+          </span></div>
+        <div class="st-row"><span class="l">DEMO project<small>${S._demo?"Loaded · San Marino estate":"A full estate — traced site, planting, products, mood board, four phases"}</small></span>
+          <span style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+            <button class="btn btn-o" onclick="loadDemoProject()">${S._demo?"Reload DEMO":"Load DEMO project"}</button>
+            <button class="btn btn-o" onclick="buildDemoOnTrace()">Build DEMO on this trace</button>
+            ${ihint("Builds a presentation-ready estate on the sample address: every section and builder on at estate scale, four saved phases, a traced site on the satellite map, four planting zones with real plants, products specified from your library, and a mood board assembled from all of it. It replaces whatever project is open.")}
           </span></div>
         <div class="st-row"><span class="l">Open with the sample<small>Only on a fresh start — never over a saved project.</small></span>
           ${_stSeg(PREFS.autoSample===false?"off":"on",[{v:"on",nm:"On"},{v:"off",nm:"Off"}],"stAutoSample")}</div>
