@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1426</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1427</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12495,6 +12495,12 @@ function _demoSeedFurnish(){
     }
   }catch(e){}
 }
+// The phases actually switched on, in order. Design Development and Construction
+// Observation are off by default, so this is normally Consultation → Bid Estimate.
+function _demoPhaseIds(){
+  try{ if(PHASES&&PHASES.length) return PHASES.map(p=>p.id); }catch(e){}
+  return ["consult","pre","concept","cd","bid"];
+}
 function _demoMoodBoard(){
   const mb=_mbEnsure();
   const want=["palette","plants","materials","insights","siteelements"];
@@ -12540,7 +12546,7 @@ async function _buildDemoProject(keepTrace){
         client:(keepTrace&&S.pi&&S.pi.client)||"Whitmore Residence",
         project:DEMO_NAME+" — San Marino Estate", address:addr, date:today,
         notes:"Demonstration project. A whole-property renovation carried from consultation through schematic design, with every tool in the app exercised on real data."});
-  S.phase="sd";
+  S.phase=_demoPhaseIds().slice(-1)[0];      // finish on the last active phase, normally Bid Estimate
   S.ql=2; S.markup=DEMO_MARKUP;
   S.fpMode="calc"; S.stories=2;
   S.permitTier="complex";
@@ -12609,11 +12615,14 @@ async function _buildDemoProject(keepTrace){
     const st=chkState(); st.done={};
     st.applies={fire:true, mwelo:true, coastal:false, hillside:true, historic:false,
                 trees:true, geotech:false, septic:false};
-    const past={consult:1, pre:1, concept:1};
-    let sd=0;
+    // Everything before the phase we are in is signed off; the phase we are in is part done.
+    const ids=_demoPhaseIds(), here=ids[ids.length-1];
+    const past={}; ids.slice(0,-1).forEach(id=>{ past[id]=1; });
+    const hereN=CHK_MASTER.filter(x=>x.ph===here).length;
+    let seen=0;
     CHK_MASTER.forEach(it=>{
       if(past[it.ph]) st.done[it.id]=true;
-      else if(it.ph==="sd" && sd++<Math.round(CHK_MASTER.filter(x=>x.ph==="sd").length*0.55)) st.done[it.id]=true;
+      else if(it.ph===here && seen++<Math.round(hereN*0.55)) st.done[it.id]=true;
     });
     st.notes=st.notes||{};
     st.notes.c_visit="Walked the property with both owners. Rear slope is the constraint.";
@@ -12666,37 +12675,35 @@ async function _buildDemoProject(keepTrace){
   let specs=[]; try{ specs=_demoSpecs(12); }catch(e){}
   let secs=0; try{ secs=_demoMoodBoard(); }catch(e){}
   try{ buildProCats(); renderProSummary(); renderAreaBudget(); renderTotal(); updateProBar(); }catch(e){}
-  // ── phase history, captured last so every earlier phase is a share of the real total
+  // ── phase history across every phase that is switched on, ending on the one we are in.
+  // Each earlier phase is the same job with less of it decided: the scope that had not been
+  // designed yet is taken back out, and the quantities that had not been measured are lighter.
+  // That is what makes stepping through the strip show something — the confidence band closes
+  // as well as the number moving, because scope uncertainty falls away by Bid.
   try{
-    S.snaps={};
+    const ids=_demoPhaseIds();
     const full=_phaseCapture(), grand=Math.round(_grandNow());
     const liveCats=_phaseCats();
-    const back=[["consult",0.62,-124],["pre",0.79,-86],["concept",0.93,-38]];
-    back.forEach(([pid,scale,days])=>{
+    const n=ids.length;
+    S.snaps={};
+    ids.forEach((pid,i)=>{
+      const last=(i===n-1);
+      if(last){ S.snaps[pid]={data:full, savedAt:new Date().toISOString(), total:grand, cats:liveCats}; return; }
+      const t=n>1?(i/(n-1)):1;
+      const scale=Math.round((0.58+0.42*t)*1000)/1000;
       const d=JSON.parse(JSON.stringify(full));
-      Object.keys(d.cats||{}).forEach(k=>{ (d.cats[k].items||[]).forEach(it=>{ if(it.checked) it.q=Math.round((+it.q||0)*scale*100)/100; }); });
-      if(pid!=="concept"){ (d.pools||[]).forEach(q=>{ q.baja=false; }); }
-      if(pid==="consult"){ d.kitchens=[]; d.waterFeatures=[]; (d.pools||[]).forEach(q=>{ q.spa=false; }); }
-      if(pid==="pre") d.waterFeatures=[];
-      const dt=new Date(); dt.setDate(dt.getDate()+days);
+      Object.keys(d.cats||{}).forEach(k=>{ (d.cats[k].items||[]).forEach(it=>{
+        if(it.checked) it.q=Math.round((+it.q||0)*scale*100)/100; }); });
       const cats={}; Object.keys(liveCats).forEach(k=>{ cats[k]=Math.round(liveCats[k]*scale); });
-      if(pid==="consult"){ delete cats.kitchen; delete cats.water; }
-      if(pid==="pre") delete cats.water;
+      // What had not been designed yet, earliest first.
+      if(t<0.75){ (d.pools||[]).forEach(q=>{ q.baja=false; }); }
+      if(t<0.55){ d.waterFeatures=[]; delete cats.water; }
+      if(t<0.35){ d.kitchens=[]; delete cats.kitchen;
+                  (d.pools||[]).forEach(q=>{ q.spa=false; });
+                  if(d.pergolas&&d.pergolas.length>1) d.pergolas=d.pergolas.slice(0,1); }
+      const dt=new Date(); dt.setDate(dt.getDate()-Math.round((1-t)*150));
       S.snaps[pid]={ data:d, savedAt:dt.toISOString(), total:Math.round(grand*scale), cats };
     });
-    S.snaps.sd={ data:full, savedAt:new Date().toISOString(), total:grand, cats:liveCats };
-  }catch(e){}
-  // The budget is derived from what the job actually came to, rounded to something a client
-  // would have said out loud. A fixed figure would read "under budget" on my price book and
-  // "over" on someone else's — this reads a little under wherever it is opened.
-  try{
-    const g=Math.round(_grandNow());
-    if(g>0){ S.budget=Math.max(25000, Math.round(g*1.07/25000)*25000);
-      // The furnishings allowance is a share of the budget, and the budget is only known
-      // now — so the package is sized once more against the real allowance rather than the
-      // placeholder it was first scaled to.
-      try{ _demoSeedFurnish(); buildProCats(); }catch(e){}
-      try{ _piRenderBudget(); }catch(e){} }
   }catch(e){}
   try{ _refreshProjectName(); }catch(e){}
   try{ renderProSummary(); renderPhaseBar(); }catch(e){}
