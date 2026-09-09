@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1428</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1429</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12440,18 +12440,34 @@ const DEMO_QTY=0.8;
 const DEMO_MARKUP=15;
 // Sections the trace says nothing about — permits, drainage, electrical, general conditions.
 // Anything already carrying a checked line was decided by the trace or by hand; it is left alone.
+// Building on a trace, quantities are re-sized against the areas the trace measured. Apply
+// pushes traced areas into the site and the sections but leaves quantities alone wherever a
+// line is already ticked — and the demo ticks everything — so without this the estimate keeps
+// quantities measured off a different site. That mismatch is what prices 5,129 SF of paving
+// at $455/SF: the area says one thing and the quantity says another.
+//
+// Three things are never re-sized, because they were decided by something other than a
+// benchmark: a lump-sum allowance Apply set, a line carrying a specified product, and a line
+// whose quantity was typed by hand.
 function _demoTopUpQty(){
   const land=+S.proLandscapeArea||0;
   Object.keys(S.cats).forEach(id=>{
     const cs=S.cats[id]; if(!cs) return;
-    if(_SAMPLE_BUILDER_CATS.indexOf(id)>=0){ cs.on=true; return; }
-    if(id==="furnish"){ _demoSeedFurnish(); return; }           // counted, not measured
-    if(cs.lumpOn) { cs.on=true; return; }                       // an allowance Apply set
-    if((cs.items||[]).some(it=>it&&it.checked)) { cs.on=true; return; }   // already priced
     cs.on=true;
+    if(_SAMPLE_BUILDER_CATS.indexOf(id)>=0) return;
+    if(id==="furnish"){ _demoSeedFurnish(); return; }           // counted, not measured
+    if(cs.lumpOn) return;                                       // an allowance Apply set
     const area=(typeof secArea==="function")?secArea(id):0;
-    (cs.items||[]).slice(0,4).forEach(it=>{
-      it.checked=true; it.q=Math.max(1,Math.round(_sampleQty(it.u,area||land)*DEMO_QTY)); });
+    const items=(cs.items||[]);
+    const already=items.some(it=>it&&it.checked);
+    const take=already?items.filter(it=>it&&it.checked):items.slice(0,4);
+    take.forEach(it=>{
+      if(!it) return;
+      if(it._spec) return;                                      // a product sets this line
+      if(it._qTyped) return;                                    // someone typed this quantity
+      it.checked=true;
+      it.q=Math.max(1,Math.round(_sampleQty(it.u,area||land)*DEMO_QTY));
+    });
   });
 }
 function _demoSeedQty(){
