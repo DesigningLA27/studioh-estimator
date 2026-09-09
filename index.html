@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1429</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1430</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -51581,7 +51581,7 @@ async function ptRenderPage(){
   const ctx=cv.getContext("2d"); await page.render({canvasContext:ctx,viewport:vp}).promise;
   const svg=document.getElementById("pt-svg"); if(svg){ svg.setAttribute("width",vp.width); svg.setAttribute("height",vp.height); svg.setAttribute("viewBox",`0 0 ${vp.width} ${vp.height}`); }
   const _wrap=cv.parentNode; if(_wrap&&_wrap.style){ _wrap.style.transformOrigin="center center"; _wrap.style.transform=(_ptFlatOn()&&PT.flatRot)?("rotate("+PT.flatRot+"deg)"):""; }
-  try{ _ptGestureBind(); }catch(e){} try{ _ptApplyStagePad(); }catch(e){}
+  try{ _ptGestureBind(); }catch(e){} try{ _ptStageBox(); }catch(e){}
   ptDrawOverlay(); ptUpdateInfo(); try{ _ptRenderFlatBar(); }catch(e){} }
 function _ptShoelace(pts){ let a=0; for(let i=0;i<pts.length;i++){ const j=(i+1)%pts.length; a+=pts[i].x*pts[j].y-pts[j].x*pts[i].y; } return Math.abs(a)/2; }
 function _ptPolySF(pdfPts){ if(!pdfPts||pdfPts.length<3) return 0;
@@ -51823,19 +51823,38 @@ function ptToggleFullscreen(){ const el=document.getElementById("pt-modal"); if(
 function ptZoom(f){ if(ptMapLive()){ try{ PT.map.setZoom(Math.max(15,Math.min(22,PT.map.getZoom()+(f>1?1:-1)))); }catch(e){} return; }
   PT.scale=Math.min(4,Math.max(0.12,PT.scale*f)); ptRenderPage(); }
 let _ptPan=null;
-// Scroll can never go past the canvas edge, so without slack an edge of the plan can never be
-// centred. Pad the stage by half its own size on every side: pan room without a bigger image.
+// Scroll stops at the edge of the plan, so without slack no edge of it can ever reach the middle
+// of the view. Padding the scroller cannot supply that slack: a rotated canvas spills outside its
+// own layout box, and a scroll container drops both its end padding and any transformed overflow
+// past its start edge. So the plan gets a real box instead — a spacer sized to its tilted
+// footprint plus a whole stage on top, with the plan centred inside it. Every corner can then be
+// dragged to the centre, at any tilt and any zoom.
 function _ptPad(){ const st=document.getElementById("pt-stage"); if(!st) return {x:0,y:0};
+  // Flat mode centres the plan in a spacer half a view wider on each side, so the plan's own
+  // left edge always starts half a view in — that offset is the origin zooming anchors against.
+  if(_ptFlatOn()) return {x:(st.clientWidth||0)/2, y:(st.clientHeight||0)/2};
   const cs=getComputedStyle(st); return {x:parseFloat(cs.paddingLeft)||0, y:parseFloat(cs.paddingTop)||0}; }
-function _ptApplyStagePad(){ const st=document.getElementById("pt-stage"); if(!st) return;
-  if(!_ptFlatOn()){ return; }                                  // PDF/live keep their own framing
-  const r=st.getBoundingClientRect();                          // border-box: fixed by flex, unaffected by our padding
-  // A rotated canvas keeps its upright layout box, so its visual edges stick out past it —
-  // add that overhang or the rotated plan still stops short.
-  const cw=PT.canvasW||0, ch=PT.canvasH||0, rot=((PT.flatRot||0)%180)!==0;
-  const ovx=rot?Math.max(0,(ch-cw)/2):0, ovy=rot?Math.max(0,(cw-ch)/2):0;
-  const px=Math.round(r.width*0.5+ovx), py=Math.round(r.height*0.5+ovy);
-  if(px>0&&py>0) st.style.padding=py+"px "+px+"px"; }
+function _ptStageBox(){
+  const st=document.getElementById("pt-stage"), sp=document.getElementById("pt-spacer");
+  const cv=document.getElementById("pt-canvas"); if(!st||!sp||!cv) return;
+  const wrap=cv.parentNode; if(!wrap||!wrap.style) return;
+  if(!_ptFlatOn()){                                            // PDF/live keep their own framing
+    st.style.padding="1rem"; sp.style.display="contents";
+    wrap.style.position="relative"; wrap.style.left=""; wrap.style.top=""; return; }
+  const cw=PT.canvasW||cv.width||0, ch=PT.canvasH||cv.height||0; if(!(cw>0&&ch>0)) return;
+  // A tilt at any angle other than a right angle makes the plan's real footprint wider than the
+  // canvas that holds it, and the old (ch-cw)/2 allowance came to nothing on a square still.
+  const th=(PT.flatRot||0)*Math.PI/180, C=Math.abs(Math.cos(th)), Sn=Math.abs(Math.sin(th));
+  const bw=cw*C+ch*Sn, bh=cw*Sn+ch*C;
+  const vw=st.clientWidth||0, vh=st.clientHeight||0;
+  const W=Math.round(bw+vw), H=Math.round(bh+vh);              // half a view of slack every side
+  st.style.padding="0";
+  sp.style.display="block"; sp.style.position="relative";
+  sp.style.width=W+"px"; sp.style.height=H+"px";
+  wrap.style.position="absolute";
+  wrap.style.left=Math.round((W-cw)/2)+"px";
+  wrap.style.top =Math.round((H-ch)/2)+"px";
+}
 const _ptTouch=new Map(); let _ptPinch=null;
 let _ptGest=null, _ptGestBound=false;                      // iOS Safari two-finger pinch (most reliable on iPad)
 function _ptGestureBind(){ if(_ptGestBound) return; _ptGestBound=true;
@@ -57172,10 +57191,10 @@ function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=d
       <div id="pt-stagewrap" style="flex:1;position:relative;display:flex;overflow:hidden">
       ${PT.live?`<div id="pt-map" style="position:absolute;inset:0;background:#3a4030"></div>
       <svg id="pt-svg" style="position:absolute;inset:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>`:`<div id="pt-stage" style="flex:1;overflow:auto;background:#3a4030;position:relative;display:${_ptFlatOn()?'block':'flex'};align-items:safe center;justify-content:safe center;padding:${_ptFlatOn()?'0':'1rem'}">
-        <div style="position:relative;line-height:0">
+        <div id="pt-spacer" style="display:contents"><div style="position:relative;line-height:0">
           <canvas id="pt-canvas" onpointerdown="ptDown(event)" onpointermove="ptMove(event)" onpointerup="ptUp(event)" onpointercancel="ptUp(event)" style="cursor:crosshair;box-shadow:0 4px 24px rgba(0,0,0,.5);touch-action:none"></canvas>
           <svg id="pt-svg" style="position:absolute;top:0;left:0;pointer-events:none" onpointerdown="ptSvgDown(event)" onpointermove="ptSvgMove(event)" onpointerup="ptSvgUp(event)"></svg>
-        </div>
+        </div></div>
       </div>`}
       <div id="pt-float" style="position:absolute;inset:0;pointer-events:none"></div>
       </div>
