@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1437</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1438</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -57599,7 +57599,8 @@ function _ptDockPanel(g){
     +S("Modifiers")+T("ptToggleOrtho()","90\u00b0 square corners",_DIC.ortho,_orthoOn()); }
   if(g==="view"){ let h=H("View","Framing &amp; display")
     +T(ptMapLive()?"ptFlatten()":"ptReturnLive()",ptMapLive()?"Flatten &amp; rotate":"Back to live map",_DIC.rotate,_ptFlatOn());
-    if(_ptFlatOn()) h+=T("ptRotate90()","Rotate 90\u00b0",_DIC.rotate,false);
+    if(_ptFlatOn()) h+=T("ptRotate90()","Rotate 90\u00b0",_DIC.rotate,false)
+      +T("ptSquareNow()","Square to the house",_DIC.ortho,false);
     h+=S("Zoom")+T("ptZoom(1.2)","Zoom in",_DIC.zin,false)+T("ptZoom(0.83)","Zoom out",_DIC.zout,false)
     +S("Display")+T("ptToggleLabels()","Labels",_DIC.labels,!PT.hideLabels)+T("ptLayersPopover()","Layers",_DIC.layers,false);
     if(!(PT.live||_ptFlatOn())) h+=T("ptOpenScale()","Set scale (PDF)",_DIC.scale,false);
@@ -58039,15 +58040,73 @@ function _ptReproj(fn){ (PT.guides||[]).forEach(g=>{ if(g.pts) g.pts=g.pts.map(f
 // shoelace(px)/ppf², which rotation cannot change. Return to live rebuilds the map.
 function _ptFlatOn(){ return typeof PT!=="undefined" && PT.flat===true && !PT.live; }
 // angle (deg) to rotate the still so the building's longest edge is horizontal
+// Square the house to the view. Every wall of an ordinary house meets its neighbours at a right
+// angle, so laying one wall flat lays them all flat: the rear of the house comes to rest on 0, 90,
+// 180 or 270 and stays there through every ptRotate90().
+//
+// This used to find the angle from the single longest edge of a traced building, on the current
+// page, at the one moment the still was made. Two things went wrong with that. The ordinary way to
+// work is to rotate the aerial FIRST and trace onto it afterwards — and with nothing traced yet it
+// returned 0, so nothing was squared at all and the house sat at whatever angle the satellite
+// happened to fly over it. And a single longest edge is whatever the trace happens to make longest:
+// one lazy diagonal across a corner and the whole plan tilts to it.
+//
+// So it takes the smallest rectangle that encloses the shape instead — the orientation a builder
+// would call square — and if the house is not traced yet it squares to the property line, then to
+// the limit of work. A missing page no longer disqualifies a shape either.
+function _ptHull(pts){
+  const s=pts.slice().sort((a,b)=>a.x-b.x||a.y-b.y);
+  const cr=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+  const lo=[],up=[];
+  for(const q of s){ while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],q)<=0) lo.pop(); lo.push(q); }
+  for(let i=s.length-1;i>=0;i--){ const q=s[i];
+    while(up.length>=2&&cr(up[up.length-2],up[up.length-1],q)<=0) up.pop(); up.push(q); }
+  lo.pop(); up.pop(); return lo.concat(up);
+}
+// The rotation that lays the smallest enclosing rectangle flat, in (-45,45].
+function _ptMinAreaRot(pts){
+  const h=_ptHull(pts); if(h.length<3) return 0;
+  let best=Infinity, bang=0;
+  for(let i=0;i<h.length;i++){
+    const a=h[i], b=h[(i+1)%h.length];
+    const th=Math.atan2(b.y-a.y,b.x-a.x), c=Math.cos(-th), sn=Math.sin(-th);
+    let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+    for(const q of h){ const X=q.x*c-q.y*sn, Y=q.x*sn+q.y*c;
+      if(X<x0)x0=X; if(X>x1)x1=X; if(Y<y0)y0=Y; if(Y>y1)y1=Y; }
+    const A=(x1-x0)*(y1-y0);
+    if(A<best-1e-9){ best=A; bang=th*180/Math.PI; }
+  }
+  let rot=((-bang%90)+90)%90; if(rot>45) rot-=90;
+  return rot;
+}
 function _ptSquareRot(){
-  try{ const b=(PT.polys||[]).find(p=>p.mode==="building"&&p.pts&&p.pts.length>=2&&p.page===PT.page);
+  try{
+    const onPage=p=>(p.page==null||p.page===PT.page);
+    const pick=m=>(PT.polys||[]).filter(p=>p.mode===m&&p.pts&&p.pts.length>=3&&onPage(p))
+                    .sort((a,b)=>(+b.sf||0)-(+a.sf||0))[0];      // the house, not the shed
+    const b=pick("building")||pick("lot")||pick("limit");
     if(!b) return 0;
-    let bi=0,bl=0; for(let i=0;i<b.pts.length;i++){ const a=b.pts[i], c=b.pts[(i+1)%b.pts.length]; const L=Math.hypot(c.x-a.x,c.y-a.y); if(L>bl){ bl=L; bi=i; } }
-    const a=b.pts[bi], c=b.pts[(bi+1)%b.pts.length];
-    let ang=Math.atan2(c.y-a.y, c.x-a.x)*180/Math.PI;
-    let rot=((-ang%90)+90)%90; if(rot>45) rot-=90;      // nearest square, in (-45,45]
-    return rot;
+    return _ptMinAreaRot(b.pts);
   }catch(e){ return 0; }
+}
+// The squaring and the quarter turns are kept apart, so re-squaring after the house is traced
+// does not throw away the 90s you have already turned it through.
+function _ptApplySquare(){
+  const base=_ptSquareRot();
+  const k=(((PT.flatQuarters||0)%4)+4)%4;
+  PT.flatRot=((base+90*k)%360+360)%360;
+  return base;
+}
+// Square it now, to whatever is traced now — for when the house went on after the rotation.
+function ptSquareNow(){
+  if(!_ptFlatOn()) return;
+  const had=PT.flatRot;
+  const base=_ptApplySquare();
+  const src=(PT.polys||[]).some(p=>p.mode==="building")?"house"
+           :((PT.polys||[]).some(p=>p.mode==="lot")?"property line":"limit of work");
+  ptFitPage().then(()=>ptRenderPage().then(()=>{ try{ _ptFlatCenter(); }catch(e){} }));
+  try{ _toast((base===0&&had===PT.flatRot)?"Nothing traced to square to yet — trace the house."
+        :("Squared to the "+src+"."),"#2F5B23"); }catch(e){}
 }
 async function ptFlatten(){
   if(!ptMapLive()||!PT.satBase||!PT.satBase.center){ alert("Open the satellite map first."); return; }
@@ -58068,18 +58127,19 @@ async function ptFlatten(){
   _ptReproj(toPx);
   PT.live=false; PT.pdfData=null; PT.satBase=Object.assign({},sb,{live:false, for:((S.pi&&S.pi.address)||"")});
   PT.doc=_ptImageDoc(r.canvas, sb.w, sb.h); PT.numPages=1; PT.page=1; PT.ppf=ppf; PT.flat=true;
-  PT.flatRot=_ptSquareRot();
+  PT.flatQuarters=0; _ptApplySquare();
   PT._flatBusy=false;
   ptRenderModal();                                  // swap the map stage for the still canvas
   try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ _ptFlatCenter(); }catch(e){}
   try{ _toast("Flattened · house squared. ⟲ rotates 90°, ◱ returns to the live map.","#2F5B23"); }catch(e){}
 }
-function ptRotate90(){ if(!_ptFlatOn()) return; PT.flatRot=(((PT.flatRot||0)+90)%360);
+function ptRotate90(){ if(!_ptFlatOn()) return;
+  PT.flatQuarters=((((PT.flatQuarters||0)+1)%4)+4)%4; _ptApplySquare();
   ptFitPage().then(()=>ptRenderPage().then(()=>{ try{ _ptFlatCenter(); }catch(e){} })); }
 function _ptFlatCenter(){ const st=document.getElementById("pt-stage"); if(!st) return;
   st.scrollLeft=Math.max(0,(st.scrollWidth-st.clientWidth)/2);
   st.scrollTop =Math.max(0,(st.scrollHeight-st.clientHeight)/2); }
-async function ptReturnLive(){ PT.flat=false; PT.flatRot=0;
+async function ptReturnLive(){ PT.flat=false; PT.flatRot=0; PT.flatQuarters=0;
   try{ await ptOpenSatellite(true); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptRenderPage(); }catch(e){} }
 function _ptRenderFlatBar(){
   const host=document.getElementById("pt-stagewrap"); if(!host) return;
