@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1441</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1442</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -50464,17 +50464,34 @@ function _ptHatchPattern(patId,id,rot,scale,col,op){ const Hh=_HATCH[id]; if(!Hh
   return '<pattern id="'+patId+'" width="'+w+'" height="'+h+'" patternUnits="userSpaceOnUse" patternTransform="rotate('+(rot||0)+')">'+body+'</pattern>'; }
 function _ptHatchSwatch(id){ const Hh=_HATCH[id]; if(!Hh) return ""; const U=4.6, w=Hh.w*U, h=Hh.h*U, pid="sw_"+id;
   return '<svg viewBox="0 0 40 40" preserveAspectRatio="xMidYMid slice"><defs><pattern id="'+pid+'" width="'+w+'" height="'+h+'" patternUnits="userSpaceOnUse">'+Hh.lines.map(l=>'<line x1="'+(l[0]*U)+'" y1="'+(l[1]*U)+'" x2="'+(l[2]*U)+'" y2="'+(l[3]*U)+'" stroke="#c2c8ba" stroke-width="0.85"/>').join('')+'</pattern></defs><rect width="40" height="40" rx="3" fill="url(#'+pid+')"/></svg>'; }
-function ptHatchSel(id){ PT._hatchSel=(PT._hatchSel===id)?null:id; PT.selectMode=false; PT._aiTool=null; PT._hatchAlign=false; PT._hatchPick=false; PT._hatchMatch=0;
+// The plan is CSS-rotated by PT.flatRot, but a hatch pattern is rotated inside the canvas,
+// so a stored 0° reads as flatRot° on screen. Store canvas-space (the hatch stays glued to the
+// ground when the plan turns) and show/seed screen-space, so a fresh hatch reads 0° in the view.
+function _ptViewRot(){ try{ return (_ptFlatOn()?(PT.flatRot||0):0); }catch(e){ return 0; } }
+function _ptHatchAngShow(pp){ const r=(pp&&pp.hatch)?(pp.hatch.rot||0):0; return Math.round((((r+_ptViewRot())%360)+360)%360); }
+function _ptSetHatchOn(idx,id){ const poly=PT.polys[idx]; if(!poly||poly.kind!=="area") return; ptSnap();
+  if(id==="none"||!id||!_HATCH[id]){ delete poly.hatch; }
+  else { const _sc=(poly.hatch&&poly.hatch.scale)||1;
+    const _rt=(poly.hatch&&poly.hatch.rot!=null)?poly.hatch.rot:((PT._hatchRot||0)-_ptViewRot());
+    delete poly.hatch; poly.hatch={id:id,rot:_rt,scale:_sc,col:PT._hatchCol||undefined,op:(PT._hatchOp==null?undefined:PT._hatchOp)}; }
+  PT._hatchPoly=idx;
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); _ptDockRefresh(); }catch(e){} }
+// With a zone already in EDITING, tapping a pattern paints it there and then — the old flow
+// armed the pattern and waited for a second tap on the plan, which left Angle & Scale dimmed.
+function ptHatchSel(id){ const _pi=_ptPropIdx();
+  if(_pi!=null && PT.polys[_pi] && PT.polys[_pi].kind==="area"){
+    PT._hatchSel=null; PT._hatchAlign=false; PT._hatchPick=false; PT._hatchMatch=0;
+    _ptSetHatchOn(_pi,id); try{ ptMapCursor&&ptMapCursor(); }catch(e){} return; }
+  PT._hatchSel=(PT._hatchSel===id)?null:id; PT.selectMode=false; PT._aiTool=null; PT._hatchAlign=false; PT._hatchPick=false; PT._hatchMatch=0;
   try{ _ptDockRefresh(); ptMapCursor&&ptMapCursor(); }catch(e){}
   if(PT._hatchSel) try{ _toast(id==="none"?"Tap a zone to remove its pattern.":"Tap a zone to apply "+_HATCH[id].name+".","#2F5B23"); }catch(e){} }
-function _ptApplyHatch(p,c){ const hit=_ptHitTest(p,c); if(!hit||hit.type!=="poly") return; const idx=hit.idx, poly=PT.polys[idx];
-  if(!poly||poly.kind!=="area") return; ptSnap();
-  if(PT._hatchSel==="none"){ delete poly.hatch; PT._hatchPoly=null; } else { const _sc=(poly.hatch&&poly.hatch.scale)||1; delete poly.hatch; poly.hatch={id:PT._hatchSel,rot:PT._hatchRot||0,scale:_sc,col:PT._hatchCol||undefined,op:(PT._hatchOp==null?undefined:PT._hatchOp)}; PT._hatchPoly=idx; }
-  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); _ptDockRefresh(); }catch(e){} }
+function _ptApplyHatch(p,c){ const hit=_ptHitTest(p,c); if(!hit||hit.type!=="poly") return;
+  _ptSetHatchOn(hit.idx, PT._hatchSel); }
 function ptHatchRot(d){ PT._hatchRot=((PT._hatchRot||0)+d);
-  if(PT._hatchPoly!=null){ const pp=PT.polys[PT._hatchPoly]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.rot=(pp.hatch.rot||0)+d; } }
+  const _i=_ptPropIdx();
+  if(_i!=null){ const pp=PT.polys[_i]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.rot=(pp.hatch.rot||0)+d; } }
   try{ ptDrawOverlay(); _ptDockRefresh(); }catch(e){} }
-function ptHatchScale(f){ if(PT._hatchPoly!=null){ const pp=PT.polys[PT._hatchPoly]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.scale=Math.max(0.35,Math.min(4,(pp.hatch.scale||1)*f)); try{ ptDrawOverlay(); _ptDockRefresh(); }catch(e){} } } }
+function ptHatchScale(f){ const _i=_ptPropIdx(); if(_i!=null){ const pp=PT.polys[_i]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.scale=Math.max(0.35,Math.min(4,(pp.hatch.scale||1)*f)); try{ ptDrawOverlay(); _ptDockRefresh(); }catch(e){} } } }
 // The zone the Hatch and Properties panels act on. A shape picked with Select counts too, so
 // tapping a zone and editing it works without arming anything.
 function _ptPropIdx(){ if(PT._hatchPoly!=null && PT.polys[PT._hatchPoly]) return PT._hatchPoly;
@@ -51744,7 +51761,7 @@ function ptAddAt(p,c,e){
     if(ang==null){
       if(Math.hypot(b.x-a.x,b.y-a.y)<6){ try{ _toast("Too close \u2014 tap a point further along the line.","#8A6D1F"); }catch(_){} return; }
       ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI; }
-    PT._hatchAlign=0; PT._hatchAlignA=null; PT._hatchAlignD=null; PT._hatchRot=ang;
+    PT._hatchAlign=0; PT._hatchAlignA=null; PT._hatchAlignD=null; PT._hatchRot=ang+_ptViewRot();
     if(PT._hatchPoly!=null){ const pp=PT.polys[PT._hatchPoly]; if(pp&&pp.hatch){ ptSnap(); pp.hatch.rot=ang; } }
     try{ ptDrawOverlay(); _ptDockRefresh(); _toast("Aligned to "+Math.round(((ang%180)+180)%180)+"\u00b0","#2F5B23"); }catch(_){} return; }
   if(PT._hatchSel){ try{ _ptApplyHatch(p,c); }catch(_){} return; }
@@ -52457,7 +52474,7 @@ function ptDemoPolyToggle(idx){
 function ptSetPolyMat(idx, v){                                   // paving material -> default hatch, prices off the book
   const p=PT.polys[idx]; if(!p) return; ptSnap(); p.type=String(v||"");
   if(p.type && PAV_HATCH.hasOwnProperty(p.type)){ const hid=PAV_HATCH[p.type];
-    if(hid && _HATCH[hid]) p.hatch={id:hid, rot:(p.hatch&&p.hatch.rot)||0, scale:(p.hatch&&p.hatch.scale)||1}; else delete p.hatch; }
+    if(hid && _HATCH[hid]) p.hatch={id:hid, rot:(p.hatch&&p.hatch.rot!=null)?p.hatch.rot:-_ptViewRot(), scale:(p.hatch&&p.hatch.scale)||1}; else delete p.hatch; }
   try{ ptDrawOverlay(); ptUpdateInfo(); if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
 }
 function ptSetPolyRate(idx, v){                                  // manual $/SF override for this trace (this project only)
@@ -57503,7 +57520,7 @@ function _ptDockPanel(g){
           +'<span class="zmeta"><span class="zname">'+znm+'</span><span class="zsub">'+zsf+' \u00b7 '+zpat+'</span></span>'
           +'<svg class="go" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>'; }
         const dimH=(pp&&pp.hatch)?"":" pddim", dimZ=pp?"":" pddim";
-        const rotV=(pp&&pp.hatch)?Math.round((((pp.hatch.rot||0)%360)+360)%360)+"\u00b0":"\u2014";
+        const rotV=(pp&&pp.hatch)?_ptHatchAngShow(pp)+"\u00b0":"\u2014";
         const sclV=(pp&&pp.hatch)?(pp.hatch.scale||1).toFixed(2)+"\u00d7":"\u2014";
         const HOLD='onpointerup="ptHatchRotStop()" onpointerleave="ptHatchRotStop()" onpointercancel="ptHatchRotStop()"';
         z+=S("Angle &amp; scale")
@@ -57555,6 +57572,23 @@ function _ptDockPanel(g){
     h+='<div class="pdsh"><span class="t">Outline</span><button class="a'+(zl?"":" off")+'" onclick="ptPropLine(&#39;off&#39;)">Match layer</button></div>'
       +'<div class="pdprop"><input type="color" class="pddot'+(zl?"":" noval")+'" value="'+lcol+'" oninput="ptPropLine(&#39;col&#39;,this.value,1)" onchange="ptPropLine(&#39;col&#39;,this.value)">'
       +'<input type="range" min="1" max="8" step="0.5" value="'+lw+'" style="--f:'+(((lw-1)/7*100).toFixed(1))+'%" oninput="_pdFill(this);ptPropLine(&#39;w&#39;,+this.value,1);var e=document.getElementById(&#39;pxlw&#39;);if(e)e.textContent=(+this.value).toFixed(1)" onchange="ptPropLine(&#39;w&#39;,+this.value)"><b id="pxlw">'+(+lw).toFixed(1)+'</b></div>';
+    // Hatch lives here too — the pattern, its angle and its scale, for the same zone.
+    if(pp.kind==="area"){ const hh=pp.hatch||null;
+      const dimH=hh?"":" pddim";
+      const HOLD='onpointerup="ptHatchRotStop()" onpointerleave="ptHatchRotStop()" onpointercancel="ptHatchRotStop()"';
+      h+=S("Hatch")
+        +'<div class="fld"><span class="k">Pattern</span><select onchange="ptHatchSel(this.value)">'
+        +'<option value="none"'+(hh&&hh.id?"":" selected")+'>\u2014 none</option>'
+        +["brick","plank","grid","diag","basket","cube","herringbone","hex"].filter(id=>_HATCH[id])
+          .map(id=>'<option value="'+id+'"'+((hh&&hh.id===id)?" selected":"")+'>'+escAttr(HATCH_SH[id]||_HATCH[id].name)+'</option>').join("")
+        +'</select></div>'
+        +'<div class="pdstep'+dimH+'"><button onpointerdown="ptHatchRotStart(-1)" '+HOLD+' title="Hold to spin">\u21ba</button>'
+          +'<div class="mid"><div class="val">'+(hh?_ptHatchAngShow(pp)+"\u00b0":"\u2014")+'</div><div class="k">Angle</div></div>'
+          +'<button onpointerdown="ptHatchRotStart(1)" '+HOLD+' title="Hold to spin">\u21bb</button></div>'
+        +'<div class="pdstep'+dimH+'"><button onclick="ptHatchScale(0.8)">\u2212</button>'
+          +'<div class="mid"><div class="val">'+(hh?(hh.scale||1).toFixed(2)+"\u00d7":"\u2014")+'</div><div class="k">Scale</div></div>'
+          +'<button onclick="ptHatchScale(1.25)">+</button></div>'
+        +T("ptHatchAlign()",(PT._hatchAlign?["Align \u00b7 tap the zone","Align \u00b7 tap point 1","Align \u00b7 tap point 2"][PT._hatchAlign-1]:"Align to Object"),_DIC.snapL,!!PT._hatchAlign); }
     const FS=(k,lbl,val,opts)=>'<div class="fld"><span class="k">'+lbl+'</span><select onchange="ptPropSet(&#39;'+k+'&#39;,this.value)">'
       +opts.map(o=>'<option'+((val||"")===o?" selected":"")+'>'+escAttr(o||"\u2014")+'</option>').join('')+'</select></div>';
     h+=S("Identity")
