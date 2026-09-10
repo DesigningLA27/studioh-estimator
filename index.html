@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1433</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1434</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8701,8 +8701,8 @@ const CATS=[
    ]},
   {id:"paving",    name:"Paving & Hardscape",   desc:"Patios, walkways, driveways & steps",           lo:20,hi:65, maxA:8000, defA:1500,
    items:[
-    {n:"Concrete Flatwork",            u:"SF",q:0, lo:14, hi:32},
-    {n:"Stamped / Colored Concrete",   u:"SF",q:0, lo:18, hi:42},
+    {n:"Concrete Flatwork",            u:"SF",q:0, lo:9.5, hi:15, std:11.5},
+    {n:"Stamped / Colored Concrete",   u:"SF",q:0, lo:18, hi:28.5, std:22},
     {n:"Concrete Pavers",              u:"SF",q:0, lo:22, hi:55},
     {n:"Porcelain Pavers",             u:"SF",q:0, lo:35, hi:75},
     {n:"Natural Stone Paving",         u:"SF",q:0, lo:40, hi:95},
@@ -9418,6 +9418,37 @@ function _lgtFixStoredPrices(){
   return false;
 }
 (function lightPriceEnforce(){ try{ if(_lgtApplyPriceDB(PB)) pbSave(); }catch(e){} })();
+
+// The concrete engine says a 4" broom-finished slab is $11.50/SF at 1,000 SF and the book said
+// $23. The book is what the take-off reads until a traced shape carries a material, so the engine
+// was right and the number on screen was still wrong. These are the engine's own figures at Basic,
+// Standard and Premium for an efficient 1,000 SF pour, so the two cannot disagree again.
+// Like the lighting database this runs every load and again after a server pull, because the price
+// book syncs and an old server copy would otherwise put $14–32 back on every boot. Unlike it, it
+// only ever touches a line still sitting on the original seed — type your own price and it stands
+// aside for good, with no flag to set and nothing to clear.
+const PAV_PRICE_DB={
+  "Concrete Flatwork":          {seed:[14,32], v:[9.5, 11.5, 15]},
+  "Stamped / Colored Concrete": {seed:[18,42], v:[18, 22, 28.5]}
+};
+function _pavApplyPriceDB(book){
+  let ch=false;
+  (book||[]).forEach(c=>{ if(!c||c.id!=="paving"||!c.items) return;
+    c.items.forEach(it=>{ const d=PAV_PRICE_DB[it&&it.n]; if(!d) return;
+      const onSeed=(+it.lo===d.seed[0] && +it.hi===d.seed[1]);
+      const onNew =(+it.lo===d.v[0] && +it.hi===d.v[2] && +it.std===d.v[1]);
+      if(onNew || !onSeed) return;        // already corrected, or a price of your own — leave it
+      it.lo=d.v[0]; it.std=d.v[1]; it.hi=d.v[2]; ch=true; }); });
+  return ch;
+}
+// Correct a raw (stringified) book in localStorage — used right after a server pull, before the
+// reload, so the reloaded boot already reads corrected prices.
+function _pavFixStoredPrices(){
+  try{ const raw=localStorage.getItem("studioh_pricebook_v5"); if(!raw) return false;
+    const bk=JSON.parse(raw); if(_pavApplyPriceDB(bk)){ localStorage.setItem("studioh_pricebook_v5", JSON.stringify(bk)); return true; } }catch(e){}
+  return false;
+}
+(function pavPriceEnforce(){ try{ if(_pavApplyPriceDB(PB)) pbSave(); }catch(e){} })();
 
 // One-time: bring tree prices to a wholesale-cost + install basis (only if still at old seed values; preserves edits).
 (function repriceTreesV1(){
@@ -28495,6 +28526,7 @@ async function configLoad(silent,force){
     // place before the reload, so the corrected numbers are what actually load —
     // and this device becomes dirty, so it pushes the correction back up.
     try{ _lgtFixStoredPrices(); }catch(e){}
+    try{ _pavFixStoredPrices(); }catch(e){}
     try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
     // Applying what the server sent does not make the rest of this device agree with it —
     // a key we kept because WE changed it is still unsent, and marking it synced here is
