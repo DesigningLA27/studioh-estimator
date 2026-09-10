@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1435</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1436</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -45103,7 +45103,7 @@ function _renderPriceBook_inner(){
   _groups.forEach(({g,idxs})=>{ idxs.forEach(ci=>_flat.push({g, ci, id:PB[ci].id})); });
   if(!_flat.length){ return; }
   let _sel=pbSel();
-  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
+  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && _sel!=="__conc" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
   let _th="";
   _groups.forEach(({g,idxs})=>{
     if(!idxs.length) return;
@@ -45126,7 +45126,9 @@ function _renderPriceBook_inner(){
     <button class="pbz-t feed${_sel==="__assume"?" on":""}" onclick="pbSelSet('__assume')">
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Assumptions</span><span class="n">${ASSUME_DEFS.length}</span></button>
     <button class="pbz-t feed${_sel==="__asm"?" on":""}" onclick="pbSelSet('__asm')">
-      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Installation assemblies</span><span class="n">${Object.keys(ASM_LIB).length}</span></button>`;
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Installation assemblies</span><span class="n">${Object.keys(ASM_LIB).length}</span></button>
+    <button class="pbz-t feed${_sel==="__conc"?" on":""}" onclick="pbSelSet('__conc')">
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Concrete</span><span class="n">${CONC_PANES.length}</span></button>`;
   _tree.innerHTML=_th;
   // a long list scrolls, so keep the current section where it can be seen
   const _on=_tree.querySelector(".pbz-t.on");
@@ -45135,6 +45137,8 @@ function _renderPriceBook_inner(){
   // the right pane: the settings cards, or one section
   if(_sel==="__asm"){
     _renderAsm3(_main);
+  } else if(_sel==="__conc"){
+    _renderConc3(_main);
   } else if(_sel==="__assume"){
     _renderAssume3(_main);
   } else if(_sel==="__rates"){
@@ -54554,6 +54558,136 @@ function concreteCost(o){
     mobilisation:+mobAdd.toFixed(2), mobilisationFull:mob, standalone:o.standalone!==false,
     installedSF:+installedSF.toFixed(2), total:+total.toFixed(2)
   };
+}
+// ── Concrete, in the Price Book ──────────────────────────────────────────────
+// Every number the concrete engine uses, on screen and editable, in the place the rest of the
+// pricing lives. They cannot go on the Paving section as ordinary lines: every SF line there is
+// treated as a way to surface a square foot and blended against the others, so a finish adder or
+// a base allowance sitting among them would be averaged into the surface rate instead of added
+// to it. They feed every section that pours concrete, so that is where they sit.
+function concSet(path, v){
+  const parts=String(path).split("."); let o=CONC;
+  for(let i=0;i<parts.length-1;i++){ if(o[parts[i]]==null) o[parts[i]]={}; o=o[parts[i]]; }
+  const last=parts[parts.length-1];
+  const n=(v===""||v==null)?null:+v;
+  o[last]=(n==null||!isFinite(n))?0:n;
+  concSave(); try{ renderPriceBook(); }catch(e){}
+}
+function concResetAll(){ concReset(); try{ renderPriceBook(); }catch(e){} }
+const CONC_PANES=[
+  {g:"Slab",       k:"anchor",  nm:"Base rates",            sub:"the structural slab, before any finish"},
+  {g:"Slab",       k:"volume",  nm:"Thickness & waste",     sub:"concrete is priced by volume"},
+  {g:"Slab",       k:"psi",     nm:"Compressive strength",  sub:"mostly a ready-mix difference"},
+  {g:"Slab",       k:"rebar",   nm:"Reinforcement",         sub:"only the change from the default is charged"},
+  {g:"Slab",       k:"base",    nm:"Aggregate base",        sub:"kept off the slab"},
+  {g:"Surface",    k:"finish",  nm:"Finishes",              sub:"adders over the substrate"},
+  {g:"Surface",    k:"scoring", nm:"Scoring",               sub:"per linear foot of joint, never per SF"},
+  {g:"Conditions", k:"form",    nm:"Form complexity",       sub:"why small pads cost so much more"},
+  {g:"Conditions", k:"size",    nm:"Economy of scale",      sub:"withheld from separated pads"},
+  {g:"Conditions", k:"access",  nm:"Access",                sub:"applied to what is built, not bought"},
+  {g:"Contractor", k:"tier",    nm:"Contractor tier",       sub:"labour and mobilisation, never commodity"},
+  {g:"Contractor", k:"mob",     nm:"Mobilisation minimum",  sub:"a concrete sub's smallest viable job"}
+];
+function _renderConc3(_mount){
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const sel=Math.max(0,Math.min(pb3Sel("__conc"), CONC_PANES.length-1));
+  const P=CONC_PANES[sel];
+  const money=n=>"$"+(Math.round((+n||0)*100)/100).toFixed(2);
+  const val=k=>{ const D=CONC_DEF, C=CONC;
+    if(k==="anchor")  return money(C.anchor.pedestrian.substrateSF)+" / "+money(C.anchor.vehicular.substrateSF);
+    if(k==="volume")  return money(C.concreteCY)+"/CY";
+    if(k==="psi")     return Object.keys(C.psi).length+" strengths";
+    if(k==="rebar")   return Object.keys(C.rebar).length+" options";
+    if(k==="base")    return money(C.basePerIn)+"/in";
+    if(k==="finish")  return Object.keys(C.finish).length+" finishes";
+    if(k==="scoring") return money(C.scoring.sawcut.lf)+"/LF";
+    if(k==="form")    return Object.keys(C.form).length+" shapes";
+    if(k==="size")    return C.size.length+" bands";
+    if(k==="access")  return Object.keys(C.access).length+" levels";
+    if(k==="tier")    return C.tier.value+" / "+C.tier.standard+" / "+C.tier.premium;
+    if(k==="mob")     return "$"+(+C.mobilisation.standard||0).toLocaleString();
+    return ""; };
+  let list="", run=null;
+  CONC_PANES.forEach((p,i)=>{
+    if(p.g!==run){ run=p.g; list+='<div class="pb3-sec">'+esc(p.g)+'</div>'; }
+    list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__conc\','+i+')">'
+      +'<span class="cv"></span><span class="nm">'+esc(p.nm)+'</span>'
+      +'<span class="u"></span><span class="v">'+esc(val(p.k))+'</span></button>';
+  });
+  const F=(label,path,cur,step,suffix)=>'<div class="pb3-f"><span class="k">'+esc(label)+'</span>'
+    +'<span style="display:flex;align-items:center;gap:3px">'
+    +'<input type="number" class="no-spin" value="'+(+cur||0)+'" step="'+(step||0.05)+'" '
+    +'onchange="concSet(\''+path+'\',this.value)">'
+    +(suffix?'<span style="color:var(--tl);font-size:12px">'+esc(suffix)+'</span>':'')+'</span></div>';
+  let ins='<div class="pb3-nm" style="cursor:default">'+esc(P.nm)+'</div>'
+    +'<div class="t">'+esc(P.sub)+'</div>';
+  const C=CONC;
+  if(P.k==="anchor"){
+    ins+='<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">Complete installed cost for the structural slab at an efficient 500–1,000 SF pour: minor excavation, grading, compacting native soil, forming, concrete, reinforcement, placement and cleanup. No demolition, haul-off, aggregate base, footings, thickened edges, drainage, permits, difficult access or pumps.</div>';
+    ins+='<h4>Pedestrian</h4>'+F("Substrate $/SF","anchor.pedestrian.substrateSF",C.anchor.pedestrian.substrateSF,0.25)
+      +F("Thickness in","anchor.pedestrian.thickIn",C.anchor.pedestrian.thickIn,1,"in")
+      +F("Default PSI","use.pedestrian.psi",C.use.pedestrian.psi,500);
+    ins+='<h4>Vehicular</h4>'+F("Substrate $/SF","anchor.vehicular.substrateSF",C.anchor.vehicular.substrateSF,0.25)
+      +F("Thickness in","anchor.vehicular.thickIn",C.anchor.vehicular.thickIn,1,"in")
+      +F("Default PSI","use.vehicular.psi",C.use.vehicular.psi,500);
+  } else if(P.k==="volume"){
+    ins+='<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">A change of thickness is a change of volume, never a percentage. One cubic yard covers 81 SF at 4″, 64.8 at 5″ and 54 at 6″. Only the volume difference from the anchor thickness is charged.</div>';
+    ins+=F("Installed ready-mix $/CY","concreteCY",C.concreteCY,5)
+      +F("Waste %","wastePct",C.wastePct,1,"%");
+  } else if(P.k==="psi"){
+    ins+='<h4>$/SF against 3,000 PSI</h4>';
+    (C.psiList||[]).forEach(p=>{ ins+=F(p+" PSI","psi."+p,C.psi[p],0.05); });
+  } else if(P.k==="rebar"){
+    ins+='<h4>Installed $/SF</h4>';
+    Object.keys(C.rebar).forEach(k=>{ ins+=F((C.rebarLabel||{})[k]||k,"rebar."+k,C.rebar[k],0.05); });
+  } else if(P.k==="base"){
+    ins+='<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">Aggregate road base is priced separately from the slab and is off by default. Selecting it adds excavation, aggregate, spreading and compaction.</div>';
+    ins+=F("Installed $/SF per inch","basePerIn",C.basePerIn,0.05);
+  } else if(P.k==="finish"){
+    ins+='<h4>Adder over the substrate, $/SF</h4>';
+    Object.keys(C.finish).forEach(k=>{ const f=C.finish[k];
+      ins+=F(f.label,"finish."+k+".add",f.add,0.25)
+        +(f.range&&f.range[1]?'<div style="font-size:10.5px;color:var(--tl);margin:-4px 0 6px 2px">usual range $'+f.range[0].toFixed(2)+'–$'+f.range[1].toFixed(2)+'</div>':''); });
+  } else if(P.k==="scoring"){
+    ins+='<h4>$ per linear foot of joint</h4>';
+    Object.keys(C.scoring).forEach(k=>{ const s=C.scoring[k]; if(k==="none") return;
+      ins+=F(s.label,"scoring."+k+".lf",s.lf,0.25)
+        +(s.range&&s.range[1]?'<div style="font-size:10.5px;color:var(--tl);margin:-4px 0 6px 2px">usual range $'+s.range[0].toFixed(2)+'–$'+s.range[1].toFixed(2)+'</div>':''); });
+  } else if(P.k==="form"){
+    ins+='<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">Forming is taken off the real perimeter of what you traced. These multiply it.</div>';
+    ins+='<h4>Multiplier</h4>';
+    Object.keys(C.form).forEach(k=>{ ins+=F(C.form[k].label,"form."+k+".f",C.form[k].f,0.01); });
+    ins+='<h4>Rates</h4>'+F("Forming $/LF","formLF",C.formLF,0.25)
+      +F("Already in the anchor $/SF","formInAnchor",C.formInAnchor,0.05);
+  } else if(P.k==="size"){
+    ins+='<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">Applied to the slab, never to the forming, and never to a finish upgrade. A job made of separated pads never drops below 1.00 however large it adds up to.</div>';
+    ins+='<h4>Multiplier up to … SF</h4>';
+    (C.size||[]).forEach((b,i)=>{ const cap=(b[0]===null||!isFinite(b[0]))?"and above":("up to "+(+b[0]).toLocaleString()+" SF");
+      ins+=F(cap,"size."+i+".1",b[1],0.01); });
+  } else if(P.k==="access"){
+    ins+='<h4>Added to what is built</h4>';
+    Object.keys(C.access).forEach(k=>{ ins+=F(C.access[k].label,"access."+k+".f",C.access[k].f,0.025); });
+  } else if(P.k==="tier"){
+    ins+='<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">Moves labour, forming, finishing, supervision and mobilisation. Never ready-mix, pigment, steel or aggregate — those are bought, not made.</div>';
+    ins+='<h4>Multiplier</h4>'
+      +F("Basic","tier.value",C.tier.value,0.01)
+      +F("Standard","tier.standard",C.tier.standard,0.01)
+      +F("Premium","tier.premium",C.tier.premium,0.01);
+  } else if(P.k==="mob"){
+    ins+='<h4>Smallest viable job</h4>'
+      +F("Basic $","mobilisation.value",C.mobilisation.value,50)
+      +F("Standard $","mobilisation.standard",C.mobilisation.standard,50)
+      +F("Premium $","mobilisation.premium",C.mobilisation.premium,50);
+    ins+='<h4>Inside a larger landscape install</h4>'
+      +F("Share of the minimum","mobPartOfLarger",C.mobPartOfLarger,0.05);
+  }
+  ins+='<div class="pb3-acts"><button class="btn" onclick="concResetAll()">↺ Back to the defaults</button></div>';
+  const card=document.createElement("div");
+  card.className="pbx-card pb3";
+  const head='<div class="pb3-lh"><span class="cr">Feeds every section <i>›</i> <b>Concrete</b></span>'
+    +'<span class="mt">geometry, spec and conditions — not one rate</span></div>';
+  card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__conc">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+  _mount.appendChild(card);
 }
 // Where a concrete rate is wanted for a whole traced category rather than one pad.
 function concreteRate(o){ const r=concreteCost(o); return r?r.installedSF:null; }
