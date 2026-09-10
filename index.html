@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1438</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1439</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -57449,7 +57449,7 @@ function _ptDockPanel(g){
     +T("ptSetTool('line')","Guide line",_DIC.guide,PT.tool==="line")
     +T("ptSetTool('spline')","Curve",_DIC.spline,PT.tool==="spline")
     +(PT.tool==="spline"?T("ptStraightToggle()","Straight run",_DIC.ortho,!!PT._straight,"tap to hold \u00b7 or hold Space"):"")
-    +S("Modifiers")+T("ptToggleOrtho()","90\u00b0 square corners",_DIC.ortho,_orthoOn())+T("ptFillMode()","Fill area (BO)",_DIC.fill,!!PT._fillPick)
+    +S("Modifiers")+T("ptToggleOrtho()","Ortho \u2014 0/45/90\u00b0",_DIC.ortho,_orthoOn())+T("ptFillMode()","Fill area (BO)",_DIC.fill,!!PT._fillPick)
     +S("Snap to (OSNAP)")
     +'<div class="pdsqg">'
       +SQ("ptSnapToggle('line')","Line",_DIC.snapL,_ptSnapOn('line'))
@@ -57596,7 +57596,7 @@ function _ptDockPanel(g){
   if(g==="edit"){ const anySel=(PT.selPoly!=null||PT.selAi!=null||PT.selGuide!=null);
     return H("Edit","Select, reshape, remove")
     +T("if(!PT.selectMode)ptSelectMode()","Select",_DIC.sel,PT.selectMode)+T("ptDockDelete()","Delete selected",_DIC.del,anySel)
-    +S("Modifiers")+T("ptToggleOrtho()","90\u00b0 square corners",_DIC.ortho,_orthoOn()); }
+    +S("Modifiers")+T("ptToggleOrtho()","Ortho \u2014 0/45/90\u00b0",_DIC.ortho,_orthoOn()); }
   if(g==="view"){ let h=H("View","Framing &amp; display")
     +T(ptMapLive()?"ptFlatten()":"ptReturnLive()",ptMapLive()?"Flatten &amp; rotate":"Back to live map",_DIC.rotate,_ptFlatOn());
     if(_ptFlatOn()) h+=T("ptRotate90()","Rotate 90\u00b0",_DIC.rotate,false)
@@ -57792,7 +57792,7 @@ function ptPickZone(k){
   if(a.assist==="autofill" && _lightAutoOn()){ try{ lightingPlace(); }catch(e){} }
 }
 function ptToggleOrtho(){ PT.ortho=!_orthoOn(); try{ ptRenderModal(); }catch(e){}
-  try{ _toast(_orthoOn()?"90° snap ON — corners lock square":"90° snap OFF","#2F5B23"); }catch(e){}
+  try{ _toast(_orthoOn()?"Ortho ON — lines lock to 0/45/90° of the plan":"Ortho OFF","#2F5B23"); }catch(e){}
 }
 function ptToggleAutofill(){ PT.lightAuto=!_lightAutoOn(); ptRenderAutoBar();
   if(_lightAutoOn()){ try{ lightingPlace(); }catch(e){} try{ _toast("Auto-fill ON — layout generated","#2F5B23"); }catch(e){} }
@@ -57848,17 +57848,27 @@ function _ptDimLabel(cx,cy,txt,col,big){
   return '<g'+_ptUpr(cx,cy)+' style="pointer-events:none"><rect x="'+(cx-w/2).toFixed(1)+'" y="'+(cy-h/2).toFixed(1)+'" width="'+w.toFixed(0)+'" height="'+h+'" rx="'+(h/2)+'" fill="#141A10" fill-opacity="0.92" stroke="'+col+'" stroke-width="1.5"/>'
     + '<text x="'+cx.toFixed(1)+'" y="'+cy.toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+(big?13:11)+'" font-weight="800" fill="#EAF7E2">'+txt+'</text></g>';
 }
+// Ortho, against the plan rather than against your first stroke. It used to take the first edge
+// you drew as the axis and offer only square to it, so the first line was free and everything
+// after it inherited whatever angle that line happened to have. Once the house is squared to the
+// view the axes are already right, so it snaps to the view instead — and to 45s as well as 90s,
+// so a chamfer or a diagonal path locks up the same way a wall does.
+//
+// The points are stored in the canvas the still lives in, and that canvas is turned by flatRot to
+// bring the house square. A line that reads horizontal on screen therefore sits at -flatRot in
+// stored coordinates, so the snap is done in screen space and brought back.
 function _orthoSnapCanvas(c){
-  const cur=PT.cur; if(!cur||cur.length<2) return c;      // 1st edge is free (sets the rotation)
+  const cur=PT.cur; if(!cur||!cur.length) return c;
   const L=_toCanvas(cur[cur.length-1]);
-  const p0=_toCanvas(cur[0]), p1=_toCanvas(cur[1]);
-  let dx=p1.x-p0.x, dy=p1.y-p0.y; const m=Math.hypot(dx,dy)||1; dx/=m; dy/=m;   // axis unit
-  const ax={x:dx,y:dy}, ay={x:-dy,y:dx};
-  const vx=c.x-L.x, vy=c.y-L.y;
-  const pa=vx*ax.x+vy*ax.y, pb=vx*ay.x+vy*ay.y;            // project onto each axis
-  return (Math.abs(pa)>=Math.abs(pb))
-    ? {x:L.x+ax.x*pa, y:L.y+ax.y*pa}
-    : {x:L.x+ay.x*pb, y:L.y+ay.y*pb};
+  const vx=c.x-L.x, vy=c.y-L.y, m=Math.hypot(vx,vy);
+  if(m<1e-6) return c;
+  const off=((_ptFlatOn()?(PT.flatRot||0):0))*Math.PI/180;
+  const step=Math.PI/4;                                    // 0 · 45 · 90 · 135 · 180 …
+  let th=Math.atan2(vy,vx)+off;
+  th=Math.round(th/step)*step-off;
+  const ux=Math.cos(th), uy=Math.sin(th);
+  const len=vx*ux+vy*uy;                                   // ride the axis, like a drafting square
+  return {x:L.x+ux*len, y:L.y+uy*len};
 }
 // ── SNAP TO NEARBY GEOMETRY ──────────────────────────────────────────────────
 // While tracing, find the nearest corner (square) or line (circle) of any other
@@ -58079,12 +58089,40 @@ function _ptMinAreaRot(pts){
   let rot=((-bang%90)+90)%90; if(rot>45) rot-=90;
   return rot;
 }
+// The rear of the house is what the plan gets lined up against, and on an ordinary house the rear
+// and the front are the two longest walls and parallel to one another. So the angle starts at the
+// longest wall, and then every wall within 20 degrees of square to it votes on the final figure,
+// weighted by its own length. The long walls decide which way is square; a short jog or a lazy
+// diagonal across a corner is heard but cannot shout, and a wall that is genuinely off-square —
+// an angled bay — is left out of the vote altogether instead of dragging the plan towards itself.
+function _ptWallRot(pts){
+  const n=pts.length; if(n<2) return 0;
+  let bi=0, bl=0;
+  for(let i=0;i<n;i++){ const a=pts[i], c=pts[(i+1)%n];
+    const L=Math.hypot(c.x-a.x, c.y-a.y); if(L>bl){ bl=L; bi=i; } }
+  const a0=pts[bi], c0=pts[(bi+1)%n];
+  const base=Math.atan2(c0.y-a0.y, c0.x-a0.x);
+  const Q=Math.PI/2, LIM=20*Math.PI/180;
+  let X=0, Y=0;
+  for(let i=0;i<n;i++){ const a=pts[i], c=pts[(i+1)%n];
+    const dx=c.x-a.x, dy=c.y-a.y, L=Math.hypot(dx,dy); if(L<1e-6) continue;
+    let d=(Math.atan2(dy,dx)-base)%Q; d=((d+Q)%Q); if(d>Q/2) d-=Q;
+    if(Math.abs(d)>LIM) continue;                       // not part of this house's square family
+    X+=L*Math.cos(4*(base+d)); Y+=L*Math.sin(4*(base+d)); }
+  const ang=(X||Y)?(Math.atan2(Y,X)/4*180/Math.PI):(base*180/Math.PI);
+  let rot=((-ang%90)+90)%90; if(rot>45) rot-=90;
+  return rot;
+}
 function _ptSquareRot(){
   try{
     const onPage=p=>(p.page==null||p.page===PT.page);
     const pick=m=>(PT.polys||[]).filter(p=>p.mode===m&&p.pts&&p.pts.length>=3&&onPage(p))
                     .sort((a,b)=>(+b.sf||0)-(+a.sf||0))[0];      // the house, not the shed
-    const b=pick("building")||pick("lot")||pick("limit");
+    // A house is squared to its own walls, rear and front first. A parcel has no walls to speak
+    // of, so it falls back to the smallest rectangle that encloses it.
+    const h=pick("building");
+    if(h) return _ptWallRot(h.pts);
+    const b=pick("lot")||pick("limit");
     if(!b) return 0;
     return _ptMinAreaRot(b.pts);
   }catch(e){ return 0; }
@@ -58108,9 +58146,37 @@ function ptSquareNow(){
   try{ _toast((base===0&&had===PT.flatRot)?"Nothing traced to square to yet — trace the house."
         :("Squared to the "+src+"."),"#2F5B23"); }catch(e){}
 }
+// Squaring needs the house, and when you press Rotate the house is usually not traced yet — the
+// auto-drawn parcel is all there is, and a parcel is often a wedge whose smallest enclosing
+// rectangle is nobody's idea of square. That is why the back of the house still came out on an
+// angle. So before the still is made, if no building has been traced, look one up. It runs on the
+// live map, where a footprint is lat/lng, and ptFlatten bakes it into pixels moments later — which
+// is the only order in which the angle means anything. Silent on every failure: this is a
+// convenience on the way to flattening, not an errand of its own.
+async function _ptAutoBuildingForSquare(){
+  try{
+    if((PT.polys||[]).some(p=>p.mode==="building"&&p.pts&&p.pts.length>=3)) return false;
+    if(!ptMapLive()) return false;
+    if(typeof _fetchBuildingFootprint!=="function") return false;
+    const lat=+((S.pi&&S.pi.lat)||0), lng=+((S.pi&&S.pi.lng)||0);
+    if(!(lat&&lng)) return false;
+    if(typeof BUILD_BUSY!=="undefined" && BUILD_BUSY) return false;
+    try{ BUILD_BUSY=true; }catch(e){}
+    let found=null; try{ found=await _fetchBuildingFootprint(lat,lng); }catch(e){}
+    try{ BUILD_BUSY=false; }catch(e){}
+    if(!found||!found.ring||found.ring.length<3) return false;
+    let ring=found.ring; try{ ring=_polyInsetFt(found.ring, AK("build.inset")); }catch(e){}
+    const pts=ring.map(q=>({x:q.lng, y:q.lat}));
+    const poly={pts, kind:"area", mode:"building", _auto:true, _forSquare:true, page:PT.page};
+    try{ poly.sf=Math.round(_ptPolySF(pts)); }catch(e){}
+    PT.polys.push(poly);
+    return true;
+  }catch(e){ return false; }
+}
 async function ptFlatten(){
   if(!ptMapLive()||!PT.satBase||!PT.satBase.center){ alert("Open the satellite map first."); return; }
   if(PT._flatBusy) return; PT._flatBusy=true;
+  let _autoHouse=false; try{ _autoHouse=await _ptAutoBuildingForSquare(); }catch(e){}
   const center={lat:+PT.satBase.center.lat, lng:+PT.satBase.center.lng};
   try{ _toast("Capturing a high-res still (with the neighbours)…","#2F5B23"); }catch(e){}
   const g=_satGridFor(); const grid={gx:Math.min(5,g.gx+2), gy:Math.min(5,g.gy+2)};   // extra margin so the plan can be centred when zoomed in
@@ -58131,7 +58197,11 @@ async function ptFlatten(){
   PT._flatBusy=false;
   ptRenderModal();                                  // swap the map stage for the still canvas
   try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ _ptFlatCenter(); }catch(e){}
-  try{ _toast("Flattened · house squared. ⟲ rotates 90°, ◱ returns to the live map.","#2F5B23"); }catch(e){}
+  const _sqSrc=(PT.polys||[]).some(p=>p.mode==="building")?"house"
+             :((PT.polys||[]).some(p=>p.mode==="lot")?"property line":null);
+  try{ _toast(_sqSrc?("Flattened · squared to the "+_sqSrc+(_autoHouse?" (found automatically)":"")
+        +". ⟲ rotates 90°, ◱ returns to the live map.")
+        :"Flattened. Trace the house, then View › Square to the house.","#2F5B23"); }catch(e){}
 }
 function ptRotate90(){ if(!_ptFlatOn()) return;
   PT.flatQuarters=((((PT.flatQuarters||0)+1)%4)+4)%4; _ptApplySquare();
