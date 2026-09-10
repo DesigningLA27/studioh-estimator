@@ -2741,6 +2741,12 @@ body:not(.sp-on) #sp-open{display:grid}
 .tkt .q,.tkt .r{text-align:right;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#C7D6BB;padding-left:8px;white-space:nowrap}
 .tkt .t{text-align:right;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-weight:750;color:#8FE07A;padding-left:8px;white-space:nowrap}
 .tkt .cv{color:#8FA383;font-size:12px;padding-left:6px;width:12px}
+.tkt input.tkrate{width:56px;box-sizing:border-box;text-align:right;font:inherit;font-size:11.5px;
+  font-family:ui-monospace,Menlo,monospace;color:#C7D6BB;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:2px 5px}
+.tkt input.tkrate::placeholder{color:#C7D6BB;opacity:1}
+.tkt input.tkrate:focus{outline:0;border-color:#7CE05E;color:#EAF0E4}
+.tkt input.tkrate.ov{color:#F2C14E;border-color:#F2C14E;background:rgba(242,193,78,.10)}
 .tkt thead td{border-bottom:1px solid rgba(255,255,255,.14);padding-bottom:4px;font:700 8.5px var(--tkf);letter-spacing:.1em;text-transform:uppercase;color:#68765B}
 .tkt tbody tr:hover{background:rgba(255,255,255,.05)}
 /* ── Plant Book, in the Price Book's frame ──────────────────────────────── */
@@ -7274,7 +7280,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1443</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1444</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -52483,8 +52489,10 @@ function ptSetPolyMat(idx, v){                                   // paving mater
 }
 function ptSetPolyRate(idx, v){                                  // manual $/SF override for this trace (this project only)
   const p=PT.polys[idx]; if(!p) return; const s=String(v==null?"":v).trim(); ptSnap();
-  if(s===""||!isFinite(+s)) delete p.rate; else p.rate=+s;
-  try{ ptDrawOverlay(); ptUpdateInfo(); if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
+  if(s===""||!isFinite(+s)||+s<0) delete p.rate; else p.rate=+s;
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); }catch(e){}
+  try{ _ptDockRefresh(); }catch(e){}
+  try{ if(document.getElementById("pt-why-pop")) ptWhy(p.mode); }catch(e){}
 }
 function ptSetPolyLoc(idx, v){                                   // yard location — doors derive it; manual pick overrides
   const p=PT.polys[idx]; if(!p) return; ptSnap();
@@ -54861,13 +54869,16 @@ function ptSetMatOv(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
   try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptWhy("paving"); }catch(e){} }
 function ptClearMatOv(idx){ ptSetMatOv(idx,""); }
 function _pavAsmRate(p){ const r=_pavAsmCost(p); return (r&&!r.needsRetail)?r.installedSF:null; }
-function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate;
+function _pavRateOv(p){ return (p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate))?(+p.rate):null; }
+// What this trace would cost with no hand-typed rate on it — the figure the Rate box offers.
+function _pavAutoRate(p){
   // Poured concrete is built, not bought: it answers to thickness, PSI, reinforcement, finish,
   // scoring, how much edge the shape has and how much concrete the job pours. The engine reads
   // all of that off the trace, so it goes ahead of the flat book rate for concrete alone.
   const c=_pavConcRate(p); if(c!=null&&c>0) return c;
   const a=_pavAsmRate(p); if(a!=null&&a>0) return a;
   return _pavMatRate(p); }
+function _pavRate(p){ const o=_pavRateOv(p); if(o!=null) return o; return _pavAutoRate(p); }
 // Assemblies a material can be built with. Falls back to every assembly in the category when the
 // material is not in the catalogue yet, so nothing is unreachable while the library is filled in.
 function ptAsmOptions(matName){ const m=asmMat(matName);
@@ -56203,8 +56214,11 @@ function _ptWhyRowPaving(e, unit){
   const p=(e.idx!=null)?PT.polys[e.idx]:null;
   const R=p?_pavAsmCost(p):null;
   const priced=!!(R&&!R.needsNumbers&&!R.needsRetail);
-  const rate=priced?R.installedSF:(e.rate||0);
-  const cost=priced?rate*_ptTraceNet(p):(e.cost||0);
+  // A rate typed by hand wins over everything, exactly as _pavRate has it — otherwise this
+  // column and the Rate box in Properties, which are the same number, disagree.
+  const _ovR=p?_pavRateOv(p):null;
+  const rate=(_ovR!=null)?_ovR:(priced?R.installedSF:(e.rate||0));
+  const cost=(_ovR!=null)?(_ovR*_ptTraceNet(p)):(priced?rate*_ptTraceNet(p):(e.cost||0));
   const A=(p&&p.asm&&ASM_LIB[p.asm])?ASM_LIB[p.asm]:null;
   const canAsm=!!(p&&(ptAsmOptions(p.type)||[]).length);
   let sub=[];
@@ -56225,7 +56239,13 @@ function _ptWhyRowPaving(e, unit){
         title="This trace's colour on the plan">
       <span class="tknm" style="min-width:0">${esc(e.rawName||e.nm)}<small style="display:block">${sub.join(" \u00b7 ")}</small></span></span></td>
     <td class="q">${_tkFmt(e.net)}</td>
-    <td class="r">${rate>0?(+rate).toFixed(2):"\u2014"}</td>
+    <td class="r" onclick="event.stopPropagation()">${(p&&p.mode==="paving"&&p.kind==="area")
+      ? `<input class="tkrate${_ovR!=null?" ov":""}" value="${_ovR!=null?(+_ovR).toFixed(2):""}"
+          placeholder="${rate>0?(+rate).toFixed(2):"\u2014"}" inputmode="decimal"
+          title="A $ / SF for this trace only. Blank goes back to the book."
+          onpointerdown="event.stopPropagation()" onpointerup="event.stopPropagation()"
+          onkeydown="if(event.key==='Enter')this.blur()" onchange="ptSetPolyRate(${e.idx},this.value)">`
+      : (rate>0?(+rate).toFixed(2):"\u2014")}</td>
     <td class="t">${cost>0?_tkFmt(Math.round(cost)):"\u2014"}</td>
     <td class="cv" onclick="event.stopPropagation();ptTraceDel(${e.idx})" title="Delete this trace"
       style="cursor:pointer;color:#6E7C62">\u2715</td></tr>`;
@@ -57695,6 +57715,16 @@ function _ptDockPanel(g){
       }
       h+=T("ptBuildupPop("+_ptPropIdx()+")","See the build-up",_DIC.props,false);
     })();
+    // A rate typed by hand for this trace only. It beats the assembly, the concrete engine and
+    // the book — for the modular paver that costs more than the 12×24 the book is priced on.
+    if(pp.mode==="paving"&&pp.kind==="area"){ const _ov=_pavRateOv(pp), _au=+(_pavAutoRate(pp)||0);
+      h+=S("Rate")
+       +'<div class="fld"><span class="k">$ / SF</span><input inputmode="decimal" style="text-align:right'+(_ov!=null?';color:#F2C14E':'')+'" value="'+(_ov!=null?(+_ov).toFixed(2):"")+'" placeholder="'+(_au>0?(+_au).toFixed(2):"set one")+'" onchange="ptSetPolyRate('+_ptPropIdx()+',this.value)" onkeydown="if(event.key===&#39;Enter&#39;)this.blur()"></div>'
+       +'<div style="font:600 10px var(--tkf);color:'+(_ov!=null?"#F2C14E":"#68765B")+';line-height:1.5;padding:2px 2px 4px">'
+       +(_ov!=null?("Set by hand for this trace. The book gives "+(_au>0?("$"+_au.toFixed(2)+" / SF"):"nothing yet")+" \u2014 empty the box to go back to it.")
+                 :"Empty follows the price book. Type a rate here and it applies to this trace only.")
+       +'</div>'
+       +(_ov!=null?T("ptSetPolyRate("+_ptPropIdx()+",'')","Back to the book rate",_DIC.rotate,false):""); }
     if(pp.kind==="area"){ try{ h+=_ptConcSection(pp); }catch(e){} }
     h+=S("Measured")
       +'<div class="fld"><span class="k">'+(pp.kind==="linear"?"Run":"Area")+'</span><span class="v">'+meas+'</span></div>'
