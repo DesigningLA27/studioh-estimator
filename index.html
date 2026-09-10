@@ -7280,7 +7280,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1446</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1447</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12423,7 +12423,7 @@ function _demoSeedTrace(){
   PT.live=true; PT.doc=null; PT.pdfData=null; PT.ppf=1; PT.page=1; PT.numPages=1;
   PT.satBase={center:{lat:+home.lat,lng:+home.lng}, zoom:20, live:true, for:(S.pi&&S.pi.address)||""};
   PT.polys=_demoTrace(F,home,rings); PT.trees=[]; PT.cur=[]; PT.guides=[]; PT.ai=[];
-  PT.subtype={}; PT.undo=[]; PT.redo=[]; PT.hidden={}; PT.demoN={}; PT.pointBy={};
+  PT.subtype={}; PT.custMat={}; PT.undo=[]; PT.redo=[]; PT.hidden={}; PT.demoN={}; PT.pointBy={};
   try{ PT.polys.forEach(q=>{ if(q.type) PT.subtype[q.mode]=q.type; }); }catch(e){}
   try{ Object.keys(measured).forEach(k=>{ measured[k]=0; });
     const M={building:"building",driveway:"driveway",planting:"planting",paving:"paving",lot:"lot",limit:"limit",exclude:"exclusion"};
@@ -50675,7 +50675,19 @@ function _ptMode(m){ return PT_MODES.find(x=>x.k===m)||PT_MODES[0]; }
 function _ptColor(m){ return _ptMode(m).color; }
 function _ptLabel(m){ return _ptMode(m).label; }
 function _ptKind(m){ return _ptMode(m).kind; }
-function _ptCurType(m){ const md=_ptMode(m); if(!md.types) return null; return PT.subtype[m]||md.types[0]; }
+// Paving's PT_MODES list is an older, differently-spelled set — "Concrete pavers" against the
+// book's "Concrete Pavers" — and _pavItem matches exactly, so those names price at nothing.
+// The book's own list is the truth for paving; anything the user has added by hand comes after it.
+function ptMatOptions(mode){
+  const md=_ptMode(mode);
+  if(mode!=="paving") return ((md&&md.types)||[]).slice();
+  let base=(typeof PAV_MATS!=="undefined")?PAV_MATS.slice():((md&&md.types)||[]).slice();
+  try{ Object.keys(PT.custMat||{}).forEach(n=>{ if(base.indexOf(n)<0) base.push(n); }); }catch(e){}
+  return base; }
+// No material rather than the wrong one: paving used to fall through to types[0], which stamped
+// "Wood deck" on any zone traced without opening Properties.
+function _ptCurType(m){ const md=_ptMode(m); if(!md.types) return null;
+  if(m==="paving") return PT.subtype[m]||""; return PT.subtype[m]||md.types[0]; }
 function _ptMarkMode(t){ return t.mode||(t.pot?"pots":"tree"); }
 // undo/redo — snapshot polys/trees/cur before each change
 function ptSnap(){ try{ PT.undo.push(JSON.stringify({p:PT.polys,t:PT.trees,c:PT.cur,a:PT.ai||[],g:PT.guides||[]})); if(PT.undo.length>60) PT.undo.shift(); PT.redo.length=0; }catch(e){} }
@@ -51633,7 +51645,7 @@ async function ptOpenSatellite(keepTrace){
   PT.live=true; PT.doc=null; PT.pdfData=null;
   PT.satBase={center:{lat:+ctr.lat,lng:+ctr.lng}, zoom, live:true, for:((S.pi&&S.pi.address)||"")};
   PT.numPages=1; PT.page=1; PT.ppf=1;   // measurements are geodesic on a live map; ppf only gates the old paths
-  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.guides=[]; PT.ai=[]; PT.subtype={};
+  if(!keepTrace){ PT.polys=[]; PT.trees=[]; PT.guides=[]; PT.ai=[]; PT.subtype={}; PT.custMat={};
     // Drop in the county-parcel boundary as the property line — straight to lat/lng now.
     try{ const pd=window._parcelData; if(pd&&pd.paths&&pd.paths.length){ pd.paths.forEach(ring=>{ if(!ring||ring.length<3) return;
       const pts=ring.map(ll=>({x:ll.lng, y:ll.lat}));
@@ -51659,7 +51671,7 @@ async function _ptOpenDocBuf(buf, keepTrace){
   try{ PT.doc=await lib.getDocument({data:new Uint8Array(buf.slice(0))}).promise; }catch(e){ alert("Couldn't read that PDF."); return false; }
   PT.pdfData=b64; PT.satBase=null; PT.live=false;   // a PDF and a map are alternative bases, never both
   PT.numPages=PT.doc.numPages; PT.page=1;
-  if(!keepTrace){ PT.ppf=null; PT.polys=[]; PT.trees=[]; PT.subtype={}; }
+  if(!keepTrace){ PT.ppf=null; PT.polys=[]; PT.trees=[]; PT.subtype={}; PT.custMat={}; }
   PT.cur=[]; PT.calibrating=false; PT.calib=[]; PT.mode="planting"; PT.open=true; PT.undo=[]; PT.redo=[]; PT.demoN={}; PT.pointBy={}; PT.hideLabels=true; PT.hidden={}; PT.panelOpen=true; PT.selectMode=false;
   PT.detectedScale=null; PT.sheetIn=null;
   try{ const pg1=await PT.doc.getPage(1); const vp=pg1.getViewport({scale:1}); PT.sheetIn={w:vp.width/72,h:vp.height/72};
@@ -54838,7 +54850,9 @@ function _pavPoint(){ let pt=(typeof _tkPointOverride!=="undefined"&&_tkPointOve
   if(pt==null){ try{ pt=ptPointFor("paving"); }catch(e){} }
   if(pt==null){ try{ pt=ptPricePoint(); }catch(e){} }
   return (pt===0||pt===1||pt===2)?pt:1; }
-function _pavMatRate(p){ const it=_pavItem(p&&p.type); if(!it||it.u!=="SF") return null;
+function _pavCustRate(name){ try{ const v=(PT&&PT.custMat)?PT.custMat[name]:null;
+  return (v!=null&&isFinite(+v)&&+v>0)?(+v):null; }catch(e){ return null; } }
+function _pavMatRate(p){ const it=_pavItem(p&&p.type); if(!it||it.u!=="SF") return _pavCustRate(p&&p.type);
   const tiers=SEC_TIERS.paving; let ti=(SEC_TIER_DEFAULT.paving||1)+(_pavPoint()-1); ti=Math.max(0,Math.min(tiers.length-1,ti));
   return tierUC(it,tiers,ti); }
 function _pavTiers(name){ const it=_pavItem(name); if(!it) return null; const tiers=SEC_TIERS.paving;
@@ -54906,11 +54920,11 @@ function _ptTraceNet(p){ const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0); le
     if(_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys)===p) taken+=fp; });
   return Math.max(0, raw-taken); }
 function _pavAnyOverride(){ return (PT&&PT.polys||[]).some(p=>p.mode==="paving"&&p.kind==="area"&&!p._demo&&!p._excl&&p.rate!=null&&p.rate!==""&&isFinite(+p.rate)); }
-function _pavAnyMat(){ return (PT&&PT.polys||[]).some(p=>p.mode==="paving"&&p.kind==="area"&&!p._demo&&!p._excl&&(_pavItem(p.type)||(p.rate!=null&&p.rate!==""))); }
+function _pavAnyMat(){ return (PT&&PT.polys||[]).some(p=>p.mode==="paving"&&p.kind==="area"&&!p._demo&&!p._excl&&(_pavItem(p.type)||_pavCustRate(p.type)!=null||(p.rate!=null&&p.rate!==""))); }
 function _pavCatSum(qty){                                        // blended $/SF from the materials, applied to the category qty so totals stay consistent
   const polys=(PT&&PT.polys||[]).filter(p=>p.mode==="paving"&&p.kind==="area"&&!p._demo&&!p._excl);
   if(!polys.length) return null;
-  if(!polys.some(p=>_pavItem(p.type)||(p.rate!=null&&p.rate!==""))) return null;
+  if(!polys.some(p=>_pavItem(p.type)||_pavCustRate(p.type)!=null||(p.rate!=null&&p.rate!==""))) return null;
   let sum=0, sf=0; const bench=(ptBenchRate("paving","SF").rate)||20;
   polys.forEach(p=>{ const net=_ptTraceNet(p); const r=_pavRate(p); sf+=net; sum+=net*((r!=null)?r:bench); });
   if(sf<=0) return null; const per=sum/sf;
@@ -57463,7 +57477,7 @@ const _DIC={ undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10H9"/>
   desel:'<path d="M5.5 3.2l8.6 15.3 2.1-5.9 5.9-2.1z"/><path d="M3 21L21 3" stroke-width="2.4"/>',
   props:'<path d="M4 6h9M18 6h2M4 12h3M12 12h8M4 18h8M17 18h3"/><circle cx="15.5" cy="6" r="2.1"/><circle cx="9.5" cy="12" r="2.1"/><circle cx="14.5" cy="18" r="2.1"/>',
   more:'<circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/>' };
-function ptDockGroup(g){ PT.dockGroup=(PT.dockGroup===g)?null:g; _ptDockRefresh(); }
+function ptDockGroup(g){ PT.dockGroup=(PT.dockGroup===g)?null:g; PT.dockPick=null; _ptDockRefresh(); }
 function _ptDockRefresh(){
   const cols=document.getElementById("pt-dockcols"); if(cols) cols.innerHTML=_ptDockCols();
   const panel=document.getElementById("pt-dockpanel"); if(!panel) return;
@@ -57549,6 +57563,23 @@ function _ptDockPanel(g){
   const SQ=(fn,l,ic,on)=>'<button class="pdsq snap'+(on?" on":"")+'"'+HT(fn)+' onclick="'+fn+'"><svg viewBox="0 0 24 24">'+ic+'</svg><small>'+l+'</small></button>';
   const SW=(mode,l,color,meta)=>'<button class="pdt'+(PT.mode===mode?" on":"")+'"'+(_ptHintsOn()?(' title="'+escAttr("Trace "+l+". Pick this, then draw on the plan \u2014 every shape you draw lands on this layer.")+'"'):"")+' onclick="ptDockCat(\''+mode+'\')"><span class="pdsw" style="background:'+color+'"></span><span class="lbl">'+l+'</span>'+(meta?'<span class="meta">'+meta+'</span>':'')+'</button>';
   const S=t=>'<div class="pdsec">'+t+'</div>', H=(t,sub)=>'<div class="pdhead">'+t+'</div><div class="pdsub">'+sub+'</div>';
+  // Step two of Trace: what the shape is made of, picked before it is drawn rather than
+  // discovered afterwards in Properties.
+  if(g==="trace" && PT.dockPick){ const m0=_ptMode(PT.dockPick), opts=ptMatOptions(PT.dockPick);
+    const cur=(PT.subtype||{})[PT.dockPick]||"";
+    let h=H(m0.label,'<span class="free">Pick the material, then draw</span>')
+      +T("ptDockPickBack()","\u2190 All layers",_DIC.undo,false)
+      +S("Material");
+    opts.forEach((t,i)=>{ const cr=(PT.dockPick==="paving")?_pavCustRate(t):null;
+      h+=T("ptDockMat("+i+")", escAttr(t), _DIC.props, cur===t, cr!=null?("$"+cr.toFixed(2)):""); });
+    h+=T("ptDockMat(-1)","Decide later",_DIC.desel,!cur);
+    if(PT.dockPick==="paving"){
+      h+=S("Something else")
+        +'<div class="fld"><span class="k">Name</span><input id="pt-cmat-n" placeholder="Linear modular paver" onkeydown="if(event.key===&#39;Enter&#39;)ptDockMatAdd()"></div>'
+        +'<div class="fld"><span class="k">$ / SF</span><input id="pt-cmat-r" inputmode="decimal" style="text-align:right" placeholder="0.00" onkeydown="if(event.key===&#39;Enter&#39;)ptDockMatAdd()"></div>'
+        +T("ptDockMatAdd()","Add it and draw",_DIC.apply,false)
+        +'<div style="font:600 10px var(--tkf);color:#68765B;line-height:1.5;padding:2px 2px 4px">Installed cost per square foot. It is used for every zone you trace as this material, and any one of them can still be given its own rate in Properties.</div>'; }
+    return h; }
   if(g==="trace"){ let tot={}; try{ tot=ptTotals(); }catch(e){} let h=H("Trace",'<span class="free">Pick a layer to trace</span>');
     const GR=[["Surfaces",["planting","turf","paving","driveway","irrigation"]],
       ["Features",["pool","spa","court","shade","water","firepit","fireplace","kitchen","seating"]],
@@ -57691,9 +57722,8 @@ function _ptDockPanel(g){
       +'<div class="fld"><span class="k">Name</span><input value="'+escAttr(pp.name||"")+'" placeholder="optional" onchange="ptPropSet(&#39;name&#39;,this.value)"></div>'
       +FS("zone","Area",pp.zone,[""].concat(areaOptions()))
       +FS("phase","Phase",pp.phase,["","Phase 1","Phase 2","Phase 3","Phase 4","Future"]);
-    const _mtypes=(pp.mode==="paving"&&typeof PAV_MATS!=="undefined")
-      ? PAV_MATS.slice().concat((md.types||[]).filter(t=>PAV_MATS.indexOf(t)<0&&t===pp.type))
-      : (md.types||[]);
+    const _mtypes=(function(){ const L=ptMatOptions(pp.mode);
+      if(pp.type&&L.indexOf(pp.type)<0) L.push(pp.type); return L; })();
     if(_mtypes.length) h+=FS("type",(md.kind==="linear"?"Label":"Material"),pp.type,_mtypes);
     h+='<div class="fld"><span class="k">Tags</span><input value="'+escAttr(pp.tags||"")+'" placeholder="comma-separated" onchange="ptPropSet(&#39;tags&#39;,this.value)"></div>';
     // Cost, for a zone that an assembly builds. Summary only — the build-up opens over the plan.
@@ -57761,7 +57791,30 @@ function _ptDockPanel(g){
     return h; }
   return "";
 }
-function ptDockCat(m){ PT.dockGroup=null; try{ ptSetMode(m); }catch(e){} }
+function ptDockCat(m){
+  const md=_ptMode(m), opts=(md&&md.kind==="area")?ptMatOptions(m):[];
+  try{ ptSetMode(m); }catch(e){}
+  if(opts.length){ PT.dockPick=m; PT.dockGroup="trace"; }
+  else { PT.dockPick=null; PT.dockGroup=null; }
+  try{ _ptDockRefresh(); }catch(e){} }
+function ptDockPickBack(){ PT.dockPick=null; PT.dockGroup="trace"; try{ _ptDockRefresh(); }catch(e){} }
+function ptDockMat(i){ const m=PT.dockPick; if(!m) return;
+  const opts=ptMatOptions(m); const v=(i>=0&&i<opts.length)?opts[i]:"";
+  PT.subtype=PT.subtype||{}; if(v) PT.subtype[m]=v; else delete PT.subtype[m];
+  PT.dockPick=null; PT.dockGroup=null;
+  try{ ptRenderModal(); }catch(e){} try{ _ptDockRefresh(); }catch(e){} try{ ptAutoSave(); }catch(e){}
+  try{ _toast(v?(v+" \u2014 draw it now."):"No material set \u2014 pick one in Properties later.","#2F5B23"); }catch(e){} }
+// A material the book does not carry, with the installed rate you know it costs.
+function ptDockMatAdd(){ const m=PT.dockPick||"paving";
+  const ne=document.getElementById("pt-cmat-n"), re=document.getElementById("pt-cmat-r");
+  const nm=String((ne&&ne.value)||"").trim(), rt=+String((re&&re.value)||"").trim();
+  if(!nm){ try{ _toast("Give the material a name.","#8A6D1F"); }catch(e){} if(ne) ne.focus(); return; }
+  if(!(rt>0)){ try{ _toast("Give it a $ / SF.","#8A6D1F"); }catch(e){} if(re) re.focus(); return; }
+  PT.custMat=PT.custMat||{}; PT.custMat[nm]=rt;
+  PT.subtype=PT.subtype||{}; PT.subtype[m]=nm;
+  PT.dockPick=null; PT.dockGroup=null;
+  try{ ptRenderModal(); }catch(e){} try{ _ptDockRefresh(); }catch(e){} try{ ptAutoSave(); }catch(e){}
+  try{ _toast(nm+" at $"+rt.toFixed(2)+" / SF \u2014 draw it now.","#2F5B23"); }catch(e){} }
 function ptDockDelete(){ if(PT.selAi!=null) ptDelSelAi(); else if(PT.selGuide!=null) ptDelSelGuide(); else if(PT.selPoly!=null) ptSelDelete(); try{ _ptDockRefresh(); }catch(e){} }
 function ptRenderModal(){ let d=document.getElementById("pt-modal"); if(!d){ d=document.createElement("div"); d.id="pt-modal"; document.body.appendChild(d); }
 
@@ -58610,7 +58663,7 @@ function _ptAutoBarHTML(){
         + (a.assist?'<i class="afdot"></i>':'') + '</button>';
     }).join("");
 }
-function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,guides:(PT.guides||[]),ai:(PT.ai||[]),demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
+function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,guides:(PT.guides||[]),ai:(PT.ai||[]),demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,custMat:(PT.custMat||null),pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
     const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
     const cn=(document.getElementById("client-name")||{}).value||"plan"; const base=(""+cn).replace(/[^a-z0-9]+/gi,"-").toLowerCase().replace(/^-+|-+$/g,"")||"plan";
     const d=new Date(), p=n=>(""+n).padStart(2,"0"); const stamp=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
@@ -58621,7 +58674,7 @@ async function ptRestoreTrace(d){ if(!d||(!d.polys&&!d.trees&&!d.demoN)){ alert(
   PT.pointBy=(d.pointBy&&typeof d.pointBy==="object")?Object.assign({},d.pointBy):{};
   const polys=d.polys||[]; const trees=(d.trees||[]).map(t=>({...t,mode:_ptMarkMode(t)}));
   if(d.pdf){ try{ await _ptOpenDocBuf(_b642ab(d.pdf), true); }catch(e){ alert("Couldn't open the embedded plan."); } }
-  PT.polys=polys; PT.trees=trees; PT.guides=Array.isArray(d.guides)?d.guides:[]; PT.ai=Array.isArray(d.ai)?d.ai:[]; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; PT.pdfData=d.pdf||null; if(d.sat) PT.satBase=d.sat;
+  PT.polys=polys; PT.trees=trees; PT.guides=Array.isArray(d.guides)?d.guides:[]; PT.ai=Array.isArray(d.ai)?d.ai:[]; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; if(d.custMat) PT.custMat=d.custMat; PT.pdfData=d.pdf||null; if(d.sat) PT.satBase=d.sat;
   PT.cur=[]; PT.undo=[]; PT.redo=[];
   ptRenderModal(); await ptRenderPage(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptLoadSaved(input){ const f=input&&input.files&&input.files[0]; if(input) input.value=""; if(!f) return;
@@ -58641,7 +58694,7 @@ function ptLoadTraceFile(input){ const f=input&&input.files&&input.files[0]; if(
   const r=new FileReader(); r.onload=()=>{ let d; try{ d=JSON.parse(r.result); }catch(e){ alert("Could not read that trace file."); return; }
     if(!PT.doc && !d.pdf){ alert("This trace file doesn't have the plan embedded. Open the PDF plan first, then load the trace.\n\n(New saves include the plan automatically.)"); return; }
     ptRestoreTrace(d); }; r.readAsText(f); }
-function ptAutoSave(){ try{ if(window.localStorage) localStorage.setItem("studioh_pt_last", JSON.stringify({polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,sat:(PT.satBase||null),demoN:(PT.demoN||null),pointBy:(PT.pointBy||null)})); }catch(e){} }
+function ptAutoSave(){ try{ if(window.localStorage) localStorage.setItem("studioh_pt_last", JSON.stringify({polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,custMat:(PT.custMat||null),sat:(PT.satBase||null),demoN:(PT.demoN||null),pointBy:(PT.pointBy||null)})); }catch(e){} }
 function ptRestoreLast(){ if(!PT.doc){ alert("Open the PDF plan first, then restore the trace onto it."); return; }
   try{ const s=window.localStorage&&localStorage.getItem("studioh_pt_last"); if(!s){ alert("No auto-saved trace found in this browser."); return; } ptRestoreTrace(JSON.parse(s)); }catch(e){ alert("No auto-saved trace found."); } }
 function _bidPlants(){ const out={shrub:[],gc:[],tree:[],palm:[]};
@@ -58660,7 +58713,7 @@ function _bidPayload(){ return { v:1, app:"studioh-estimator", savedAt:new Date(
 // hand back the trace the project was loaded with — otherwise routine autosaves quietly erase it.
 function _bidTrace(){
   if(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length||(PT.demoN&&Object.keys(PT.demoN).length)))
-    return {polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,pdf:PT.pdfData||null,sat:(PT.satBase||null),live:!!PT.live,demoN:(PT.demoN||null),pointBy:(PT.pointBy||null)};
+    return {polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,custMat:(PT.custMat||null),pdf:PT.pdfData||null,sat:(PT.satBase||null),live:!!PT.live,demoN:(PT.demoN||null),pointBy:(PT.pointBy||null)};
   const keep=window._traceBackup;                 // copied: the save path nulls .pdf on what it's given
   return keep?Object.assign({},keep):null;
 }
@@ -59388,7 +59441,7 @@ function restoreBid(bid){
     try{ window._traceBackup=Object.assign({},bid.trace); }catch(e){ window._traceBackup=null; }
   } else if(typeof PT!=="undefined"){
     // No trace on this project — clear the last one out, or it gets adopted on the next save.
-    PT.polys=[]; PT.trees=[]; PT.ppf=null; PT.subtype={}; PT.pdfData=null; PT.satBase=null; window._traceBackup=null;
+    PT.polys=[]; PT.trees=[]; PT.ppf=null; PT.subtype={}; PT.custMat={}; PT.pdfData=null; PT.satBase=null; window._traceBackup=null;
   }
   // restore traced measurements (they live outside S) so the area budget + summary reflect them WITHOUT opening the plan
   try{ if(typeof measured==="object"){ let mv=bid.measured; if(!mv && bid.trace && ((bid.trace.polys&&bid.trace.polys.length)||(bid.trace.trees&&bid.trace.trees.length))) mv=_measuredFromTrace();
