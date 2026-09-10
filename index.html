@@ -7280,7 +7280,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1450</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1451</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -51874,6 +51874,12 @@ function ptAddAt(p,c,e){
   if(!_snapped && _orthoLive() && kind!=="count" && PT.cur.length>=1){ const cs=_orthoSnapCanvas(c); c={x:cs.x,y:cs.y}; p=_toPdf(cs); }
   if(_ptGuideTool()){
     if(PT.cur.length>=2){ const last=_toCanvas(PT.cur[PT.cur.length-1]); if(Math.hypot(c.x-last.x,c.y-last.y)<16){ _ptCommitGuide(); return; } }
+    // Tapping back on the first point closes the run. A guide is an open chain of points, so
+    // without this the last edge was simply never drawn: a square drawn with Polyline came out
+    // as three sides, and Fill was right to say the space was not enclosed.
+    if(PT.cur.length>=3){ const f0=_toCanvas(PT.cur[0]);
+      if(Math.hypot(c.x-f0.x,c.y-f0.y)<16){ ptSnap();
+        PT.cur.push({x:PT.cur[0].x, y:PT.cur[0].y}); _ptCommitGuide(); return; } }
     ptSnap(); PT.cur.push(p); PT._rectCursor=null; ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); return;   // keep adding until Done / double-tap
   }
   if(_toolRect() && kind==="area"){
@@ -58947,7 +58953,7 @@ function ptSetTool(t){
   PT.tool=t; if(!keep) PT.cur=[];
   PT._rectCursor=null; PT.selectMode=false; PT.selPoly=null; PT._selStart=null;
   try{ ptMapCursor&&ptMapCursor(); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptDrawOverlay(); }catch(e){}
-  try{ _toast(t==="rect"?"Rectangle: click a corner, click the first edge, move for width, click to finish.":(t==="spline"?"Curve: click points for a smooth curve; Done or tap the "+(_ptKind(PT.mode)==="area"?"first":"last")+" point to finish.":(t==="circle"?"Circle: click center, then click for radius.":(t==="polyline"?(_ptKind(PT.mode)==="linear"?("Polyline: click along the "+_ptMode(PT.mode).label.toLowerCase()+"; tap the last point again to finish."):"Polyline: click points for an open guide line (no fill). Done or double-tap the last point to finish."):(t==="line"?"Guide line: draw straight lines to enclose an area, then tap Fill.":"Freeform draw")))),"#2F5B23"); }catch(e){} }
+  try{ _toast(t==="rect"?"Rectangle: click a corner, click the first edge, move for width, click to finish.":(t==="spline"?"Curve: click points for a smooth curve; Done or tap the "+(_ptKind(PT.mode)==="area"?"first":"last")+" point to finish.":(t==="circle"?"Circle: click center, then click for radius.":(t==="polyline"?(_ptKind(PT.mode)==="linear"?("Polyline: click along the "+_ptMode(PT.mode).label.toLowerCase()+"; tap the last point again to finish."):"Polyline: click points, then tap the FIRST point to close a shape you can Fill \u2014 or the last point to finish an open line."):(t==="line"?"Guide line: draw straight lines to enclose an area, then tap Fill.":"Freeform draw")))),"#2F5B23"); }catch(e){} }
 function ptStraightToggle(){ PT._straight=!PT._straight; try{ _ptDockRefresh(); ptDrawOverlay(); }catch(e){} try{ _toast(PT._straight?"Straight run ON \u2014 next points draw straight":"Curve \u2014 points smooth again","#2F5B23"); }catch(e){} }
 function ptToolRect(){ PT.tool=_toolRect()?"draw":"rect"; PT.cur=[]; PT._rectCursor=null;
   if(_toolRect()){ PT.selectMode=false; PT.selPoly=null; PT._selStart=null; }
@@ -59084,7 +59090,11 @@ function _ptBoSegs(){
     const cp=p.pts.map(_toCanvas), n=cp.length, closed=(p.kind!=="linear"), lim=closed?n:n-1;
     for(let i=0;i<lim;i++){ const a=cp[i], b=cp[(i+1)%n]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); } });
   (PT.guides||[]).forEach(g=>{ if(g.page!==PT.page||!g.pts||g.pts.length<2) return; const cp=g.pts.map(_toCanvas);
-    for(let i=0;i<cp.length-1;i++){ const a=cp[i], b=cp[i+1]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); } });
+    for(let i=0;i<cp.length-1;i++){ const a=cp[i], b=cp[i+1]; if(Math.hypot(a.x-b.x,a.y-b.y)>0.5) segs.push([a,b]); }
+    // A run of three or more whose ends came back to within a snap of each other is a shape the
+    // person drew as closed, whether or not they landed the last tap exactly on the first point.
+    if(cp.length>=3){ const a=cp[cp.length-1], b=cp[0], d=Math.hypot(a.x-b.x,a.y-b.y);
+      if(d>0.5&&d<=14) segs.push([a,b]); } });
   return segs;
 }
 // smallest enclosing face (ring in canvas px) around the seed, or null if open.
