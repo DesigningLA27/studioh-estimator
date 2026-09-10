@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1439</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1440</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -51698,6 +51698,7 @@ function _toCanvas(pt){ return ptMapLive()?_llToPx(pt):{x:pt.x*PT.renderScale, y
 function ptCanvasClick(e){ if(!PT.doc&&!ptMapLive()) return; const c=ptCanvasXY(e); const p=_toPdf(c); ptAddAt(p,c,e); }
 // p = a point in whatever the base measures in; c = the same point in screen pixels.
 function ptAddAt(p,c,e){
+  if(PT._twoPt){ try{ _ptTwoPtTap(c); }catch(err){ PT._twoPt=null; } return; }
   if(PT._roofPick){ try{ _roofPickAt(p); }catch(err){ BUILD_BUSY=false; try{ _toast("Pick failed: "+(err&&err.message||err),"#B23F3C"); }catch(_){}} return; }
   if(PT._fillPick){ try{ _ptDoFill(c); }catch(err){ PT._fillPick=false; try{ ptRenderAutoBar(); }catch(_){} } return; }
   if(_aiTool()){ try{ _ptPlaceAi(p,c); }catch(err){ PT._aiTool=null; PT._aiStart=null; } return; }
@@ -57449,7 +57450,10 @@ function _ptDockPanel(g){
     +T("ptSetTool('line')","Guide line",_DIC.guide,PT.tool==="line")
     +T("ptSetTool('spline')","Curve",_DIC.spline,PT.tool==="spline")
     +(PT.tool==="spline"?T("ptStraightToggle()","Straight run",_DIC.ortho,!!PT._straight,"tap to hold \u00b7 or hold Space"):"")
-    +S("Modifiers")+T("ptToggleOrtho()","Ortho \u2014 0/45/90\u00b0",_DIC.ortho,_orthoOn())+T("ptFillMode()","Fill area (BO)",_DIC.fill,!!PT._fillPick)
+    +S("Modifiers")+T("ptToggleOrtho()","Ortho \u2014 0/45/90\u00b0"+(_ptOrthoBase()?" off "+_ptOrthoBase().toFixed(1)+"\u00b0":""),_DIC.ortho,_orthoOn())
+      +T("ptTwoPt('ortho')","Set ortho angle \u2014 2 points",_DIC.ortho,!!(PT._twoPt&&PT._twoPt.kind==="ortho"))
+      +(_ptOrthoBase()?T("ptOrthoBaseReset()","Reset ortho to square",_DIC.rotate,false):"")
+      +T("ptFillMode()","Fill area (BO)",_DIC.fill,!!PT._fillPick)
     +S("Snap to (OSNAP)")
     +'<div class="pdsqg">'
       +SQ("ptSnapToggle('line')","Line",_DIC.snapL,_ptSnapOn('line'))
@@ -57596,10 +57600,13 @@ function _ptDockPanel(g){
   if(g==="edit"){ const anySel=(PT.selPoly!=null||PT.selAi!=null||PT.selGuide!=null);
     return H("Edit","Select, reshape, remove")
     +T("if(!PT.selectMode)ptSelectMode()","Select",_DIC.sel,PT.selectMode)+T("ptDockDelete()","Delete selected",_DIC.del,anySel)
-    +S("Modifiers")+T("ptToggleOrtho()","Ortho \u2014 0/45/90\u00b0",_DIC.ortho,_orthoOn()); }
+    +S("Modifiers")+T("ptToggleOrtho()","Ortho \u2014 0/45/90\u00b0"+(_ptOrthoBase()?" off "+_ptOrthoBase().toFixed(1)+"\u00b0":""),_DIC.ortho,_orthoOn())
+      +T("ptTwoPt('ortho')","Set ortho angle \u2014 2 points",_DIC.ortho,!!(PT._twoPt&&PT._twoPt.kind==="ortho"))
+      +(_ptOrthoBase()?T("ptOrthoBaseReset()","Reset ortho to square",_DIC.rotate,false):""); }
   if(g==="view"){ let h=H("View","Framing &amp; display")
     +T(ptMapLive()?"ptFlatten()":"ptReturnLive()",ptMapLive()?"Flatten &amp; rotate":"Back to live map",_DIC.rotate,_ptFlatOn());
     if(_ptFlatOn()) h+=T("ptRotate90()","Rotate 90\u00b0",_DIC.rotate,false)
+      +T("ptAlignTwoPt()","Align plan \u2014 2 points",_DIC.ortho,!!(PT._twoPt&&PT._twoPt.kind==="align"))
       +T("ptSquareNow()","Square to the house",_DIC.ortho,false);
     h+=S("Zoom")+T("ptZoom(1.2)","Zoom in",_DIC.zin,false)+T("ptZoom(0.83)","Zoom out",_DIC.zout,false)
     +S("Display")+T("ptToggleLabels()","Labels",_DIC.labels,!PT.hideLabels)+T("ptLayersPopover()","Layers",_DIC.layers,false);
@@ -57862,7 +57869,7 @@ function _orthoSnapCanvas(c){
   const L=_toCanvas(cur[cur.length-1]);
   const vx=c.x-L.x, vy=c.y-L.y, m=Math.hypot(vx,vy);
   if(m<1e-6) return c;
-  const off=((_ptFlatOn()?(PT.flatRot||0):0))*Math.PI/180;
+  const off=(((_ptFlatOn()?(PT.flatRot||0):0))-_ptOrthoBase())*Math.PI/180;
   const step=Math.PI/4;                                    // 0 · 45 · 90 · 135 · 180 …
   let th=Math.atan2(vy,vx)+off;
   th=Math.round(th/step)*step-off;
@@ -58129,12 +58136,59 @@ function _ptSquareRot(){
 }
 // The squaring and the quarter turns are kept apart, so re-squaring after the house is traced
 // does not throw away the 90s you have already turned it through.
-function _ptApplySquare(){
-  const base=_ptSquareRot();
+function _ptApplySquare(base){
+  if(base==null) base=_ptSquareRot();
+  PT.flatBase=base;
   const k=(((PT.flatQuarters||0)%4)+4)%4;
   PT.flatRot=((base+90*k)%360+360)%360;
   return base;
 }
+// Turn by the quarter turns already made, against whatever base is current. A quarter turn must
+// not go back to the geometry for a new base: aligning by hand IS the base once you have set it,
+// and recomputing would have thrown your alignment away on the next tap of Rotate 90.
+function _ptReapplySquare(){
+  const k=(((PT.flatQuarters||0)%4)+4)%4;
+  PT.flatRot=((((PT.flatBase||0))+90*k)%360+360)%360;
+}
+// ── ALIGN, AND THE ORTHO ANGLE ───────────────────────────────────────────────
+// Everything else about squaring is a guess — from a footprint drawn to north, from a parcel that
+// is a wedge — and a guess is something you then have to fight. This is you pointing at the wall.
+// Two taps along the back of the house and the plan turns until that line is straight; two taps
+// along anything else and the drawing axis follows it without moving the plan at all.
+function ptTwoPt(kind){
+  if(kind==="align"&&!_ptFlatOn()){ try{ _toast("Flatten the map first — Rotate — then align it.","#8A6D1F"); }catch(e){} return; }
+  PT._twoPt={kind:kind, a:null};
+  try{ ptPopClose(); }catch(e){}
+  try{ _toast(kind==="align"?"Tap one end of the back of the house.":"Tap one end of the line to draw along.","#2F5B23"); }catch(e){}
+  try{ ptRenderModal(); }catch(e){}
+}
+function ptAlignTwoPt(){ return ptTwoPt("align"); }
+function ptTwoPtCancel(){ PT._twoPt=null; try{ ptDrawOverlay(); ptRenderModal(); }catch(e){} }
+function _ptTwoPtTap(c){
+  const M=PT._twoPt; if(!M) return;
+  if(!M.a){ M.a={x:c.x,y:c.y}; try{ _toast("Now tap the other end.","#2F5B23"); ptDrawOverlay(); }catch(e){} return; }
+  const dx=c.x-M.a.x, dy=c.y-M.a.y;
+  if(Math.hypot(dx,dy)<8){ try{ _toast("Those two taps are on the same spot — pick the far end.","#8A6D1F"); }catch(e){} return; }
+  const kind=M.kind; PT._twoPt=null;
+  const screenAng=Math.atan2(dy,dx)*180/Math.PI+(_ptFlatOn()?(PT.flatRot||0):0);
+  if(kind==="align"){
+    let d=((screenAng%180)+180)%180; if(d>90) d-=180;      // to the nearer horizontal, either way
+    PT.flatQuarters=0;
+    _ptApplySquare(((PT.flatRot||0)-d));
+    try{ _toast("Aligned — that line is straight now. ⟲ turns it 90°.","#2F5B23"); }catch(e){}
+    ptFitPage().then(()=>ptRenderPage().then(()=>{ try{ _ptFlatCenter(); }catch(e){} }));
+    return;
+  }
+  let d=((screenAng%90)+90)%90; if(d>45) d-=90;
+  PT.orthoBase=+d.toFixed(4);
+  if(!_orthoOn()) PT.ortho=true;
+  try{ _toast("Ortho now runs off that line ("+(d>=0?"+":"")+d.toFixed(1)+"°). Reset puts it back to square.","#2F5B23"); }catch(e){}
+  try{ ptDrawOverlay(); ptRenderModal(); }catch(e){}
+}
+function _ptOrthoBase(){ const v=+(PT&&PT.orthoBase); return isFinite(v)?v:0; }
+function ptOrthoBaseReset(){ PT.orthoBase=0;
+  try{ _toast("Ortho angle reset to square.","#2F5B23"); }catch(e){}
+  try{ ptDrawOverlay(); ptRenderModal(); }catch(e){} }
 // Square it now, to whatever is traced now — for when the house went on after the rotation.
 function ptSquareNow(){
   if(!_ptFlatOn()) return;
@@ -58146,37 +58200,9 @@ function ptSquareNow(){
   try{ _toast((base===0&&had===PT.flatRot)?"Nothing traced to square to yet — trace the house."
         :("Squared to the "+src+"."),"#2F5B23"); }catch(e){}
 }
-// Squaring needs the house, and when you press Rotate the house is usually not traced yet — the
-// auto-drawn parcel is all there is, and a parcel is often a wedge whose smallest enclosing
-// rectangle is nobody's idea of square. That is why the back of the house still came out on an
-// angle. So before the still is made, if no building has been traced, look one up. It runs on the
-// live map, where a footprint is lat/lng, and ptFlatten bakes it into pixels moments later — which
-// is the only order in which the angle means anything. Silent on every failure: this is a
-// convenience on the way to flattening, not an errand of its own.
-async function _ptAutoBuildingForSquare(){
-  try{
-    if((PT.polys||[]).some(p=>p.mode==="building"&&p.pts&&p.pts.length>=3)) return false;
-    if(!ptMapLive()) return false;
-    if(typeof _fetchBuildingFootprint!=="function") return false;
-    const lat=+((S.pi&&S.pi.lat)||0), lng=+((S.pi&&S.pi.lng)||0);
-    if(!(lat&&lng)) return false;
-    if(typeof BUILD_BUSY!=="undefined" && BUILD_BUSY) return false;
-    try{ BUILD_BUSY=true; }catch(e){}
-    let found=null; try{ found=await _fetchBuildingFootprint(lat,lng); }catch(e){}
-    try{ BUILD_BUSY=false; }catch(e){}
-    if(!found||!found.ring||found.ring.length<3) return false;
-    let ring=found.ring; try{ ring=_polyInsetFt(found.ring, AK("build.inset")); }catch(e){}
-    const pts=ring.map(q=>({x:q.lng, y:q.lat}));
-    const poly={pts, kind:"area", mode:"building", _auto:true, _forSquare:true, page:PT.page};
-    try{ poly.sf=Math.round(_ptPolySF(pts)); }catch(e){}
-    PT.polys.push(poly);
-    return true;
-  }catch(e){ return false; }
-}
 async function ptFlatten(){
   if(!ptMapLive()||!PT.satBase||!PT.satBase.center){ alert("Open the satellite map first."); return; }
   if(PT._flatBusy) return; PT._flatBusy=true;
-  let _autoHouse=false; try{ _autoHouse=await _ptAutoBuildingForSquare(); }catch(e){}
   const center={lat:+PT.satBase.center.lat, lng:+PT.satBase.center.lng};
   try{ _toast("Capturing a high-res still (with the neighbours)…","#2F5B23"); }catch(e){}
   const g=_satGridFor(); const grid={gx:Math.min(5,g.gx+2), gy:Math.min(5,g.gy+2)};   // extra margin so the plan can be centred when zoomed in
@@ -58199,17 +58225,17 @@ async function ptFlatten(){
   try{ await ptFitPage(); }catch(e){} try{ await ptRenderPage(); }catch(e){} try{ _ptFlatCenter(); }catch(e){}
   const _sqSrc=(PT.polys||[]).some(p=>p.mode==="building")?"house"
              :((PT.polys||[]).some(p=>p.mode==="lot")?"property line":null);
-  try{ _toast(_sqSrc?("Flattened · squared to the "+_sqSrc+(_autoHouse?" (found automatically)":"")
+  try{ _toast(_sqSrc?("Flattened · squared to the "+_sqSrc
         +". ⟲ rotates 90°, ◱ returns to the live map.")
         :"Flattened. Trace the house, then View › Square to the house.","#2F5B23"); }catch(e){}
 }
 function ptRotate90(){ if(!_ptFlatOn()) return;
-  PT.flatQuarters=((((PT.flatQuarters||0)+1)%4)+4)%4; _ptApplySquare();
+  PT.flatQuarters=((((PT.flatQuarters||0)+1)%4)+4)%4; _ptReapplySquare();
   ptFitPage().then(()=>ptRenderPage().then(()=>{ try{ _ptFlatCenter(); }catch(e){} })); }
 function _ptFlatCenter(){ const st=document.getElementById("pt-stage"); if(!st) return;
   st.scrollLeft=Math.max(0,(st.scrollWidth-st.clientWidth)/2);
   st.scrollTop =Math.max(0,(st.scrollHeight-st.clientHeight)/2); }
-async function ptReturnLive(){ PT.flat=false; PT.flatRot=0; PT.flatQuarters=0;
+async function ptReturnLive(){ PT.flat=false; PT.flatRot=0; PT.flatQuarters=0; PT.flatBase=0;
   try{ await ptOpenSatellite(true); }catch(e){} try{ ptRenderModal(); }catch(e){} try{ ptRenderPage(); }catch(e){} }
 function _ptRenderFlatBar(){
   const host=document.getElementById("pt-stagewrap"); if(!host) return;
