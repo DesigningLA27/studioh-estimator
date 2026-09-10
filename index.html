@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1442</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1443</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -26540,6 +26540,8 @@ function stRailRenameMode(v){
 // no key and so never sees this switch, or the section, regardless of its state.
 function stInfoIcons(v){ PREFS.infoIcons=(v==="on"); prefsSave(); if(_stOpen) _stRender();
   try{ plantRefresh(); }catch(e){} }
+function stTraceHints(v){ PREFS.traceHints=(v!=="off"); prefsSave(); if(_stOpen) _stRender();
+  try{ if(typeof _ptDockRefresh==="function") _ptDockRefresh(); }catch(e){} }
 function stHydroseed(v){ PREFS.showHydroseed=(v==="on"); prefsSave(); if(_stOpen) _stRender();
   try{ plantRefresh(); }catch(e){} }
 function stEarnings(v){ PREFS.showEarnings=(v==="on"); prefsSave(); if(_stOpen) _stRender();
@@ -26880,6 +26882,8 @@ function _stRender(){
           ${_stSeg(_isClientLens()?"client":"pro",[{v:"pro",nm:"Pro"},{v:"client",nm:"Client"}],"stLens")}</div>
         <div class="st-row"><span class="l">Info icons<small>The little ⓘ helpers throughout the app. Off keeps the screens clean once you know your way around.</small></span>
           ${_stSeg(PREFS.infoIcons?"on":"off",[{v:"off",nm:"Off"},{v:"on",nm:"On"}],"stInfoIcons")}</div>
+        <div class="st-row"><span class="l">Hover instructions<small>Hold the pointer over a tool in the design tracer and a line of instruction appears. Turn it off once the tools are second nature.</small></span>
+          ${_stSeg(PREFS.traceHints===false?"off":"on",[{v:"off",nm:"Off"},{v:"on",nm:"On"}],"stTraceHints")}</div>
         <div class="st-row"><span class="l">Hydroseed cover<small>Adds Hydroseed to the planting surface options. A zone already using it always shows it.</small></span>
           ${_stSeg(PREFS.showHydroseed?"on":"off",[{v:"off",nm:"Off"},{v:"on",nm:"On"}],"stHydroseed")}</div>
         <div class="st-row"><span class="l">Plant earnings<small>Shows the plant-material earnings panel (cost-plus / markup / commission) under the planting section.</small></span>
@@ -57437,8 +57441,15 @@ function _ptDockRefresh(){
   else panel.classList.remove("open");
 }
 function _ptDockCols(){ const g=PT.dockGroup;
-  const gb=(k,l,ic)=>'<button class="pdg'+(g===k?" on":"")+'" onclick="ptDockGroup(\''+k+'\')" title="'+l+' tools"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+l+'</span></button>';
-  const ub=(fn,l,ic)=>'<button class="pdg util" onclick="'+fn+'" title="'+l+'"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+l+'</span></button>';
+  const GH={trace:"Pick the layer you are about to draw on \u2014 paving, planting, a pool, a wall.",
+    draw:"How points are placed: polygon, rectangle, circle, curve, and the Ortho and snap modifiers.",
+    ai:"Facts the AI reads: the garage, windows, slope, spot levels, which room is behind a wall.",
+    edit:"Select, move, delete, and change what a shape is made of.",
+    view:"Rotate, square up, zoom, labels, layers and the PDF scale.",
+    hatch:"Patterns for a zone, and their angle and scale.",
+    props:"Everything about one zone \u2014 name, area, material, colour, hatch and cost."};
+  const gb=(k,l,ic)=>'<button class="pdg'+(g===k?" on":"")+'" onclick="ptDockGroup(\''+k+'\')" title="'+escAttr(_ptHintsOn()&&GH[k]?GH[k]:(l+" tools"))+'"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+l+'</span></button>';
+  const ub=(fn,l,ic)=>'<button class="pdg util" onclick="'+fn+'" title="'+escAttr((_ptHintsOn()&&PT_HELP[fn])||l)+'"><svg viewBox="0 0 24 24">'+ic+'</svg><span>'+l+'</span></button>';
   return ub("ptUndoAct()","Undo",_DIC.undo)+ub("ptRedoAct()","Redo",_DIC.redo)+ub("ptDeselectAll()","Deselect",_DIC.desel)+'<div class="pdsep"></div>'
     +gb("trace","Trace",_DIC.trace)+gb("draw","Draw",_DIC.draw)+gb("ai","AI",_DIC.ai)+gb("edit","Edit",_DIC.edit)+gb("view","View",_DIC.view)+gb("hatch","Hatch",_DIC.hatch)+gb("props","Props",_DIC.props)
     +'<div class="pdsep"></div>'
@@ -57448,10 +57459,65 @@ function _ptDockCols(){ const g=PT.dockGroup;
     +'<button class="pdg go" onclick="ptApply()" title="Apply to estimate"><svg viewBox="0 0 24 24">'+_DIC.apply+'</svg><span>Apply</span></button>'
     +ub("ptClose()","Close",_DIC.close);
 }
+// Hover instructions for the trace dock. One line per control, keyed by what the button calls,
+// so a label that changes with state still finds its own text. Settings > Hover instructions.
+const PT_HELP={
+  "ptSetTool('draw')":"Tap corner to corner around a shape. Tap the first point again, or double-tap, to close it.",
+  "ptSetTool('rect')":"Drag one corner to the opposite corner. Best for a square patio or a pad.",
+  "ptSetTool('circle')":"Tap the centre, then drag out to the edge.",
+  "ptSetTool('polyline')":"An open run rather than an area — a wall, a fence, a drain line. Double-tap to finish.",
+  "ptSetTool('line')":"A construction line to snap to. It measures nothing and never prices.",
+  "ptSetTool('spline')":"A curved edge. Tap along the curve; hold Space, or Straight run, for a straight stretch.",
+  "ptStraightToggle()":"Hold this, or the space bar, to lay a straight stretch in the middle of a curve.",
+  "ptToggleOrtho()":"Locks every new line to 0°, 45°, 90°, 135° and so on. Hold Space, or Hold to draw free, to step off the axis.",
+  "ptTwoPt('ortho')":"Tap two points along any line — a wall, a fence, a kerb — and Ortho takes that line as its new 0°.",
+  "ptOrthoBaseReset()":"Puts Ortho back to 0° square with the view.",
+  "ptFillMode()":"Tap inside an area bounded by lines you have already drawn and it fills as one zone.",
+  "ptAiTool('garage')":"Mark the garage door so the AI knows where cars enter.",
+  "ptAiTool('window')":"Mark a window or a door so views out of the house are known.",
+  "ptAiTool('slope')":"Drag downhill to record which way the ground falls.",
+  "ptAiTool('spot')":"Tap a point and type its elevation.",
+  "ptAiTool('room:Kitchen')":"Mark which room is behind this wall — it drives what the AI puts outside it.",
+  "ptAiTool('room:Living')":"Mark which room is behind this wall — it drives what the AI puts outside it.",
+  "ptAiTool('room:Bed')":"Mark which room is behind this wall — it drives what the AI puts outside it.",
+  "ptAiTool('nbr')":"Draw the edge a neighbour overlooks, so screening lands where it is needed.",
+  "ptSetFFE()":"The finished floor level of the house — every step and wall height is measured from it.",
+  "ptSnapToggle('line')":"Snaps onto the nearest edge you have already drawn.",
+  "ptSnapToggle('corner')":"Snaps exactly onto an existing corner point.",
+  "ptSnapToggle('mid')":"Snaps to the middle of an existing edge.",
+  "ptSnapToggle('center')":"Snaps to the centre of a circle or a closed shape.",
+  "ptSnapToggle('perp')":"Snaps square off the edge you started from.",
+  "ptSnapToggle('tangent')":"Snaps where a line just touches a curve.",
+  "ptSnapToggle('intersect')":"Snaps where two edges cross.",
+  "ptDockGroup('hatch')":"Patterns, their angle and their scale.",
+  "ptHatchMatchProps()":"Tap a zone whose look you want, then tap the zones to paint it onto.",
+  "ptHatchAlign()":"Runs the pattern along a line you pick: tap Align, tap the hatched zone, then tap two points along the line to follow — a house wall or a kerb.",
+  "if(!PT.selectMode)ptSelectMode()":"Tap a shape to pick it up, move it, or edit its corners.",
+  "ptDockDelete()":"Removes whatever is selected. Undo brings it back.",
+  "ptRotate90()":"Turns the whole plan a quarter turn.",
+  "ptAlignTwoPt()":"Squares the plan to the house: tap two points along the rear wall and the image turns until that wall is level.",
+  "ptSquareNow()":"Turns the plan until the house sits square to the screen, using the building you traced.",
+  "ptZoom(1.2)":"Closer in.",
+  "ptZoom(0.83)":"Further out.",
+  "ptToggleLabels()":"Shows or hides the name and area written on each zone.",
+  "ptLayersPopover()":"Show, hide or lock each layer.",
+  "ptOpenScale()":"On a PDF, draw over a known dimension and type what it measures, so everything else scales from it.",
+  "ptToggleGuides()":"Shows or hides the construction lines.",
+  "ptFlatten()":"Freezes the map to a still you can rotate and pan freely.",
+  "ptReturnLive()":"Back to the live Google map — you can search and move again, but not rotate.",
+  "ptApply()":"Pushes every measured area into the estimate.",
+  "ptUndoAct()":"Steps back one change.",
+  "ptRedoAct()":"Puts back what you just undid.",
+  "ptDeselectAll()":"Drops the current selection and disarms whatever tool is armed."
+};
+function _ptHintsOn(){ try{ return PREFS.traceHints!==false; }catch(e){ return true; } }
+function _ptHelpAttr(fn){ if(!_ptHintsOn()) return "";
+  const t=PT_HELP[fn]; return t?(' title="'+escAttr(t)+'"'):""; }
 function _ptDockPanel(g){
-  const T=(fn,l,ic,on,meta)=>'<button class="pdt'+(on?" on":"")+'" onclick="'+fn+'"><svg viewBox="0 0 24 24">'+ic+'</svg><span class="lbl">'+l+'</span>'+(meta?'<span class="meta">'+meta+'</span>':'')+'</button>';
-  const SQ=(fn,l,ic,on)=>'<button class="pdsq snap'+(on?" on":"")+'" onclick="'+fn+'"><svg viewBox="0 0 24 24">'+ic+'</svg><small>'+l+'</small></button>';
-  const SW=(mode,l,color,meta)=>'<button class="pdt'+(PT.mode===mode?" on":"")+'" onclick="ptDockCat(\''+mode+'\')"><span class="pdsw" style="background:'+color+'"></span><span class="lbl">'+l+'</span>'+(meta?'<span class="meta">'+meta+'</span>':'')+'</button>';
+  const HT=_ptHelpAttr;
+  const T=(fn,l,ic,on,meta)=>'<button class="pdt'+(on?" on":"")+'"'+HT(fn)+' onclick="'+fn+'"><svg viewBox="0 0 24 24">'+ic+'</svg><span class="lbl">'+l+'</span>'+(meta?'<span class="meta">'+meta+'</span>':'')+'</button>';
+  const SQ=(fn,l,ic,on)=>'<button class="pdsq snap'+(on?" on":"")+'"'+HT(fn)+' onclick="'+fn+'"><svg viewBox="0 0 24 24">'+ic+'</svg><small>'+l+'</small></button>';
+  const SW=(mode,l,color,meta)=>'<button class="pdt'+(PT.mode===mode?" on":"")+'"'+(_ptHintsOn()?(' title="'+escAttr("Trace "+l+". Pick this, then draw on the plan \u2014 every shape you draw lands on this layer.")+'"'):"")+' onclick="ptDockCat(\''+mode+'\')"><span class="pdsw" style="background:'+color+'"></span><span class="lbl">'+l+'</span>'+(meta?'<span class="meta">'+meta+'</span>':'')+'</button>';
   const S=t=>'<div class="pdsec">'+t+'</div>', H=(t,sub)=>'<div class="pdhead">'+t+'</div><div class="pdsub">'+sub+'</div>';
   if(g==="trace"){ let tot={}; try{ tot=ptTotals(); }catch(e){} let h=H("Trace",'<span class="free">Pick a layer to trace</span>');
     const GR=[["Surfaces",["planting","turf","paving","driveway","irrigation"]],
