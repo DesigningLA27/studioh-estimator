@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1431</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1432</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27669,7 +27669,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1","studioh_bookstamps_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1","studioh_bookstamps_v1","studioh_concrete_v1"];
 // ── Settings save themselves ─────────────────────────────────────────────────
 // "We have so many publish to serve, publish to this. Export this, and that. And 'pick
 // server or pick local'. I've never seen an app with all this shit." Correct — and the
@@ -52402,12 +52402,15 @@ function ptUnitRate(cat, unit){
   // charged concrete AND stone AND brick AND gravel on every foot, which is how paving reached
   // $413.99/SF and $2.1M. They blend instead: an equal split until the trace says which material
   // covers which area, which is the split _pavCatSum works out once a polygon carries one.
-  const excl=(cat==="paving"&&unit==="SF"&&typeof PAV_MATS!=="undefined")?PAV_MATS:null;
+  // Every SF line in the section counts, not just the nine in PAV_MATS: that list is hardcoded,
+  // so a material added to the book was not recognised as a surface and went on stacking on top
+  // of the blend — which is why the rate fell to $110.66/SF instead of the $46 the nine imply.
+  const excl=(cat==="paving"&&unit==="SF");
   let r=0, ex=0, exN=0;
   cs.items.forEach(it=>{ if(!it||!it.checked) return;
     if(String(it.u||"").toUpperCase()!==unit) return;
     const v=(+it.uc||0)*(1+(+it.madj||0)/100);
-    if(excl&&excl.indexOf(it.n)>=0){ ex+=v; exN++; return; }   // one surface, not all of them
+    if(excl){ ex+=v; exN++; return; }                          // one surface, not all of them
     r+=v; });
   if(exN>0) r+=ex/exN;
   try{ r*=sectionMult(cat); }catch(e){}
@@ -54291,6 +54294,281 @@ function asmPrice(costSF, o){ const r=oapResolve(o);
           oapSF:_asm2(costSF*r.pct/100), priceSF:_asm2(costSF*(1+r.pct/100))}; }
 function _asmR(n,d){ const m=Math.pow(10,d||2); return Math.round((+n||0)*m)/m; }
 
+// ── CONCRETE COST ENGINE ─────────────────────────────────────────────────────
+// Concrete is not one number per square foot. The same 500 SF is a different job as a single
+// rectangle than as a hundred stepping pads: the concrete is identical, the forming, layout and
+// finishing are not. So the price is built — geometry × specification, then material, forming,
+// placement, finish, scoring, options, access, mobilisation and contractor tier on top — and two
+// projects with the same total area come out at different numbers when they are different work.
+//
+// Every default, range, factor and minimum lives in this one object so they can be tuned without
+// touching the arithmetic. These are estimating assumptions, not specifications: they never
+// supersede plans, engineering, a soils report, local code or a structural requirement.
+const CONC_DEF={
+  // What a normal job of each kind is, until someone says otherwise.
+  use:{
+    pedestrian:{ label:"Pedestrian / landscape", thickIn:4, psi:3000, rebar:"#3@18",
+                 subgrade:"native", baseIn:0, finish:"broomMed",
+                 uses:"Patios, walks, garden paths, pads, stepping pads, concrete substrate below stone or tile" },
+    vehicular: { label:"Vehicular",              thickIn:6, psi:3500, rebar:"#4@18",
+                 subgrade:"native", baseIn:0, finish:"broomMed",
+                 uses:"Driveways, motor courts, parking pads, vehicular paving" }
+  },
+  // Complete installed landscape-contractor cost for the structural slab alone, normalised to an
+  // efficient 500–1,000 SF pour under normal Southern California residential conditions, with
+  // minor excavation, grading, compacting native soil, forming, concrete, reinforcement, chairs,
+  // placement, labour and cleanup. NOT demolition, haul-off, aggregate base, unusual excavation,
+  // footings, thickened edges, grade beams, drainage, permits, engineering, difficult access,
+  // pumps, waterproofing, stone, tile, mortar beds, membranes or a decorative finish.
+  anchor:{ pedestrian:{thickIn:4, substrateSF:10.00}, vehicular:{thickIn:6, substrateSF:14.00} },
+  // Thickness moves by volume, never by a flat percentage: 1 CY covers 81 SF at 4″ and 54 SF at 6″.
+  concreteCY:235.00,           // installed ready-mix, $/CY, for the volume DELTA off the anchor
+  wastePct:7, wasteRange:[5,10],
+  // Higher strength is mostly a ready-mix difference, so it is a small adder on the installed
+  // foot rather than a multiplier on the whole slab. With real supplier pricing, cost it by CY.
+  psi:{2500:-0.10, 3000:0, 3500:0.10, 4000:0.20, 4500:0.30, 5000:0.40},
+  psiList:[2500,3000,3500,4000,4500,5000],
+  // Reinforcement priced as installed $/SF; only the difference from the use's default is charged.
+  rebar:{ none:0, mesh:0.45,
+          "#3@24":0.65, "#3@18":0.85, "#3@12":1.25,
+          "#4@24":0.95, "#4@18":1.25, "#4@12":1.85 },
+  rebarLabel:{ none:"None", mesh:"Welded wire mesh",
+    "#3@24":"#3 rebar @ 24″ O.C. EW", "#3@18":"#3 rebar @ 18″ O.C. EW", "#3@12":"#3 rebar @ 12″ O.C. EW",
+    "#4@24":"#4 rebar @ 24″ O.C. EW", "#4@18":"#4 rebar @ 18″ O.C. EW", "#4@12":"#4 rebar @ 12″ O.C. EW" },
+  // Finish is a separate component. Rough screed is the substrate under stone or tile.
+  finish:{
+    screed:   {label:"Rough / screed",        add:0,    range:[0,0]},
+    broomLt:  {label:"Light broom",           add:1.00, range:[0.75,1.25]},
+    broomMed: {label:"Medium broom",          add:1.50, range:[1.25,2.00]},
+    broomHv:  {label:"Heavy broom",           add:1.75, range:[1.50,2.25]},
+    trowel:   {label:"Smooth / steel trowel", add:2.00, range:[1.50,2.50]},
+    acid:     {label:"Acid wash / etched",    add:3.00, range:[2.50,4.00]},
+    sandLt:   {label:"Light sandblast",       add:4.00, range:[3.00,5.00]},
+    sandMed:  {label:"Medium sandblast",      add:5.00, range:[4.00,6.00]},
+    exposed:  {label:"Exposed aggregate",     add:5.50, range:[4.00,7.00]},
+    color:    {label:"Integral colour",       add:3.00, range:[2.00,4.00]},
+    stamped:  {label:"Stamped",               add:9.00, range:[7.00,12.00]}
+  },
+  // Integral colour combines with a texture; two textures do not.
+  finishTexture:["screed","broomLt","broomMed","broomHv","trowel","acid","sandLt","sandMed","exposed","stamped"],
+  // Scoring is linear feet of joint, never a rate on slab area. Perimeter forms are not scoring.
+  scoring:{
+    none:    {label:"None",                        lf:0,    range:[0,0]},
+    sawcut:  {label:"Sawcut control joints",       lf:2.25, range:[1.50,3.00]},
+    tooled:  {label:"Hand-tooled control joint",   lf:4.50, range:[3.00,6.00]},
+    arch:    {label:"Architectural hand-tooled",   lf:6.00, range:[5.00,8.00]}
+  },
+  // Forming is the biggest reason small pads cost so much more per foot.
+  form:{ simple:{label:"Simple contiguous", f:1.00}, moderate:{label:"Moderate", f:1.08},
+         complex:{label:"Complex / many corners", f:1.15}, curved:{label:"Curved", f:1.20},
+         separated:{label:"Multiple separated slabs", f:1.22} },
+  formLF:7.25,                 // installed forming, $/LF — what drives small-pad pricing
+  formInAnchor:1.00,           // forming already inside the anchor, $/SF: an efficient 500–1,000
+                               // SF pour runs about 0.14 LF of form per SF, so the anchor already
+                               // buys roughly a dollar of it. Only form BEYOND that is charged.
+  // Economy of scale on the labour-driven side. It must never multiply a finish upgrade.
+  size:[[25,2.50],[75,1.90],[150,1.50],[300,1.25],[500,1.10],[1000,1.00],[2500,0.95],[5000,0.90],[Infinity,0.87]],
+  // Contractor tier moves labour, forming, finishing, supervision, craftsmanship and mobilisation.
+  // It does not move raw commodity: ready-mix, pigment, steel and aggregate are bought, not made.
+  tier:{ value:0.82, standard:1.00, premium:1.30 },
+  mobilisation:{ value:750, standard:1000, premium:1500 },
+  mobPartOfLarger:0.35,        // concrete inside a bigger landscape install carries less of it
+  access:{ direct:{label:"Direct ready-mix access", f:0},   normal:{label:"Normal residential", f:0},
+           limited:{label:"Limited / wheelbarrow", f:0.15}, difficult:{label:"Difficult", f:0.275},
+           severe:{label:"Very difficult / hillside", f:0.475} },
+  basePerIn:0.43,              // aggregate road base, installed $/SF per inch — kept off the slab
+  baseList:[0,2,4,6],
+  // Validation ranges, not prices: 4″, 3000 PSI, rebar, native soil, no base, medium broom,
+  // normal access, standard contractor.
+  sanity:{ contiguous:[[100,14,19],[250,13,16],[500,12,14],[1000,11,13],[2500,9.5,12]],
+           pads:[[1,30,50],[2,22,35],[3,18,28],[5,15,22],[10,14,19]] }
+};
+let CONC=(function(){ try{ const s=localStorage.getItem("studioh_concrete_v1");
+  if(s){ const j=JSON.parse(s); if(j&&j.use&&j.anchor) return j; } }catch(e){} return null; })()
+  || JSON.parse(JSON.stringify(CONC_DEF));
+function concSave(){ try{ localStorage.setItem("studioh_concrete_v1", JSON.stringify(CONC)); }catch(e){}
+  try{ cfgStampKey("studioh_concrete_v1"); }catch(e){}
+  try{ _cfgSchedulePush(); }catch(e){} }        // rides to the server with the rest of the settings
+function concReset(){ CONC=JSON.parse(JSON.stringify(CONC_DEF)); concSave(); }
+function _concN(v,d){ v=+v; return isFinite(v)?v:d; }
+function concSizeF(sf){ const c=CONC.size||CONC_DEF.size; const a=Math.max(0,+sf||0);
+  for(let i=0;i<c.length;i++){ if(a<=c[i][0]) return c[i][1]; } return c[c.length-1][1]; }
+// 1 CY covers 81 SF at 4″. Volume is geometry, so thickness is never a percentage.
+function concCY(areaSF, thickIn, wastePct){
+  const raw=(+areaSF||0)*(+thickIn||0)/12/27;
+  return {raw, withWaste:raw*(1+_concN(wastePct,CONC.wastePct)/100)};
+}
+// Score-line length from a grid, when it has not been drawn. An a×b area on an s grid carries
+// roughly 2A/s of joint less the run already taken by the perimeter forms.
+function concScoreLF(areaSF, perimLF, gridFt){
+  const A=+areaSF||0, s=+gridFt||0; if(!(A>0&&s>0)) return 0;
+  return Math.max(0, Math.round(2*A/s - (+perimLF||0)/2));
+}
+// Perimeter of the actual geometry when it is known; otherwise the perimeter of a square of the
+// same area, per pad. Many small pads carry enormously more form per foot than one big slab.
+function concPerim(o){
+  if(+o.perimLF>0) return +o.perimLF;
+  const n=Math.max(1, Math.round(+o.padCount||1)), A=Math.max(0,+o.areaSF||0);
+  if(!(A>0)) return 0;
+  if(Array.isArray(o.padAreas)&&o.padAreas.length)
+    return o.padAreas.reduce((s,a)=>s+4*Math.sqrt(Math.max(0,+a||0)),0);
+  return n*4*Math.sqrt(A/n);
+}
+// THE ENGINE. Geometry × specification, then the parts, then the conditions.
+function concreteCost(o){
+  o=o||{};
+  const useId=(o.use==="vehicular")?"vehicular":"pedestrian";
+  const U=CONC.use[useId]||CONC_DEF.use[useId], AN=CONC.anchor[useId]||CONC_DEF.anchor[useId];
+  const areaSF=Math.max(0,+o.areaSF||0);
+  const tierId=CONC.tier[o.tier]!=null?o.tier:"standard";
+  const tierF=_concN(CONC.tier[tierId],1);
+  if(!(areaSF>0)) return null;
+
+  const thickIn=_concN(o.thickIn,U.thickIn), psi=_concN(o.psi,U.psi);
+  const rebar=(o.rebar!=null&&CONC.rebar[o.rebar]!=null)?o.rebar:U.rebar;
+  const baseIn=_concN(o.baseIn,U.baseIn), wastePct=_concN(o.wastePct,CONC.wastePct);
+  const padCount=Math.max(1,Math.round(+o.padCount||1));
+  const perimLF=concPerim(Object.assign({},o,{areaSF}));
+  const vol=concCY(areaSF, thickIn, wastePct);
+  const volAnchor=concCY(areaSF, AN.thickIn, wastePct);
+
+  // ── commodity: bought, not built. Tier does not move it. ──
+  const cyDelta=vol.withWaste-volAnchor.withWaste;
+  const concDelta=(areaSF>0)?(cyDelta*_concN(CONC.concreteCY,235))/areaSF:0;   // $/SF
+  const rebarDelta=_concN(CONC.rebar[rebar],0)-_concN(CONC.rebar[U.rebar],0);
+  const psiAdd=_concN((CONC.psi||{})[psi],0)-_concN((CONC.psi||{})[U.psi],0);
+  const baseAdd=Math.max(0,baseIn)*_concN(CONC.basePerIn,0.43);
+
+  // ── built: forming, placement, finishing. Size, form complexity, access and tier move these. ──
+  // The anchor already carries the forming a simple contiguous pour needs. Real geometry replaces
+  // that allowance rather than adding to it, which is what makes a hundred small pads expensive.
+  const formInAnchor=_concN(CONC.formInAnchor,1.00);
+  const formGeo=(areaSF>0)?(perimLF*_concN(CONC.formLF,7.25))/areaSF:0;
+  const formF=_concN((CONC.form[o.form]||{}).f, 1);
+  const formSF=Math.max(0, formGeo*formF-formInAnchor);
+  const slabSF=_concN(AN.substrateSF,10);
+
+  // Finish: a texture plus optionally integral colour. Never doubled against a broom the base
+  // assembly already carries, and never multiplied by economy of scale.
+  const picked=[].concat(o.finish||U.finish||"broomMed").filter(Boolean);
+  const fin=[]; let finSF=0;
+  picked.forEach(k=>{ const f=CONC.finish[k]; if(!f) return;
+    if(fin.some(x=>x.k===k)) return;
+    fin.push({k, label:f.label, add:+f.add||0}); finSF+=+f.add||0; });
+
+  // Scoring is linear feet, from drawn geometry, a grid, or nothing.
+  const scId=(CONC.scoring[o.scoring]!=null)?o.scoring:"none";
+  const scLF=(+o.scoreLF>0)?+o.scoreLF:concScoreLF(areaSF, perimLF, o.scoreGridFt);
+  const scRate=_concN((CONC.scoring[scId]||{}).lf,0);
+  const scoreSF=(areaSF>0)?(scLF*scRate)/areaSF:0;
+
+  // Economy of scale answers to how much concrete the JOB pours, not how much this one element
+  // does — twenty stepping pads placed during a 1,200 SF patio pour are not a 20 SF mobilisation.
+  // It rides the slab only: forming is already geometric, so scaling it too would pay the
+  // fragmentation penalty and then hand most of it back, which is what put a hundred small pads
+  // below the price of one big slab.
+  const projSF=Math.max(areaSF, +o.projectSF||0);
+  // And a job made of separated pads never collects the bulk discount, however many square feet
+  // it adds up to: the discount is what one big efficient placement earns, and this is not one.
+  // Two thousand square feet of stepping pads is not a two-thousand-square-foot driveway.
+  const frag=(padCount>1)||(o.form==="separated");
+  const sizeF=frag?Math.max(1,concSizeF(projSF)):concSizeF(projSF);
+  const accF=1+_concN((CONC.access[o.access]||{}).f,0);
+
+  // Assemble. Size rides the slab; access and tier ride everything that is built rather than bought.
+  const builtRaw=slabSF*sizeF+formSF;
+  const builtSF=builtRaw*accF*tierF;
+  const finishSF=finSF*tierF;               // finishing is labour, but not an economy-of-scale item
+  const scoredSF=scoreSF*tierF;
+  const commoditySF=concDelta+rebarDelta+psiAdd+baseAdd;
+  let installedSF=builtSF+finishSF+scoredSF+commoditySF;
+  let total=installedSF*areaSF;
+
+  // Mobilisation: a concrete sub has a minimum viable job. Inside a larger landscape install
+  // where the crew and equipment are already on site, it carries far less of that minimum.
+  const mobFull=_concN((CONC.mobilisation||{})[tierId],1000);
+  const mob=(o.standalone===false)?mobFull*_concN(CONC.mobPartOfLarger,0.35):mobFull;
+  let mobAdd=0;
+  if(total<mob){ mobAdd=mob-total; total=mob; installedSF=total/areaSF; }
+
+  return {
+    use:useId, useLabel:U.label, areaSF, perimLF:Math.round(perimLF), padCount,
+    thickIn, psi, rebar, rebarLabel:(CONC.rebarLabel||{})[rebar]||rebar,
+    subgrade:o.subgrade||U.subgrade, baseIn, wastePct,
+    cy:+vol.raw.toFixed(2), cyWaste:+vol.withWaste.toFixed(2),
+    coverageSF:thickIn>0?+(27*12/thickIn).toFixed(1):0,
+    finish:fin, finishLabel:fin.map(f=>f.label).join(" + ")||"—",
+    scoring:scId, scoringLabel:(CONC.scoring[scId]||{}).label||"None", scoreLF:Math.round(scLF),
+    form:o.form||"simple", formFactor:formF, sizeFactor:sizeF, accessFactor:accF,
+    tier:tierId, tierFactor:tierF, perimToArea:areaSF>0?+(perimLF/areaSF).toFixed(4):0,
+    parts:[
+      {n:"Slab — excavation, subgrade, forming, reinforcement, concrete, placement, finishing", sf:+(slabSF*sizeF).toFixed(2), kind:"built"},
+      {n:"Forming beyond a simple contiguous pour — "+Math.round(perimLF)+" LF over "+Math.round(areaSF).toLocaleString()+" SF", sf:+formSF.toFixed(2), kind:"built"},
+      {n:"Concrete volume at "+thickIn+"″ vs "+AN.thickIn+"″ ("+(CONC.wastePct?wastePct+"% waste":"")+")", sf:+concDelta.toFixed(2), kind:"commodity"},
+      {n:"Reinforcement — "+((CONC.rebarLabel||{})[rebar]||rebar), sf:+rebarDelta.toFixed(2), kind:"commodity"},
+      {n:psi+" PSI", sf:+psiAdd.toFixed(2), kind:"commodity"},
+      {n:baseIn?("Aggregate base — "+baseIn+"″"):"Aggregate base — none", sf:+baseAdd.toFixed(2), kind:"commodity"},
+      {n:"Finish — "+(fin.map(f=>f.label).join(" + ")||"none"), sf:+finSF.toFixed(2), kind:"finish"},
+      {n:"Scoring — "+((CONC.scoring[scId]||{}).label||"none")+(scLF?(" · "+Math.round(scLF)+" LF"):""), sf:+scoreSF.toFixed(2), kind:"scoring"}
+    ].filter(p=>p.sf!==0),
+    factors:[
+      {n:"Economy of scale at "+Math.round(projSF).toLocaleString()+" SF of concrete"+(frag&&concSizeF(projSF)<1?" — withheld, the work is separated pads":""), f:sizeF},
+      {n:"Form complexity — "+((CONC.form[o.form]||{}).label||"Simple contiguous"), f:formF},
+      {n:"Access — "+((CONC.access[o.access]||{}).label||"Normal residential"), f:accF},
+      {n:"Contractor — "+tierId, f:tierF}
+    ],
+    commoditySF:+commoditySF.toFixed(2), builtSF:+builtSF.toFixed(2),
+    finishSF:+finishSF.toFixed(2), scoringSF:+scoredSF.toFixed(2),
+    mobilisation:+mobAdd.toFixed(2), mobilisationFull:mob, standalone:o.standalone!==false,
+    installedSF:+installedSF.toFixed(2), total:+total.toFixed(2)
+  };
+}
+// Where a concrete rate is wanted for a whole traced category rather than one pad.
+function concreteRate(o){ const r=concreteCost(o); return r?r.installedSF:null; }
+// Which book materials are poured concrete, and what finish each one means. Anything not named
+// here is not concrete and never reaches the engine.
+const CONC_MAT={
+  "Concrete Flatwork":          {finish:["broomMed"]},
+  "Stamped / Colored Concrete": {finish:["stamped","color"]}
+};
+// A traced shape already carries the two numbers the engine cares about most — how much area and
+// how much edge — so concrete prices off the drawing rather than off a rate card. A driveway is
+// vehicular by definition; everything else is pedestrian until someone says otherwise.
+function _pavConcRate(p){
+  if(!p) return null;
+  let nm=p.type; try{ nm=asmMatName(p.type); }catch(e){}
+  const M=CONC_MAT[nm]; if(!M) return null;
+  let areaSF=0; try{ areaSF=_ptTraceNet(p); }catch(e){ areaSF=+p.sf||0; }
+  if(!(areaSF>0)) return null;
+  let perimLF=0; try{ if(p.pts&&p.pts.length>2) perimLF=_ptLineLF(p.pts.concat([p.pts[0]])); }catch(e){}
+  let projectSF=0; try{ const t=ptTotals(); projectSF=(+t.paving||0)+(+t.driveway||0); }catch(e){}
+  let tier="standard"; try{ tier=p.tier||asmTierId()||"standard"; }catch(e){}
+  const r=concreteCost({areaSF, perimLF, projectSF, tier,
+    use:(p.mode==="driveway")?"vehicular":"pedestrian",
+    finish:(p.concFinish&&p.concFinish.length)?p.concFinish:M.finish,
+    form:p.concForm, padCount:p.concPads, scoring:p.concScore, scoreLF:p.concScoreLF,
+    scoreGridFt:p.concGrid, thickIn:p.concThick, psi:p.concPsi, rebar:p.concRebar,
+    baseIn:p.concBase, access:p.concAccess, wastePct:p.concWaste,
+    standalone:false});                 // concrete inside a landscape install, not a lone pour
+  return (r&&r.installedSF>0)?r.installedSF:null;
+}
+// The same call, kept whole, for the breakdown card.
+function pavConcBreakdown(p){
+  if(!p) return null;
+  let nm=p.type; try{ nm=asmMatName(p.type); }catch(e){}
+  const M=CONC_MAT[nm]; if(!M) return null;
+  let areaSF=0; try{ areaSF=_ptTraceNet(p); }catch(e){ areaSF=+p.sf||0; }
+  if(!(areaSF>0)) return null;
+  let perimLF=0; try{ if(p.pts&&p.pts.length>2) perimLF=_ptLineLF(p.pts.concat([p.pts[0]])); }catch(e){}
+  let projectSF=0; try{ const t=ptTotals(); projectSF=(+t.paving||0)+(+t.driveway||0); }catch(e){}
+  let tier="standard"; try{ tier=p.tier||asmTierId()||"standard"; }catch(e){}
+  return concreteCost({areaSF, perimLF, projectSF, tier,
+    use:(p.mode==="driveway")?"vehicular":"pedestrian",
+    finish:(p.concFinish&&p.concFinish.length)?p.concFinish:M.finish,
+    form:p.concForm, padCount:p.concPads, scoring:p.concScore, scoreLF:p.concScoreLF,
+    scoreGridFt:p.concGrid, thickIn:p.concThick, psi:p.concPsi, rebar:p.concRebar,
+    baseIn:p.concBase, access:p.concAccess, wastePct:p.concWaste, standalone:false});
+}
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
 const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
@@ -54333,6 +54611,10 @@ function ptSetMatOv(idx,v){ const p=PT.polys[idx]; if(!p) return; ptSnap();
 function ptClearMatOv(idx){ ptSetMatOv(idx,""); }
 function _pavAsmRate(p){ const r=_pavAsmCost(p); return (r&&!r.needsRetail)?r.installedSF:null; }
 function _pavRate(p){ if(p&&p.rate!=null&&p.rate!=="" && isFinite(+p.rate)) return +p.rate;
+  // Poured concrete is built, not bought: it answers to thickness, PSI, reinforcement, finish,
+  // scoring, how much edge the shape has and how much concrete the job pours. The engine reads
+  // all of that off the trace, so it goes ahead of the flat book rate for concrete alone.
+  const c=_pavConcRate(p); if(c!=null&&c>0) return c;
   const a=_pavAsmRate(p); if(a!=null&&a>0) return a;
   return _pavMatRate(p); }
 // Assemblies a material can be built with. Falls back to every assembly in the category when the
