@@ -7280,7 +7280,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1444</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1445</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -56152,11 +56152,10 @@ function ptWhy(mode){
   // every shape traced in this category, with what each one is worth
   const each=shapes.filter(p=>!_holes.has(p._i)).map((p,i)=>{
     const raw=(p.kind==="linear")?(+p.lf||0):(+p.sf||0);
-    let taken=0;
-    PT.polys.forEach(x=>{ if(PT_CUTS.indexOf(x.mode)<0) return;
-      if(_ptEnclosing(x,PT.polys)===p) taken+=_tkCutSF(x); });
-    (PT.trees||[]).forEach(t=>{ const mm=_ptMarkMode(t); const fp=TK_FOOTPRINT[mm]; if(!(fp>0)) return;
-      if(_ptEnclosing({pts:[{x:t.x,y:t.y}],page:(t.page||PT.page||1),mode:mm,kind:"area"},PT.polys)===p) taken+=fp; });
+    // p is a COPY of the poly (see `shapes` above). _ptEnclosing hands back entries of PT.polys,
+    // so an identity test against the copy never matched and every cut-out counted as nothing —
+    // the same trap already noted on the cut-out list below. Measure off the original.
+    const taken=Math.max(0, raw-_ptTraceNet(PT.polys[p._i]||p));
     const net=Math.max(0, raw-taken-(_holeCut[p._i]||0));
     const nm=(p.name&&p.name.trim())||p.type||`${md.label} ${i+1}`;
     const dc=ptDemoCost(mode, net, 1);
@@ -56383,6 +56382,14 @@ function _ptBuildupHtml(idx, side){
     try{ const pf=ptPriceFor(p.mode, net); rate=pf?pf.per:0;
       src={built:"designed in its builder", rate:"a rate you set in the price book",
            assumed:"an assumption, until you price it"}[pf&&pf.from]||"the price book"; }catch(_){}
+    // ptPriceFor is the whole LAYER's blended rate. On a layer of mixed materials that prices
+    // every zone in it at the same average, so this card disagreed with its own row. Paving
+    // resolves its own rate, exactly as the row and the estimate do.
+    if(p.mode==="paving"){ try{ const rr=_pavRate(p);
+      if(rr!=null&&rr>0){ rate=rr;
+        src=(_pavRateOv(p)!=null) ? "a rate you typed for this trace"
+          : ((_pavConcRate(p)>0) ? "the concrete engine, off this zone\u2019s spec"
+          : ((p.type||"this material")+", in the price book")); } }catch(_){} }
     const why=(!R)? ((ptAsmOptions(p.type)||[]).length
                       ? "No installation assembly chosen for this zone yet."
                       : (_ptMode(p.mode).label+" has no installation assembly yet, so it prices from the book."))
