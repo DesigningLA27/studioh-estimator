@@ -7274,7 +7274,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1436</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1437</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -50487,6 +50487,65 @@ function ptPropFill(f,v,live){ const p=_ptHatchPolyRef(); if(!p) return; if(!liv
 function ptPropLine(f,v,live){ const p=_ptHatchPolyRef(); if(!p) return; if(!live) ptSnap();
   if(f==="off"){ delete p.line; } else { if(!p.line) p.line={col:(_ptMode(p.mode).color||"#5BA34A"),w:(p.mode==="shade"?3.2:2.5)}; p.line[f]=v; }
   try{ ptDrawOverlay(); }catch(e){} if(!live){ try{ _ptDockRefresh(); }catch(e){} } }
+// Concrete, zone by zone. The engine has always read thickness, strength, reinforcement, finish,
+// scoring, base, form and access off the shape; nothing ever set them, so every slab was priced
+// at the defaults. These are the controls. Blank means "use the default for this kind of work",
+// so a zone carries only what you actually chose, and the defaults keep following the Price Book.
+function ptConcSet(f,v){ const p=_ptHatchPolyRef(); if(!p) return; ptSnap();
+  if(v===""||v==null||v==="—"){ delete p[f]; }
+  else if(f==="concFinish"){ p[f]=[].concat(v).filter(Boolean); }
+  else if(/^conc(Thick|Psi|Base|Pads|Waste|ScoreLF|Grid)$/.test(f)){ const n=+v; if(isFinite(n)) p[f]=n; else delete p[f]; }
+  else { p[f]=v; }
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); _ptDockRefresh(); }catch(e){} }
+// Integral colour rides alongside a texture rather than replacing it.
+function ptConcColour(on){ const p=_ptHatchPolyRef(); if(!p) return; ptSnap();
+  const cur=(p.concFinish&&p.concFinish.length)?p.concFinish.slice()
+           :((CONC_MAT[(function(){ try{ return asmMatName(p.type); }catch(e){ return p.type; } })()]||{}).finish||["broomMed"]).slice();
+  const i=cur.indexOf("color");
+  if(on&&i<0) cur.push("color"); if(!on&&i>=0) cur.splice(i,1);
+  p.concFinish=cur;
+  try{ ptUpdateInfo(); ptRenderFloat(); _ptDockRefresh(); }catch(e){} }
+function _ptConcSection(pp){
+  let nm=pp.type; try{ nm=asmMatName(pp.type); }catch(e){}
+  if(!CONC_MAT[nm]) return "";
+  const B=pavConcBreakdown(pp); if(!B) return "";
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const U=CONC.use[B.use]||{};
+  const SEL=(f,lbl,cur,opts,dfltLbl)=>'<div class="fld"><span class="k">'+esc(lbl)+'</span>'
+    +'<select onchange="ptConcSet(&#39;'+f+'&#39;,this.value)">'
+    +'<option value=""'+((cur==null||cur==="")?" selected":"")+'>'+esc(dfltLbl||"default")+'</option>'
+    +opts.map(o=>'<option value="'+esc(o[0])+'"'+((cur!=null&&String(cur)===String(o[0]))?" selected":"")+'>'+esc(o[1])+'</option>').join("")
+    +'</select></div>';
+  const tex=(pp.concFinish&&pp.concFinish.length)?pp.concFinish.filter(k=>CONC.finishTexture.indexOf(k)>=0)[0]:null;
+  const hasCol=!!(pp.concFinish&&pp.concFinish.indexOf("color")>=0);
+  let h='<div class="pdsec">Concrete</div>';
+  h+='<div style="font:600 10px var(--tkf);color:#68765B;line-height:1.5;padding:0 2px 5px">'
+    +esc(U.label||"")+' — '+B.thickIn+'″, '+B.psi.toLocaleString()+' PSI, '+esc(B.rebarLabel)
+    +'. Blank follows the Price Book.</div>';
+  h+=SEL("concThick","Thickness",pp.concThick,[[4,'4″'],[5,'5″'],[6,'6″'],[8,'8″']],U.thickIn+'″ (default)');
+  h+=SEL("concPsi","Strength",pp.concPsi,(CONC.psiList||[]).map(p=>[p,p.toLocaleString()+" PSI"]),U.psi.toLocaleString()+" PSI (default)");
+  h+=SEL("concRebar","Reinforcement",pp.concRebar,Object.keys(CONC.rebar).map(k=>[k,(CONC.rebarLabel||{})[k]||k]),(CONC.rebarLabel||{})[U.rebar]+" (default)");
+  h+=SEL("concFinish","Finish",tex,CONC.finishTexture.map(k=>[k,CONC.finish[k].label+" · +$"+(+CONC.finish[k].add).toFixed(2)]),"medium broom (default)");
+  h+='<div class="fld"><span class="k">Integral colour</span>'
+    +'<button class="a'+(hasCol?"":" off")+'" onclick="ptConcColour('+(hasCol?"false":"true")+')">'
+    +(hasCol?("on · +$"+(+CONC.finish.color.add).toFixed(2)):"off")+'</button></div>';
+  h+=SEL("concScore","Scoring",pp.concScore,Object.keys(CONC.scoring).filter(k=>k!=="none")
+      .map(k=>[k,CONC.scoring[k].label+" · $"+(+CONC.scoring[k].lf).toFixed(2)+"/LF"]),"none");
+  if(pp.concScore&&pp.concScore!=="none")
+    h+=SEL("concGrid","Joint grid",pp.concGrid,[[4,"4′ × 4′"],[5,"5′ × 5′"],[6,"6′ × 6′"],[8,"8′ × 8′"]],"not set");
+  h+=SEL("concBase","Aggregate base",pp.concBase,(CONC.baseList||[]).filter(n=>n>0).map(n=>[n,n+'″ · +$'+(n*CONC.basePerIn).toFixed(2)]),"none");
+  h+=SEL("concForm","Shape",pp.concForm,Object.keys(CONC.form).map(k=>[k,CONC.form[k].label+" ×"+CONC.form[k].f]),"from the trace");
+  h+=SEL("concAccess","Access",pp.concAccess,Object.keys(CONC.access).map(k=>[k,CONC.access[k].label+(CONC.access[k].f?" +"+Math.round(CONC.access[k].f*100)+"%":"")]),"normal");
+  // What it comes to, and why.
+  h+='<div class="fld"><span class="k">Concrete</span><span class="v">'+B.cyWaste+' CY · '+B.perimLF.toLocaleString()+' LF form</span></div>';
+  if(B.scoreLF) h+='<div class="fld"><span class="k">Scoring</span><span class="v">'+B.scoreLF.toLocaleString()+' LF</span></div>';
+  h+='<div class="fld"><span class="k">Direct</span><span class="v">$'+B.installedSF.toFixed(2)+' / SF</span></div>';
+  h+='<div class="fld"><span class="k">This zone</span><span class="v">'+fmtN(Math.round(B.total))+'</span></div>';
+  h+='<div style="font:600 10px var(--tkf);color:#68765B;line-height:1.5;padding:3px 2px 0">'
+    +B.parts.map(p=>esc(p.n.split(" — ")[0])+" $"+p.sf.toFixed(2)).join(" · ")
+    +'<br>'+B.factors.filter(f=>f.f!==1).map(f=>esc(f.n)+" ×"+f.f).join(" · ")+'</div>';
+  return h;
+}
 function ptPropSet(f,v){ const p=_ptHatchPolyRef(); if(!p) return; ptSnap();
   if(f==="mode"){ p.mode=v; } else { p[f]=(v==="—"?"":v); }
   try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); _ptDockRefresh(); }catch(e){} }
@@ -57527,6 +57586,7 @@ function _ptDockPanel(g){
       }
       h+=T("ptBuildupPop("+_ptPropIdx()+")","See the build-up",_DIC.props,false);
     })();
+    if(pp.kind==="area"){ try{ h+=_ptConcSection(pp); }catch(e){} }
     h+=S("Measured")
       +'<div class="fld"><span class="k">'+(pp.kind==="linear"?"Run":"Area")+'</span><span class="v">'+meas+'</span></div>'
       +'<div class="fld"><span class="k">Points</span><span class="v">'+((pp.pts&&pp.pts.length)||0)+'</span></div>';
