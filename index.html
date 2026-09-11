@@ -7351,7 +7351,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1461</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1462</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -56889,6 +56889,148 @@ function courtAttach(p,type){ if(!p) return null;
   return p.court; }
 function courtBreakdown(p){ const c=courtOf(p); if(!c) return null;
   try{ return courtCost(c); }catch(e){ return null; } }
+// ── NATURAL LANGUAGE FOR THE BUILDERS ──────────────────────────────────────
+// The model never invents a price, a quantity or a total. It is given the builder's OWN schema —
+// the same rule tables the controls are drawn from — and asked for a patch: a list of field/value
+// pairs. Every pair is then applied through the builder's ordinary setter, so every guard,
+// default, dependency and recalculation runs exactly as it would if you had clicked it. Anything
+// it cannot map to a real field is reported rather than guessed at.
+const NLB={busy:false, last:null};
+// What a builder will accept, generated from its rules so it can never drift from the controls.
+function nlbSchema(kind){
+  if(kind==="court"){
+    const R=_cRule();
+    const keys=o=>Object.keys(o);
+    return {
+      builder:"court",
+      fields:{
+        type:{values:keys(R.types), labels:keys(R.types).map(k=>R.types[k].label)},
+        padW:{unit:"ft", note:"construction pad width"},
+        padL:{unit:"ft", note:"construction pad length"},
+        base:{values:keys(R.base), labels:keys(R.base).map(k=>R.base[k].label)},
+        surf:{values:keys(R.surf), labels:keys(R.surf).map(k=>R.surf[k].label)},
+        primary:{values:keys(R.sports), labels:keys(R.sports).map(k=>R.sports[k].label)},
+        extraSports:{values:keys(R.sports), repeat:true, note:"send one entry per extra sport"},
+        fenceOn:{values:[true,false]},
+        fenceH:{values:[4,6,8,10,12], unit:"ft"},
+        fenceType:{values:keys(R.fenceType), labels:keys(R.fenceType).map(k=>R.fenceType[k].label)},
+        fenceCover:{values:keys(R.fenceCover), labels:keys(R.fenceCover).map(k=>R.fenceCover[k].label)},
+        fenceLF:{unit:"LF", note:"only with fenceCover custom"},
+        gatesPed:{unit:"ea"}, gatesDbl:{unit:"ea"},
+        wsOn:{values:[true,false]}, wsType:{values:keys(R.ws)}, wsCover:{values:[25,50,75,100]},
+        lightOn:{values:[true,false]}, lightQ:{values:keys(R.lightQ), labels:keys(R.lightQ).map(k=>R.lightQ[k].label)},
+        photometric:{values:[true,false]},
+        drPerimeter:{values:[true,false]},
+        access:{values:keys(R.access), labels:keys(R.access).map(k=>R.access[k].label)},
+        topo:{values:keys(R.topo), labels:keys(R.topo).map(k=>R.topo[k].label)},
+        existing:{values:keys(R.existing), labels:keys(R.existing).map(k=>R.existing[k].label)},
+        soil:{values:keys(R.soil)},
+        net:{values:["","tnNetRec","tnNetPerm","tnNetTourn","pbNetPort","pbNetPerm","pbNetTourn"]},
+        netQty:{unit:"ea"},
+        hoops:{unit:"ea"}, hoopType:{values:["bbBasic","bbAdj","bbComm","bbComp"]},
+        backboard:{values:[true,false]}, scorekeeper:{values:[true,false]},
+        softOn:{values:[true,false]}, permitOn:{values:[true,false]},
+        "eng.engStruct":{values:[true,false]}, "eng.engCivil":{values:[true,false]},
+        "eng.engGeo":{values:[true,false]}, "eng.engElec":{values:[true,false]}, "eng.engSurvey":{values:[true,false]},
+        "acc.acBench":{unit:"ea"}, "acc.acTrash":{unit:"ea"}, "acc.acUmbrella":{unit:"ea"},
+        "acc.acShade":{unit:"ea"}, "acc.acStorage":{unit:"ea"}, "acc.acBallStore":{unit:"ea"},
+        "equip.msVolley":{unit:"ea"}, "equip.msBadmin":{unit:"ea"}, "equip.msFutsal":{unit:"ea"}
+      },
+      name:{note:"a short name for this court"}
+    };
+  }
+  if(kind==="wall"){
+    const R=_wRule(), keys=o=>Object.keys(o);
+    return { builder:"wall",
+      fields:{
+        type:{values:keys(R.types), labels:keys(R.types).map(k=>R.types[k].label)},
+        lf:{unit:"LF"}, h:{unit:"ft", note:"total wall height"},
+        retH:{unit:"ft", note:"retained height — never assume it equals the wall height"},
+        thkIn:{values:[6,8,10,12,16], unit:"in"},
+        sys:{values:keys(R.sys), labels:keys(R.sys).map(k=>R.sys[k].label)},
+        finishA:{values:keys(R.finish), labels:keys(R.finish).map(k=>R.finish[k].label), note:"lower side"},
+        finishB:{values:keys(R.finish), note:"upper side"},
+        cap:{values:keys(R.cap), labels:keys(R.cap).map(k=>R.cap[k].label)},
+        capOver:{values:keys(R.capOver)}, capEdge:{values:keys(R.capEdge)},
+        wp:{values:keys(R.wp)}, vditch:{values:keys(R.vditch)}, backfill:{values:keys(R.backfill)},
+        access:{values:keys(R.access)}, surcharge:{values:keys(R.surcharge)},
+        slopeAbove:{values:keys(R.slope)}, slopeBelow:{values:keys(R.slope)},
+        heightMode:{values:["constant","stepped","sloped"]}, hStart:{unit:"ft"}, hEnd:{unit:"ft"},
+        corners90:{unit:"ea"}, pilasters:{unit:"ea"},
+        engMode:{values:["auto","on","off"]}, permit:{values:["auto","off"]}
+      }};
+  }
+  return null;
+}
+// The space the request is talking about, when there is one.
+function nlbSpace(){
+  try{
+    const i=(typeof _ptPropIdx==="function")?_ptPropIdx():null;
+    if(i!=null&&PT.polys[i]){ const p=PT.polys[i];
+      const sf=_ptTraceNet(p); if(sf>0){
+        const bb=(function(){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
+          (p.pts||[]).forEach(q=>{ if(q.x<x0)x0=q.x; if(q.x>x1)x1=q.x; if(q.y<y0)y0=q.y; if(q.y>y1)y1=q.y; });
+          const w=_ptFeetBetween({x:x0,y:y0},{x:x1,y:y0}), l=_ptFeetBetween({x:x0,y:y0},{x:x0,y:y1});
+          return {w:Math.round(w), l:Math.round(l)}; })();
+        return {source:"the shape selected on the plan", areaSF:Math.round(sf),
+          widthFT:bb.w, lengthFT:bb.l, name:(p.name||"").trim()||null}; } }
+  }catch(e){}
+  return null;
+}
+function _nlbErr(m){ NLB.busy=false; NLB.last={ok:false, error:m};
+  try{ _toast(m,"#B23F3C"); }catch(e){} return NLB.last; }
+// Ask the model for a patch, apply it through the builder's own setter, report what it did.
+async function nlbRun(kind, text, apply){
+  if(NLB.busy) return null;
+  const q=String(text||"").trim(); if(!q) return null;
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep) return _nlbErr("No worker connected — natural language needs the AI proxy.");
+  const schema=nlbSchema(kind); if(!schema) return _nlbErr("No schema for that builder.");
+  const space=nlbSpace();
+  NLB.busy=true;
+  const sys="You translate a designer's request into settings for a construction cost builder.\n"
+    +"Return ONLY a JSON object: {\"patch\":[{\"field\":\"...\",\"value\":...}],\"name\":\"...\",\"unmapped\":[\"...\"],\"why\":\"one short sentence\"}\n"
+    +"RULES:\n"
+    +"- Use ONLY the fields in SCHEMA, and only the listed values where a field lists them.\n"
+    +"- Never output a price, a cost, a total or a rate. The builder prices it.\n"
+    +"- Only set what the request actually asks for. Leave everything else out so the builder's own defaults stand.\n"
+    +"- For extraSports send one patch entry per sport.\n"
+    +"- If a size must fit a given space, choose a pad that fits inside it and say so in why.\n"
+    +"- Anything you cannot express with these fields goes in unmapped, never guessed at.";
+  const user="SCHEMA:\n"+JSON.stringify(schema)
+    +(space?("\n\nSPACE AVAILABLE: "+JSON.stringify(space)):"")
+    +"\n\nREQUEST: "+q;
+  let out=null;
+  try{
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1200,temperature:0,system:sys,
+        messages:[{role:"user",content:user}]})});
+    const d=await r.json();
+    const txt=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
+    const m=txt.match(/\{[\s\S]*\}/);
+    out=m?JSON.parse(m[0]):null;
+  }catch(e){ return _nlbErr("Could not reach the AI: "+(e&&e.message||e)); }
+  if(!out||!Array.isArray(out.patch)) return _nlbErr("The AI did not return a usable patch.");
+  // Apply it through the builder's own setter — every guard and default runs.
+  const applied=[], refused=[];
+  const F=schema.fields;
+  out.patch.forEach(step=>{
+    const f=step&&step.field; if(!f||!F[f]){ refused.push(String(f)+" — not a field this builder has"); return; }
+    let v=step.value;
+    const spec=F[f];
+    if(spec.values&&spec.values.length&&!spec.repeat){
+      const ok=spec.values.some(x=>String(x)===String(v));
+      if(!ok){ refused.push(f+" — "+JSON.stringify(v)+" is not one of its values"); return; } }
+    if(spec.unit&&!(isFinite(+v))){ refused.push(f+" — "+JSON.stringify(v)+" is not a number"); return; }
+    try{ apply(f,v); applied.push({field:f, value:v}); }
+    catch(e){ refused.push(f+" — "+(e&&e.message||e)); }
+  });
+  if(out.name&&typeof out.name==="string") { try{ apply("__name", out.name); applied.push({field:"name",value:out.name}); }catch(e){} }
+  NLB.busy=false;
+  NLB.last={ok:applied.length>0, applied, refused,
+    unmapped:Array.isArray(out.unmapped)?out.unmapped:[], why:String(out.why||"")};
+  return NLB.last;
+}
 // ── SPORT COURT BUILDER UI ─────────────────────────────────────────────────
 // §29 Simple and Advanced feed the SAME engine and the same object; switching modes only
 // changes what is on screen, never what is stored. §39 progressive disclosure — the first
@@ -56941,6 +57083,47 @@ function cbSet(f,v){
   try{ _bidSchedule(); }catch(e){}
   cbRender();
 }
+// §39 Say what you want. The model maps it onto this builder's own fields; cbSet does the rest,
+// so nothing reaches the estimate that a click could not have produced.
+async function cbAsk(){
+  const el=document.getElementById("cb-ask"); const q=el?el.value.trim():"";
+  if(!q||NLB.busy) return;
+  if(el){ el.disabled=true; el.value="Thinking…"; }
+  const res=await nlbRun("court", q, (f,v)=>{
+    if(f==="__name"){ CB.c.name=String(v); return; }
+    if(f==="extraSports"){ const a=CB.c.extraSports||[]; if(a.indexOf(v)<0) a.push(v); CB.c.extraSports=a; return; }
+    cbSet(f,v);
+  });
+  if(el){ el.disabled=false; el.value=""; }
+  CB.said=q; CB.ask=res;
+  cbRender();
+  if(res&&res.ok) try{ _toast(res.applied.length+" setting"+(res.applied.length===1?"":"s")+" applied.","#2F5B23"); }catch(e){}
+}
+// §68-style hand-off: put the court on the plan at its own size, so it can be moved and resized
+// there like anything else traced.
+function cbToTrace(){
+  const c=CB.c; if(!c) return;
+  if(typeof PT==="undefined"||!PT.open){ try{ _toast("Open the design tracer first, then send it across.","#8A6D1F"); }catch(e){} return; }
+  if(!PT.ppf){ try{ _toast("Set the plan scale first — the court needs to know how big a foot is.","#8A6D1F"); }catch(e){} return; }
+  const g=courtGeom(c);
+  const st=document.getElementById("pt-stage");
+  const mid=_toPdf({x:(st?st.scrollLeft+st.clientWidth/2:300), y:(st?st.scrollTop+st.clientHeight/2:300)});
+  const w=g.padW*PT.ppf, h=g.padL*PT.ppf;               // pdf units, which is what ppf counts in
+  const pts=[{x:mid.x-w/2,y:mid.y-h/2},{x:mid.x+w/2,y:mid.y-h/2},
+             {x:mid.x+w/2,y:mid.y+h/2},{x:mid.x-w/2,y:mid.y+h/2}];
+  try{ ptSnap(); }catch(e){}
+  const np={mode:"court", kind:"area", pts:pts, sf:_ptPolySF(pts),
+    type:((_cRule().types[c.type]||{}).label||""), name:(c.name||""), zone:"", phase:"", tags:"",
+    page:PT.page, court:c};
+  PT.polys.push(np);
+  const idx=PT.polys.length-1;
+  // it lives on the plan now, not in the standalone list
+  if(CB.id){ courtDelete(CB.id); CB.id=null; }
+  CB.poly=idx;
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptSelect(idx); }catch(e){}
+  try{ _toast((c.name||"Court")+" placed on the plan \u2014 drag it where you want it.","#2F5B23"); }catch(e){}
+  cbRender();
+}
 function cbName(v){ if(CB.c){ CB.c.name=String(v||""); try{ _bidSchedule(); }catch(e){} cbRender(); } }
 function cbDup(){ if(CB.id){ const d=courtDuplicate(CB.id); if(d){ CB.id=d.courtId; CB.c=d; cbRender(); } } }
 function cbDel(){ if(!CB.id) return; courtDelete(CB.id); cbClose(); }
@@ -56968,6 +57151,27 @@ function cbRender(){
     +'<button class="wb-sh" onclick="cbSec(\''+k+'\')"><span class="cv"></span><span class="t">'+title+'</span><span class="m">'+meta+'</span></button>'
     +'<div class="wb-sb">'+body+'</div></div>';
   let h="";
+  // Say what you want, in words.
+  const _sp=nlbSpace();
+  h+='<div class="wb-sec open" style="background:var(--brand-soft,#EAF1E5);border-color:var(--gm)">'
+    +'<div class="wb-sb" style="padding:11px 14px">'
+    +'<div style="display:flex;gap:7px;align-items:center">'
+    +'<input id="cb-ask" placeholder="'+escAttr(_sp?("A tennis court that fits this "+_sp.areaSF.toLocaleString()+" SF space, fenced all round, with lights")
+        :"A tennis court, fenced all round, with lights")+'" '
+    +'onkeydown="if(event.key===\'Enter\')cbAsk()" '
+    +'style="flex:1;min-width:0;box-sizing:border-box;border:1px solid var(--gm);border-radius:9px;background:var(--card);color:var(--tx);font:inherit;font-size:12.5px;font-weight:600;padding:8px 10px">'
+    +'<button class="btn btn-g" style="padding:.42rem .9rem;font-size:.78rem" onclick="cbAsk()">Build it</button></div>'
+    +(_sp?'<div class="wb-note" style="padding-top:6px">Sizing against '+escAttr(_sp.name||_sp.source)+' \u2014 '
+       +_sp.areaSF.toLocaleString()+' SF, about '+_sp.widthFT+'\u2032 \u00d7 '+_sp.lengthFT+'\u2032.</div>':'')
+    +(CB.ask?('<div class="wb-note" style="padding-top:6px">'
+       +(CB.ask.ok?('<b style="color:var(--gm)">'+CB.ask.applied.length+' applied</b>'
+           +(CB.ask.why?' \u00b7 '+escAttr(CB.ask.why):'')
+           +'<div style="opacity:.85;padding-top:2px">'+CB.ask.applied.map(a=>escAttr(a.field+" = "+a.value)).join(" \u00b7 ")+'</div>')
+          :('<b style="color:#B23F3C">'+escAttr(CB.ask.error||"Nothing applied")+'</b>'))
+       +((CB.ask.refused&&CB.ask.refused.length)?('<div style="color:#B23F3C;padding-top:3px">Refused: '+CB.ask.refused.map(escAttr).join("; ")+'</div>'):'')
+       +((CB.ask.unmapped&&CB.ask.unmapped.length)?('<div style="color:#8A6D1F;padding-top:3px">Not covered by this builder: '+CB.ask.unmapped.map(escAttr).join("; ")+'</div>'):'')
+       +'</div>'):'')
+    +'</div></div>';
   // ── 1 COURT TYPE & SIZE (§1) ────────────────────────────────────────────
   let b='';
   b+=_cbRow("Court type","",_cbChips("type",c.type,_cbKeys(R.types)));
@@ -57155,7 +57359,9 @@ function cbRender(){
     +'<input value="'+escAttr(c.name||"")+'" placeholder="'+escAttr((R.types[c.type]||{}).label)+'" onchange="cbName(this.value)" '
       +'style="margin-left:6px;min-width:0;width:180px;box-sizing:border-box;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12.5px;font-weight:700;padding:5px 8px">'
     +'<span class="lb-pos">'+_tkFmt(Math.round(g.areaSF))+' SF · '+money(r.total)+'</span>'
-    +'<span class="lb-sp">'+_stSeg(CB.mode,[{v:"simple",nm:"Simple"},{v:"advanced",nm:"Advanced"}],"cbMode")
+    +'<span class="lb-sp">'
+    +(CB.poly==null?'<button class="lb-ico" onclick="cbToTrace()" title="Place this court on the plan">\u2197</button>':'')
+    +_stSeg(CB.mode,[{v:"simple",nm:"Simple"},{v:"advanced",nm:"Advanced"}],"cbMode")
     +(CB.id?'<button class="lb-ico" onclick="cbDup()" title="Duplicate this court">⧉</button>'
            +'<button class="lb-ico" onclick="cbDel()" title="Delete this court">🗑</button>':'')
     +'<button class="lb-ico" onclick="cbClose()" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>'
