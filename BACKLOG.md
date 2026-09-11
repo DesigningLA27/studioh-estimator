@@ -9,13 +9,14 @@ Ordered roughly by how much it costs us to keep not doing it.
 
 ## Open
 
-### 1 · Natural language on every builder
-**v1462 shipped it on the Sport Court Builder only.**
-- `nlbSchema()` already generates the Wall Builder's 25 fields — the bar just needs mounting in `wbRender`.
-- Same for the Fence & Gates builder when it lands, and every builder after it.
-- **Edit by voice on an existing object** ("make it 6 feet and add a gate") works through the same
-  patch path, but is only wired where the bar exists.
-- Not yet: speech-to-text. The bar is typed today. Web Speech API on iPad Safari is the open question.
+### 1 · Natural language — the last two builders, and speech
+**v1463 put the bar on six: court, wall, pool, water feature, kitchen, pergola.**
+- **Planting builder** is not done. It is a different shape — zones and plant rows rather than one
+  object with fields — so it needs its own adapter rather than a field list.
+- **Fence & Gates** gets one the day it is built: `nlbRegister({id,name,cur,fields,set,refresh})`.
+- **Speech-to-text.** The bar is typed today. Web Speech API on iPad Safari is the open question.
+- **Send to the tracer** exists only on the Sport Court Builder (`cbToTrace`). Pool, water feature,
+  pergola and kitchen could all be placed on the plan the same way.
 
 ### 2 · Materials Library on the builders — §55/§56 (Wall) and §27 (Court)
 Both engines already accept a real product with waste (`matVeneerA/B`, `matCap`, court surface and
