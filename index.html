@@ -7346,7 +7346,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1452</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1453</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -55287,6 +55287,7 @@ function wallNew(o){ const R=_wRule();
     wp:null, drain:null, backfill:"existing", vditch:"none", outlet:"daylight",
     weeps:0, corners90:0, cornersCustom:0, pilasters:0, pilasterType:"pilCMU",
     curve:"straight", step:"none", access:"normal",
+    heightMode:"constant", segs:null, hStart:null, hEnd:null, zones:4,
     surcharge:"landscape", slopeAbove:"level", slopeBelow:"level", found:"soil",
     propLine:"interior", demo:"none", demoLF:null,
     engMode:"auto", engBand:null, geo:"auto", survey:"none", permit:"auto", inspect:"auto",
@@ -55308,7 +55309,11 @@ function wallGeom(w){
   const sys=R.sys[w.sys]||R.sys.cmu;
   let footW=0, footD=0;
   if(sys.foot){
-    if(ret){ footW=Math.max(F.retWmin, F.retWh*H+F.retW0); footD=F.retD0+F.retDh*H; }
+    // What overturns a retaining wall is the earth behind it. A freestanding parapet above the
+    // retained soil adds weight, not moment — sizing the footing off the total height charged a
+    // 4′ retaining wall for a 6′ footing.
+    if(ret){ const hF=Math.max(retH, H*0.5);
+      footW=Math.max(F.retWmin, F.retWh*hF+F.retW0); footD=F.retD0+F.retDh*hF; }
     else   { footW=Math.max(F.freeWmin, F.freeWthk*thk);   footD=F.freeD0+F.freeDh*H; }
   }
   const footCY_LF=footW*footD/27;
@@ -55348,12 +55353,104 @@ function wallComplexity(w){
 }
 // THE ENGINE (§47 Method A). Component by component, against real quantities. Nothing here is
 // a $/LF lookup; the $/LF at the bottom is what the components came to, divided by the run.
+// §69 How the height behaves along the run. A wall that steps or slopes is not one wall of the
+// average height — the structural demand is not linear in height, so the zones are priced apart.
+function wallZones(w){
+  const R=_wRule();
+  const mode=w.heightMode||"constant";
+  const total=Math.max(0,+w.lf||0);
+  const ret=!!((R.types[w.type]||{}).ret)||(+w.retH||0)>0;
+  const H=Math.max(0.01,+w.h||0);
+  if(mode==="stepped"){
+    const segs=(w.segs||[]).filter(z=>(+z.lf||0)>0);
+    if(!segs.length) return [{lf:total,h:H,retH:ret?(+w.retH||0):0}];
+    return segs.map((z,i)=>{ const hh=(z.h!=null&&isFinite(+z.h))?Math.max(0.01,+z.h):H;
+      const rr=ret?((z.retH!=null&&isFinite(+z.retH))?+z.retH:Math.min(+w.retH||0,hh)):0;
+      return {lf:+z.lf||0, h:hh, retH:Math.min(hh,Math.max(0,rr)), i:i}; });
+  }
+  if(mode==="sloped"){
+    const h0=Math.max(0.01,(w.hStart!=null&&isFinite(+w.hStart))?+w.hStart:H);
+    const h1=Math.max(0.01,(w.hEnd!=null&&isFinite(+w.hEnd))?+w.hEnd:H);
+    const n=Math.max(2,Math.min(12,Math.round(+w.zones||4)));
+    // the retained face keeps the same share of the wall it has at the nominal height
+    const frac=ret?Math.min(1,(+w.retH||0)/H):0;
+    const out=[];
+    for(let i=0;i<n;i++){ const t=(i+0.5)/n, hh=h0+(h1-h0)*t;
+      out.push({lf:total/n, h:hh, retH:Math.min(hh,hh*frac), i:i}); }
+    return out;
+  }
+  return [{lf:total, h:H, retH:ret?Math.min(H,+w.retH||0):0, i:0}];
+}
+// Each zone is built on its own; the things that are a lump sum on the WALL — mobilisation,
+// engineering, geotechnical, survey, permits, inspection and demolition — are counted once,
+// against the tallest and most demanding zone (§70.4, §70.5, §70.6).
+function _wallCostZones(w, zones){
+  const R=_wRule();
+  const total=zones.reduce((s,z)=>s+(+z.lf||0),0);
+  const subs=zones.map((z,i)=>wallCost(Object.assign({},w,{
+    _zone:i+1, heightMode:"constant", segs:null,
+    lf:z.lf, h:z.h, retH:z.retH, aboveH:null, highExpH:null,
+    demo:"none", corners90:(i===0?w.corners90:0), cornersCustom:(i===0?w.cornersCustom:0),
+    pilasters:(i===0?w.pilasters:0), weeps:(i===0?w.weeps:0),
+    _skipProf:1, _skipMob:1, _minOff:1, _scaleLF:total
+  })));
+  // the zone that governs what has to be engineered
+  let gi=0; zones.forEach((z,i)=>{ const a=zones[gi];
+    if((z.retH||0)>(a.retH||0) || ((z.retH||0)===(a.retH||0) && z.h>a.h)) gi=i; });
+  const gov=wallCost(Object.assign({},w,{_zone:0, heightMode:"constant", segs:null,
+    lf:total, h:zones[gi].h, retH:zones[gi].retH, aboveH:null, highExpH:null,
+    _skipMob:1, _minOff:1, _scaleLF:total, _profOnly:1}));
+  const lines=[];
+  subs.forEach((r,i)=>{ r.lines.forEach(l=>{ lines.push(Object.assign({},l,
+    {zone:i+1, nm:(zones.length>1?("Zone "+(i+1)+" · "):"")+l.nm})); }); });
+  // demolition of the existing wall, once, over the whole run
+  const dem=R.demo[w.demo]||R.demo.none;
+  if(dem.rec){ const q=(w.demoLF!=null?+w.demoLF:total);
+    const acc=(R.access[w.access]||R.access.normal).f, sc=_wBand(R.scale,total||1);
+    const lab=wLab(dem.rec), rate=wVal(dem.rec), raw=q*rate;
+    lines.unshift({g:"Site preparation", nm:"Demolish existing wall", qty:q, unit:"LF", rate:rate,
+      cost:raw*(1-lab)+raw*lab*acc*sc, rec:dem.rec, status:"included", bench:false, zone:0}); }
+  let construction=lines.reduce((s,l)=>s+l.cost,0);
+  // one mobilisation minimum for the whole wall, not one per zone
+  const g0=wallGeom({...w, h:zones[gi].h, retH:zones[gi].retH});
+  const mobId=g0.ret?"mobRet":(w.sys==="cip"?"mobConc":"mobMason");
+  const acc0=(R.access[w.access]||R.access.normal).f;
+  const tAdj=(R.tierAdj||{}), pt=_wallPoint();
+  const tierF=(pt===0?(+tAdj.value||1):(pt===2?(+tAdj.premium||1):(+tAdj.standard||1)));
+  const mobMin=wVal(mobId)*acc0*tierF;
+  if(construction<mobMin){ lines.push({g:"Mobilisation", nm:wRec(mobId).nm, qty:1, unit:"LS",
+    rate:(mobMin-construction), cost:(mobMin-construction), rec:mobId, status:"minimum", bench:false, zone:0});
+    construction=mobMin; }
+  const prof=gov.prof.slice();
+  const profTotal=prof.reduce((s,l)=>s+l.cost,0);
+  const totalCost=construction+profTotal;
+  const faceSF=zones.reduce((s,z)=>s+z.h*z.lf,0);
+  const retainSF=zones.reduce((s,z)=>s+z.retH*z.lf,0);
+  const finA=subs.reduce((s,r)=>s+r.finishSF.A,0), finB=subs.reduce((s,r)=>s+r.finishSF.B,0);
+  const conf=(gov.conf==="low"||subs.some(r=>r.conf==="low"))?"low"
+            :((gov.conf==="med"||subs.some(r=>r.conf==="med"))?"med":"high");
+  const pm=(R.band||WALL_RULE.band)[conf]||18;
+  const benchBase=lines.filter(l=>l.bench).reduce((s0,l)=>s0+l.cost,0);
+  const qa=wallBenchmark(Object.assign({},w,{h:zones[gi].h,retH:zones[gi].retH}),
+    wallGeom(Object.assign({},w,{h:zones[gi].h,retH:zones[gi].retH})), benchBase, total, construction);
+  return {wall:w, geom:gov.geom, cx:gov.cx, lf:total, billLF:total, zones:zones, subs:subs, govZone:gi+1,
+    heightK:gov.heightK, access:gov.access, scale:_wBand(R.scale,total||1), geoF:gov.geoF, tierF:tierF, point:pt,
+    lines:lines, prof:prof, construction:construction, professional:profTotal, total:totalCost,
+    perLF:(total>0?totalCost/total:totalCost), constructionPerLF:(total>0?construction/total:construction),
+    perFaceSF:(faceSF>0?construction/faceSF:0),
+    faceSF:faceSF, retainSF:retainSF, finishSF:{A:finA,B:finB},
+    conf:conf, band:pm, low:totalCost*(1-pm/100), high:totalCost*(1+pm/100), qa:qa,
+    groups:(function(){ const m={}; lines.concat(prof).forEach(l=>{ m[l.g]=(m[l.g]||0)+l.cost; }); return m; })(),
+    warnings:gov.warnings};
+}
 function wallCost(w){
   w=wallNew(w);
+  const _zones=wallZones(w);
+  if(_zones.length>1 && !w._zone && !w._profOnly) return _wallCostZones(w,_zones);
   const R=_wRule(), g=wallGeom(w), CX=wallComplexity(w);
-  const lf=Math.max(0, +w.lf||0), L=Math.max(lf, +R.minLF||1);
+  const lf=Math.max(0, +w.lf||0), L=w._minOff?lf:Math.max(lf, +R.minLF||1);
   const acc=(R.access[w.access]||R.access.normal).f;
-  const scale=_wBand(R.scale, lf||1);
+  const scale=_wBand(R.scale, (w._scaleLF!=null?+w._scaleLF:lf)||1);
   const curveF=(R.curve[w.curve]||R.curve.straight).f;
   const stepF=(R.step[w.step]||R.step.none).f;
   const geoF=curveF*stepF;                              // §22/§23, on what is built
@@ -55378,7 +55475,9 @@ function wallCost(w){
   const dem=R.demo[w.demo]||R.demo.none;
   if(dem.rec) add("Site preparation","Demolish existing wall",(w.demoLF!=null?+w.demoLF:lf),"LF",dem.rec);
   // ── 2 excavation, export, footing (§7, §8, §9, §70.1) ───────────────────
-  const excId=(w.access==="hand"||w.access==="extreme")?"excHand":(g.ret?"excHandle":"excNorm");
+  // §9's export line already carries loading, haul and dump. Charging the "+ handling/loading"
+  // excavation rate on top of it paid for the loading twice.
+  const excId=(w.access==="hand"||w.access==="extreme")?"excHand":"excNorm";
   const excCY=g.excCY_LF*L;
   if(excCY>0) add("Earthwork","Excavation",excCY,"CY",excId,null,{bench:1});
   const expPct=(w.exportPct!=null&&isFinite(+w.exportPct))?+w.exportPct:(g.ret?R.drain.exportPct:35);
@@ -55392,11 +55491,17 @@ function wallCost(w){
   if(!sys.foot&&w.sys==="srw") add("Structure","Compacted leveling pad",L,"LF","srwPad",null,{bench:1});
   // ── 3 the wall itself (§3, §46) ─────────────────────────────────────────
   const kH=_wBand(R.heightK, g.H);
-  const structRec=g.ret?sys.ret:sys.free;
   const faceSF=g.H*L;
   const thkF=(w.sys==="cmu"||w.sys==="cip")?(0.75+0.25*((+w.thkIn||8)/8)):1;
-  add("Structure",(R.sys[w.sys]||sys).label+" — "+g.H.toFixed(2).replace(/\.?0+$/,"")+"′ × "+_tkFmt(Math.round(L))+" LF",
-    faceSF,"SF",structRec, wVal(structRec)*kH*thkF, {bench:1});
+  const _fmtH=v=>v.toFixed(2).replace(/\.?0+$/,"");
+  // §53 Only the part that holds earth back is built as a retaining wall. The wall standing above
+  // the retained soil is a freestanding wall and is priced as one.
+  const retPart=g.ret?Math.min(g.H,g.retH):0, freePart=Math.max(0,g.H-retPart);
+  const structRec=g.ret?sys.ret:sys.free;
+  if(retPart>0.01) add("Structure",(R.sys[w.sys]||sys).label+" — retaining, "+_fmtH(retPart)+"′ × "+_tkFmt(Math.round(L))+" LF",
+    retPart*L,"SF",sys.ret, wVal(sys.ret)*kH*thkF, {bench:1});
+  if(freePart>0.01) add("Structure",(R.sys[w.sys]||sys).label+(retPart>0.01?" — above the retained soil, ":" — ")+_fmtH(freePart)+"′ × "+_tkFmt(Math.round(L))+" LF",
+    freePart*L,"SF",sys.free, wVal(sys.free)*kH*thkF, {bench:1});
   // block or form upgrade (§4, §5)
   const upRec=(w.sys==="cmu")?((R.cmuType[w.blockType]||{}).add)
             :((w.sys==="cip")?((R.cipType[w.cipType]||{}).add):null);
@@ -55478,25 +55583,25 @@ function wallCost(w){
   const construction=lines.reduce((s,l)=>s+l.cost,0);
   const mobMin=wVal(mobId)*acc*tierF;
   let mobLine=null;
-  if(construction<mobMin) mobLine=add("Mobilisation",wRec(mobId).nm,1,"LS",mobId,(mobMin-construction),{lab:1,geo:false,status:"minimum"});
+  if(!w._skipMob && construction<mobMin) mobLine=add("Mobilisation",wRec(mobId).nm,1,"LS",mobId,(mobMin-construction),{lab:1,geo:false,status:"minimum"});
   const constructionTotal=lines.reduce((s,l)=>s+l.cost,0);
   // ── 9 professional and government (§31–§36, §70.4, §70.5) ───────────────
   // Never touched by access, economy of scale, geometry or the contractor adjustment.
   const prof=[];
   const padd=(g0,nm,id,status)=>{ if(!id) return; const v=wVal(id); if(!(v>0)) return;
     prof.push({g:g0, nm:nm||wRec(id).nm, qty:1, unit:"LS", rate:v, cost:v, rec:id, status:status||"allowance"}); };
-  const engNeeded=(w.engMode==="on")||(w.engMode!=="off"&&(CX.ret||CX.cx!=="low"||g.H>6));
+  const engNeeded=!w._skipProf&&((w.engMode==="on")||(w.engMode!=="off"&&(CX.ret||CX.cx!=="low"||g.H>6)));
   if(engNeeded) padd("Professional",null,(w.engBand||R.engBy[CX.cx]),"included");
-  const geoId=(w.geo==="off")?null:((w.geo&&w.geo!=="auto")?w.geo:(CX.hill?"geoHill":R.geoBy[CX.cx]));
+  const geoId=(w._skipProf||w.geo==="off")?null:((w.geo&&w.geo!=="auto")?w.geo:(CX.hill?"geoHill":R.geoBy[CX.cx]));
   if(geoId) padd("Professional",null,geoId,"allowance");
-  if(w.survey&&w.survey!=="none") padd("Professional",null,(w.survey==="auto"?(CX.hill?"survHill":"survBnd"):w.survey),"allowance");
-  if(CX.hill&&(!w.survey||w.survey==="none")) padd("Professional",null,"survStake","optional");
+  if(!w._skipProf&&w.survey&&w.survey!=="none") padd("Professional",null,(w.survey==="auto"?(CX.hill?"survHill":"survBnd"):w.survey),"allowance");
+  if(!w._skipProf&&CX.hill&&(!w.survey||w.survey==="none")) padd("Professional",null,"survStake","optional");
   // §34 permits follow the thing being permitted, not every wall. A low freestanding wall
   // that triggers no engineering triggers no plan check either.
   const permWanted=(w.permit&&w.permit!=="auto"&&w.permit!=="off")||engNeeded||CX.ret||g.H>3.5;
-  const permId=(w.permit==="off"||!permWanted)?null:((w.permit&&w.permit!=="auto")?w.permit:(CX.hill?"permHill":R.permBy[CX.cx]));
+  const permId=(w._skipProf||w.permit==="off"||!permWanted)?null:((w.permit&&w.permit!=="auto")?w.permit:(CX.hill?"permHill":R.permBy[CX.cx]));
   if(permId) padd("Government",null,permId,"allowance");
-  const inspId=(w.inspect==="off")?null:((w.inspect&&w.inspect!=="auto")?w.inspect:R.inspBy[CX.cx]);
+  const inspId=(w._skipProf||w.inspect==="off")?null:((w.inspect&&w.inspect!=="auto")?w.inspect:R.inspBy[CX.cx]);
   if(inspId) padd("Government",null,inspId,"allowance");
   const profTotal=prof.reduce((s,l)=>s+l.cost,0);
   const total=constructionTotal+profTotal;
@@ -55515,6 +55620,7 @@ function wallCost(w){
   const qa=wallBenchmark(w, g, benchBase, lf, constructionTotal);
   return {
     wall:w, geom:g, cx:CX, lf, billLF:L, heightK:kH, access:acc, scale, geoF, tierF, point:pt,
+    zones:_zones, subs:null, govZone:1,
     lines, prof, construction:constructionTotal, professional:profTotal, total,
     perLF:(lf>0?total/lf:total), constructionPerLF:(lf>0?constructionTotal/lf:constructionTotal),
     perFaceSF:(g.H*lf>0?constructionTotal/(g.H*lf):0),
@@ -55530,17 +55636,21 @@ function wallBenchmark(w, g, benchBase, lf, constructionTotal){
   if(!(lf>0)) return null;
   const R=_wRule(), B=WALL_BENCH;
   const perLF=benchBase/lf;
+  // The published retaining tables read "4 FT retained", not "4 FT tall" — a 6′ wall holding 4′
+  // of earth belongs on the 4′ row. Everything else is measured by its height.
+  const key=g.ret?g.retH:g.H;
   const pick=(tbl)=>{ if(!tbl||!tbl.length) return null;
-    let best=tbl[0]; for(let i=0;i<tbl.length;i++){ if(Math.abs(tbl[i][0]-g.H)<Math.abs(best[0]-g.H)) best=tbl[i]; }
+    let best=tbl[0]; for(let i=0;i<tbl.length;i++){ if(Math.abs(tbl[i][0]-key)<Math.abs(best[0]-key)) best=tbl[i]; }
     // straight-line between the two nearest rows rather than snapping to one
     let lo=null,hi=null;
-    for(let i=0;i<tbl.length;i++){ if(tbl[i][0]<=g.H&&(!lo||tbl[i][0]>lo[0])) lo=tbl[i];
-      if(tbl[i][0]>=g.H&&(!hi||tbl[i][0]<hi[0])) hi=tbl[i]; }
-    if(lo&&hi&&lo!==hi){ const t=(g.H-lo[0])/(hi[0]-lo[0]);
+    for(let i=0;i<tbl.length;i++){ if(tbl[i][0]<=key&&(!lo||tbl[i][0]>lo[0])) lo=tbl[i];
+      if(tbl[i][0]>=key&&(!hi||tbl[i][0]<hi[0])) hi=tbl[i]; }
+    if(lo&&hi&&lo!==hi){ const t=(key-lo[0])/(hi[0]-lo[0]);
       return [lo[1]+(hi[1]-lo[1])*t, lo[2]+(hi[2]-lo[2])*t]; }
     const one=lo||hi||best; return [one[1],one[2]]; };
   let band=null, src="";
-  if(g.ret){ const t=(w.sys==="cip")?B.ret.cip:B.ret.cmu; band=pick(t); src=(w.sys==="cip")?"cast-in-place retaining":"CMU retaining"; }
+  if(g.ret){ const t=(w.sys==="cip")?B.ret.cip:B.ret.cmu; band=pick(t);
+    src=((w.sys==="cip")?"cast-in-place":"CMU")+" retaining, "+(Math.round(g.retH*100)/100)+"′ retained"; }
   else if(w.type==="seat"){ band=pick(B.seat); src="seat wall, structure only"; }
   else if(w.type==="planter"||g.H<=3&&w.type==="garden"){ band=pick(B.planter)||pick(B.free.cmu); src="low planter / garden wall"; }
   else { band=pick(B.free.cmu); src="freestanding CMU"; }
@@ -55746,6 +55856,12 @@ function wbSet(f,v){
     if(f==="retH"&&w.retH>w.h) w.h=w.retH;
   }
   else if(f==="lf"){ const n=+v; w.lf=isFinite(n)?Math.max(0,n):0; }
+  else if(f==="hStart"||f==="hEnd"||f==="zones"){ const n=+v; w[f]=isFinite(n)?n:null; }
+  else if(f==="heightMode"){ w.heightMode=v;
+    if(v==="sloped"){ if(w.hStart==null) w.hStart=Math.max(0.5,(+w.h||3)*0.6);
+      if(w.hEnd==null) w.hEnd=(+w.h||3); if(!w.zones) w.zones=4; }
+    if(v==="stepped") wbSegs();
+    if(v==="constant"){ /* the zones are kept, in case you switch back */ } }
   else if(f==="colorA"||f==="colorB"){ w[f]=!!v; }
   else w[f]=v;
   // a wall that does not retain has nothing to retain
@@ -55753,6 +55869,33 @@ function wbSet(f,v){
   if(WB.idx!=null && PT.polys[WB.idx]){ try{ ptSnap(); }catch(e){} PT.polys[WB.idx].wall=w;
     try{ ptAutoSave(); }catch(e){} }
   wbRender();
+}
+// §68 / §69 the height along the run. Zones are priced apart; the lump sums are counted once.
+function wbSegs(){ const w=WB.w; if(!Array.isArray(w.segs)||!w.segs.length){
+    const z=wallZones(Object.assign({},w,{heightMode:"constant"}));
+    w.segs=[{lf:Math.round((z[0].lf||0)*10)/10, h:z[0].h, retH:z[0].retH}]; }
+  return w.segs; }
+function wbSegAdd(){ const segs=wbSegs(); const last=segs[segs.length-1]||{lf:10,h:WB.w.h,retH:WB.w.retH};
+  segs.push({lf:Math.max(5,Math.round((+last.lf||10))), h:+last.h||WB.w.h, retH:+last.retH||0});
+  wbSet("heightMode","stepped"); }
+function wbSegDel(i){ const segs=wbSegs(); if(segs.length<=1) return; segs.splice(i,1); wbSet("heightMode","stepped"); }
+function wbSegSet(i,f,v){ const segs=wbSegs(); if(!segs[i]) return; const n=+v;
+  segs[i][f]=isFinite(n)?Math.max(0,n):0;
+  if(f==="h"&&segs[i].retH>segs[i].h) segs[i].retH=segs[i].h;
+  if(f==="retH"&&segs[i].retH>segs[i].h) segs[i].h=segs[i].retH;
+  wbSet("heightMode","stepped"); }
+// One zone per leg you actually drew, each with its own measured length.
+function wbSplitDrawn(){
+  if(WB.idx==null||!PT.polys[WB.idx]) return;
+  const pts=PT.polys[WB.idx].pts||[]; if(pts.length<2) return;
+  const segs=[];
+  for(let i=0;i<pts.length-1;i++){ let d=0; try{ d=_ptFeetBetween(pts[i],pts[i+1]); }catch(e){}
+    if(d>0.5) segs.push({lf:Math.round(d*10)/10, h:+WB.w.h||3, retH:+WB.w.retH||0}); }
+  if(!segs.length) return;
+  WB.w.segs=segs;
+  WB.w.lf=segs.reduce((s0,z)=>s0+z.lf,0);
+  wbSet("heightMode","stepped");
+  try{ _toast(segs.length+" zones from the drawn run \u2014 set a height on each.","#2F5B23"); }catch(e){}
 }
 function wbApplyLF(){ if(WB.idx!=null&&PT.polys[WB.idx]){ try{ WB.w.lf=_ptTraceNet(PT.polys[WB.idx]); }catch(e){} wbRender(); } }
 function _wbRow(k,sub,body){ return '<div class="wb-f"><span class="k">'+k+(sub?'<small>'+sub+'</small>':'')+'</span>'+body+'</div>'; }
@@ -55788,6 +55931,37 @@ function wbRender(){
   b+=_wbRow("Wall height","top of wall above the low side",_wbNum("h",w.h,0.25,"ft"));
   if((R.types[w.type]||{}).ret||g.retH>0)
     b+=_wbRow("Retained height","soil held back — never assumed equal to the wall height",_wbNum("retH",w.retH,0.25,"ft"));
+  b+=_wbRow("Height along the run","a stepped or sloping wall is not one wall of the average height",
+    _wbChips("heightMode",(w.heightMode||"constant"),[["constant","Constant"],["stepped","Stepped"],["sloped","Sloped"]]));
+  if((w.heightMode||"constant")==="sloped"){
+    b+=_wbRow("Start height","",_wbNum("hStart",(w.hStart!=null?w.hStart:w.h),0.25,"ft"));
+    b+=_wbRow("End height","",_wbNum("hEnd",(w.hEnd!=null?w.hEnd:w.h),0.25,"ft"));
+    b+=_wbRow("Height zones","how finely it is sliced",_wbNum("zones",(w.zones||4),1,"zones"));
+  }
+  if((w.heightMode||"constant")==="stepped"){
+    const segs=wbSegs(), retOn=((R.types[w.type]||{}).ret||g.retH>0);
+    let tbl='<div style="display:grid;grid-template-columns:26px 1fr 1fr'+(retOn?" 1fr":"")+' 28px;gap:6px;align-items:center;font:800 9px var(--tkf);letter-spacing:.07em;text-transform:uppercase;color:var(--tl)">'
+      +'<span></span><span>Length</span><span>Height</span>'+(retOn?'<span>Retained</span>':'')+'<span></span></div>';
+    const IN='style="width:100%;box-sizing:border-box;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12.5px;font-weight:650;padding:5px 7px;text-align:right"';
+    segs.forEach((z,i)=>{
+      tbl+='<div style="display:grid;grid-template-columns:26px 1fr 1fr'+(retOn?" 1fr":"")+' 28px;gap:6px;align-items:center;padding:3px 0">'
+        +'<span style="font:800 10px var(--tkf);color:var(--tl)">'+(i+1)+'</span>'
+        +'<input type="number" class="no-spin" '+IN+' step="1" value="'+(+z.lf||0)+'" onchange="wbSegSet('+i+',\'lf\',this.value)">'
+        +'<input type="number" class="no-spin" '+IN+' step="0.25" value="'+(+z.h||0)+'" onchange="wbSegSet('+i+',\'h\',this.value)">'
+        +(retOn?'<input type="number" class="no-spin" '+IN+' step="0.25" value="'+(+z.retH||0)+'" onchange="wbSegSet('+i+',\'retH\',this.value)">':'')
+        +'<button class="wb-chip" style="padding:3px 7px" onclick="wbSegDel('+i+')" title="Remove this zone">\u2715</button></div>';
+    });
+    const tot=segs.reduce((s0,z)=>s0+(+z.lf||0),0);
+    tbl+='<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">'
+      +'<button class="wb-chip" onclick="wbSegAdd()">+ zone</button>'
+      +(WB.idx!=null?'<button class="wb-chip" onclick="wbSplitDrawn()">one zone per drawn leg</button>':'')
+      +'<span class="wb-note" style="margin-left:auto">'+_tkFmt(Math.round(tot*10)/10)+' LF across '+segs.length+' zone'+(segs.length===1?"":"s")
+      +(Math.abs(tot-(+w.lf||0))>0.5?(' \u00b7 run is '+_tkFmt(Math.round(w.lf))+' LF'):'')+'</span></div>';
+    b+='<div>'+tbl+'</div>';
+  }
+  if((w.heightMode||"constant")!=="constant")
+    b+='<div class="wb-note">'+r.zones.length+' zones, each priced on its own; mobilisation, engineering, permits and the soils report are counted once against the '
+      +(r.govZone?("zone "+r.govZone):"tallest zone")+'.</div>';
   if(!quick){
     b+=_wbRow("Wall above upper grade","derived unless you set it",_wbNum("aboveH",w.aboveH,0.25,"ft",String(g.aboveH)));
     b+=_wbRow("Exposed, upper side","how much of the high side is seen",_wbNum("highExpH",w.highExpH,0.25,"ft",String(g.expHigh)));
