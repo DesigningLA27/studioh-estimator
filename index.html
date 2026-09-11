@@ -5872,6 +5872,13 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
   background:var(--card);color:var(--tx);font:inherit;font-size:12.5px;font-weight:600;padding:8px 10px}
 .nlb-row input:focus{outline:0;box-shadow:0 0 0 2px color-mix(in srgb,var(--gm) 25%,transparent)}
 .nlb .nlb-go{padding:.42rem .9rem;font-size:.78rem;flex:none}
+.nlb-mic{flex:none;width:34px;height:34px;border-radius:10px;border:1px solid var(--gm);
+  background:var(--card);color:var(--gm);cursor:pointer;display:grid;place-items:center;padding:0}
+.nlb-mic svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round}
+.nlb-mic:hover{background:var(--brand-soft)}
+.nlb-mic.on{background:#C9605C;border-color:#C9605C;color:#fff;animation:nlbpulse 1.1s ease-in-out infinite}
+@keyframes nlbpulse{0%,100%{box-shadow:0 0 0 0 rgba(201,96,92,.5)}50%{box-shadow:0 0 0 6px rgba(201,96,92,0)}}
+@media(prefers-reduced-motion:reduce){.nlb-mic.on{animation:none}}
 .nlb-note{font-size:10.5px;color:var(--tl);line-height:1.5;padding-top:6px}
 /* ── Wall Builder (§74) ── assembling a wall, not filling in a questionnaire ── */
 .wbx{width:min(1220px,100%)}
@@ -7360,7 +7367,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1463</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1464</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -56994,6 +57001,39 @@ nlbRegister({ id:"kitchen", name:"Outdoor kitchen",
     if(f==="__name"){ setKit(i,"label",String(v)); return; }
     if(v===true||v===false) setKitBool(i,f,v); else setKit(i,f,v);
   }, refresh:()=>{ try{ kitRefresh(); }catch(e){} } });
+// Planting is a different shape — zones with bands of cover rather than one object with fields —
+// so it gets its own adapter. The cover bands are SF inside the zone and must fit inside it, which
+// is _covFit's job; setting them here goes through the same guard.
+nlbRegister({ id:"planting", name:"Planting zone",
+  list:()=>{ try{ ensurePlanting(); }catch(e){} return (S.planting&&S.planting.zones)||[]; },
+  make:()=>{ try{ addZone(); }catch(e){} },
+  cur:()=>{ const L=(S.planting&&S.planting.zones)||[]; return L[L.length-1]||null; },
+  fields:()=>({
+    name:{note:"a short name for the zone"},
+    location:{note:"where on the property, e.g. Back yard"},
+    phase:{values:["","Phase 1","Phase 2","Phase 3","Phase 4","Future"]},
+    areaSF:{unit:"SF", note:"the whole zone"},
+    "cov.shrub":{unit:"SF", note:"shrub planting, inside the zone area"},
+    "cov.gc":{unit:"SF", note:"groundcover"},
+    "cov.lawn":{unit:"SF", note:"real lawn or sod"},
+    "cov.turf":{unit:"SF", note:"artificial turf"},
+    "cov.seed":{unit:"SF", note:"hydroseed"},
+    "layers.prep":{values:[true,false], note:"soil preparation"},
+    "layers.mulch":{values:[true,false]},
+    "layers.topsoil":{values:[true,false]}
+  }),
+  set:(f,v)=>{ try{ ensurePlanting(); }catch(e){}
+    const L=(S.planting&&S.planting.zones)||[]; const i=L.length-1; const z=L[i]; if(!z) return;
+    if(f==="__name"||f==="name"){ try{ setZoneName(i,String(v)); }catch(e){ z.name=String(v); } return; }
+    if(f==="location"){ try{ setZoneLocation(i,String(v)); }catch(e){ z.location=String(v); } return; }
+    if(f==="phase"){ z.phase=String(v); return; }
+    if(f==="areaSF"){ try{ setZoneArea(i,+v); }catch(e){ z.areaSF=+v||0; z._touched=true; } return; }
+    if(f.indexOf("cov.")===0){ z.cov=z.cov||{shrub:0,gc:0,lawn:0,turf:0,seed:0};
+      z.cov[f.slice(4)]=Math.max(0,+v||0);
+      try{ _covFit(z); }catch(e){}                    // the bands still have to fit the zone
+      return; }
+    if(f.indexOf("layers.")===0){ z.layers=z.layers||{}; z.layers[f.slice(7)]=!!v; return; }
+  }, refresh:()=>{ try{ plantRefresh(); }catch(e){} } });
 nlbRegister({ id:"pergola", name:"Pergola or shade structure",
   list:()=>S.pergolas||[], make:()=>{ try{ newPergola(); }catch(e){} },
   cur:()=>{ const L=S.pergolas||[]; return L[L.length-1]||null; },
@@ -57095,6 +57135,32 @@ function nlbSpace(){
 function _nlbErr(m){ NLB.busy=false; NLB.last={ok:false, error:m};
   try{ _toast(m,"#B23F3C"); }catch(e){} return NLB.last; }
 // Ask the model for a patch, apply it through the builder's own setter, report what it did.
+// §NL Speech. Safari and Chrome both expose it prefixed; where they do not, the mic simply is
+// not offered rather than sitting there doing nothing.
+function nlbSpeechOK(){ try{ return !!(window.SpeechRecognition||window.webkitSpeechRecognition); }catch(e){ return false; } }
+let _nlbRec=null, _nlbRecFor=null;
+function nlbMic(kind){
+  if(!nlbSpeechOK()) return;
+  const el=document.getElementById("nlb-"+kind); if(!el) return;
+  if(_nlbRec){ try{ _nlbRec.stop(); }catch(e){} _nlbRec=null; _nlbRecFor=null;
+    try{ nlbMicUI(kind,false); }catch(e){} return; }
+  const R=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const rec=new R();
+  rec.lang="en-US"; rec.interimResults=true; rec.continuous=false; rec.maxAlternatives=1;
+  let said="";
+  rec.onresult=(e)=>{ let t=""; for(let i=0;i<e.results.length;i++) t+=e.results[i][0].transcript;
+    said=t; el.value=t; };
+  rec.onerror=(e)=>{ const m=(e&&e.error)||"";
+    try{ _toast(m==="not-allowed"?"Microphone blocked — allow it for this site in Settings.":("Could not hear that"+(m?" ("+m+")":"")),"#B23F3C"); }catch(_){}
+    _nlbRec=null; _nlbRecFor=null; try{ nlbMicUI(kind,false); }catch(_){}; };
+  rec.onend=()=>{ _nlbRec=null; _nlbRecFor=null; try{ nlbMicUI(kind,false); }catch(e){}
+    if(said.trim()){ el.value=said.trim(); nlbAsk(kind); } };
+  try{ rec.start(); _nlbRec=rec; _nlbRecFor=kind; nlbMicUI(kind,true);
+    _toast("Listening\u2026 say what you want.","#2F5B23"); }
+  catch(e){ try{ _toast("Could not start the microphone.","#B23F3C"); }catch(_){} }
+}
+function nlbMicUI(kind,on){ const b=document.getElementById("nlbmic-"+kind);
+  if(b) b.classList.toggle("on",!!on); }
 // One bar, mounted by any builder. `kind` is its registry id.
 function nlbBar(kind, opts){
   opts=opts||{};
@@ -57107,7 +57173,12 @@ function nlbBar(kind, opts){
     +'<input id="nlb-'+kind+'" placeholder="'+escAttr(sp&&opts.space!==false
         ? (ph+" — it will be sized to fit "+sp.areaSF.toLocaleString()+" SF") : ph)+'" '
     +'onkeydown="if(event.key===\'Enter\')nlbAsk(\''+kind+'\')">'
-    +'<button class="btn btn-g nlb-go" onclick="nlbAsk(\''+kind+'\')">Build it</button></div>'
+    +(nlbSpeechOK()?('<button class="nlb-mic" id="nlbmic-'+kind+'" title="Say it out loud" onclick="nlbMic(\''+kind+'\')">'
+      +'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>'):'')
+    +'<button class="btn btn-g nlb-go" onclick="nlbAsk(\''+kind+'\')">Build it</button>'
+    +((nlbCanTrace(kind)&&opts.trace!==false)?('<button class="nlb-mic" title="Place it on the plan" onclick="nlbToTrace(\''+kind+'\')">'
+      +'<svg viewBox="0 0 24 24"><path d="M5 19 19 5M12 5h7v7"/></svg></button>'):'')
+    +'</div>'
     +((sp&&opts.space!==false)?'<div class="nlb-note">Sizing against '+escAttr(sp.name||sp.source)+' \u2014 '
        +sp.areaSF.toLocaleString()+' SF, about '+sp.widthFT+'\u2032 \u00d7 '+sp.lengthFT+'\u2032.</div>':'')
     +(st?('<div class="nlb-note">'
@@ -57118,6 +57189,87 @@ function nlbBar(kind, opts){
        +((st.unmapped&&st.unmapped.length)?('<div style="color:#8A6D1F;padding-top:3px">Not covered by this builder: '+st.unmapped.map(escAttr).join("; ")+'</div>'):'')
        +'</div>'):'')
     +'</div>';
+}
+// Placing a built thing on the plan. It goes down at its true size in the middle of the view,
+// carries a link back to the object that made it, and from then on the DRAWING is the size — move
+// it or stretch it and the builder follows.
+const NLB_TRACE={
+  // A wall is a run, not a footprint, so it goes down as a line and its LENGTH is what comes back.
+  wall:   {mode:"wall", linear:true, dims:w=>({w:0, l:+w.lf||0}), name:w=>"",
+           back:(o,_w,l)=>{ o.lf=l; }},
+  court:  {mode:"court",    dims:c=>({w:+c.padW||0, l:+c.padL||0}), name:c=>c.name},
+  pool:   {mode:"pool",     dims:p=>({w:+p.widFt||0, l:+p.lenFt||0}), name:p=>p.title,
+           back:(p,w,l)=>{ p.widFt=w; p.lenFt=l; }},
+  water:  {mode:"water",    dims:w=>({w:+w.basinWidth||0, l:+w.basinLen||0}), name:w=>w.title,
+           back:(o,w,l)=>{ o.basinWidth=w; o.basinLen=l; }},
+  pergola:{mode:"shade",    dims:g=>({w:+g.W||0, l:+g.L||0}), name:g=>g.label,
+           back:(o,w,l)=>{ o.W=w; o.L=l; }},
+  kitchen:{mode:"kitchen",  dims:k=>({w:+k.depth||2.5, l:(+k.runLF||+k.footprintSF/(+k.depth||2.5)||0)}), name:k=>k.label,
+           back:(o,w,l)=>{ o.depth=w; o.runLF=l; }},
+  planting:{mode:"planting",dims:z=>{ const a=+z.areaSF||0; const side=Math.sqrt(Math.max(0,a));
+             return {w:side, l:side}; }, name:z=>z.name,
+           back:(o,w,l)=>{ o.areaSF=Math.round(w*l); o._touched=true; }}
+};
+function nlbCanTrace(kind){ return !!NLB_TRACE[kind]; }
+function nlbToTrace(kind){
+  const T=NLB_TRACE[kind], B=nlbBuilder(kind);
+  if(!T||!B) return;
+  const obj=B.cur?B.cur():null;
+  if(!obj){ try{ _toast("Nothing to place yet.","#8A6D1F"); }catch(e){} return; }
+  if(typeof PT==="undefined"||!PT.open){ try{ _toast("Open the design tracer first, then send it across.","#8A6D1F"); }catch(e){} return; }
+  if(!PT.ppf){ try{ _toast("Set the plan scale first \u2014 it needs to know how big a foot is.","#8A6D1F"); }catch(e){} return; }
+  const d=T.dims(obj);
+  if(T.linear?!(d.l>0):!(d.w>0&&d.l>0)){ try{ _toast("Give it a size first.","#8A6D1F"); }catch(e){} return; }
+  const st=document.getElementById("pt-stage");
+  const mid=_toPdf({x:(st?st.scrollLeft+st.clientWidth/2:300), y:(st?st.scrollTop+st.clientHeight/2:300)});
+  const w=d.w*PT.ppf, h=d.l*PT.ppf;   // pdf units — ppf counts in them, not in canvas pixels
+  const pts=T.linear
+    ? [{x:mid.x-h/2,y:mid.y},{x:mid.x+h/2,y:mid.y}]
+    : [{x:mid.x-w/2,y:mid.y-h/2},{x:mid.x+w/2,y:mid.y-h/2},
+       {x:mid.x+w/2,y:mid.y+h/2},{x:mid.x-w/2,y:mid.y+h/2}];
+  try{ ptSnap(); }catch(e){}
+  const np=T.linear
+    ? {mode:T.mode, kind:"linear", pts:pts, lf:_ptLineLF(pts), type:"",
+       name:(T.name(obj)||"").trim(), zone:"", phase:"", tags:"", page:PT.page,
+       _bld:{kind:kind, id:(obj.wallId||obj.courtId||obj.id||null)}, wall:(kind==="wall"?obj:undefined)}
+    : {mode:T.mode, kind:"area", pts:pts, sf:_ptPolySF(pts), type:"",
+    name:(T.name(obj)||"").trim(), zone:"", phase:"", tags:"", page:PT.page,
+    _bld:{kind:kind, id:(obj.courtId||obj.id||null)}};
+  if(kind==="court") np.court=obj;
+  PT.polys.push(np);
+  const idx=PT.polys.length-1;
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptSelect(idx); }catch(e){}
+  try{ _toast((np.name||B.name)+" placed on the plan \u2014 drag it where you want it.","#2F5B23"); }catch(e){}
+  return idx;
+}
+// The drawing is the size. After any edit, a placed shape pushes its measured width and length
+// back to the object that made it, so stretching it on the plan re-prices the thing itself.
+function nlbSyncFromTrace(){
+  try{
+    if(typeof PT==="undefined"||!PT.polys) return 0;
+    let n=0;
+    PT.polys.forEach(p=>{
+      const L=p&&p._bld; if(!L||!NLB_TRACE[L.kind]) return;
+      const T=NLB_TRACE[L.kind]; if(!T.back) return;
+      const B=nlbBuilder(L.kind); if(!B) return;
+      const list=B.list?B.list():null;
+      const obj=(list&&L.id)?list.find(x=>(x.courtId||x.id)===L.id):(B.cur?B.cur():null);
+      if(!obj) return;
+      let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12;
+      (p.pts||[]).forEach(q=>{ if(q.x<x0)x0=q.x; if(q.x>x1)x1=q.x; if(q.y<y0)y0=q.y; if(q.y>y1)y1=q.y; });
+      let w,l;
+      if(T.linear){ w=0; l=(function(){ try{ return _ptLineLF(p.pts); }catch(e2){ return 0; } })();
+        if(!(l>0)) return; }
+      else { w=_ptFeetBetween({x:x0,y:y0},{x:x1,y:y0}); l=_ptFeetBetween({x:x0,y:y0},{x:x0,y:y1});
+        if(!(w>0&&l>0)) return; }
+      const d=T.dims(obj);
+      if(T.linear?(Math.abs(d.l-l)<0.05):(Math.abs(d.w-w)<0.05 && Math.abs(d.l-l)<0.05)) return;
+      T.back(obj, Math.round(w*10)/10, Math.round(l*10)/10);
+      n++;
+    });
+    if(n){ try{ _bidSchedule(); }catch(e){} }
+    return n;
+  }catch(e){ return 0; }
 }
 // Ask, apply through the builder's own setter, redraw it.
 async function nlbAsk(kind){
@@ -60281,7 +60433,8 @@ function ptEditTreeZoneChange(idx,val){ const t=PT.trees[idx]; if(!t) return;
 function ptAddTreeZoneInline(idx){ const t=PT.trees[idx]; if(!t) return; const inp=document.getElementById("pt-newzone"); const nm=inp?(inp.value||"").trim():""; if(!nm){ if(inp) inp.focus(); return; } const added=addAreaOption(nm); if(added) t.zone=added; ptEditTree(idx); }
 function ptSaveTreeEdit(idx){ const t=PT.trees[idx]; if(t){ ptSnap(); const sel=document.getElementById("pt-edit-size"); if(sel) t.size=sel.value; const mt=document.getElementById("pt-edit-mtype"); if(mt) t.size=mt.value; const zn=document.getElementById("pt-edit-zone"); if(zn) t.zone=(zn.value==="—"?"":zn.value); const ph=document.getElementById("pt-edit-phase"); if(ph) t.phase=(ph.value==="—"?"":ph.value); const tg=document.getElementById("pt-edit-tags"); if(tg) t.tags=tg.value.trim(); } const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
 function ptDelTreeFromEdit(idx){ ptSnap(); PT.trees.splice(idx,1); const d=document.getElementById("pt-edit-pop"); if(d) d.remove(); ptDrawOverlay(); ptUpdateInfo(); }
-function ptUpdateInfo(){ try{ ptRenderFloat(); }catch(e){}
+function ptUpdateInfo(){
+  try{ nlbSyncFromTrace(); }catch(e){} try{ ptRenderFloat(); }catch(e){}
   const el=document.getElementById("pt-info"); if(!el) return;
   const area={}, lin={}; PT.polys.forEach(p=>{ const key=p.type?`${p.mode}|${p.type}`:p.mode; if(p.kind==="linear"){ lin[key]=(lin[key]||0)+(p.lf||0); } else { area[key]=(area[key]||0)+(p.sf||0); } });
   const cby={}; PT.trees.forEach(t=>{ const m=_ptMarkMode(t); const key=_ptMode(m).types?`${m}|${t.size||""}`:m; cby[key]=(cby[key]||0)+1; });

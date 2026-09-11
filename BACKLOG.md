@@ -9,14 +9,17 @@ Ordered roughly by how much it costs us to keep not doing it.
 
 ## Open
 
-### 1 · Natural language — the last two builders, and speech
-**v1463 put the bar on six: court, wall, pool, water feature, kitchen, pergola.**
-- **Planting builder** is not done. It is a different shape — zones and plant rows rather than one
-  object with fields — so it needs its own adapter rather than a field list.
-- **Fence & Gates** gets one the day it is built: `nlbRegister({id,name,cur,fields,set,refresh})`.
-- **Speech-to-text.** The bar is typed today. Web Speech API on iPad Safari is the open question.
-- **Send to the tracer** exists only on the Sport Court Builder (`cbToTrace`). Pool, water feature,
-  pergola and kitchen could all be placed on the plan the same way.
+### 1 · Natural language — what is left
+**v1464: seven builders speak, all seven place on the plan, the mic is live.**
+- **Fence & Gates** gets one the day it is built: `nlbRegister({id,name,cur,fields,set,refresh})`
+  plus an `NLB_TRACE` entry.
+- **Adding plants by name** ("three olive trees") is not covered — the planting adapter sets zone
+  area, cover bands and layers, not plant rows. It needs the plant book, and reports the request
+  as not covered rather than guessing.
+- **Which item the bar targets** is the last one in the list. With several pools or zones it should
+  let you pick.
+- Speech needs a real device check — the API is present in the headless browser, but permission,
+  accents and iPad Safari behaviour are untested on the actual iPad.
 
 ### 2 · Materials Library on the builders — §55/§56 (Wall) and §27 (Court)
 Both engines already accept a real product with waste (`matVeneerA/B`, `matCap`, court surface and
