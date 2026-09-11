@@ -7351,7 +7351,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1460</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1461</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10308,6 +10308,7 @@ function buildProCats(){
         ${(usesAreaModel(cat.id)&&cat.id!=="planting")?`<div id="secmeter-${cat.id}" class="sec-meter-big"></div>`:""}
         ${cat.id==="lighting"?`<div class="sec-meter-big" style="background:#EEF6EC"><div class="meter-line" style="font-size:.85rem">Reference — Planting area: <strong>${(S.plantingAreaSF||0).toLocaleString()} SF</strong> &nbsp;·&nbsp; Landscape area: <strong>${(S.proLandscapeArea||0).toLocaleString()} SF</strong><div style="font-size:.72rem;color:var(--tl);margin-top:.2rem;font-weight:400">Typical density: 1 path light / 400 SF · 1 uplight / 500 SF</div></div></div>`:""}
         ${cat.builder?`<div id="${cat.builder}-builder"></div>`:`<div id="tbody-${cat.id}"></div>`}
+        ${cat.id==="amenities"?`<div id="court-builder"></div>`:""}
         <div id="lumprow-${cat.id}" style="display:${(cat.id==="planting"&&!cs.lumpOn)?'none':'flex'};justify-content:space-between;align-items:center;padding:.5rem 1rem;background:#FBF7EF;flex-wrap:wrap;gap:.5rem;opacity:${cs.lumpOn?'1':'.62'}">
           <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.76rem;color:var(--tm)">
             <input type="checkbox" id="lumpcb-${cat.id}" ${cs.lumpOn?'checked':''} onchange="toggleCatLump('${cat.id}',this.checked)">
@@ -10333,6 +10334,7 @@ function buildProCats(){
     else if(cat.builder==="pool"){ renderPoolBuilder(); }
     else if(cat.builder==="planting"){ renderPlantingBuilder(); }
     else { renderProCatRows(cat.id); }
+    if(cat.id==="amenities"){ try{ renderCourtList(); }catch(e){} }
   };
 
   // Same four groups as the Price Book, sub-categories included. Each group carries its own
@@ -56812,6 +56814,45 @@ function courtRecommend(c){
 }
 // §37 A project can hold several courts; they are told apart by id, never by type.
 function courtsAll(){ if(!Array.isArray(S.courts)) S.courts=[]; return S.courts; }
+// §2 / §39 The courts in this project, listed where they are paid for. Each one opens the
+// builder; a traced court appears here too and says so.
+function renderCourtList(){
+  const host=document.getElementById("court-builder"); if(!host) return;
+  const R=_cRule();
+  const traced=(function(){ try{ return (PT.polys||[]).map((p,i)=>({p,i}))
+    .filter(x=>x.p.mode==="court"&&x.p.court&&x.p.court.courtId); }catch(e){ return []; } })();
+  const money=v=>fmtN(Math.round(v||0));
+  const card=(nm,sub,tot,open,extra)=>'<div style="display:flex;align-items:center;gap:.7rem;padding:.6rem 1rem;border-top:1px solid var(--br)">'
+    +'<span style="flex:1;min-width:0"><b style="display:block;font-size:.86rem;font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escAttr(nm)+'</b>'
+    +'<span style="display:block;font-size:.72rem;color:var(--tl)">'+sub+'</span></span>'
+    +'<b style="font-size:.9rem;font-weight:750;color:var(--gm);font-variant-numeric:tabular-nums;white-space:nowrap">'+money(tot)+'</b>'
+    +'<button class="btn btn-o" style="padding:.22rem .6rem;font-size:.72rem" onclick="'+open+'">Open</button>'
+    +(extra||'')+'</div>';
+  let html='';
+  courtsAll().forEach(c=>{ let r=null; try{ r=courtCost(c); }catch(e){}
+    if(!r) return;
+    html+=card((c.name||"Court"),
+      (R.types[c.type]||{}).label+' · '+Math.round(r.geom.padW)+'′ × '+Math.round(r.geom.padL)+'′ · '
+        +_tkFmt(Math.round(r.geom.areaSF))+' SF · '+(R.base[c.base]||{}).label,
+      r.total, "cbOpen('"+c.courtId+"')",
+      '<button class="btn" style="padding:.22rem .55rem;font-size:.7rem;color:#B23F3C;background:transparent;border:1px solid #E0C4C3" onclick="courtDelete(\''+c.courtId+'\');courtsRefresh()">Remove</button>');
+  });
+  traced.forEach(x=>{ let r=null; try{ r=courtCost(x.p.court); }catch(e){}
+    if(!r) return;
+    html+=card((x.p.court.name||x.p.name||"Traced court"),
+      'On the plan · '+(R.types[x.p.court.type]||{}).label+' · '+_tkFmt(Math.round(r.geom.areaSF))+' SF',
+      r.total, "cbOpen("+x.i+")");
+  });
+  if(!html) html='<div style="padding:.75rem 1rem;font-size:.8rem;color:var(--tl)">No sport court yet. A court is built from its parts — base, surface, striping, fencing, lighting and equipment — not from one rate.</div>';
+  html+='<div style="padding:.85rem 1rem;display:flex;gap:.45rem;flex-wrap:wrap">'
+    +Object.keys(R.types).map(k=>'<button class="btn btn-o" style="font-size:.78rem" onclick="courtsAddOpen(\''+k+'\')">+ '+escAttr(R.types[k].label)+'</button>').join("")
+    +'</div>';
+  host.innerHTML='<div style="border-top:1px solid var(--br)"><div style="padding:.7rem 1rem .1rem;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tl)">Sport courts</div>'+html+'</div>';
+}
+function courtsRefresh(){ try{ renderCourtList(); }catch(e){}
+  try{ refreshCatTotals("amenities"); renderProSummary(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){} }
+function courtsAddOpen(type){ const c=courtAdd(type||"tennis"); cbOpen(c.courtId); }
 function courtsSubtotal(){ try{ return courtsAll().reduce((a,c)=>a+(courtCost(c).total||0),0); }catch(e){ return 0; } }
 function courtAdd(type){ const c=courtNew({type:type||"tennis"});
   c.name=(_cRule().types[c.type]||{}).label+" "+(courtsAll().filter(x=>x.type===c.type).length+1);
@@ -56865,6 +56906,7 @@ function cbOpen(idOrPoly){
 }
 function cbClose(){ CB.open=false; const h=document.getElementById("cb-scrim"); if(h) h.remove();
   try{ _bidSchedule(); }catch(e){}
+  try{ renderCourtList(); }catch(e){}
   try{ refreshCatTotals("amenities"); renderProSummary(); }catch(e){}
   try{ if(CB.poly!=null){ ptDrawOverlay(); ptUpdateInfo(); _ptDockRefresh();
     if(document.getElementById("pt-why-pop")) ptWhy("court"); ptBuildupRefresh(); } }catch(e){}
