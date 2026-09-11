@@ -7351,7 +7351,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1457</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1458</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -46655,7 +46655,7 @@ function _dashRenderWide(d,t){
         <span class="on">${g.on} of ${g.n} on</span>
         ${g.onTop?_dwFurnBar(g,tot):`<span class="shb"><i style="width:${bar.toFixed(1)}%;background:${g.c}"></i></span>
              <span class="pc">${pct}%</span>`}
-        <span class="psf" title="${_land>0?(escAttr(g.nm)+" over "+Math.round(_land).toLocaleString()+" sf of landscape"):"Set a landscape area in Project Info"}">${_land>0?("$"+(psf<10?psf.toFixed(1):Math.round(psf))+"<small>/sf</small>"):"\u2014"}</span>
+        <span class="psf" title="${_land>0?(escAttr(g.nm)+" over "+Math.round(_land).toLocaleString()+" sf of landscape"):"Set a landscape area in Project Info"}">${_land>0?("$"+psf.toFixed(2)+"<small>/sf</small>"):"\u2014"}</span>
         <span class="amt">${fmtN(g.amt)}</span>
         <span class="go">&#8250;</span></div>`;}).join("")}</div>`;
   }
@@ -52661,6 +52661,10 @@ const TK_CAT2EST={planting:"planting", turf:"planting", paving:"paving", drivewa
   pool:"pool", spa:"pool", water:"water", shade:"pergola", kitchen:"kitchen", seating:"walls",
   wall:"walls", steps:"paving", irrigation:"irrigation", light:"lighting", tapelight:"lighting",
   drainline:"drainage", inlet:"drainage", demo:"sitework", tree:"planting",
+  // A sport court was traced and measured but mapped to nothing, so _ptPriceFor bailed on the
+  // first line and the take-off showed a dash against 6,590 SF. Its surfacing lives in Specialty
+  // & Amenities, the same place the putting green does.
+  court:"amenities",
   pots:"amenities", gate:"amenities", pilaster:"amenities", stepper:"amenities", furniture:"amenities"};
 // These sections are built item by item — a pool, a wall run, a planting zone. Their subtotal
 // really is the cost of the thing you designed, so a rate can be read back off it.
@@ -56352,6 +56356,18 @@ function _ptPriceFor(mode, qty){
   // A wall is height x what it is made of, plus its faces, its cap and — past a height — an
   // engineer. One $/LF cannot carry any of that, so the layer prices off the traced walls.
   if(mode==="wall"){ const w=_wallCatSum(qty); if(w) return w; }
+  // A court is a surface, and which surface depends on the sport. Putting green and sport court
+  // surfacing are separate lines in the book at different money, so the traced type picks.
+  if(mode==="court"){
+    let putt=0, hard=0;
+    PT.polys.forEach(p=>{ if(p.mode!=="court") return; const a=+p.sf||0; if(!(a>0)) return;
+      if(/putting/i.test(p.type||"")) putt+=a; else hard+=a; });
+    const rPutt=_tkRate("amenities",/Putting Green/i), rHard=_tkRate("amenities",/Sport Court Surfacing/i);
+    const money=(putt*rPutt)+(hard*rHard);
+    if(money>0) return {total:money, per:money/qty, from:"rate"};
+    const r=rHard||rPutt; if(r>0) return {total:r*qty, per:r, from:"rate"};
+    return null;
+  }
   // Turf is laid, not designed — it prices off sod or artificial turf, never off the shrub
   // palette. Pricing it through the planting zone was giving lawn a shrub-bed rate.
   if(mode==="turf"){
