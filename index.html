@@ -4179,7 +4179,7 @@ body.sp-on .tb-sp:hover{background:var(--brand-soft);color:var(--gm)}
    are different widths, which pushed each row's bar to a different x. They only looked
    like one table. */
 .dw-r{display:grid;
-  grid-template-columns:26px minmax(228px,1fr) 76px minmax(96px,1.8fr) 34px 104px 14px;
+  grid-template-columns:26px minmax(200px,1fr) 76px minmax(88px,1.8fr) 46px 64px 104px 14px;
   gap:10px;align-items:center;padding:7px 8px;border-radius:11px;cursor:pointer}
 .dw-r:hover{background:var(--brand-soft)}
 .dw-r .sq{font-size:10px;font-weight:800;color:var(--gm);background:var(--brand-soft);
@@ -4194,7 +4194,12 @@ body.sp-on .tb-sp:hover{background:var(--brand-soft);color:var(--gm)}
 .dw-r .shb{height:8px;border-radius:99px;background:var(--brl);position:relative;display:block;
   margin:0 20px}
 .dw-r .shb i{position:absolute;left:0;top:0;bottom:0;border-radius:99px}
-.dw-r .pc{font-size:11px;font-weight:800;color:var(--tl);text-align:right;font-variant-numeric:tabular-nums}
+.dw-r .pc{font-size:11px;font-weight:800;color:var(--tl);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Cost per square foot of landscape, on the same footing the Cost per sf card uses, so a
+   section can be compared against the job's own rate rather than only against its siblings. */
+.dw-r .psf{font-size:11px;font-weight:700;color:var(--tl);text-align:right;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.dw-r .psf small{font-size:9px;font-weight:700;opacity:.75;margin-left:1px}
 /* Furnishings sit outside the construction total, so there is no share to show. A "+"
    says that in the space a percentage would occupy — sized like the amount beside it,
    not like the caption it replaced. */
@@ -7346,7 +7351,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1456</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1457</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -46592,14 +46597,22 @@ function _dashSlot(html,size,idx){
    can never disagree. That is a different measure from the rows above, which is why the
    figure stays gold rather than grey, and turns red once the allowance is spent.
    With no allowance set there is nothing to fill against, so it falls back to "+". */
-function _dwFurnBar(g){
+// The bar still reads against the furnishings allowance, which is the only sensible thing to
+// measure furnishings against. The PERCENTAGE does not: every other row in this list is a share
+// of the construction subtotal, and printing a share of a different denominator in the same
+// column made the column mean two things. It is the same share as everyone else's, written with
+// a + because furnishings sit on top of that subtotal rather than inside it.
+function _dwFurnBar(g, tot){
+  const base=(+tot||0);
+  const share=base>0?Math.round((+g.amt||0)/base*100):0;
+  const pcTxt=base>0?("+"+share+"%"):"+";
   let tgt=0; try{ tgt=+furnAllowance()||0; }catch(e){ tgt=0; }
   if(!(tgt>0)) return `<span class="shb"></span>`
-    + `<span class="pc ontop" title="Held on top of the construction budget. Set a furnishings allowance in Project Info to track it.">+</span>`;
-  const raw=(+g.amt||0)/tgt*100, pct=Math.round(raw), over=raw>100;
+    + `<span class="pc ontop" title="${fmtN(g.amt)}, held on top of the construction subtotal — ${share}% of it again. Set a furnishings allowance in Project Info to track it against one.">${pcTxt}</span>`;
+  const raw=(+g.amt||0)/tgt*100, over=raw>100;
   const col=over?"var(--v-high)":g.c;
   return `<span class="shb"><i style="width:${Math.max(2,Math.min(100,raw)).toFixed(1)}%;background:${col}"></i></span>`
-    + `<span class="pc ontop${over?" over":""}" title="${fmtN(g.amt)} of a ${fmtN(tgt)} furnishings allowance${over?" — over by "+fmtN(g.amt-tgt):""}">${pct}%</span>`;
+    + `<span class="pc ontop${over?" over":""}" title="${fmtN(g.amt)}, held on top of the construction subtotal — ${share}% of it again. The bar reads ${Math.round(raw)}% of a ${fmtN(tgt)} furnishings allowance${over?", over by "+fmtN(g.amt-tgt):""}.">${pcTxt}</span>`;
 }
 function _dashRenderWide(d,t){
   const host=document.getElementById("dwide"); if(!host) return;
@@ -46631,15 +46644,18 @@ function _dashRenderWide(d,t){
   // rescaled, and the headroom stops the largest bar reading as "full".
   const topPct=Math.max(...grps.filter(g=>!g.onTop).map(g=>g.amt/tot*100), 1);
   const scale=Math.min(100, topPct*1.2);
+  const _land=(function(){ try{ return +S.proLandscapeArea||0; }catch(e){ return 0; } })();
   body=`<div class="dw-rows">${grps.map(g=>{
       const pct=Math.round(g.amt/tot*100);
       const bar=Math.max(2,Math.min(100,(g.amt/tot*100)/scale*100));
+      const psf=_land>0?((+g.amt||0)/_land):0;
       return `<div class="dw-r" onclick="_aiGoSection('${g.first}')" title="Open ${escAttr(g.nm)} in the estimate">
         <span class="sq">${escAttr(g.seq||"")}</span>
         <span class="nm">${escAttr(g.nm)}</span>
         <span class="on">${g.on} of ${g.n} on</span>
-        ${id==="gshare"?(g.onTop?_dwFurnBar(g):`<span class="shb"><i style="width:${bar.toFixed(1)}%;background:${g.c}"></i></span>
-             <span class="pc">${pct}%</span>`):""}
+        ${g.onTop?_dwFurnBar(g,tot):`<span class="shb"><i style="width:${bar.toFixed(1)}%;background:${g.c}"></i></span>
+             <span class="pc">${pct}%</span>`}
+        <span class="psf" title="${_land>0?(escAttr(g.nm)+" over "+Math.round(_land).toLocaleString()+" sf of landscape"):"Set a landscape area in Project Info"}">${_land>0?("$"+(psf<10?psf.toFixed(1):Math.round(psf))+"<small>/sf</small>"):"\u2014"}</span>
         <span class="amt">${fmtN(g.amt)}</span>
         <span class="go">&#8250;</span></div>`;}).join("")}</div>`;
   }
