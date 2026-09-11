@@ -7351,7 +7351,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1458</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1459</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -9935,6 +9935,7 @@ const S={
   proLandscapeArea:0, proLotSize:0, plantingAreaSF:0,
   walls:[],
   kitchens:[],
+  courts:[],
   pergolas:[],
   waterFeatures:[],
   pools:[],
@@ -10637,6 +10638,9 @@ function catSubtotalRaw(catId){
   // list prices. Summing list would put a number in the proposal the client is not paying.
   else if(catId==="furnish") base=furnSubtotalClient();
   else { const cs=S.cats[catId]; base=(cs&&cs.items)?cs.items.reduce((a,it)=>a+(it.checked?it.q*it.uc*(1+(+it.madj||0)/100):0),0):0; }
+  // A sport court is built, not looked up, so it contributes what its builder came to — on top
+  // of whatever amenity lines are ticked, the way the kitchen and the pergola already do.
+  if(catId==="amenities"){ try{ base+=courtsSubtotal(); }catch(e){} }
   return base * sectionMult(catId);
 }
 // Section subtotal honoring a per-section lump-sum override
@@ -56254,6 +56258,563 @@ function _renderWall3(_mount){
   card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__wall">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
   _mount.appendChild(card);
 }
+// ── SPORT COURT BUILDER ────────────────────────────────────────────────────
+// A court is assembled from quantities, not from a cost per court. Every dollar comes from a
+// price record with a unit, a Budget / Standard / Premium band, a source, a date and the share
+// of it that is labour — the only share site difficulty is allowed to move (§3, §40). The
+// reality-check ranges in CRT_QA are validation only and never the calculation (§31).
+const CRT_META={ region:"Southern California / Los Angeles", regionMult:1.00,
+  priceDate:"September 2026", status:"Initial Market Calibration" };
+function _cr(g,nm,u,lo,std,pre,lab,src,conf,note){
+  return {g:g,nm:nm,u:u,lo:lo,std:std,pre:pre,lab:lab,src:src,upd:"2026-09",conf:conf,note:note||""}; }
+const CRT_REC={
+  // ── site work (§3) ────────────────────────────────────────────────────
+  clearing:  _cr("Site Work","Clearing & stripping","SF",0.75,1.25,2.00,0.90,"§3","med",""),
+  roughGrade:_cr("Site Work","Rough grading","SF",1.00,1.75,3.00,0.90,"§3","med",""),
+  excavate:  _cr("Site Work","Excavation","SF",2.00,3.50,5.50,0.92,"§3","med",""),
+  exportCY:  _cr("Site Work","Soil export","CY",75,110,160,0.85,"§3","med","Loading, haul, dump and disposal."),
+  fineGrade: _cr("Site Work","Fine grade & subgrade compaction","SF",0.75,1.25,2.00,0.90,"§3","med",""),
+  aggBase:   _cr("Site Work","Aggregate base","SF",2.00,3.00,4.50,0.55,"§3","med","Only charged when the base system does not already include it."),
+  geotextile:_cr("Site Work","Geotextile / stabilisation","SF",0.40,0.75,1.25,0.50,"§3","med",""),
+  // ── base systems, $/SF of construction pad (§4) ────────────────────────
+  baseAsphalt:_cr("Base System","Asphalt court base","SF",8,11,14,0.60,"§4","high","Compacted subgrade, aggregate base, asphalt, ready for acrylic."),
+  baseConc:   _cr("Base System","Reinforced concrete base","SF",12,15,18,0.58,"§4","high",'Prepared subgrade, aggregate base, 4–5″ reinforced slab, placing and finishing.'),
+  basePT:     _cr("Base System","Post-tensioned concrete base","SF",16,19,24,0.58,"§4","high","For crack control on premium tennis and pickleball."),
+  baseRepair: _cr("Base System","Existing base repair allowance","SF",1.00,2.50,5.00,0.80,"§4","low","Crack repair, levelling and patching on an existing court."),
+  // ── playing surface, $/SF (§5) ─────────────────────────────────────────
+  surfBasic:_cr("Surface","Basic acrylic surface","SF",1.75,2.25,3.00,0.70,"§5","high",""),
+  surfPrem: _cr("Surface","Premium acrylic surface","SF",2.50,3.25,4.00,0.70,"§5","high",""),
+  surfCush: _cr("Surface","Cushioned acrylic surface","SF",4.00,5.50,7.00,0.65,"§5","high",""),
+  surfTile: _cr("Surface","Modular sport tile","SF",6,9,13,0.40,"§5","med","Generic allowance until a manufacturer product replaces it."),
+  // ── colour & graphics (§6) ─────────────────────────────────────────────
+  colorAdd: _cr("Surface","Additional colour","SF",0.25,0.50,0.75,0.75,"§6","med","Per SF of the area that actually takes the extra colour."),
+  logo:     _cr("Surface","Custom logo / graphic","EA",750,1500,3000,0.70,"§6","med",""),
+  // ── striping (§7) ──────────────────────────────────────────────────────
+  stripeTennis:_cr("Striping","Tennis striping","LS",600,850,1200,0.85,"§7","high",""),
+  stripePickle:_cr("Striping","Pickleball striping","LS",400,600,800,0.85,"§7","high",""),
+  stripeBbHalf:_cr("Striping","Basketball striping — half court","LS",500,750,1000,0.85,"§7","high",""),
+  stripeBbFull:_cr("Striping","Basketball striping — full court","LS",800,1100,1500,0.85,"§7","high",""),
+  stripeOverlay:_cr("Striping","Additional sport overlay","LS",400,650,1000,0.85,"§7","high",""),
+  // ── fencing, $/LF installed (§8) ───────────────────────────────────────
+  fence4: _cr("Fencing",'4′ chain link',"LF",38,46,55,0.65,"§8 interpolated","low",""),
+  fence6: _cr("Fencing",'6′ chain link',"LF",45,55,65,0.65,"§8","high",""),
+  fence8: _cr("Fencing",'8′ chain link',"LF",55,65,75,0.65,"§8","high",""),
+  fence10:_cr("Fencing",'10′ chain link',"LF",65,75,90,0.65,"§8","high",""),
+  fence12:_cr("Fencing",'12′ chain link',"LF",80,95,110,0.65,"§8","high",""),
+  fenceArch:_cr("Fencing","Welded wire / architectural fence","LF",100,140,200,0.60,"§8","med",""),
+  // ── gates (§9) ─────────────────────────────────────────────────────────
+  gatePed:_cr("Gates","Pedestrian gate","EA",1000,1750,2500,0.55,"§9","high",""),
+  gateDbl:_cr("Gates","Double / service gate","EA",2000,3250,4500,0.55,"§9","high",""),
+  // ── windscreens, $/LF of fence (§10) ───────────────────────────────────
+  wsStd:  _cr("Windscreens","Windscreen — standard","LF",8,11,15,0.45,"§10","high",""),
+  wsPrem: _cr("Windscreens","Windscreen — premium","LF",12,18,25,0.45,"§10","high",""),
+  wsPrint:_cr("Windscreens","Windscreen — custom printed","LF",20,30,40,0.35,"§10","med",""),
+  // ── drainage (§11) ─────────────────────────────────────────────────────
+  drPerimeter:_cr("Drainage","Perimeter drainage allowance","LS",1500,2500,4000,0.75,"§11","low","A single allowance — never charged alongside the individual systems below."),
+  drSub:     _cr("Drainage","French drain / subdrain","LF",25,35,45,0.75,"§11","high",""),
+  drChannel: _cr("Drainage","Channel drain","LF",50,70,100,0.65,"§11","high",""),
+  drBasin:   _cr("Drainage","Catch basin","EA",750,1000,1500,0.70,"§11","high",""),
+  drStormTie:_cr("Drainage","Storm drain tie-in","LS",1000,2500,5000,0.75,"§11","low",""),
+  // ── lighting (§12) ─────────────────────────────────────────────────────
+  lightSmall:_cr("Court Lighting","Court lighting — pickleball / half basketball","LS",10000,20000,32500,0.55,"§12","med","Packaged allowance. Never charged alongside detailed components."),
+  lightTennis:_cr("Court Lighting","Court lighting — full tennis","LS",25000,40000,60000,0.55,"§12","med","Packaged allowance."),
+  lightBbFull:_cr("Court Lighting","Court lighting — full basketball","LS",20000,35000,55000,0.55,"§12","med","Packaged allowance."),
+  lightPole: _cr("Court Lighting","Light pole & foundation","EA",2200,3200,4500,0.60,"trade rate","low","Detailed mode only."),
+  lightFix:  _cr("Court Lighting","LED court fixture","EA",1800,2600,3800,0.35,"trade rate","low","Detailed mode only."),
+  lightTrench:_cr("Court Lighting","Electrical trench, conduit & wire","LF",28,42,60,0.80,"trade rate","low","Detailed mode only."),
+  lightCtrl: _cr("Court Lighting","Switching, timer, controls & connection","LS",1500,2500,4000,0.65,"trade rate","low","Detailed mode only."),
+  photometric:_cr("Court Lighting","Photometric study","LS",1500,2500,4000,0,"§12","med",""),
+  // ── tennis equipment (§13) ─────────────────────────────────────────────
+  tnNetRec:  _cr("Tennis Equipment","Tennis net & posts — recreational","EA",800,1150,1500,0.40,"§13","high","Posts, sleeves, centre anchor, net, strap and installation."),
+  tnNetPerm: _cr("Tennis Equipment","Tennis net & posts — permanent","EA",1500,2250,3000,0.40,"§13","high",""),
+  tnNetTourn:_cr("Tennis Equipment","Tennis net & posts — tournament","EA",2500,3500,4500,0.40,"§13","high",""),
+  tnBackboard:_cr("Tennis Equipment","Tennis backboard","EA",4000,7000,10000,0.45,"§13","med",""),
+  tnScore:   _cr("Tennis Equipment","Scorekeeper","EA",300,750,1500,0.30,"§13","med",""),
+  // ── pickleball equipment (§14) ─────────────────────────────────────────
+  pbNetPort: _cr("Pickleball Equipment","Pickleball net — portable","EA",250,500,800,0.15,"§14","high",""),
+  pbNetPerm: _cr("Pickleball Equipment","Pickleball net — permanent","EA",750,1125,1500,0.40,"§14","high",""),
+  pbNetTourn:_cr("Pickleball Equipment","Pickleball net — tournament","EA",1500,2000,2500,0.40,"§14","high",""),
+  // ── basketball equipment (§15) ─────────────────────────────────────────
+  bbBasic:_cr("Basketball Equipment","Basketball hoop — residential","EA",1500,2000,2500,0.40,"§15","high",""),
+  bbAdj:  _cr("Basketball Equipment","Basketball hoop — premium adjustable","EA",2500,3500,4500,0.40,"§15","high",""),
+  bbComm: _cr("Basketball Equipment","Basketball hoop — commercial","EA",5000,7500,10000,0.40,"§15","high",""),
+  bbComp: _cr("Basketball Equipment","Basketball hoop — competition","EA",12000,16000,22000,0.40,"allowance","low","Allowance until a Price Book product replaces it."),
+  // ── multi-sport equipment (§16) ────────────────────────────────────────
+  msVolley:_cr("Multi-Sport Equipment","Volleyball sleeves, posts & net","EA",900,1500,2400,0.45,"allowance","low",""),
+  msBadmin:_cr("Multi-Sport Equipment","Badminton posts & net","EA",400,700,1100,0.40,"allowance","low",""),
+  msFutsal:_cr("Multi-Sport Equipment","Futsal goals","EA",1200,2000,3200,0.35,"allowance","low",""),
+  msSoccer:_cr("Multi-Sport Equipment","Soccer goals","EA",1500,2600,4200,0.35,"allowance","low",""),
+  msHockey:_cr("Multi-Sport Equipment","Hockey goals","EA",1200,2000,3200,0.35,"allowance","low",""),
+  msFour:  _cr("Multi-Sport Equipment","Four square","EA",150,300,500,0.60,"allowance","low",""),
+  // ── accessories (§17) ──────────────────────────────────────────────────
+  acBench:  _cr("Accessories","Court bench","EA",750,1250,2000,0.35,"§17","med",""),
+  acBenchP: _cr("Accessories","Court bench — premium","EA",2000,3500,5000,0.30,"§17","med",""),
+  acTrash:  _cr("Accessories","Trash receptacle","EA",500,900,1500,0.30,"§17","med",""),
+  acFountain:_cr("Accessories","Drinking fountain","EA",3000,5000,8000,0.55,"§17","med",""),
+  acBottle: _cr("Accessories","Bottle filler","EA",4000,6500,10000,0.55,"§17","med",""),
+  acBallStore:_cr("Accessories","Ball storage","EA",300,600,1000,0.30,"§17","med",""),
+  acUmbrella:_cr("Accessories","Shade umbrella","EA",1000,2000,3000,0.25,"§17","med",""),
+  acShade:  _cr("Accessories","Shade structure","EA",10000,22500,40000,0.50,"§17","low",""),
+  acNetting:_cr("Accessories","Ball containment netting","LF",20,35,50,0.55,"§17","med",""),
+  acStorage:_cr("Accessories","Equipment storage","EA",2000,5000,10000,0.45,"§17","low",""),
+  // ── professional services (§18) — never touched by site difficulty ─────
+  engSurvey:_cr("Engineering","Survey","LS",1500,2500,4000,0,"§18","med",""),
+  engCivil: _cr("Engineering","Civil / grading plan","LS",2500,5000,7500,0,"§18","med",""),
+  engStruct:_cr("Engineering","Structural / post-tension engineering","LS",2000,4000,6000,0,"§18","med",""),
+  engElec:  _cr("Engineering","Electrical / lighting engineering","LS",1500,3000,5000,0,"§18","med",""),
+  engGeo:   _cr("Engineering","Geotechnical","LS",2500,4000,6000,0,"§18","med",""),
+  // ── permits (§19) ──────────────────────────────────────────────────────
+  permit:_cr("Permits","Permit allowance","LS",1500,4000,7500,0,"§19","low","An allowance — permit fees vary substantially by jurisdiction. Never a percentage of construction cost."),
+  // ── demolition (§20) ───────────────────────────────────────────────────
+  demoAcrylic: _cr("Demolition","Remove / prep existing acrylic","SF",1.00,2.00,3.00,0.90,"§20","med",""),
+  demoAsphalt: _cr("Demolition","Asphalt demolition","SF",3.00,4.50,6.00,0.90,"§20","med",""),
+  demoConcrete:_cr("Demolition","Concrete demolition","SF",5.00,7.50,10.00,0.90,"§20","med",""),
+  demoClear:   _cr("Demolition","Clear existing landscape or structures","SF",1.50,3.00,5.00,0.90,"§20","low","")
+};
+// Rules — shapes, thresholds and multipliers, never prices.
+const CRT_RULE={
+  // §1 / §23 court types, with a default playing area, a default construction pad, and the
+  // scope a standard court of that kind starts with.
+  types:{
+    tennis:  {label:"Tennis",             playW:36, playL:78,  padW:60, padL:120,
+              base:"pt",   surf:"prem",  stripe:["stripeTennis"], net:"tnNetPerm",
+              fence:1, fenceH:10, gatesPed:1, light:"lightTennis", minPadW:60, minPadL:120},
+    pickle:  {label:"Pickleball",         playW:20, playL:44,  padW:30, padL:60,
+              base:"conc", surf:"prem",  stripe:["stripePickle"], net:"pbNetPerm",
+              fence:0, fenceH:10, gatesPed:1, light:"lightSmall", minPadW:30, minPadL:60},
+    bbHalf:  {label:"Basketball — half",  playW:50, playL:42,  padW:30, padL:50,
+              base:"conc", surf:"basic", stripe:["stripeBbHalf"], hoops:1, hoopType:"bbAdj",
+              fence:0, fenceH:10, light:"lightSmall", minPadW:30, minPadL:50},
+    bbFull:  {label:"Basketball — full",  playW:50, playL:84,  padW:60, padL:94,
+              base:"conc", surf:"basic", stripe:["stripeBbFull"], hoops:2, hoopType:"bbAdj",
+              fence:0, fenceH:10, light:"lightBbFull", minPadW:60, minPadL:94},
+    multi:   {label:"Multi-sport",        playW:30, playL:60,  padW:40, padL:70,
+              base:"conc", surf:"prem",  stripe:["stripeBbHalf"], hoops:1, hoopType:"bbAdj",
+              fence:0, fenceH:10, light:"lightSmall"},
+    custom:  {label:"Custom court",       playW:30, playL:60,  padW:30, padL:60,
+              base:"conc", surf:"basic", stripe:[], fence:0, fenceH:10, light:"lightSmall"}
+  },
+  // §4 what each base system already carries, so nothing is bought twice (§35)
+  base:{
+    asphalt:{label:"Asphalt",                 rec:"baseAsphalt", inc:{grade:1,aggBase:1,slab:1,mob:1}},
+    conc:   {label:"Reinforced concrete",     rec:"baseConc",    inc:{grade:1,aggBase:1,slab:1,rebar:1,mob:1}},
+    pt:     {label:"Post-tensioned concrete", rec:"basePT",      inc:{grade:1,aggBase:1,slab:1,rebar:1,mob:1}, eng:"engStruct"},
+    existing:{label:"Existing base — resurface only", rec:null,  inc:{grade:1,aggBase:1,slab:1,mob:1}, resurface:1}
+  },
+  surf:{
+    none: {label:"Structural surface only", rec:null},
+    basic:{label:"Basic acrylic",           rec:"surfBasic"},
+    prem: {label:"Premium acrylic",         rec:"surfPrem"},
+    cush: {label:"Cushioned acrylic",       rec:"surfCush"},
+    tile: {label:"Modular sport tile",      rec:"surfTile"}
+  },
+  // §6 colour is a specification choice; only the extras cost
+  colors:{ standard:{label:"Standard colour",extra:0}, two:{label:"Two colours",extra:1},
+    multi:{label:"Multiple colours",extra:2}, custom:{label:"Custom colour",extra:1} },
+  // §7 which striping a sport adds
+  sports:{ tennis:{label:"Tennis",rec:"stripeTennis"}, pickle:{label:"Pickleball",rec:"stripePickle"},
+    bbHalf:{label:"Basketball — half",rec:"stripeBbHalf"}, bbFull:{label:"Basketball — full",rec:"stripeBbFull"},
+    volley:{label:"Volleyball",rec:"stripeOverlay",equip:"msVolley"},
+    badminton:{label:"Badminton",rec:"stripeOverlay",equip:"msBadmin"},
+    futsal:{label:"Futsal",rec:"stripeOverlay",equip:"msFutsal"},
+    foursquare:{label:"Four square",rec:"stripeOverlay",equip:"msFour"} },
+  // §8 fencing
+  fenceH:{ 4:"fence4", 6:"fence6", 8:"fence8", 10:"fence10", 12:"fence12" },
+  fenceType:{ galv:{label:"Galvanised chain link",f:1.00}, vinyl:{label:"Black vinyl-coated chain link",f:1.15},
+    arch:{label:"Welded wire / architectural",rec:"fenceArch"} },
+  fenceCover:{ full:{label:"Full perimeter",f:1.00}, three:{label:"Three sides",f:0.75},
+    two:{label:"Two sides",f:0.50}, custom:{label:"Custom length",f:null} },
+  // §10 windscreen coverage, as a share of the fence
+  wsCover:{ 25:0.25, 50:0.50, 75:0.75, 100:1.00 },
+  ws:{ std:{label:"Standard",rec:"wsStd"}, prem:{label:"Premium",rec:"wsPrem"}, print:{label:"Custom printed / logo",rec:"wsPrint"} },
+  // §3 site difficulty. Labour, earthwork, hauling, placement, base, drainage, trenching and
+  // fence installation only — never equipment, never professional fees (§3, §22).
+  access:{ easy:{label:"Easy",f:1.00}, moderate:{label:"Moderate",f:1.15},
+    difficult:{label:"Difficult",f:1.35}, veryDifficult:{label:"Very difficult / hillside",f:1.60} },
+  topo:{ flat:{label:"Flat",cut:0.15}, mild:{label:"Mild slope",cut:0.35},
+    moderate:{label:"Moderate slope",cut:0.75}, steep:{label:"Steep / hillside",cut:1.50} },
+  existing:{ soil:{label:"Bare soil",demo:null}, landscape:{label:"Landscape",demo:"demoClear"},
+    pavement:{label:"Existing pavement",demo:"demoAsphalt"}, court:{label:"Existing sport court",demo:null},
+    structures:{label:"Existing structures / obstructions",demo:"demoClear"} },
+  soil:{ normal:{label:"Normal",geo:0}, poor:{label:"Poor / unstable",geo:1}, unknown:{label:"Unknown",geo:0} },
+  // §20 an existing court
+  courtCond:{ good:{label:"Good"}, minor:{label:"Minor deterioration"},
+    moderate:{label:"Moderate deterioration"}, failed:{label:"Failed"} },
+  courtAction:{ resurface:{label:"Resurface only",demo:"demoAcrylic",repair:0},
+    crackRepair:{label:"Crack repair + resurface",demo:"demoAcrylic",repair:1},
+    stripAcrylic:{label:"Remove existing acrylic",demo:"demoAcrylic",repair:1},
+    stripAsphalt:{label:"Remove existing asphalt",demo:"demoAsphalt",rebuild:1},
+    stripConcrete:{label:"Remove existing concrete",demo:"demoConcrete",rebuild:1},
+    rebuild:{label:"Full reconstruction",demo:"demoConcrete",rebuild:1} },
+  // §12 lighting quality picks the band of the packaged allowance
+  lightQ:{ basic:{label:"Basic recreational",pt:0}, standard:{label:"Standard residential",pt:1},
+    premium:{label:"Premium / tournament",pt:2} },
+  // §3 which groups the site-difficulty multiplier is allowed to touch. Equipment is bought at
+  // the same price whether the truck can reach the court or not, and so are the soft costs.
+  accessOn:{ "Site Preparation":1, "Structural Base":1, "Drainage":1, "Fencing":1, "Gates":1,
+    "Demolition":1, "Playing Surface":0, "Striping":0, "Windscreen":0, "Court Lighting":0,
+    "Sport Equipment":0, "Accessories":0, "Engineering":0, "Permits":0 },
+  // §3 excavation depth assumption for the soil-export estimate, in feet
+  excavateFt:0.6,
+  // §18 disciplines the builder recommends rather than requires
+  engRecs:{ pt:["engStruct"], slope:["engCivil","engGeo"], light:["engElec"], poorSoil:["engGeo"] },
+  // §30 confidence
+  band:{ high:12, med:22, low:35 },
+  // §31 reality-check ranges, validation only
+  qaTol:0
+};
+// §31 typical Southern California residential totals. QA guardrails, never the calculation.
+const CRT_QA={ tennis:[100000,250000], pickle:[25000,80000],
+  bbHalf:[30000,80000], bbFull:[55000,120000], multi:[35000,120000], custom:[20000,250000] };
+// The live store. Records and rules are both editable; the seeds above are the fallback.
+let CRT=(function(){ try{ const s=localStorage.getItem("studioh_court_v1");
+  if(s){ const j=JSON.parse(s); if(j&&j.rec&&j.rule) return j; } }catch(e){} return null; })()
+  || {rec:JSON.parse(JSON.stringify(CRT_REC)), rule:JSON.parse(JSON.stringify(CRT_RULE)), meta:JSON.parse(JSON.stringify(CRT_META))};
+(function(){ try{ Object.keys(CRT_REC).forEach(k=>{ if(!CRT.rec[k]) CRT.rec[k]=JSON.parse(JSON.stringify(CRT_REC[k])); });
+  Object.keys(CRT_RULE).forEach(k=>{ if(CRT.rule[k]==null) CRT.rule[k]=JSON.parse(JSON.stringify(CRT_RULE[k])); });
+  if(!CRT.meta) CRT.meta=JSON.parse(JSON.stringify(CRT_META)); }catch(e){} })();
+function courtSave(){ try{ localStorage.setItem("studioh_court_v1", JSON.stringify(CRT)); }catch(e){}
+  try{ cfgStampKey("studioh_court_v1"); }catch(e){}
+  try{ _cfgSchedulePush(); }catch(e){} }
+function courtReset(){ CRT={rec:JSON.parse(JSON.stringify(CRT_REC)), rule:JSON.parse(JSON.stringify(CRT_RULE)), meta:JSON.parse(JSON.stringify(CRT_META))}; courtSave(); }
+function courtResetAll(){ courtReset(); try{ renderPriceBook(); }catch(e){} }
+function courtSet(path,v){ const parts=String(path).split("."); let o=CRT;
+  for(let i=0;i<parts.length-1;i++){ if(o[parts[i]]==null) o[parts[i]]={}; o=o[parts[i]]; }
+  const last=parts[parts.length-1]; const n=(v===""||v==null)?null:+v;
+  o[last]=(n==null||!isFinite(n))?0:n; courtSave(); try{ renderPriceBook(); }catch(e){} }
+function courtSetText(path,v){ const parts=String(path).split("."); let o=CRT;
+  for(let i=0;i<parts.length-1;i++){ if(o[parts[i]]==null) o[parts[i]]={}; o=o[parts[i]]; }
+  o[parts[parts.length-1]]=String(v==null?"":v); courtSave(); try{ renderPriceBook(); }catch(e){} }
+function _cRule(){ return CRT.rule||CRT_RULE; }
+function cRec(id){ return (CRT.rec&&CRT.rec[id])||CRT_REC[id]||null; }
+// §22 The project's own Budget / Standard / Premium point picks the band in every record. There
+// is no second contractor multiplier on top — that is how the rest of this app already works,
+// and applying both would charge the same adjustment twice.
+function _courtPoint(){ let pt=null;
+  try{ pt=(typeof _tkPointOverride!=="undefined"&&_tkPointOverride!=null)?_tkPointOverride:ptPointFor("amenities"); }catch(e){}
+  if(pt==null){ try{ pt=ptPricePoint(); }catch(e){} }
+  return (pt===0||pt===1||pt===2)?pt:1; }
+function cVal(id,pt){ const r=cRec(id); if(!r) return 0;
+  const p=(pt==null)?_courtPoint():pt;
+  const v=(p===0)?r.lo:((p===2)?r.pre:r.std);
+  return (+v||0)*((+((CRT.meta||CRT_META).regionMult))||1); }
+function cLab(id){ const r=cRec(id); return r?(+r.lab||0):0; }
+// §37 The court object. Persistent id, so a project can hold several and they are told apart
+// by identity rather than by type.
+function courtNew(o){ const R=_cRule();
+  const t=(o&&o.type&&R.types[o.type])?o.type:"tennis", T=R.types[t];
+  return Object.assign({
+    courtId:"c"+Math.random().toString(36).slice(2,9),
+    name:"", type:t,
+    padW:+T.padW, padL:+T.padL, playW:+T.playW, playL:+T.playL,
+    // site
+    access:"easy", topo:"flat", existing:"soil", soil:"normal",
+    exportOn:false, exportCY:null,
+    siteClear:true, siteRough:true, siteExc:false, siteFine:true, siteAgg:false, siteGeo:false,
+    // base & surface
+    base:T.base, surf:T.surf, baseCond:"good", action:"resurface", repairAllow:null,
+    color:"standard", colorSF:null, logos:0,
+    // sports
+    primary:t, extraSports:[],
+    // fencing
+    fenceOn:!!T.fence, fenceH:(+T.fenceH||10), fenceType:"galv", fenceCover:"full", fenceLF:null,
+    gatesPed:(+T.gatesPed||0), gatesDbl:0,
+    // windscreen
+    wsOn:false, wsType:"std", wsCover:100, wsLF:null,
+    // drainage
+    drPerimeter:true, drSubLF:0, drChannelLF:0, drBasins:0, drStormTie:false, drCustom:0,
+    // lighting
+    lightOn:false, lightQ:"standard", lightMode:"package", lightCustom:null,
+    poles:0, fixtures:0, trenchLF:0, lightCtrl:false, photometric:false,
+    // equipment
+    net:(T.net||null), netQty:(T.net?1:0), backboard:false, scorekeeper:false,
+    hoops:(+T.hoops||0), hoopType:(T.hoopType||"bbAdj"),
+    equip:{},                       // record id -> qty, for multi-sport and accessories
+    customEquip:0,
+    // accessories
+    acc:{}, accNetLF:0,
+    // soft costs
+    softOn:false, eng:{}, engCustom:{},
+    permitOn:false, permitCustom:null,
+    retainingOn:false, retainingAllow:0,
+    notes:""
+  }, o||{}); }
+// The site-work ticks that follow from what the site is. Set once when a court is made, and
+// freely overridden afterwards — a flat pad on bare soil is stripped and graded, not excavated.
+function courtSiteDefaults(c){
+  const R=_cRule();
+  if(c._siteSet) return c;
+  c.siteExc=(c.topo!=="flat")||(c.existing==="pavement"||c.existing==="court"||c.existing==="structures");
+  c.exportOn=(c.topo!=="flat");
+  c.siteGeo=(c.soil==="poor");
+  c._siteSet=1;
+  return c;
+}
+// §1 geometry. The estimate uses the construction pad unless a component asks for playing area.
+function courtGeom(c){
+  const padW=Math.max(1,+c.padW||0), padL=Math.max(1,+c.padL||0);
+  const playW=Math.max(0,+c.playW||0), playL=Math.max(0,+c.playL||0);
+  return { padW, padL, areaSF:padW*padL, perimeterLF:2*(padW+padL),
+    playW, playL, playSF:playW*playL, playPerimLF:2*(playW+playL) };
+}
+// THE ENGINE. Quantities × price records, one transparent line at a time (§21, §36).
+function courtCost(c){
+  c=courtNew(c);
+  const R=_cRule(), g=courtGeom(c);
+  const acc=(R.access[c.access]||R.access.easy).f;
+  const pt=_courtPoint();
+  const lines=[];
+  // Site difficulty moves the labour share of a line and nothing else (§3, §22).
+  const add=(grp,sub,nm,qty,unit,id,rate,opt)=>{
+    const q=+qty||0; if(!(q>0)) return null;
+    const r=(rate!=null)?+rate:cVal(id);
+    if(!(r>0)&&!(opt&&opt.allowZero)) return null;
+    const lab=(opt&&opt.lab!=null)?+opt.lab:cLab(id);
+    const hard=!!(opt&&opt.hard);                 // professional and government money
+    const accOn=!hard && (!!(opt&&opt.acc) || !!((R.accessOn||CRT_RULE.accessOn)[grp]));
+    const raw=q*r;
+    const cost=accOn?(raw*(1-lab)+raw*lab*acc):raw;
+    const L={g:grp, sub:sub, nm:"Sport Court — "+nm, qty:q, unit:unit, rate:r, cost:cost,
+      rec:id||null, tier:["Budget","Standard","Premium"][pt], mult:accOn?acc:1,
+      status:(opt&&opt.status)||"included", override:!!(opt&&opt.override), note:(opt&&opt.note)||""};
+    lines.push(L); return L; };
+  const B=R.base[c.base]||R.base.conc;
+  const resurfaceOnly=!!B.resurface;
+  const act=R.courtAction[c.action]||R.courtAction.resurface;
+  // ── 1 demolition of what is there (§20) ────────────────────────────────
+  if(c.existing==="court"){
+    if(act.demo) add("Demolition","Existing court",(R.courtAction[c.action]||{}).label||"Demolition",g.areaSF,"SF",act.demo);
+    if(act.repair&&!resurfaceOnly===false){}
+  } else {
+    const ex=R.existing[c.existing]||R.existing.soil;
+    if(ex.demo) add("Demolition","Site",ex.label,g.areaSF,"SF",ex.demo);
+  }
+  // ── 2 site work (§3) — none of it when only the surface is being redone ─
+  const rebuilding=!resurfaceOnly||!!act.rebuild;
+  if(rebuilding){
+    if(c.siteClear) add("Site Preparation","Clearing","Site Clearing",g.areaSF,"SF","clearing");
+    // §35 a base system that already carries a prepared subgrade does not also buy grading.
+    const incGrade=!!(B.inc&&B.inc.grade);
+    if(c.siteRough&&!incGrade) add("Site Preparation","Grading","Rough Grading",g.areaSF,"SF","roughGrade");
+    if(c.siteExc)   add("Site Preparation","Earthwork","Excavation",g.areaSF,"SF","excavate");
+    if(c.siteFine&&!incGrade)  add("Site Preparation","Grading","Fine Grading & Compaction",g.areaSF,"SF","fineGrade");
+    if(c.siteGeo)   add("Site Preparation","Stabilisation","Geotextile Stabilisation",g.areaSF,"SF","geotextile");
+    // §35 aggregate base only when the base system does not already carry it
+    if(c.siteAgg && !(B.inc&&B.inc.aggBase)) add("Site Preparation","Base","Supplemental Aggregate Base",g.areaSF,"SF","aggBase");
+    // soil export: the figure you gave, or one derived from the cut the topography implies
+    if(c.exportOn){
+      const cut=(R.topo[c.topo]||R.topo.flat).cut;
+      const cy=(c.exportCY!=null&&isFinite(+c.exportCY)&&+c.exportCY>0)
+        ? +c.exportCY : (g.areaSF*(+R.excavateFt||0.6)*cut/27);
+      add("Site Preparation","Earthwork","Soil Export",Math.round(cy*10)/10,"CY","exportCY",null,
+        {status:(c.exportCY!=null&&+c.exportCY>0)?"included":"allowance",
+         note:(c.exportCY!=null&&+c.exportCY>0)?"":"Derived from "+((+R.excavateFt||0.6))+"′ of cut over the pad on "+(R.topo[c.topo]||{}).label.toLowerCase()});
+    }
+  }
+  // ── 3 the structural base (§4, §35 never a new slab on a resurface) ────
+  if(B.rec && rebuilding) add("Structural Base","Base system",B.label+" Base",g.areaSF,"SF",B.rec);
+  if(resurfaceOnly && !act.rebuild){
+    const rc=(c.repairAllow!=null&&isFinite(+c.repairAllow))?+c.repairAllow:null;
+    if(rc!=null&&rc>0) add("Structural Base","Repair","Existing Base Repair",1,"LS",null,rc,{lab:0.8,override:true});
+    else if(c.baseCond!=="good") add("Structural Base","Repair","Existing Base Repair — "+(R.courtCond[c.baseCond]||{}).label,
+      g.areaSF,"SF","baseRepair",null,{status:"allowance"});
+  }
+  // ── 4 playing surface (§5) ─────────────────────────────────────────────
+  const S1=R.surf[c.surf]||R.surf.none;
+  if(S1.rec) add("Playing Surface","Surface",S1.label+" Surface",g.areaSF,"SF",S1.rec);
+  // colour and graphics (§6)
+  const col=R.colors[c.color]||R.colors.standard;
+  if(col.extra>0){ const sf=(c.colorSF!=null&&isFinite(+c.colorSF)&&+c.colorSF>0)?+c.colorSF:g.areaSF;
+    add("Playing Surface","Colour",col.label,sf*col.extra,"SF","colorAdd"); }
+  if(+c.logos>0) add("Playing Surface","Graphics","Custom Logo / Graphic",+c.logos,"EA","logo");
+  // ── 5 striping (§7) — one slab, one line per sport (§35) ───────────────
+  const sportsOn=[];
+  (function(){
+    const T=R.types[c.type]||{};
+    const prim=(R.sports[c.primary])?c.primary:((T.stripe&&T.stripe.length)?null:null);
+    const seen={};
+    if(prim&&R.sports[prim]){ sportsOn.push(prim); seen[prim]=1;
+      add("Striping","Primary",R.sports[prim].label+" Striping",1,"LS",R.sports[prim].rec); }
+    else (T.stripe||[]).forEach(rid=>{ if(seen["_"+rid]) return; seen["_"+rid]=1;
+      add("Striping","Primary",(cRec(rid)||{}).nm.replace(/ striping.*/i," Striping"),1,"LS",rid); });
+    (c.extraSports||[]).forEach(k=>{ const S2=R.sports[k]; if(!S2||seen[k]) return; seen[k]=1; sportsOn.push(k);
+      add("Striping","Additional",S2.label+" Overlay Striping",1,"LS",S2.rec||"stripeOverlay"); });
+  })();
+  // ── 6 fencing and gates (§8, §9, §35) ──────────────────────────────────
+  let fenceLF=0;
+  if(c.fenceOn){
+    const cov=R.fenceCover[c.fenceCover]||R.fenceCover.full;
+    fenceLF=(c.fenceCover==="custom"||cov.f==null)
+      ? Math.max(0,+c.fenceLF||0)
+      : g.perimeterLF*cov.f;
+    if(fenceLF>0){
+      const FT=R.fenceType[c.fenceType]||R.fenceType.galv;
+      const hid=(R.fenceH||{})[String(c.fenceH)]||"fence10";
+      const rid=FT.rec||hid;
+      const rate=cVal(rid)*((FT.rec||!FT.f)?1:FT.f);        // the coating multiplier, applied once
+      const hLbl=FT.rec?"":(c.fenceH+"′ ");
+      add("Fencing","Fence",hLbl+FT.label,Math.round(fenceLF*10)/10,"LF",rid,rate);
+    }
+    if(+c.gatesPed>0) add("Gates","Gate","Pedestrian Gate",+c.gatesPed,"EA","gatePed");
+    if(+c.gatesDbl>0) add("Gates","Gate","Double / Service Gate",+c.gatesDbl,"EA","gateDbl");
+  }
+  // ── 7 windscreen (§10) — LF of fence, never SF ─────────────────────────
+  if(c.wsOn){
+    const wsLF=(c.wsLF!=null&&isFinite(+c.wsLF)&&+c.wsLF>0)?+c.wsLF
+      :(fenceLF*((R.wsCover||{})[String(c.wsCover)]||1));
+    const W=R.ws[c.wsType]||R.ws.std;
+    add("Windscreen","Windscreen",W.label+" Windscreen"+(c.wsLF!=null&&+c.wsLF>0?"":" — "+c.wsCover+"% coverage"),
+      Math.round(wsLF*10)/10,"LF",W.rec);
+  }
+  // ── 8 drainage (§11) — the allowance OR the parts, never both (§35) ────
+  const anyDrainPart=(+c.drSubLF>0)||(+c.drChannelLF>0)||(+c.drBasins>0)||c.drStormTie||(+c.drCustom>0);
+  if(c.drPerimeter && !anyDrainPart)
+    add("Drainage","Perimeter","Perimeter Court Drainage",1,"LS","drPerimeter",null,{status:"allowance"});
+  if(+c.drSubLF>0)     add("Drainage","Subdrain","French Drain / Subdrain",+c.drSubLF,"LF","drSub");
+  if(+c.drChannelLF>0) add("Drainage","Channel","Channel Drain",+c.drChannelLF,"LF","drChannel");
+  if(+c.drBasins>0)    add("Drainage","Basin","Catch Basin",+c.drBasins,"EA","drBasin");
+  if(c.drStormTie)     add("Drainage","Tie-in","Storm Drain Tie-In",1,"LS","drStormTie",null,{status:"allowance"});
+  if(+c.drCustom>0)    add("Drainage","Allowance","Custom Drainage Allowance",1,"LS",null,+c.drCustom,{lab:0.75,override:true,status:"allowance"});
+  // ── 9 lighting (§12) — packaged OR detailed, never both (§35) ──────────
+  if(c.lightOn){
+    if(c.lightMode==="detail"){
+      if(+c.poles>0)    add("Court Lighting","Poles","Light Poles & Foundations",+c.poles,"EA","lightPole",null,{acc:1});
+      if(+c.fixtures>0) add("Court Lighting","Fixtures","LED Court Fixtures",+c.fixtures,"EA","lightFix");
+      if(+c.trenchLF>0) add("Court Lighting","Electrical","Trench, Conduit & Wire",+c.trenchLF,"LF","lightTrench",null,{acc:1});
+      if(c.lightCtrl)   add("Court Lighting","Controls","Switching, Timer & Controls",1,"LS","lightCtrl");
+    } else {
+      const q=(R.lightQ[c.lightQ]||R.lightQ.standard).pt;
+      const T=R.types[c.type]||{};
+      const rid=(c.lightPkg&&cRec(c.lightPkg))?c.lightPkg:(T.light||"lightSmall");
+      const rate=(c.lightCustom!=null&&isFinite(+c.lightCustom)&&+c.lightCustom>0)?+c.lightCustom:cVal(rid,q);
+      add("Court Lighting","Package","LED Court Lighting — "+(R.lightQ[c.lightQ]||{}).label,1,"LS",rid,rate,
+        {status:(c.lightCustom!=null&&+c.lightCustom>0)?"included":"allowance",
+         override:(c.lightCustom!=null&&+c.lightCustom>0)});
+    }
+    if(c.photometric) add("Court Lighting","Study","Photometric Study",1,"LS","photometric",null,{hard:true});
+  }
+  // ── 10 sport equipment (§13–§16) ───────────────────────────────────────
+  if(c.net&&+c.netQty>0) add("Sport Equipment","Net",(cRec(c.net)||{}).nm||"Net & Posts",+c.netQty,"EA",c.net);
+  if(c.backboard)   add("Sport Equipment","Tennis","Tennis Backboard",1,"EA","tnBackboard");
+  if(c.scorekeeper) add("Sport Equipment","Tennis","Scorekeeper",1,"EA","tnScore");
+  if(+c.hoops>0)    add("Sport Equipment","Basketball",(cRec(c.hoopType)||{}).nm||"Basketball Hoop",+c.hoops,"EA",c.hoopType);
+  Object.keys(c.equip||{}).forEach(k=>{ const q=+c.equip[k]||0; if(!(q>0)) return;
+    add("Sport Equipment","Multi-sport",(cRec(k)||{}).nm||k,q,(cRec(k)||{}).u||"EA",k); });
+  if(+c.customEquip>0) add("Sport Equipment","Allowance","Custom Equipment Allowance",1,"LS",null,+c.customEquip,{lab:0.3,override:true,status:"allowance"});
+  // ── 11 accessories (§17) ───────────────────────────────────────────────
+  Object.keys(c.acc||{}).forEach(k=>{ const q=+c.acc[k]||0; if(!(q>0)) return;
+    add("Accessories","Accessory",(cRec(k)||{}).nm||k,q,(cRec(k)||{}).u||"EA",k); });
+  if(+c.accNetLF>0) add("Accessories","Netting","Ball Containment Netting",+c.accNetLF,"LF","acNetting");
+  // ── 12 retaining, handed to the Wall Builder rather than guessed (§25) ─
+  if(c.retainingOn && +c.retainingAllow>0)
+    add("Site Preparation","Retaining","Retaining Wall Allowance",1,"LS",null,+c.retainingAllow,
+      {lab:0.6,override:true,status:"allowance",note:"Build it properly in the Wall Builder and replace this."});
+  // ── 13 professional and government (§18, §19) — never touched by access ─
+  const prof=[];
+  const padd=(grp,nm,id,custom,status)=>{ const v=(custom!=null&&isFinite(+custom)&&+custom>0)?+custom:cVal(id);
+    if(!(v>0)) return;
+    prof.push({g:grp, sub:"Soft cost", nm:"Sport Court — "+nm, qty:1, unit:"LS", rate:v, cost:v,
+      rec:id||null, tier:["Budget","Standard","Premium"][pt], mult:1,
+      status:status||"allowance", override:(custom!=null&&+custom>0), note:""}); };
+  if(c.softOn) Object.keys(c.eng||{}).forEach(k=>{ if(!c.eng[k]) return;
+    padd("Engineering",(cRec(k)||{}).nm||k,k,(c.engCustom||{})[k],"included"); });
+  if(c.permitOn) padd("Permits","Permit Allowance","permit",c.permitCustom,"allowance");
+  // ── totals ─────────────────────────────────────────────────────────────
+  const construction=lines.reduce((s,l)=>s+l.cost,0);
+  const professional=prof.reduce((s,l)=>s+l.cost,0);
+  const total=construction+professional;
+  const groups=(function(){ const m={}; lines.concat(prof).forEach(l=>{ m[l.g]=(m[l.g]||0)+l.cost; }); return m; })();
+  // §30 confidence
+  let conf="high";
+  if(c.access==="moderate"||c.topo==="mild"||c.soil==="unknown"||(c.exportOn&&!(+c.exportCY>0))) conf="med";
+  if(c.access==="difficult"||c.access==="veryDifficult"||c.topo==="moderate"||c.topo==="steep"
+     ||c.soil==="poor"||(c.existing==="court"&&c.baseCond==="failed")) conf="low";
+  const reasons=[];
+  if(c.soil==="unknown") reasons.push("soil conditions have not been confirmed");
+  if(c.topo!=="flat") reasons.push("the pad is not on flat ground");
+  if(c.access!=="easy") reasons.push("access is "+(R.access[c.access]||{}).label.toLowerCase());
+  if(c.exportOn&&!(+c.exportCY>0)) reasons.push("the export quantity is an allowance");
+  const pm=(R.band||CRT_RULE.band)[conf]||22;
+  return {court:c, geom:g, point:pt, tier:["Budget","Standard","Premium"][pt], access:acc,
+    lines:lines, prof:prof, construction:construction, professional:professional, total:total,
+    groups:groups, perSF:(g.areaSF>0?total/g.areaSF:0),
+    conf:conf, confWhy:reasons.join("; "), band:pm, low:total*(1-pm/100), high:total*(1+pm/100),
+    qa:courtQA(c,total), warnings:courtWarnings(c,g),
+    recommend:courtRecommend(c) };
+}
+// §31 reality check. It never overwrites the estimate — it only says the answer looks unusual.
+function courtQA(c,total){
+  const band=CRT_QA[c.type]||CRT_QA.custom; if(!band||!(total>0)) return null;
+  const lo=band[0], hi=band[1];
+  const inBand=(total>=lo&&total<=hi);
+  return {band:[lo,hi], total:total, inBand:inBand,
+    flag:!inBand,
+    note:inBand?"Inside the usual Southern California range for this court."
+      :(total<lo?"Below the usual range — review the site work and the scope you have selected."
+               :"Above the usual range — review the site work and the scope you have selected.")};
+}
+// §24 warnings inform; they never prevent an estimate.
+function courtWarnings(c,g){
+  const R=_cRule(), T=R.types[c.type]||{}, out=[];
+  if(T.minPadW&&T.minPadL&&(g.padW<T.minPadW||g.padL<T.minPadL))
+    out.push("Reduced run-off area — "+g.padW+"′ × "+g.padL+"′ against a usual "+T.minPadW+"′ × "+T.minPadL+"′. Verify the play clearances you want.");
+  if(c.base==="pt") out.push("Post-tensioned slab — structural design is typically required.");
+  if(c.lightOn) out.push("Court lighting — local light-spill, pole-height, electrical and neighbourhood requirements may apply.");
+  if(c.topo==="steep"||c.access==="veryDifficult") out.push("Hillside conditions — earthwork, retaining walls, drainage and access may materially affect the cost.");
+  if(c.existing==="court"&&c.action==="resurface"&&c.baseCond==="failed")
+    out.push("The existing court is recorded as failed but only a resurface is selected — full reconstruction may be more appropriate.");
+  if(c.soil==="poor") out.push("Poor or unstable subgrade — a geotechnical opinion will change the base design.");
+  if(c.retainingOn) out.push("Retaining walls are an allowance here — build them in the Wall Builder and replace it.");
+  out.push("This is a design estimate, not a contractor bid.");
+  return out;
+}
+// §18 which disciplines the selections point to, without requiring any of them.
+function courtRecommend(c){
+  const R=_cRule(), out=[];
+  if(c.base==="pt") out.push("engStruct");
+  if(c.topo==="moderate"||c.topo==="steep") { out.push("engCivil"); out.push("engGeo"); }
+  if(c.soil==="poor"||c.soil==="unknown") out.push("engGeo");
+  if(c.lightOn) out.push("engElec");
+  return [...new Set(out)];
+}
+// §37 A project can hold several courts; they are told apart by id, never by type.
+function courtsAll(){ if(!Array.isArray(S.courts)) S.courts=[]; return S.courts; }
+function courtsSubtotal(){ try{ return courtsAll().reduce((a,c)=>a+(courtCost(c).total||0),0); }catch(e){ return 0; } }
+function courtAdd(type){ const c=courtNew({type:type||"tennis"});
+  c.name=(_cRule().types[c.type]||{}).label+" "+(courtsAll().filter(x=>x.type===c.type).length+1);
+  courtsAll().push(c); try{ S.cats.amenities.on=true; }catch(e){}
+  try{ _bidSchedule(); }catch(e){} return c; }
+function courtById(id){ return courtsAll().find(c=>c.courtId===id)||null; }
+function courtDelete(id){ const a=courtsAll(); const i=a.findIndex(c=>c.courtId===id);
+  if(i>=0) a.splice(i,1); try{ _bidSchedule(); }catch(e){} }
+function courtDuplicate(id){ const c=courtById(id); if(!c) return null;
+  const d=JSON.parse(JSON.stringify(c)); d.courtId="c"+Math.random().toString(36).slice(2,9);
+  d.name=(c.name||"Court")+" copy";
+  courtsAll().push(d); try{ _bidSchedule(); }catch(e){} return d; }
+// A traced court polygon can carry its own court object, exactly as a traced wall does.
+function courtOf(p){
+  if(!p) return null;
+  if(p.court&&p.court.courtId){
+    // the trace measured the pad, so the pad follows the drawing unless it was typed over
+    if(!p.court._dimSet){ const sf=(function(){ try{ return _ptTraceNet(p); }catch(e){ return +p.sf||0; } })();
+      if(sf>0){ const r=(+p.court.padL||1)/(+p.court.padW||1);
+        const w=Math.sqrt(sf/r); p.court.padW=Math.round(w*10)/10; p.court.padL=Math.round(w*r*10)/10; } }
+    return p.court; }
+  return null;
+}
+function courtAttach(p,type){ if(!p) return null;
+  if(!p.court||!p.court.courtId){
+    const t=type||(/putting/i.test(p.type||"")?"custom":(/tennis/i.test(p.type||"")?"tennis"
+      :(/pickle/i.test(p.type||"")?"pickle":(/basket/i.test(p.type||"")?"bbHalf":"custom"))));
+    p.court=courtNew({type:t});
+    p.court.name=(p.name||"").trim()||(_cRule().types[t]||{}).label;
+    const sf=(function(){ try{ return _ptTraceNet(p); }catch(e){ return +p.sf||0; } })();
+    if(sf>0){ const r=(+p.court.padL||1)/(+p.court.padW||1);
+      const w=Math.sqrt(sf/r); p.court.padW=Math.round(w*10)/10; p.court.padL=Math.round(w*r*10)/10; }
+  }
+  return p.court; }
+function courtBreakdown(p){ const c=courtOf(p); if(!c) return null;
+  try{ return courtCost(c); }catch(e){ return null; } }
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
 const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
