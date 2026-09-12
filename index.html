@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1490</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1491</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -57976,12 +57976,14 @@ function _nlbIdx(listFn, i){ const L=listFn()||[]; if(!L.length) return -1;
 function _nlbOpts(arr, key){ return {values:(arr||[]).map((_,n)=>n),
   labels:(arr||[]).map(x=>String((key?x[key]:x)||"")) }; }
 nlbRegister({ id:"court", name:"Sport court",
+  blank:()=>{ try{ return courtNew({}); }catch(e){ return null; } },
   cur:()=>(typeof CB!=="undefined"&&CB.c)?CB.c:null,
   fields:()=>nlbCourtFields(),
   set:(f,v)=>{ if(f==="__name"){ CB.c.name=String(v); return; }
     if(f==="extraSports"){ const a=CB.c.extraSports||[]; if(a.indexOf(v)<0) a.push(v); CB.c.extraSports=a; return; }
     cbSet(f,v); } });
 nlbRegister({ id:"wall", name:"Wall",
+  blank:()=>{ try{ return wallNew({}); }catch(e){ return null; } },
   cur:()=>(typeof WB!=="undefined"&&WB.w)?WB.w:null,
   fields:()=>nlbWallFields(),
   set:(f,v)=>{ if(f==="__name") return; wbSet(f,v); } });
@@ -58170,6 +58172,160 @@ function nlbWallFields(){
         engMode:{values:["auto","on","off"]}, permit:{values:["auto","off"]}
       };
 }
+// §7 The property lines, as lengths the model can put a fence along. It never returns coordinates —
+// it says "rear, 75 feet" and the builder holds the geometry. When nothing is traced the fence is an
+// allowance, labelled as one, rather than a guess dressed up as a measurement.
+function fenceSiteLines(){
+  let fr=null; try{ fr=ptSiteFrame(); }catch(e){}
+  if(!fr||!fr.ok) return null;
+  const L=e=>e?Math.round(+e.lenFt||0):null;
+  const out={source:"the property lines traced on the plan",
+    front:L(fr.front), rear:L(fr.rear), left:L(fr.left), right:L(fr.right),
+    confidence:fr.conf, why:fr.why};
+  // §26 the front-yard setback is where a front-yard height limit stops applying
+  try{ const city=((S.pi&&S.pi.city)||"").toLowerCase().trim();
+    const sb=(typeof SETBACKS!=="undefined")?SETBACKS[city]:null;
+    if(sb&&sb.front!=null){ out.frontSetbackFt=+sb.front;
+      out.frontSetbackVerified=(sb.verified===true); } }catch(e){}
+  if(!(out.front||out.rear||out.left||out.right)) return null;
+  return out;
+}
+// §2A/§7/§34 the fence adapter. Segments, gates and driveway gates are structures rather than
+// scalars, because one sentence can legitimately create five runs at two heights — and a later
+// sentence must be able to change one of them without disturbing the rest.
+function nlbFenceFields(){
+  const R=_fRule(), keys=o=>Object.keys(o);
+  const segShape={
+    name:"a short name, e.g. Left side or Rear",
+    location:"one of: front, left, right, rear, pool, equipment, front yard, custom",
+    lf:"length in feet — leave it out when the plan can supply it",
+    h:"height in feet",
+    type:"a fence type id, only when this run differs from the fence",
+    transition:"none | step | rake | custom",
+    corners:"how many direction changes inside this run",
+    connect:"the name of the run it shares an end post with",
+    finish:"a finish id, only when this run differs from the fence",
+    finishedSide:"one | both",
+    demo:"wood | vinyl | chain | metal | glass | screen — what is being removed along this run",
+    wallTop:"true when it sits on top of an existing wall",
+    decompose:"true to price it by its components instead of its assembly"
+  };
+  return {
+    type:{values:keys(R.types), labels:keys(R.types).map(k=>R.types[k].label)},
+    h:{unit:"ft", note:"height for the whole fence; a segment can override it"},
+    finish:{values:keys(R.finishes), labels:keys(R.finishes).map(k=>R.finishes[k].label)},
+    finishedSide:{values:["one","both"], labels:["One side","Both sides"]},
+    access:{values:keys(R.access), labels:keys(R.access).map(k=>R.access[k].label)},
+    slope:{values:keys(R.slope), labels:keys(R.slope).map(k=>R.slope[k].label)},
+    wind:{values:["normal","high","coastal","fire"]},
+    posts:{values:["std","up6x6","steel"], labels:["Standard","6x6","Hidden steel"]},
+    goodNeighbour:{values:[true,false], note:"finished both sides, neighbour-facing side finished"},
+    hiddenFast:{values:[true,false], note:"concealed fasteners"},
+    framedPanel:{values:[true,false]}, decorTop:{values:[true,false], note:"lattice or decorative top"},
+    capRail:{values:[true,false]},
+    demo:{values:["none","wood","vinyl","chain","metal","glass","screen"], note:"what is being removed, for the whole fence"},
+    clearVeg:{values:[true,false]}, protect:{values:[true,false]},
+    poolBarrier:{values:[true,false], note:"true when this fence encloses a pool"},
+    frontYard:{values:[true,false]}, cornerLot:{values:[true,false]}, rightOfWay:{values:[true,false]},
+    survey:{values:[true,false]}, sitePlan:{values:[true,false]},
+    engStruct:{values:["auto",true,false]}, engGate:{values:[true,false]},
+    permitOn:{values:[true,false]}, hoaPkg:{values:[true,false]},
+    hoaMaxH:{unit:"ft", note:"a height limit the USER told you about — it is recorded as supplied, never as verified"},
+    codeMaxH:{unit:"ft", note:"a municipal height limit; it stays unverified until somebody checks the parcel"},
+    pilasters:{unit:"ea", note:"masonry pilasters only — a continuous masonry wall is the Wall Builder's job"},
+    pilasterType:{values:Object.keys(FNC.rec).filter(k=>FNC.rec[k].g==="Pilasters"&&FNC.rec[k].sub==="Pilaster"),
+      labels:Object.keys(FNC.rec).filter(k=>FNC.rec[k].g==="Pilasters"&&FNC.rec[k].sub==="Pilaster").map(k=>FNC.rec[k].nm)},
+    segments:{repeat:true, struct:segShape,
+      note:"one entry per run of fence. Send several to split a fence where the height, the material or the location changes. The FIRST entry replaces whatever runs are there; the rest are added."},
+    editSegment:{repeat:true, struct:Object.assign({match:"the name or location of the run to change"},segShape),
+      note:"change ONE existing run and leave everything else on it alone. Use this for a follow-up instruction about one part of the fence."},
+    gates:{repeat:true, struct:{segment:"the name of the run it goes in",
+      w:"clear opening in feet", mat:"wood | vinyl | metal | glass", double:"true for a double leaf",
+      selfClose:"true for self-closing and self-latching", lock:"true for a lockable latch",
+      strike:"true for a keypad and electric strike"},
+      note:"pedestrian gates. The opening comes out of the fence and its own posts go in."},
+    vehGates:{repeat:true, struct:{kind:"swing | slide | cantilever | bifold",
+      widthFt:"clear opening in feet", leaves:"1 or 2, swing only",
+      auto:"true if it is automated", operator:"an operator record id, or leave it out",
+      fab:"a fabrication record id, or leave it out to pick from the width",
+      access:"a list of access-control record ids",
+      elecLF:"feet of trench and conduit from the power source",
+      trackLF:"feet of track, sliding gates only", lumpSum:"a fabrication quote in dollars"},
+      note:"driveway gates. Fabrication, the operator, each access control and the electrical run are all separate."},
+    __show:{values:["assumptions","calculation","compliance","specification","compare"],
+      note:"open one part of the builder, for a request that asks to see something rather than change it"}
+  };
+}
+// The fence's own setter, reached by every path. Structures are unpacked here so that a segment a
+// sentence created is indistinguishable from one made by tapping + segment.
+function nlbFenceSet(field,v){
+  const f=FB.f; if(!f) return;
+  if(field==="__name"){ f.name=String(v||""); return; }
+  if(field==="__show"){ const m={assumptions:"assume",calculation:"calc",compliance:"comply",
+      specification:"spec",compare:null}[String(v)];
+    if(m){ FB.secs[m]=1; } else if(String(v)==="compare"){ setTimeout(()=>{ try{ fbCompareAsk(); }catch(e){} },60); }
+    return; }
+  if(field==="segments"){
+    const o=v||{};
+    if(!NLB._segReset){ f.segments=[]; NLB._segReset=true; }      // the first one replaces
+    const sg=fenceSegNew({});
+    ["name","location","type","transition","connect","finish","finishedSide","demo"].forEach(k=>{ if(o[k]!=null&&o[k]!=="") sg[k]=String(o[k]); });
+    ["lf","h","corners"].forEach(k=>{ if(o[k]!=null&&isFinite(+o[k])) sg[k]=+o[k]; });
+    if(o.lf!=null&&isFinite(+o.lf)) sg.lfProv="user";
+    if(o.wallTop!=null) sg.wallTop=!!o.wallTop;
+    if(o.decompose!=null) sg.decompose=!!o.decompose;
+    f.segments.push(sg);
+    return;
+  }
+  if(field==="editSegment"){
+    const o=v||{}, m=String(o.match||"").toLowerCase().trim();
+    const hit=(f.segments||[]).find(s=>m&&((String(s.name||"").toLowerCase().indexOf(m)>=0)
+      ||(String(s.location||"").toLowerCase().indexOf(m)>=0)));
+    if(!hit) throw new Error("no run called “"+(o.match||"")+"”");
+    // §39 a manual override is not quietly wiped by a later instruction
+    const kept=[];
+    Object.keys(o).forEach(k=>{ if(k==="match") return;
+      if(o[k]==null||o[k]==="") return;
+      if((k==="lf"&&hit.rateOv!=null)||(k==="type"&&hit.lumpSum!=null)){ kept.push(k); return; }
+      if(/^(lf|h|corners)$/.test(k)){ if(isFinite(+o[k])) hit[k]=+o[k]; if(k==="lf") hit.lfProv="user"; }
+      else if(/^(wallTop|decompose)$/.test(k)) hit[k]=!!o[k];
+      else hit[k]=String(o[k]); });
+    if(kept.length) throw new Error("left "+kept.join(" and ")+" alone on “"+hit.name+"” because you had set a rate or a quote on it by hand");
+    return;
+  }
+  if(field==="gates"){
+    const o=v||{}, m=String(o.segment||"").toLowerCase().trim();
+    const hit=(m?(f.segments||[]).find(s=>(String(s.name||"").toLowerCase().indexOf(m)>=0)
+      ||(String(s.location||"").toLowerCase().indexOf(m)>=0)):null)||(f.segments||[])[0];
+    if(!hit) throw new Error("there is no run to put a gate in");
+    const g={w:(o.w!=null&&isFinite(+o.w))?+o.w:4};
+    ["mat"].forEach(k=>{ if(o[k]) g[k]=String(o[k]); });
+    ["double","selfClose","lock","strike"].forEach(k=>{ if(o[k]!=null) g[k]=!!o[k]; });
+    if(f.poolBarrier) g.selfClose=true;
+    hit.gates=(hit.gates||[]).concat([g]);
+    return;
+  }
+  if(field==="vehGates"){
+    const o=v||{}, g={kind:String(o.kind||"swing")};
+    ["widthFt","leaves","elecLF","trackLF","restoreLF","lumpSum"].forEach(k=>{ if(o[k]!=null&&isFinite(+o[k])) g[k]=+o[k]; });
+    ["auto","demo","demoOperator"].forEach(k=>{ if(o[k]!=null) g[k]=!!o[k]; });
+    ["operator","fab"].forEach(k=>{ if(o[k]&&fRec(o[k])) g[k]=String(o[k]); });
+    if(Array.isArray(o.access)) g.access=o.access.filter(k=>fRec(k));
+    if(!NLB._vehReset){ f.vehGates=[]; NLB._vehReset=true; }
+    f.vehGates=(f.vehGates||[]).concat([g]);
+    return;
+  }
+  fbSet(field,v);
+}
+nlbRegister({ id:"fence", name:"Fence, gate or screen",
+  blank:()=>{ try{ return fenceNew({}); }catch(e){ return null; } },
+  cur:()=>(typeof FB!=="undefined"&&FB.f)?FB.f:null,
+  fields:()=>nlbFenceFields(),
+  space:()=>fenceSiteLines(),
+  before:()=>{ NLB._segReset=false; NLB._vehReset=false; },
+  set:(f,v)=>nlbFenceSet(f,v),
+  refresh:()=>{ try{ fbRender(); }catch(e){} } });
+
 // Any registered builder, described from its own definition.
 function nlbSchema(kind){ const B=nlbBuilder(kind); if(!B) return null;
   let f={}; try{ f=B.fields()||{}; }catch(e){ f={}; }
@@ -58188,6 +58344,25 @@ function nlbSpace(){
           widthFT:bb.w, lengthFT:bb.l, name:(p.name||"").trim()||null}; } }
   }catch(e){}
   return null;
+}
+// A space can be an area to fit inside, or a set of property lines to run along. The bar says which
+// it has, because "sized to fit 4,200 SF" would be nonsense on a fence.
+function _nlbSpaceHint(sp){
+  if(!sp) return "";
+  if(sp.areaSF!=null) return "it will be sized to fit "+Number(sp.areaSF).toLocaleString()+" SF";
+  const L=["front","rear","left","right"].filter(k=>sp[k]>0);
+  return L.length?("lengths come off the "+L.join(", ")+" property "+(L.length===1?"line":"lines")):"";
+}
+function _nlbSpaceNote(sp){
+  if(!sp) return "";
+  if(sp.areaSF!=null) return "Sizing against "+(sp.name||sp.source)+" — "
+    +Number(sp.areaSF).toLocaleString()+" SF, about "+sp.widthFT+"′ × "+sp.lengthFT+"′.";
+  const parts=["front","rear","left","right"].filter(k=>sp[k]>0).map(k=>k+" "+sp[k]+"′");
+  let t="From "+(sp.source||"the plan")+" — "+parts.join(", ")+".";
+  if(sp.confidence&&sp.confidence!=="high") t+=" Which line is which is "+sp.confidence+" confidence.";
+  if(sp.frontSetbackFt!=null) t+=" Front setback "+sp.frontSetbackFt+"′"
+    +(sp.frontSetbackVerified?"":", not verified for this parcel")+".";
+  return t;
 }
 function _nlbErr(m){ NLB.busy=false; NLB.last={ok:false, error:m};
   try{ _toast(m,"#B23F3C"); }catch(e){} return NLB.last; }
@@ -58222,13 +58397,15 @@ function nlbMicUI(kind,on){ const b=document.getElementById("nlbmic-"+kind);
 function nlbBar(kind, opts){
   opts=opts||{};
   const B=nlbBuilder(kind); if(!B) return "";
-  const sp=(opts.space!==false)?nlbSpace():null;
+  const sp=(opts.space!==false)?(function(){
+    if(typeof B.space==="function"){ try{ const x=B.space(); if(x) return x; }catch(e){} }
+    return nlbSpace(); })():null;
   const st=NLB.by&&NLB.by[kind];
   const ph=opts.placeholder||("Describe the "+B.name.toLowerCase()+" you want");
   return '<div class="nlb'+(opts.flat?" flat":"")+'">'
     +'<div class="nlb-row">'
     +'<input id="nlb-'+kind+'" placeholder="'+escAttr(sp&&opts.space!==false
-        ? (ph+" — it will be sized to fit "+sp.areaSF.toLocaleString()+" SF") : ph)+'" '
+        ? (ph+" — "+_nlbSpaceHint(sp)) : ph)+'" '
     +'onkeydown="if(event.key===\'Enter\')nlbAsk(\''+kind+'\')">'
     +(nlbSpeechOK()?('<button class="nlb-mic" id="nlbmic-'+kind+'" title="Say it out loud" onclick="nlbMic(\''+kind+'\')">'
       +'<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>'):'')
@@ -58236,8 +58413,7 @@ function nlbBar(kind, opts){
     +((nlbCanTrace(kind)&&opts.trace!==false)?('<button class="nlb-mic" title="Place it on the plan" onclick="nlbToTrace(\''+kind+'\')">'
       +'<svg viewBox="0 0 24 24"><path d="M5 19 19 5M12 5h7v7"/></svg></button>'):'')
     +'</div>'
-    +((sp&&opts.space!==false)?'<div class="nlb-note">Sizing against '+escAttr(sp.name||sp.source)+' \u2014 '
-       +sp.areaSF.toLocaleString()+' SF, about '+sp.widthFT+'\u2032 \u00d7 '+sp.lengthFT+'\u2032.</div>':'')
+    +((sp&&opts.space!==false)?'<div class="nlb-note">'+escAttr(_nlbSpaceNote(sp))+'</div>':'')
     +(st?('<div class="nlb-note">'
        +(st.ok?('<b style="color:var(--gm)">'+st.applied.length+' applied</b>'+(st.why?' \u00b7 '+escAttr(st.why):'')
            +'<div style="opacity:.85;padding-top:2px">'+st.applied.map(a=>escAttr(a.field+" = "+a.value)).join(" \u00b7 ")+'</div>')
@@ -58277,10 +58453,15 @@ function nlbAudit(){
     const B=NLB_REG[k]; const bad=[], missing=[];
     let obj=null; try{ obj=B.cur?B.cur():null; }catch(e){}
     if(!obj&&B.make){ try{ B.make(); obj=B.cur(); }catch(e){} }
+    // A panel builder has no instance until it is open, which is exactly when nobody is auditing.
+    // A throwaway one is enough to check field names against, and it reaches no estimate.
+    if(!obj&&B.blank){ try{ obj=B.blank(); }catch(e){} }
     if(!obj){ out[k]={skipped:"no instance to check against"}; return; }
     let f={}; try{ f=B.fields()||{}; }catch(e){}
     Object.keys(f).forEach(name=>{
-      if(name==="__name") return;
+      if(name==="__name"||name.indexOf("__")===0) return;
+      // a structured field is a shape, not a property — it is checked by its own setter
+      if(f[name]&&f[name].struct) return;
       const path=name.split(".");
       let o=obj, ok=true;
       for(let i=0;i<path.length-1;i++){
@@ -58383,7 +58564,15 @@ async function nlbRun(kind, text, apply){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep) return _nlbErr("No worker connected — natural language needs the AI proxy.");
   const schema=nlbSchema(kind); if(!schema) return _nlbErr("No schema for that builder.");
-  const space=nlbSpace();
+  // A builder that knows something about its own space says so itself; the rest fall back to
+  // whatever is selected on the plan.
+  const B0=nlbBuilder(kind);
+  let space=null;
+  if(B0&&typeof B0.space==="function"){ try{ space=B0.space(); }catch(e){} }
+  if(space==null) space=nlbSpace();
+  // §7 some builders accumulate — the first segment of a run replaces, the rest append — so they
+  // get a chance to clear that state before a fresh instruction.
+  if(B0&&typeof B0.before==="function"){ try{ B0.before(); }catch(e){} }
   NLB.busy=true;
   const sys="You translate a designer's request into settings for a construction cost builder.\n"
     +"Return ONLY a JSON object: {\"patch\":[{\"field\":\"...\",\"value\":...}],\"name\":\"...\",\"unmapped\":[\"...\"],\"why\":\"one short sentence\"}\n"
@@ -58392,6 +58581,11 @@ async function nlbRun(kind, text, apply){
     +"- Never output a price, a cost, a total or a rate. The builder prices it.\n"
     +"- Only set what the request actually asks for. Leave everything else out so the builder's own defaults stand.\n"
     +"- For extraSports send one patch entry per sport.\n"
+    +"- A field marked repeat takes one patch entry per item; send several entries with the same field name.\n"
+    +"- A field with a struct takes an OBJECT as its value, with only the struct's own keys, and only the ones the request actually settles. Leave the rest out.\n"
+    +"- When SPACE AVAILABLE gives a length for a property line, use it rather than inventing one. When it does not, leave the length out and say in unmapped that it is unresolved.\n"
+    +"- A requirement the user merely told you about is still only what they told you. Never set a field in a way that implies it was verified.\n"
+    +"- For a follow-up that changes one part of something, use the field meant for editing one item, not the one that creates them.\n"
     +"- If a size must fit a given space, choose a pad that fits inside it and say so in why.\n"
     +"- Anything you cannot express with these fields goes in unmapped, never guessed at.";
   const user="SCHEMA:\n"+JSON.stringify(schema)
@@ -58415,6 +58609,15 @@ async function nlbRun(kind, text, apply){
     const f=step&&step.field; if(!f||!F[f]){ refused.push(String(f)+" — not a field this builder has"); return; }
     let v=step.value;
     const spec=F[f];
+    // a structured field takes an object, and only the keys its own shape declares
+    if(spec.struct){
+      if(!v||typeof v!=="object"||Array.isArray(v)){ refused.push(f+" \u2014 needs an object, not "+JSON.stringify(v)); return; }
+      const bad=Object.keys(v).filter(k=>!(k in spec.struct));
+      if(bad.length){ bad.forEach(k=>{ delete v[k]; }); refused.push(f+" \u2014 ignored "+bad.join(", ")+", not part of it"); }
+      try{ apply(f,v); applied.push({field:f, value:v}); }
+      catch(e){ refused.push(f+" \u2014 "+(e&&e.message||e)); }
+      return;
+    }
     if(spec.values&&spec.values.length&&!spec.repeat){
       let ok=spec.values.some(x=>String(x)===String(v));
       // an index field is chosen by label — the model should never guess what "3" means
