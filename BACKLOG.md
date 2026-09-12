@@ -86,8 +86,8 @@ Eventually worth more than any national cost data.
 - Decide whether to repair "Project Sample 1" (`bid_mt9her0rfie5`).
 - Verify exports (client PDF, plant report, proposal) against DEMO data.
 - Confirm the mood board renders its ten sections.
-- `builderTotalFor` is referenced at index.html:8306 and defined nowhere.
-- `projDigest()` stamps `totalIsExact:true` on a total that carries no market adjustment or markup.
+- ~~`builderTotalFor` referenced and never defined~~ — fixed v1476.
+- ~~`projDigest()` stamped `totalIsExact` on a subtotal~~ — fixed v1476.
 
 ---
 
