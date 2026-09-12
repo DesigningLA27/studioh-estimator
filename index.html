@@ -5918,6 +5918,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .pt-tray .tr-acts button.go:hover{background:#3C7A2C}
 @media(max-width:760px){ .pt-tray{left:8px;right:8px;width:auto;bottom:8px} }
 /* ── Setbacks by item ─────────────────────────────────────────────────── */
+.bidsay{font-size:12px;line-height:1.55;border-radius:10px;padding:8px 10px;margin-top:8px;
+  background:var(--brl);color:var(--tm)}
+.bidsay.go{background:var(--brand-soft,#EAF1E5);color:var(--gm);font-weight:650}
 .sb-items{margin-top:.45rem;border-top:1px solid var(--br);padding-top:.35rem}
 .sb-row i{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
   margin-left:5px;padding:1px 5px;border-radius:5px;background:var(--brl);color:var(--tl);vertical-align:1px}
@@ -7438,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1477</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1478</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -45331,7 +45334,7 @@ function _renderPriceBook_inner(){
   _groups.forEach(({g,idxs})=>{ idxs.forEach(ci=>_flat.push({g, ci, id:PB[ci].id})); });
   if(!_flat.length){ return; }
   let _sel=pbSel();
-  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && _sel!=="__conc" && _sel!=="__wall" && _sel!=="__court" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
+  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && _sel!=="__conc" && _sel!=="__wall" && _sel!=="__court" && _sel!=="__bids" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
   let _th="";
   _groups.forEach(({g,idxs})=>{
     if(!idxs.length) return;
@@ -45360,7 +45363,9 @@ function _renderPriceBook_inner(){
     <button class="pbz-t feed${_sel==="__wall"?" on":""}" onclick="pbSelSet('__wall')">
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Walls</span><span class="n">${WALL_PANES.length}</span></button>
     <button class="pbz-t feed${_sel==="__court"?" on":""}" onclick="pbSelSet('__court')">
-      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Sport Courts</span><span class="n">${COURT_PANES.length}</span></button>`;
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Sport Courts</span><span class="n">${COURT_PANES.length}</span></button>
+    <button class="pbz-t feed${_sel==="__bids"?" on":""}" onclick="pbSelSet('__bids')">
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Bids vs estimates</span><span class="n">${(typeof BIDLOG!=="undefined")?BIDLOG.length:0}</span></button>`;
   _tree.innerHTML=_th;
   // a long list scrolls, so keep the current section where it can be seen
   const _on=_tree.querySelector(".pbz-t.on");
@@ -45375,6 +45380,8 @@ function _renderPriceBook_inner(){
     _renderWall3(_main);
   } else if(_sel==="__court"){
     _renderCourt3(_main);
+  } else if(_sel==="__bids"){
+    _renderBids3(_main);
   } else if(_sel==="__assume"){
     _renderAssume3(_main);
   } else if(_sel==="__rates"){
@@ -57467,6 +57474,68 @@ function bidLogAdd(kind, obj, o){
   rec.gap=(rec.estimate>0)?Math.round((rec.bid-rec.estimate)/rec.estimate*1000)/10:null;
   BIDLOG.push(rec); bidLogSave();
   return rec;
+}
+// The page. A row per bid, grouped by what it was, and what the group is telling us — which for
+// fewer than three bids, or three that disagree, is deliberately nothing.
+function _renderBids3(_mount){
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const rv=bidLogReview();
+  const money=v=>fmtN(Math.round(v||0));
+  let list='<div class="pb3-sec">By what it was</div>';
+  if(!rv.groups.length) list+='<div style="padding:10px 12px;font-size:12px;color:var(--tl);line-height:1.55">'
+    +'Nothing logged yet. Open a wall or a court you have had priced and use the <b>$</b> button in its header.</div>';
+  const sel=Math.max(0,Math.min(pb3Sel("__bids"), Math.max(0,rv.groups.length-1)));
+  rv.groups.forEach((g,i)=>{
+    list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__bids\','+i+')">'
+      +'<span class="cv"></span><span class="nm">'+esc(g.key.replace(":"," \u00b7 "))+'</span>'
+      +'<span class="u">'+g.n+'</span>'
+      +'<span class="v" style="color:'+(g.agree?"var(--gm)":"var(--tl)")+'">'
+      +(g.median>0?"+":"")+g.median+'%</span></button>';
+  });
+  let ins='';
+  const G=rv.groups[sel];
+  if(!G){
+    ins='<div class="pb3-nm" style="cursor:default">Bids against estimates</div>'
+      +'<div class="t">the only calibration this book will ever get</div>'
+      +'<div style="font-size:11.5px;color:var(--tl);line-height:1.6;margin-top:8px">'
+      +'Every bid is kept with the job that produced it \u2014 the geometry, the system, the finish, '
+      +'the access, the price point and the city \u2014 because without those a gap is a mystery. '
+      +'Nothing here moves a price on its own.</div>';
+  } else {
+    const rows=BIDLOG.filter(b=>{
+      const k=b.kind+(b.kind==="section"?(":"+b.section):(b.kind==="wall"?(":"+(b.sys||"")):(b.kind==="court"?(":"+(b.type||"")):"")));
+      return k===G.key; }).sort((a,b)=>(a.at<b.at?1:-1));
+    ins='<div class="pb3-nm" style="cursor:default">'+esc(G.key.replace(":"," \u00b7 "))+'</div>'
+      +'<div class="t">'+G.n+' bid'+(G.n===1?"":"s")+'</div>'
+      +'<div class="bidsay'+(G.agree?" go":"")+'">'+esc(G.says)+'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 88px 88px 62px 26px;gap:6px;align-items:center;font:700 9px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);padding:8px 0 3px">'
+      +'<span>Contractor</span><span style="text-align:right">Estimated</span><span style="text-align:right">Bid</span><span style="text-align:right">Gap</span><span></span></div>';
+    rows.forEach(b=>{
+      const facts=[b.lf?(b.lf+" LF"):null, b.h?(b.h+"\u2032"):null, b.areaSF?(_tkFmt(b.areaSF)+" SF"):null,
+        b.base||b.sys||null, b.finishA||b.surf||null, b.access||null, b.point||null, b.city||null]
+        .filter(Boolean).join(" \u00b7 ");
+      ins+='<div style="display:grid;grid-template-columns:1fr 88px 88px 62px 26px;gap:6px;align-items:center;padding:5px 0;border-top:1px solid var(--br,#EFEDE6)">'
+        +'<span style="min-width:0"><b style="display:block;font-size:12px;font-weight:650">'+esc(b.contractor||"\u2014")+'</b>'
+        +'<span style="font-size:9.5px;color:var(--tl)">'+esc(b.at+(facts?(" \u00b7 "+facts):""))+'</span></span>'
+        +'<span style="text-align:right;font-size:12px;font-variant-numeric:tabular-nums">'+money(b.estimate)+'</span>'
+        +'<span style="text-align:right;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums">'+money(b.bid)+'</span>'
+        +'<span style="text-align:right;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;color:'
+        +(Math.abs(b.gap)>20?"var(--gold,#8A6D1F)":"var(--tm)")+'">'+(b.gap>0?"+":"")+b.gap+'%</span>'
+        +'<button style="border:0;background:none;color:var(--tl);cursor:pointer;font-size:13px" title="Remove"'
+        +' onclick="bidLogDrop(\''+b.id+'\');renderPriceBook()">\u00d7</button></div>';
+    });
+    ins+='<div style="font-size:10.5px;color:var(--tl);line-height:1.55;margin-top:10px">'
+      +(G.agree
+        ? 'Consistent enough to act on. Moving a price is still a decision \u2014 open the record this is about and change it there, so the change is one you made.'
+        : 'Not consistent enough to act on. Log more, or look at what is different about the jobs that came in high.')
+      +'</div>';
+  }
+  const card=document.createElement("div");
+  card.className="pbx-card pb3";
+  const head='<div class="pb3-lh"><span class="cr">Feeds every section <i>\u203a</i> <b>Bids</b></span>'
+    +'<span class="mt">'+rv.n+' logged</span></div>';
+  card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__bids">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+  _mount.appendChild(card);
 }
 function bidLogDrop(id){ const i=BIDLOG.findIndex(b=>b.id===id); if(i>=0){ BIDLOG.splice(i,1); bidLogSave(); } }
 // What the log is telling us. Grouped by what it was, because a wall bidding 20% over says

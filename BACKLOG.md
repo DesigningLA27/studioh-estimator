@@ -65,9 +65,11 @@ Natural Stone $58, Porcelain $48, Permeable $39, Concrete Pavers $33, Brick $31,
 DG $7. Flat book rates, never checked against the concrete engine's calibration. **Warwick's numbers
 needed — do not guess.**
 
-### 8 · `pav.stamped` finish disagreement
-The assembly builds its finish to ~$5.86/SF; the concrete spec §4 says $12.00 (stamped $9 + integral
-colour $3). The engine wins on price, but the assembly card still shows its own figure.
+### 8 · ~~`pav.stamped` finish disagreement~~ — there wasn't one
+Checked properly in v1478. The note compared the assembly's finish **material** ($2.10) against the
+engine's finish **adder** ($12.00), which are not the same thing — the assembly's stamping is mostly
+labour. Built up in full: the assembly installs at **$21.84/SF** and the concrete engine at
+**$22.21/SF** on the same 600 SF slab. They agree to 1.7%. Nothing to fix.
 
 ### 9 · Wall Builder §68 — height zones inside one drawn run
 Separate wall runs price separately, and stepped/sloped zones work. Splitting **one polyline** into
@@ -81,12 +83,11 @@ simply be too narrow for a court with fencing and lighting. **Warwick to confirm
 v1477 built the store: every bid keeps what was estimated, what was bid, and the geometry, system,
 finish, access, price point and city that would explain the gap. bidLogReview() groups them and
 refuses to draw a conclusion from fewer than three, or from three that disagree.
+v1478 added the page — Price Book › Bids vs estimates.
 Still open:
-- **No screen shows it.** The log is written from the builders and read only from the console.
-  It wants a page in the Price Book — a row per group, the gap, and a button that moves the
-  record it is talking about.
-- **Nothing moves a price yet, by design.** When a group agrees, applying it should be one
-  deliberate click with the before and after shown, never automatic.
+- **Applying a finding is still manual.** When a group agrees, the page says so and you go and
+  change the record yourself. A one-click apply with the before and after shown would be better,
+  as long as it stays a deliberate act.
 
 ### 13 · Older open items
 - Decide whether to repair "Project Sample 1" (`bid_mt9her0rfie5`).
