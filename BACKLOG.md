@@ -56,12 +56,9 @@ When the Fence & Gates builder is built, the Sport Court Builder's own fencing, 
 records must hand off to it rather than keeping a second set of prices that will drift.
 Same pattern as §25's retaining hand-off. **Write the seam into the spec up front.**
 
-### 6 · Concrete engine §19 — the Advanced split
-§20 done in v1479: the pad count is read off the trace, so separated pours stop getting the bulk
-discount of a single big one.
-Still open: **§19 wanted a simple UI with an Advanced section.** The per-zone concrete controls in
-Properties show every option at once — thickness, strength, reinforcement, finish, colour,
-scoring — where the wall and court builders split Simple from Advanced. Same treatment wanted.
+### 6 · ~~Concrete engine §19 and §20~~ — both built
+§20 in v1479 (pad count read off the trace), §19 in v1480 (Simple shows finish, colour and
+scoring; Advanced opens thickness, strength, reinforcement, joint grid, base, shape and access).
 
 ### 7 · Paving book rates still unreviewed
 Natural Stone $58, Porcelain $48, Permeable $39, Concrete Pavers $33, Brick $31, Pebble $30,
