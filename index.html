@@ -5935,6 +5935,14 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .sb-row i.sb-hoa{background:#EDF0F5;color:#4A5A72}
 .sb-row b.sb-est{color:var(--gold,#8A6D1F)}
 .sb-row b.sb-none{color:var(--tl);font-weight:600}
+/* Where a setback figure came from, said the same way everywhere it appears. An estimated one is
+   red on purpose: it is not the city's code and must never read like it. */
+i.sb-bas{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  margin-left:5px;padding:1px 5px;border-radius:5px;vertical-align:1px;white-space:nowrap}
+i.sb-bas-code{background:#E7F3E2;color:#2F7A3C}
+i.sb-bas-hoa{background:#EDF0F5;color:#4A5A72}
+i.sb-bas-onFile{background:#FBF3E3;color:#8A6D1F}
+i.sb-bas-pattern{background:#FBE9E8;color:#B23F3C}
 .pinfo-note.sb-warn{color:#8A6D1F;background:#FBF3E3;border:1px solid #E8D9B4;border-radius:9px;padding:6px 9px}
 .sb-look{display:flex;gap:6px;align-items:center;margin-top:.4rem}
 .sb-look input{flex:1;min-width:0;box-sizing:border-box;border:1px solid var(--br);border-radius:8px;
@@ -7449,7 +7457,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1503</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1504</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27712,11 +27720,25 @@ function _renderPInfoCards(){ const host=document.getElementById("pinfo-refcards
       return `<div class="li-kv sb-row" title="${escAttr(tip)}"><span>${escAttr(r.label)}`
         +(r.inherited?`<i class="sb-inh">inherited</i>`:``)
         +(hoa?`<i class="sb-hoa">HOA</i>`:``)
-        +`</span><b class="${g.verified?"":"sb-est"}">${g.ft} ft${g.verified?"":" \u2022"}</b></div>`;
+        +`</span><b class="${(g.basis==="code"||g.source==="hoa")?"":"sb-est"}">${g.ft} ft</b>${sbBadge(g)}</div>`;
     }).join("");
     return edge+`<div class="sb-items">${rows}</div>`
       +(sb.note?`<div class="pinfo-note">${escAttr(sb.note)}</div>`:"")
-      +(sb.verified===false?`<div class="pinfo-note sb-warn">These are not ${escAttr(cityName)}'s code. They are the pattern most Southern California cities use — 20 ft front, 5 ft side, 15 ft rear, 5 ft to a pool — carried so the plan has something to place against. ${sbEstimatedCount()} of the ${sbCityCount()} cities on file are still like this. Read the real figures off the city and they replace these for good: <b class="rtap" onclick="sbOpenCode()">open ${escAttr(cityName)}'s code \u2192</b></div>`:"")
+      +(function(){
+        // §Every surface. A figure with no code section behind it is never allowed to read like
+        // the city's code — and "on file" and "estimated" are different things, so they say
+        // different things.
+        const cited=Object.keys(sb.src||{}).filter(k=>(sb.src[k]||{}).cite).length;
+        if(cited) return "";
+        const onFile=(sb.verified===true);
+        const body=onFile
+          ? ("These figures are on file for "+escAttr(cityName)+" but no code section is recorded behind any of them. They are plausible, not confirmed \u2014 read them off the code and they carry their section from then on.")
+          : ("These are not "+escAttr(cityName)+"\u2019s code. They are the pattern most Southern California cities use \u2014 20\u2032 front, 5\u2032 side, 15\u2032 rear, 5\u2032 to a pool \u2014 carried so the plan has something to place against. "
+             +sbEstimatedCount()+" of the "+sbCityCount()+" cities on file are still like this.");
+        return '<div class="pinfo-note sb-warn">'+body
+          +' <b class="rtap" onclick="sbOpenCode()">open '+escAttr(cityName)+'\u2019s code \u2192</b>'
+          +' <b class="rtap" onclick="sbGoBook()">the setback book \u2192</b></div>';
+      })()
       +(sb.cite||sb.url?`<div class="pinfo-note">Source: ${sb.url?`<a href="${escAttr(sb.url)}" target="_blank" rel="noopener">${escAttr(sb.cite||sb.url)}</a>`:escAttr(sb.cite)}${sb.checked?` \u00b7 checked ${escAttr(sb.checked)}`:""}</div>`:"")
       +`<div class="pinfo-note">${_sbLookRow(cityRaw)}</div>`
       +`<div class="pinfo-note" style="margin-top:.55rem">These are the figures the plan places
@@ -49886,10 +49908,50 @@ function sbFor(city, item){
   }
   if(rec[k]==null) return null;
   const s=src[k]||src._city||null;
+  const cite=(s&&s.cite)||rec.cite||null, url=(s&&s.url)||rec.url||null;
+  // ONE definition of where a figure came from, and every surface reads it from here.
+  //   code    — read off the city's own code, with the section on record
+  //   onFile  — somebody entered it for this city; plausible, but no section behind it
+  //   pattern — the regional default. A guess, carried so the plan has something to place against.
+  // "verified:true" on a record used to be enough to call a figure the city's code, which is how
+  // fourteen cities with no citation at all were presenting as read from it.
+  const basis=cite?"code":((rec.verified===true)?"onFile":"pattern");
   return { ft:+rec[k], item:item, label:(def?def.nm:item), usedKey:k, inherited:(k!==item)?k:null,
-    verified:!!(s?s.verified:rec.verified),
-    cite:(s&&s.cite)||rec.cite||null, url:(s&&s.url)||rec.url||null,
+    basis:basis, verified:(basis==="code"),
+    cite:cite, url:url,
     checked:(s&&s.checked)||rec.checked||null, note:rec.note||null };
+}
+// How a figure should be described, wherever it appears. Short label, long sentence, and the
+// colour that goes with it — so no surface has to decide for itself what "verified" means.
+const SB_BASIS={
+  code:   {k:"code",   short:"code",      nm:"Read from the code",
+           col:"#2F7A3C", why:"read off the city's own code, with the section on record"},
+  hoa:    {k:"hoa",    short:"HOA",       nm:"From the HOA document",
+           col:"#2F7A3C", why:"taken from the association's own document"},
+  onFile: {k:"onFile", short:"on file",   nm:"On file, no section recorded",
+           col:"#8A6D1F", why:"entered for this city, but with no code section behind it"},
+  pattern:{k:"pattern",short:"estimated", nm:"Estimated \u2014 not this city's code",
+           col:"#B23F3C", why:"the regional pattern most Southern California cities use, carried so the plan has something to place against"}
+};
+function sbBasisOf(g){
+  if(!g) return SB_BASIS.pattern;
+  if(g.source==="hoa") return SB_BASIS.hoa;
+  return SB_BASIS[g.basis]||((g.verified===true)?SB_BASIS.code:SB_BASIS.pattern);
+}
+// The badge. Small, always present, never silent — an estimated figure must never read like a fact.
+function sbBadge(g,o){
+  o=o||{}; const B=sbBasisOf(g);
+  const t=(B.k==="code"&&g&&g.cite)?(B.nm+" \u00b7 "+g.cite):B.nm;
+  return '<i class="sb-bas sb-bas-'+B.k+'" title="'+escAttr(t+" \u2014 "+B.why)+'">'
+    +escAttr(o.long?B.nm:B.short)+'</i>';
+}
+// One sentence for a figure, for anywhere a badge will not fit.
+function sbBasisLine(g,city){
+  const B=sbBasisOf(g);
+  if(B.k==="code") return "Read from "+(city||"the city")+"\u2019s code"+((g&&g.cite)?(", "+g.cite):"")+((g&&g.checked)?(", checked "+g.checked):"")+".";
+  if(B.k==="hoa") return "From the association\u2019s own document.";
+  if(B.k==="onFile") return "On file for "+(city||"this city")+", but no code section is recorded \u2014 confirm it before you rely on it.";
+  return "Estimated. This is not "+(city||"this city")+"\u2019s code \u2014 it is the regional pattern, carried so the plan has something to place against.";
 }
 // Every item for a city, resolved. This is what the Project Info panel draws and what placement reads.
 function sbAll(city){ return SB_ITEMS.map(d=>{ const r=sbFor(city,d.k);
@@ -49945,6 +50007,14 @@ function sbCityCount(){ try{ return Object.keys(SETBACKS).length; }catch(e){ ret
 function sbEstimatedCount(){ try{ return Object.keys(SETBACKS).filter(k=>SETBACKS[k]&&SETBACKS[k].verified===false).length; }catch(e){ return 0; } }
 // Code sites refuse anything that is not a browser, so the fastest honest route is the user's own
 // browser. This opens a search aimed at the sections that actually carry the figures.
+// Straight to the setback book with this city selected — the tabs are driven by a data attribute,
+// which is how everything else in the app moves between views.
+function sbGoBook(){
+  try{ const c=((S.pi&&S.pi.city)||"").toLowerCase().trim(); if(c&&typeof setbPick==="function") SETB_STATE.city=c; }catch(e){}
+  try{ pbSelSet("__setb"); }catch(e){}
+  try{ const t=document.querySelector('.tab[data-view="pricebook"]'); if(t) t.click(); }catch(e){}
+  try{ renderPriceBook(); }catch(e){}
+}
 function sbOpenCode(){
   const city=(S.pi&&S.pi.city)||""; if(!city) return;
   const q=city+' California municipal code zoning "front yard" "rear yard" setback single-family '
@@ -65541,8 +65611,9 @@ function _ptSetbackFor(item, side){
     if(per&&side&&per[side]!=null) ft=+per[side];
     else if(rec&&side&&rec[side]!=null&&g.usedKey==="structure") ft=+rec[side];
   }catch(e){}
-  return {ft:+ft||0, verified:!!g.verified, cite:g.cite||null, label:g.label,
-    inherited:g.inherited||null, source:g.source||"city"};
+  return {ft:+ft||0, verified:(g.basis==="code"||g.source==="hoa"), basis:g.basis||null,
+    cite:g.cite||null, label:g.label, inherited:g.inherited||null, source:g.source||"city",
+    basisNm:sbBasisOf(g).nm, basisShort:sbBasisOf(g).short};
 }
 // Does a rectangle sit clear of everything it has to sit clear of?
 function _ptFits(pts, opts){
@@ -65655,6 +65726,11 @@ function ptSolvePlace(spec){
   let sb=null; try{ sb=_ptSetbackFor(spec.item, (A.edge==="rear"?"rear":(A.edge==="front"?"front":"side"))); }catch(e){}
   let offFt=(spec.offsetFt!=null&&isFinite(+spec.offsetFt))?+spec.offsetFt:(sb?sb.ft:null);
   if(offFt==null){ offFt=5; missed.push("no setback on file — it used 5 feet"); }
+  // A thing placed against a guessed setback has to say so on the spot. It is the moment the
+  // number stops being a note in a panel and starts deciding where something is built.
+  else if(spec.offsetFt==null && sb && sb.basis!=="code" && sb.source!=="hoa")
+    notes.push("Placed "+sb.ft+"′ off the line, but that figure is "
+      +(sb.basis==="onFile"?"on file with no code section behind it":"the regional pattern, not this city\u2019s code")+".");
   else if(sb&&spec.offsetFt!=null&&+spec.offsetFt<sb.ft)
     notes.push("You asked for "+(+spec.offsetFt)+"′ but the setback is "+sb.ft+"′.");
   if(edge&&!A.centre){
