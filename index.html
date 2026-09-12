@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1483</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1484</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -57437,19 +57437,83 @@ function courtCost(c){
     lines:lines, prof:prof, construction:construction, professional:professional, total:total,
     groups:groups, perSF:(g.areaSF>0?total/g.areaSF:0),
     conf:conf, confWhy:reasons.join("; "), band:pm, low:total*(1-pm/100), high:total*(1+pm/100),
-    qa:courtQA(c,total), warnings:courtWarnings(c,g),
+    qa:courtQA(c,total,lines), warnings:courtWarnings(c,g),
     recommend:courtRecommend(c) };
 }
 // §31 reality check. It never overwrites the estimate — it only says the answer looks unusual.
-function courtQA(c,total){
+// A published court cost is the court: clear the pad, build the base, surface it, stripe it, hang
+// the goals. Fencing, lighting, drainage, site furniture, engineering and permits are quoted on
+// top of that figure, never inside it — so comparing the whole estimate against the band made a
+// properly specified court look overpriced. A loaded full basketball court came to $149,940
+// against a $55–120k band purely because it carried 300 LF of 10ft fence, four light poles and a
+// photometric study. The band is now compared against the court proper, and everything the
+// published figure leaves out is listed beside it at its own cost.
+const CRT_QA_CORE=["Site Preparation","Structural Base","Playing Surface","Striping","Sport Equipment"];
+// A published range also assumes a specification: an asphalt or ordinary reinforced base, acrylic
+// colour coat, residential goals. Post-tensioning, a cushioned or tiled surface and competition
+// goals are all real choices that carry the court past the band on purpose, so rather than listing
+// them by hand the check re-prices the same court at the specification the band assumes and reports
+// the difference. _crtQaBusy stops that second pass from starting a third.
+let _crtQaBusy=false;
+function _crtQaBase(c){
+  if(_crtQaBusy) return null;
+  _crtQaBusy=true;
+  try{
+    const b=Object.assign({}, c, {
+      base:(c.base==="pt")?"conc":c.base,
+      surface:(c.surface==="surfCush"||c.surface==="surfTile")?"surfPrem":c.surface,
+      hoopType:(c.hoopType==="bbComp"||c.hoopType==="bbComm")?"bbAdj":c.hoopType,
+      net:(c.net==="tnNetTourn")?"tnNetPerm":c.net,
+      colorAddOn:false, logos:0,
+      // everything a published court figure is quoted without
+      fenceOn:false, gatesPed:0, gatesDbl:0, wsOn:false, lightOn:false, photometric:false,
+      drainOn:false, drSubLF:0, drChannelLF:0, drBasins:0, drStormTie:false, drCustom:0,
+      permitOn:false, engOn:{}, acc:{}, accNetLF:0, customEquip:0, retainingOn:false });
+    const r=courtCost(b);
+    const out={core:(r.qa&&r.qa.core)||0, picks:[]};
+    if(c.base==="pt") out.picks.push("a post-tensioned base in place of reinforced concrete");
+    if(c.surface==="surfCush") out.picks.push("a cushioned acrylic surface in place of a colour coat");
+    if(c.surface==="surfTile") out.picks.push("modular sport tile in place of a colour coat");
+    if(c.hoopType==="bbComp") out.picks.push("competition goals");
+    else if(c.hoopType==="bbComm") out.picks.push("commercial goals");
+    if(c.net==="tnNetTourn") out.picks.push("a tournament net and posts");
+    return out;
+  }catch(e){ return null; }
+  finally{ _crtQaBusy=false; }
+}
+function courtQA(c,total,lines){
   const band=CRT_QA[c.type]||CRT_QA.custom; if(!band||!(total>0)) return null;
   const lo=band[0], hi=band[1];
-  const inBand=(total>=lo&&total<=hi);
-  return {band:[lo,hi], total:total, inBand:inBand,
-    flag:!inBand,
-    note:inBand?"Inside the usual Southern California range for this court."
-      :(total<lo?"Below the usual range — review the site work and the scope you have selected."
-               :"Above the usual range — review the site work and the scope you have selected.")};
+  const L=lines||[];
+  let core=0; const ex={};
+  L.forEach(x=>{ const g=x&&x.g||"";
+    if(CRT_QA_CORE.indexOf(g)>=0) core+=(+x.cost||0);
+    else ex[g]=(ex[g]||0)+(+x.cost||0); });
+  if(!(core>0)) core=total;                       // nothing grouped: fall back to the old basis
+  const exList=Object.keys(ex).filter(k=>ex[k]>0).sort((a,b)=>ex[b]-ex[a]);
+  const exTotal=exList.reduce((t,k)=>t+ex[k],0);
+  const inBand=(core>=lo&&core<=hi);
+  const B=(core>hi)?_crtQaBase(c):null;
+  const upg=(B&&B.core>0)?(core-B.core):0;
+  const baseIn=(B&&B.core>0)?(B.core>=lo&&B.core<=hi):null;
+  let note;
+  if(inBand) note="The court itself is inside the usual Southern California range.";
+  else if(core<lo) note="The court itself is below the usual range — review the site work and the scope you have selected.";
+  else if(B&&B.picks.length&&baseIn)
+    note="Above the range because of what is specified, not because the numbers are off. At the "
+        +"specification a published figure assumes \u2014 reinforced concrete base, acrylic colour "
+        +"coat, residential goals \u2014 the same court is "+fmtN(Math.round(B.core))+", inside the "
+        +"band. Adding "+B.picks.join(", ").replace(/, ([^,]*)$/,(B.picks.length>1?" and $1":"$1"))
+        +" brings it to "+fmtN(Math.round(core))+".";
+  else note="The court itself is above the usual range — review the site work and the scope you have selected.";
+  return {band:[lo,hi], total:total, core:core, inBand:inBand,
+    // flag only when the scope does not explain it — a deliberate upgrade is not a mistake
+    flag:(!inBand && !(core>hi && B && B.picks.length && baseIn)),
+    basis:"the court itself — site preparation, base, surface, striping and goals",
+    excluded:exList.length?exList.map(k=>k+" "+fmtN(Math.round(ex[k]))).join(", "):"nothing — this estimate is the court only",
+    excludedTotal:exTotal, excludedGroups:exList,
+    baseline:B?Math.round(B.core):null, baselineInBand:baseIn, upgrades:Math.round(upg),
+    upgradePicks:B?B.picks:[], note:note};
 }
 // §24 warnings inform; they never prevent an estimate.
 function courtWarnings(c,g){
@@ -58535,7 +58599,10 @@ function cbRender(){
     +(r.confWhy?'<div class="wb-note" style="padding-top:4px">'+escAttr(r.confWhy.charAt(0).toUpperCase()+r.confWhy.slice(1))+'.</div>':'')
     +'</div>';
   if(r.qa) right+='<div class="wb-qa'+(r.qa.flag?" flag":"")+'"><b>Reality check</b> · usual Southern California range for a '
-    +escAttr((R.types[c.type]||{}).label.toLowerCase())+' is '+money(r.qa.band[0])+'–'+money(r.qa.band[1])+'. '+escAttr(r.qa.note)+'</div>';
+    +escAttr((R.types[c.type]||{}).label.toLowerCase())+' is '+money(r.qa.band[0])+'–'+money(r.qa.band[1])
+    +', this court '+money(Math.round(r.qa.core))+'. '+escAttr(r.qa.note)
+    +'<div style="margin-top:3px;opacity:.85">Compared on '+escAttr(r.qa.basis)+'. Quoted on top and left out of the band: '
+    +escAttr(r.qa.excluded)+(r.qa.excludedTotal>0?' \u2014 '+money(Math.round(r.qa.excludedTotal))+' in all':'')+'.</div></div>';
   (r.warnings||[]).forEach(t=>{ right+='<div class="wb-warn"><span>⚠</span><span>'+escAttr(t)+'</span></div>'; });
   // §21 / §36 the line items
   const TAG=s0=>(s0&&s0!=="included")?('<span class="wb-tag '+s0+'">'+s0+'</span>'):"";
