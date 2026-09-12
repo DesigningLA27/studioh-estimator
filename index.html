@@ -7449,7 +7449,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1497</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1498</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -57020,7 +57020,7 @@ function _renderWall3(_mount){
         +'<input type="number" class="no-spin" '+IN+' value="'+(+r.pre||0)+'" step="0.25" onchange="wallSet(\'rec.'+k+'.pre\',this.value)">'
         +'<input type="number" class="no-spin" style="width:58px;box-sizing:border-box;text-align:right" value="'+Math.round((+r.lab||0)*100)+'" step="5" onchange="wallSet(\'rec.'+k+'.lab\',(+this.value||0)/100)">'
         +'</div>'
-        +(r.note?'<div style="font-size:10px;color:var(--tl);line-height:1.45;margin:-2px 0 4px 2px">'+esc(r.note)+'</div>':'');
+        +((r.note||r.prev)?'<div style="font-size:10px;color:var(--tl);line-height:1.45;margin:-2px 0 4px 2px">'+esc(r.note||"")+_recRevertLink(k)+'</div>':'');
     });
   } else if(P.k==="geom"){
     ins+=NOTE('Auto-sizing is for <b>budget estimating only</b>. The app does not structurally design a footing — final dimensions come from the project engineer. Footing volume is priced by the cubic yard so it can never be double counted against a benchmark that already includes it.');
@@ -57936,6 +57936,7 @@ function _renderBids3(_mount){
         +(PL.ok?('Move '+(PL.items.length===1?'this price':('these '+PL.items.length+' prices'))+' '+(G.median>0?"+":"")+G.median+'%'):'Why this cannot be applied yet')
         +'</button></div>'
         +'<div style="font-size:10.5px;color:var(--tl);line-height:1.55;margin-top:7px">'
+        +((bidLogReverted(G.key).length)?('<div style="margin-top:5px"><button class="btn" style="width:100%;background:transparent;border:1px solid var(--br);color:var(--tm)" onclick="bidLogRevertAsk(\''+esc(G.key)+'\')">\u21ba Undo the last move \u2014 '+bidLogReverted(G.key).length+' record'+(bidLogReverted(G.key).length===1?'':'s')+'</button></div>'):'')
         +(PL.ok?('It shows you exactly which records move and what they become before anything changes, '
                 +'and only touches the ones these jobs actually spent on \u2014 '+PL.covered+'% of the estimate'
                 +(PL.skipped?(', leaving '+PL.skipped+' smaller line'+(PL.skipped===1?'':'s')+' alone'):'')+'.')
@@ -58048,9 +58049,15 @@ function bidLogApplyRun(key){
   const P=bidLogApplyPlan(key); if(!P.ok) return P;
   const stamp="Moved "+(P.median>0?"+":"")+P.median+"% on "+P.bids+" logged bid"+(P.bids===1?"":"s")+", "+new Date().toISOString().slice(0,10);
   const saves={};
+  const when=new Date().toISOString().slice(0,10);
   P.items.forEach(it=>{
     const E=_bidEngineOf(it.rec); if(!E) return;
     const rec=(E.store.rec||{})[it.rec]; if(!rec) return;
+    // What it was, kept on the record itself. Dividing the new figure back out would not land on
+    // the old one — every band is rounded the way a price book is written — so the only honest
+    // undo is the number that was actually there.
+    rec.prev={lo:+rec.lo, std:+rec.std, pre:+rec.pre, src:rec.src||"", note:rec.note||"",
+              upd:rec.upd||"", key:key, at:when, pct:P.median};
     rec.lo=it.to[0]; rec.std=it.to[1]; rec.pre=it.to[2];
     rec.src="bid log";
     rec.upd=new Date().toISOString().slice(0,7);
@@ -58061,6 +58068,58 @@ function bidLogApplyRun(key){
   try{ _engReload(); }catch(e){}
   try{ renderPriceBook(); }catch(e){}
   return Object.assign({}, P, {applied:true, stamp:stamp});
+}
+// Put one record back to what it was before the bid log moved it. Every other edit on the book
+// stands — "Back to the defaults" throws all of them away, which is why it was never a real undo.
+// The undo that sits under a record the bid log has moved. Text, not an icon.
+function _recRevertLink(id){
+  const E=(typeof _bidEngineOf==="function")?_bidEngineOf(id):null; if(!E) return "";
+  const r=(E.store.rec||{})[id]; if(!r||!r.prev) return "";
+  const m2=v=>(+v||0).toFixed(2);
+  return ' <b class="rtap" style="white-space:nowrap" onclick="bidLogRevertRec(\''+id+'\');try{_engReload();}catch(e){};renderPriceBook()">'
+    +'\u21ba back to '+m2(r.prev.lo)+' / '+m2(r.prev.std)+' / '+m2(r.prev.pre)+'</b>';
+}
+function bidLogRevertRec(id){
+  const E=_bidEngineOf(id); if(!E) return null;
+  const rec=(E.store.rec||{})[id]; if(!rec||!rec.prev) return null;
+  const p=rec.prev;
+  rec.lo=p.lo; rec.std=p.std; rec.pre=p.pre;
+  rec.src=p.src; rec.note=p.note; rec.upd=p.upd;
+  delete rec.prev;
+  try{ E.save(); }catch(e){}
+  return {rec:id, engine:E.k, to:[p.lo,p.std,p.pre]};
+}
+// Every record still carrying an undo from one apply.
+function bidLogReverted(key){
+  const out=[];
+  [{k:"wall",st:(typeof WALL!=="undefined")?WALL:null},
+   {k:"court",st:(typeof CRT!=="undefined")?CRT:null},
+   {k:"fence",st:(typeof FNC!=="undefined")?FNC:null}].forEach(E=>{
+    if(!E.st||!E.st.rec) return;
+    Object.keys(E.st.rec).forEach(id=>{ const r=E.st.rec[id];
+      if(r&&r.prev&&(!key||r.prev.key===key)) out.push({rec:id, nm:r.nm, engine:E.k, prev:r.prev}); }); });
+  return out;
+}
+async function bidLogRevertAsk(key){
+  const L=bidLogReverted(key);
+  if(!L.length){ await askTell("Nothing to undo","No record on this group is still carrying a move from the bid log."); return; }
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const m2=v=>(+v||0).toFixed(2);
+  const p0=L[0].prev;
+  let body='<div style="font-size:12.5px;line-height:1.6;margin-bottom:8px">'
+    +'Puts '+L.length+' record'+(L.length===1?"":"s")+' back to what they were before the '
+    +(p0.pct>0?"+":"")+p0.pct+'% move on '+esc(p0.at)+'. Every other edit on these books stands.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:baseline;font-size:11.5px">';
+  L.forEach(x=>{ body+='<span><b>'+esc(x.nm)+'</b></span>'
+    +'<span style="text-align:right;font-variant-numeric:tabular-nums">'
+    +m2(x.prev.lo)+' / '+m2(x.prev.std)+' / '+m2(x.prev.pre)+'</span>'; });
+  body+='</div>';
+  const a=await askDlg({title:"Undo that move?", body:body, actions:["Undo it","Leave it"]});
+  if(a!=="Undo it") return;
+  let n=0; L.forEach(x=>{ if(bidLogRevertRec(x.rec)) n++; });
+  try{ _engReload(); }catch(e){}
+  try{ renderPriceBook(); }catch(e){}
+  await askTell("Undone", n+" record"+(n===1?"":"s")+" put back.");
 }
 // The button on the group. Reads the plan out first; nothing moves until the second tap.
 async function bidLogApplyAsk(key){
@@ -60094,7 +60153,7 @@ function _renderCourt3(_mount){
         +'<input type="number" class="no-spin" '+IN+' value="'+(+r.pre||0)+'" step="0.25" onchange="courtSet(\'rec.'+k+'.pre\',this.value)">'
         +'<input type="number" class="no-spin" style="width:58px;box-sizing:border-box;text-align:right" value="'+Math.round((+r.lab||0)*100)+'" step="5" onchange="courtSet(\'rec.'+k+'.lab\',(+this.value||0)/100)">'
         +'</div>'
-        +(r.note?'<div style="font-size:10px;color:var(--tl);line-height:1.45;margin:-2px 0 4px 2px">'+esc(r.note)+'</div>':'');
+        +((r.note||r.prev)?'<div style="font-size:10px;color:var(--tl);line-height:1.45;margin:-2px 0 4px 2px">'+esc(r.note||"")+_recRevertLink(k)+'</div>':'');
     });
   } else if(P.k==="types"){
     ins+=NOTE('The playing area and the construction pad are separate numbers. The estimate uses the <b>pad</b> unless a component specifically asks for the playing area, and a pad smaller than the figure below draws a run-off warning rather than a refusal.');
@@ -60938,7 +60997,7 @@ function _renderFence3(_mount){
         +'</div>'
         +((r.inc||r.exc)?'<div style="font-size:10px;color:var(--tl);line-height:1.45;margin:-2px 0 3px 2px">'
           +(r.inc?'<b>Includes</b> '+esc(r.inc)+'. ':'')+(r.exc?'<b>Not included</b> '+esc(r.exc)+'.':'')+'</div>':'')
-        +(r.note?'<div style="font-size:10px;color:var(--gold,#8A6D1F);line-height:1.45;margin:-1px 0 4px 2px">'+esc(r.note)+'</div>':'');
+        +((r.note||r.prev)?'<div style="font-size:10px;color:var(--gold,#8A6D1F);line-height:1.45;margin:-1px 0 4px 2px">'+esc(r.note||"")+_recRevertLink(k)+'</div>':'');
     });
   } else if(P.k==="height"){
     ins+=NOTE('§13. The 6′ fence is 1.00 and everything else is relative to it, interpolated between these points. Not proportional to height — posts, layout, mobilisation and some labour stay where they are. A record written at its own height (chain link, ornamental metal) is already there and is not scaled from 6. Above the top of the table the factor is extrapolated and the estimate says so.');
