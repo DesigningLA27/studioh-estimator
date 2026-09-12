@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1491</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1492</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -50864,6 +50864,8 @@ const PT_MODES=[
   {k:"kitchen",label:"Outdoor kitchen",color:"#FF9BC4",kind:"area",types:["Main run","Island","Bar / raised bar","Return","Other"]},
   {k:"seating",label:"Built-in seating",color:"#D9B36A",kind:"area",types:["Bench run","Wall / seat bench","Concrete seat wall","Stone seat wall","Other"]},
   {k:"wall",label:"Wall",color:"#8A6A52",kind:"linear"},
+  {k:"fence",label:"Fence / screen",color:"#8E7B5E",kind:"linear",
+   types:["Wood","Horizontal slat","Vinyl","Composite","Chain link","Ornamental metal","Glass","Cable","Screen"]},
   {k:"steps",label:"Steps",color:"#F2B705",kind:"linear"},
   {k:"drainline",label:"Drain line",color:"#4E93B8",kind:"linear"},
   {k:"tapelight",label:"LED tape light",color:"#FFE9A3",kind:"linear"},
@@ -51084,6 +51086,107 @@ function _ptWallSection(pp){
     +(ovR!=null?"Set by hand for this wall \u2014 empty the box to go back to the build-up."
               :"Empty follows the build-up. Type a rate to override it for this wall only.")+'</div>';
   return h;
+}
+// §2B A traced fence: the summary, the way into the builder, and the things that are only
+// answerable on the plan — which property line this is, where the gates go, where it steps.
+function fenceBreakdown(p){ if(!p||p.mode!=="fence") return null;
+  const f=fenceAttach(p); if(!f) return null;
+  try{ return fenceCost(f); }catch(e){ return null; } }
+function _ptFenceSection(pp){
+  if(!pp||pp.mode!=="fence") return "";
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const m2=v=>"$"+(+v||0).toFixed(2);
+  const row=(k,v,acc)=>'<div class="fld"><span class="k">'+esc(k)+'</span><span class="v"'+(acc?' style="color:'+acc+'"':'')+'>'+v+'</span></div>';
+  const idx=_ptPropIdx(), R=_fRule();
+  let h='<div class="pdsec">Fence</div>';
+  const B=fenceBreakdown(pp);
+  h+='<button class="pdt" onclick="fbOpen('+idx+')"><svg viewBox="0 0 24 24">'+_DIC.props
+    +'</svg><span class="lbl">'+(B?"Open the Fence Builder":"Build this fence")+'</span></button>';
+  if(!B) return h;
+  const f=B.fence, T=fTypeOf(f.type), sg=(f.segments||[])[0]||{}, q=(B.segs[0]||{}).q||{};
+  h+='<div style="font:600 10px var(--tkf);color:#68765B;line-height:1.5;padding:2px 2px 5px">'
+    +esc(_fenceDesc(B))+'.</div>';
+  // which line this is, and how tall — the two things you decide looking at the plan
+  h+='<div class="fld"><span class="k">Where</span><select onchange="ptFenceSet('+idx+',\'location\',this.value)">'
+    +[["","—"],["front","Front property line"],["left","Left side"],["right","Right side"],["rear","Rear"],
+      ["pool","Around the pool"],["equipment","Around equipment"],["front yard","Front-yard portion"]]
+      .map(o=>'<option value="'+esc(o[0])+'"'+((String(sg.location||"")===o[0])?" selected":"")+'>'+esc(o[1])+'</option>').join("")
+    +'</select></div>';
+  h+='<div class="fld"><span class="k">Height</span><input inputmode="decimal" style="text-align:right" value="'
+    +((sg.h!=null)?sg.h:"")+'" placeholder="'+(f.h||6)+'" onchange="ptFenceSet('+idx+',\'h\',this.value)" onkeydown="if(event.key===&#39;Enter&#39;)this.blur()"></div>';
+  h+='<div class="fld"><span class="k">Type</span><select onchange="ptFenceSet('+idx+',\'type\',this.value)">'
+    +Object.keys(R.types).map(k=>'<option value="'+esc(k)+'"'+((f.type===k)?" selected":"")+'>'+esc(R.types[k].label)+'</option>').join("")
+    +'</select></div>';
+  h+='<div class="fld"><span class="k">Steps here</span><select onchange="ptFenceSet('+idx+',\'transition\',this.value)">'
+    +[["none","No"],["step","Stepped"],["rake","Raked"],["custom","Custom"]]
+      .map(o=>'<option value="'+o[0]+'"'+((String(sg.transition||"none")===o[0])?" selected":"")+'>'+o[1]+'</option>').join("")
+    +'</select></div>';
+  h+='<div class="fld"><span class="k">Gates</span><span class="v">'+((sg.gates||[]).length
+    ? (sg.gates||[]).map(g=>(g.w||"?")+"′").join(" + ") : "none")
+    +'  <b style="cursor:pointer;color:#8FE07A;font:700 10.5px var(--tkf)" onclick="ptFenceGate('+idx+')">+ gate</b></span></div>';
+  h+='<div class="fld"><span class="k">Remove what is there</span><select onchange="ptFenceSet('+idx+',\'demo\',this.value)">'
+    +[["","Nothing"],["wood","Wood fence"],["vinyl","Vinyl"],["chain","Chain link"],["metal","Metal"],["glass","Glass"],["screen","Screen"]]
+      .map(o=>'<option value="'+o[0]+'"'+((String(sg.demo||"")===o[0])?" selected":"")+'>'+esc(o[1])+'</option>').join("")
+    +'</select></div>';
+  h+='<div class="pdsec">Measured &amp; costed</div>';
+  h+=row("Run",_tkFmt(Math.round(q.grossLF||B.totalLF))+" LF");
+  if(q.gateLF>0) h+=row("Fence after the gates",_tkFmt(Math.round(q.netLF))+" LF","#F2C14E");
+  h+=row("Face",_tkFmt(Math.round(B.qty.faceSF))+" SF");
+  h+=row("Posts · concrete",B.qty.posts+" · "+B.qty.concreteCY.toFixed(2)+" CY");
+  h+=row("Construction",fmtN(Math.round(B.construction)));
+  if(B.professional>0) h+=row("Engineering / permits",fmtN(Math.round(B.professional)),"#F2C14E");
+  const ovR=(sg.rateOv!=null&&+sg.rateOv>0)?+sg.rateOv:null;
+  h+=row(ovR!=null?"Rate — set by hand":"All in",m2(B.perLF)+" / LF",ovR!=null?"#F2C14E":"#8FE07A");
+  h+=row("This fence",fmtN(Math.round(B.total)),"#8FE07A");
+  h+=row("Confidence",({high:"High",medium:"Medium",low:"Low"}[B.conf])+" · ±"+B.band+"%",
+    ({high:"#8FE07A",medium:"#F2C14E",low:"#E08B88"})[B.conf]);
+  if(B.confUnresolved.length) h+='<div style="font:600 10px var(--tkf);color:#F2C14E;line-height:1.5;padding:2px 2px 4px">'
+    +esc(B.confUnresolved.slice(0,2).join("; "))+'.</div>';
+  h+='<div class="fld"><span class="k">$ / LF</span><input inputmode="decimal" style="text-align:right'+(ovR!=null?';color:#F2C14E':'')+'" value="'
+    +(ovR!=null?(+ovR).toFixed(2):"")+'" placeholder="'+(+B.perLF).toFixed(2)+'" onchange="ptFenceSet('+idx+',\'rateOv\',this.value)" onkeydown="if(event.key===&#39;Enter&#39;)this.blur()"></div>';
+  h+='<div style="font:600 10px var(--tkf);color:'+(ovR!=null?"#F2C14E":"#68765B")+';line-height:1.5;padding:2px 2px 4px">'
+    +(ovR!=null?"Set by hand for this run — empty the box to go back to the build-up."
+              :"Empty follows the build-up. Type a rate to override it for this run only.")+'</div>';
+  return h;
+}
+// Edit the traced fence from the plan. The segment on the line is the one that changes.
+function ptFenceSet(idx,k,v){
+  const p=PT.polys[idx]; if(!p||p.mode!=="fence") return;
+  const f=fenceAttach(p); if(!f) return;
+  const sg=(f.segments||[])[0]; if(!sg) return;
+  try{ ptSnap(); }catch(e){}
+  if(k==="type"){ f.type=v; }
+  else if(k==="h"){ const n=+v; sg.h=(v===""||!isFinite(n))?null:n; }
+  else if(k==="rateOv"){ const n=+v; sg.rateOv=(v===""||!isFinite(n)||n<=0)?null:n; }
+  else if(k==="demo"){ sg.demo=v||""; }
+  else sg[k]=v;
+  // a run still carrying a placeholder name takes the name of the line it was just put on
+  if(sg.location&&(!sg.name||/^(Run|Segment \d+|Traced fence)$/.test(sg.name)))
+    sg.name=({front:"Front",left:"Left side",right:"Right side",rear:"Rear",
+      pool:"Pool barrier",equipment:"Equipment screen","front yard":"Front yard"}[sg.location]||sg.location);
+  if(sg.location&&(!p.name||/^(Run|Traced fence)$/.test(p.name))) p.name=sg.name||"";
+  p.fence=f;
+  try{ ptAutoSave(); ptDrawOverlay(); ptUpdateInfo(); _ptDockRefresh(); ptBuildupRefresh(); }catch(e){}
+  try{ _bidSchedule(); refreshCatTotals("woodMetal"); }catch(e){}
+}
+function ptFenceGate(idx){
+  const p=PT.polys[idx]; if(!p||p.mode!=="fence") return;
+  const f=fenceAttach(p); const sg=(f.segments||[])[0]; if(!sg) return;
+  try{ ptSnap(); }catch(e){}
+  sg.gates=(sg.gates||[]).concat([{w:4, selfClose:!!f.poolBarrier}]);
+  p.fence=f;
+  try{ ptAutoSave(); ptDrawOverlay(); ptUpdateInfo(); _ptDockRefresh(); ptBuildupRefresh(); }catch(e){}
+  try{ _bidSchedule(); refreshCatTotals("woodMetal"); }catch(e){}
+  try{ _toast("4′ gate added — its opening comes out of the fence and its posts go in.","#2F5B23"); }catch(e){}
+}
+// §2B Every traced fence line, so the layer prices off what is drawn rather than one $/LF.
+function _fenceCatSum(qty){
+  const polys=(PT&&PT.polys||[]).filter(p=>p.mode==="fence"&&p.kind==="linear"&&!p._demo&&!p._excl);
+  if(!polys.length) return null;
+  let total=0, lf=0;
+  polys.forEach(p=>{ const B=fenceBreakdown(p); if(!B) return; total+=B.total; lf+=B.totalLF; });
+  if(!(total>0)) return null;
+  return {total:total, per:total/Math.max(1,qty||lf||1), from:"built"};
 }
 // A traced court is a summary plus the way into the Sport Court Builder.
 // One sentence, a whole garden. Everything it names is built, costed and put in the tray.
@@ -60741,6 +60844,9 @@ function _ptPriceFor(mode, qty){
   // A wall is height x what it is made of, plus its faces, its cap and — past a height — an
   // engineer. One $/LF cannot carry any of that, so the layer prices off the traced walls.
   if(mode==="wall"){ const w=_wallCatSum(qty); if(w) return w; }
+  // A fence is posts, footings, infill, a finish and its gates. One $/LF carries none of it, so
+  // the layer prices off the traced fences.
+  if(mode==="fence"){ const fx=_fenceCatSum(qty); if(fx) return fx; }
   // A court is a surface, and which surface depends on the sport. Putting green and sport court
   // surfacing are separate lines in the book at different money, so the traced type picks.
   if(mode==="court"){
@@ -62226,6 +62332,26 @@ function _ptBuildupHtml(idx, side){
     +'<div style="display:flex;align-items:baseline;gap:9px">'
       +'<b style="font:800 16px '+F+';flex:1;min-width:0">'+nm+'</b>'
       +'<button onclick="ptBuildupClose()" style="border:0;background:rgba(255,255,255,.08);color:#9FBF95;border-radius:9px;width:28px;height:28px;cursor:pointer;font:700 13px '+F+'">\u2715</button></div>';
+  // A fence is built in the Fence Builder; the card shows what it came to and opens it.
+  if(p.mode==="fence"){
+    const B=fenceBreakdown(p);
+    if(B){ const m2=v=>"$"+(+v||0).toFixed(2);
+      const rw=(k,v,acc)=>'<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0"><span style="flex:1;font:600 11.5px '+F+';color:#C7D6BB">'+escAttr(k)+'</span>'
+        +'<b style="font:700 12px '+MN+(acc?(';color:'+acc):'')+'">'+v+'</b></div>';
+      h+='<div style="margin-top:10px;padding:11px 13px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03)">'
+        +'<div style="font:600 11px '+F+';color:#8FA383;line-height:1.5;margin-bottom:4px">'+escAttr(_fenceDesc(B))+'</div>'
+        +rw("Run",_tkFmt(Math.round(B.totalLF))+" LF")
+        +rw("Posts \u00b7 concrete",B.qty.posts+" \u00b7 "+B.qty.concreteCY.toFixed(2)+" CY")
+        +rw("Construction",fmtN(Math.round(B.construction)))
+        +(B.professional>0?rw("Engineering / permits",fmtN(Math.round(B.professional)),"#F2C14E"):"")
+        +'<div style="display:flex;gap:8px;padding-top:8px;margin-top:5px;border-top:1px solid rgba(255,255,255,.22)">'
+        +'<span style="flex:1;font:750 12px '+F+'">Total</span><b style="font:800 13.5px '+MN+';color:#8FE07A">'+fmtN(Math.round(B.total))+'</b></div>'
+        +'<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0"><span style="flex:1;font:600 11px '+F+';color:#8FA383">All in</span>'
+        +'<b style="font:700 11.5px '+MN+';color:#8FA383">'+m2(B.perLF)+' / LF</b></div>'
+        +'</div>';
+      h+='<button onclick="fbOpen('+_ptPropIdx()+')" style="margin-top:9px;width:100%;border:0;border-radius:11px;background:#2F5B23;color:#EAF0E4;font:800 12.5px '+F+';padding:10px;cursor:pointer">Open the Fence Builder</button>';
+    }
+  }
   // A wall is built in the Wall Builder, so the card shows what it came to and opens it.
   if(p.mode==="wall"){
     const B=wallBreakdown(p);
@@ -63654,6 +63780,7 @@ function _ptDockPanel(g){
        +'</div>'
        +(_ov!=null?T("ptSetPolyRate("+_ptPropIdx()+",'')","Back to the book rate",_DIC.rotate,false):""); }
     if(pp.mode==="wall"){ try{ h+=_ptWallSection(pp); }catch(e){} }
+    if(pp.mode==="fence"){ try{ h+=_ptFenceSection(pp); }catch(e){} }
     if(pp.mode==="court"){ try{ h+=_ptCourtSection(pp); }catch(e){} }
     if(pp.kind==="area"){ try{ h+=_ptConcSection(pp); }catch(e){} }
     h+=S("Measured")
