@@ -7449,7 +7449,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1496</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1497</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -57798,7 +57798,29 @@ function courtBreakdown(p){ const c=courtOf(p); if(!c) return null;
 // pairs. Every pair is then applied through the builder's ordinary setter, so every guard,
 // default, dependency and recalculation runs exactly as it would if you had clicked it. Anything
 // it cannot map to a real field is reported rather than guessed at.
-const NLB={busy:false, last:null};
+const NLB={busy:false, last:null, target:{}};
+// §NL Which one it is talking about. A builder that holds a list — pools, water features, kitchens,
+// pergolas, planting zones — used to be talked at through whichever was LAST, so on a job with two
+// pools every instruction hit the second one and there was no way to say otherwise. The bar names
+// the one it will change and lets you pick, and the index is remembered per builder.
+function nlbTargetIdx(kind){
+  const B=nlbBuilder(kind); if(!B||typeof B.list!=="function") return -1;
+  const L=(function(){ try{ return B.list()||[]; }catch(e){ return []; } })();
+  if(!L.length) return -1;
+  let i=NLB.target[kind];
+  if(i==null||!(i>=0)||!L[i]) i=L.length-1;              // nothing chosen: the newest
+  return i;
+}
+function nlbTargetSet(kind,i){ NLB.target[kind]=+i;
+  const B=nlbBuilder(kind); if(B&&typeof B.refresh==="function"){ try{ B.refresh(); }catch(e){} }
+  try{ const el=document.getElementById("nlb-"+kind); if(el) el.focus(); }catch(e){}
+}
+// What to call each one in the picker.
+function _nlbTargetName(o,i){
+  if(!o) return "#"+(i+1);
+  const n=o.title||o.name||o.nm||o.label||"";
+  return String(n).trim()||("#"+(i+1));
+}
 // What a builder will accept, generated from its rules so it can never drift from the controls.
 // ── WHAT IT ACTUALLY CAME IN AT ────────────────────────────────────────────
 // §77 on both specs. An estimate is a guess until a contractor prices the same scope; the gap
@@ -58130,6 +58152,8 @@ function nlbBuilder(id){ return NLB_REG[id]||null; }
 // A helper for the older builders, whose setters all take (index, key, value).
 function _nlbIdx(listFn, i){ const L=listFn()||[]; if(!L.length) return -1;
   return (i!=null&&L[i])?i:(L.length-1); }
+// The index the bar is pointing at, for a builder whose setter takes one.
+function _nlbAt(kind){ const i=nlbTargetIdx(kind); return (i>=0)?i:0; }
 function _nlbOpts(arr, key){ return {values:(arr||[]).map((_,n)=>n),
   labels:(arr||[]).map(x=>String((key?x[key]:x)||"")) }; }
 nlbRegister({ id:"court", name:"Sport court",
@@ -58146,7 +58170,7 @@ nlbRegister({ id:"wall", name:"Wall",
   set:(f,v)=>{ if(f==="__name") return; wbSet(f,v); } });
 nlbRegister({ id:"pool", name:"Pool or spa",
   list:()=>S.pools||[], make:()=>{ try{ addPool(); }catch(e){} },
-  cur:()=>{ const L=S.pools||[]; return L[L.length-1]||null; },
+  cur:()=>{ const L=S.pools||[]; return L[nlbTargetIdx("pool")]||L[L.length-1]||null; },
   fields:()=>({
     title:{note:"a short name"},
     shell:{values:["gunite","shotcrete"], labels:["Gunite","Shotcrete"]},
@@ -58174,13 +58198,13 @@ nlbRegister({ id:"pool", name:"Pool or spa",
     heaterQty:{unit:"ea"}, filter:{values:[true,false]}, pumpVS:{values:[true,false]},
     salt:{values:[true,false]}, automation:{values:[true,false]}, ledQty:{unit:"ea"},
     cover:{values:["none","manual","auto"], labels:["None","Manual","Automatic"]} }),
-  set:(f,v)=>{ const i=_nlbIdx(()=>S.pools); if(i<0) return;
+  set:(f,v)=>{ const i=_nlbIdx(()=>S.pools, nlbTargetIdx("pool")); if(i<0) return;
     if(f==="__name"||f==="title"){ setPool(i,"title",String(v)); return; }
     if(v===true||v===false) setPoolBool(i,f,v); else setPool(i,f,(isFinite(+v)&&typeof v!=="string")?+v:v);
   }, refresh:()=>{ try{ poolRefresh(); }catch(e){} } });
 nlbRegister({ id:"water", name:"Water feature",
   list:()=>S.waterFeatures||[], make:()=>{ try{ addWaterFeature("custom"); }catch(e){} },
-  cur:()=>{ const L=S.waterFeatures||[]; return L[L.length-1]||null; },
+  cur:()=>{ const L=S.waterFeatures||[]; return L[nlbTargetIdx("water")]||L[L.length-1]||null; },
   fields:()=>({
     title:{note:"a short name"},
     kind:{values:["custom","prefab"]},
@@ -58195,13 +58219,13 @@ nlbRegister({ id:"water", name:"Water feature",
     copingOn:{values:[true,false]}, filtration:{values:[true,false]}, uv:{values:[true,false]},
     footing:{values:[true,false]}, winterize:{values:[true,false]},
     waterLF:{unit:"LF"}, elecLF:{unit:"LF"}, qty:{unit:"ea"} }),
-  set:(f,v)=>{ const i=_nlbIdx(()=>S.waterFeatures); if(i<0) return;
+  set:(f,v)=>{ const i=_nlbIdx(()=>S.waterFeatures, nlbTargetIdx("water")); if(i<0) return;
     if(f==="__name"||f==="title"){ setWF(i,"title",String(v)); return; }
     if(v===true||v===false) setWFBool(i,f,v); else setWF(i,f,(isFinite(+v)&&typeof v!=="string")?+v:v);
   }, refresh:()=>{ try{ waterRefresh(); }catch(e){} } });
 nlbRegister({ id:"kitchen", name:"Outdoor kitchen",
   list:()=>S.kitchens||[], make:()=>{ try{ newKitchen(); }catch(e){} },
-  cur:()=>{ const L=S.kitchens||[]; return L[L.length-1]||null; },
+  cur:()=>{ const L=S.kitchens||[]; return L[nlbTargetIdx("kitchen")]||L[L.length-1]||null; },
   fields:()=>{ let c={}; try{ c=kitchenComponents(); }catch(e){}
     return {
       label:{note:"a short name"},
@@ -58213,7 +58237,7 @@ nlbRegister({ id:"kitchen", name:"Outdoor kitchen",
       backsplash:{values:[true,false]}, bsRunLF:{unit:"LF"}, bsHeight:{unit:"in"}, bsOutlets:{unit:"ea"},
       ledToeKick:{values:[true,false]}, ledOverhang:{values:[true,false]}, bbqLight:{values:[true,false]},
       insul:{values:[true,false]}, fabHours:{unit:"hr"} }; },
-  set:(f,v)=>{ const i=_nlbIdx(()=>S.kitchens); if(i<0) return;
+  set:(f,v)=>{ const i=_nlbIdx(()=>S.kitchens, nlbTargetIdx("kitchen")); if(i<0) return;
     if(f==="__name"){ setKit(i,"label",String(v)); return; }
     if(v===true||v===false) setKitBool(i,f,v); else setKit(i,f,v);
   }, refresh:()=>{ try{ kitRefresh(); }catch(e){} } });
@@ -58223,7 +58247,7 @@ nlbRegister({ id:"kitchen", name:"Outdoor kitchen",
 nlbRegister({ id:"planting", name:"Planting zone",
   list:()=>{ try{ ensurePlanting(); }catch(e){} return (S.planting&&S.planting.zones)||[]; },
   make:()=>{ try{ addZone(); }catch(e){} },
-  cur:()=>{ const L=(S.planting&&S.planting.zones)||[]; return L[L.length-1]||null; },
+  cur:()=>{ const L=(S.planting&&S.planting.zones)||[]; return L[nlbTargetIdx("planting")]||L[L.length-1]||null; },
   fields:()=>({
     name:{note:"a short name for the zone"},
     location:{note:"where on the property, e.g. Back yard"},
@@ -58239,7 +58263,7 @@ nlbRegister({ id:"planting", name:"Planting zone",
     "layers.topsoil":{values:[true,false]}
   }),
   set:(f,v)=>{ try{ ensurePlanting(); }catch(e){}
-    const L=(S.planting&&S.planting.zones)||[]; const i=L.length-1; const z=L[i]; if(!z) return;
+    const L=(S.planting&&S.planting.zones)||[]; const i=nlbTargetIdx("planting"); const z=L[i]; if(!z) return;
     if(f==="__name"||f==="name"){ try{ setZoneName(i,String(v)); }catch(e){ z.name=String(v); } return; }
     if(f==="location"){ try{ setZoneLocation(i,String(v)); }catch(e){ z.location=String(v); } return; }
     if(f==="phase"){ z.phase=String(v); return; }
@@ -58252,7 +58276,7 @@ nlbRegister({ id:"planting", name:"Planting zone",
   }, refresh:()=>{ try{ plantRefresh(); }catch(e){} } });
 nlbRegister({ id:"pergola", name:"Pergola or shade structure",
   list:()=>S.pergolas||[], make:()=>{ try{ newPergola(); }catch(e){} },
-  cur:()=>{ const L=S.pergolas||[]; return L[L.length-1]||null; },
+  cur:()=>{ const L=S.pergolas||[]; return L[nlbTargetIdx("pergola")]||L[L.length-1]||null; },
   fields:()=>{ let c={}; try{ c=pergolaComponents(); }catch(e){}
     return {
       label:{note:"a short name"},
@@ -58266,7 +58290,7 @@ nlbRegister({ id:"pergola", name:"Pergola or shade structure",
       roofStyle:{values:["flat","gable","shed","hip"]}, roofPitch:{note:"rise in 12"},
       gutters:{values:[true,false]}, fascia:{values:[true,false]},
       kneeBraces:{unit:"ea"}, postsAuto:{values:[true,false]}, posts:{unit:"ea"} }; },
-  set:(f,v)=>{ const i=_nlbIdx(()=>S.pergolas); if(i<0) return;
+  set:(f,v)=>{ const i=_nlbIdx(()=>S.pergolas, nlbTargetIdx("pergola")); if(i<0) return;
     const p=S.pergolas[i]; if(!p) return;
     if(f==="__name"){ p.label=String(v); }
     else if(v===true||v===false) p[f]=!!v;
@@ -58570,6 +58594,7 @@ function nlbBar(kind, opts){
     +((nlbCanTrace(kind)&&opts.trace!==false)?('<button class="nlb-mic" title="Place it on the plan" onclick="nlbToTrace(\''+kind+'\')">'
       +'<svg viewBox="0 0 24 24"><path d="M5 19 19 5M12 5h7v7"/></svg></button>'):'')
     +'</div>'
+    +_nlbTargetRow(kind)
     +((sp&&opts.space!==false)?'<div class="nlb-note">'+escAttr(_nlbSpaceNote(sp))+'</div>':'')
     +(st?('<div class="nlb-note">'
        +(st.ok?('<b style="color:var(--gm)">'+st.applied.length+' applied</b>'+(st.why?' \u00b7 '+escAttr(st.why):'')
@@ -58578,6 +58603,19 @@ function nlbBar(kind, opts){
        +((st.refused&&st.refused.length)?('<div style="color:#B23F3C;padding-top:3px">Refused: '+st.refused.map(escAttr).join("; ")+'</div>'):'')
        +((st.unmapped&&st.unmapped.length)?('<div style="color:#8A6D1F;padding-top:3px">Not covered by this builder: '+st.unmapped.map(escAttr).join("; ")+'</div>'):'')
        +'</div>'):'')
+    +'</div>';
+}
+// The row that says which one it will change. Only drawn when there is more than one, because with
+// a single pool there is nothing to choose and a chip row would just be noise.
+function _nlbTargetRow(kind){
+  const B=nlbBuilder(kind); if(!B||typeof B.list!=="function") return "";
+  let L=[]; try{ L=B.list()||[]; }catch(e){ return ""; }
+  if(L.length<2) return "";
+  const i=nlbTargetIdx(kind);
+  return '<div class="nlb-note" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">'
+    +'<span style="opacity:.75">Changing</span>'
+    +L.map((o,n)=>'<button class="wb-chip'+((n===i)?" on":"")+'" style="padding:2px 8px;font-size:11px" '
+      +'onclick="nlbTargetSet(\''+kind+'\','+n+')">'+escAttr(_nlbTargetName(o,n))+'</button>').join("")
     +'</div>';
 }
 // Placing a built thing on the plan. It goes down at its true size in the middle of the view,
