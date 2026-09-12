@@ -18,9 +18,14 @@ Ordered roughly by how much it costs us to keep not doing it.
   as not covered rather than guessing.
 - **Which item the bar targets** is the last one in the list. With several pools or zones it should
   let you pick.
-- **Placement is "the middle of the view", not a location.** "Along the rear setback", "next to the
-  house", "in the corner" are not understood — the shape lands centre-screen and you drag it.
-  Needs the setback lines, the building footprint and the lot edges fed to the model as anchors.
+- **Placement built in v1470–71.** ptSiteFrame reads front/rear/left/right off the drawing,
+  ptSolvePlace turns "rear yard, 5′ off, centred on the living room" into a position, and the
+  staging tray holds what the AI built until you tap it onto the plan.
+  Still open on it:
+  - **No UI calls `siteAsk` yet.** The whole-site sentence has no box to be typed into — the
+    builders each have their own bar, but nothing asks for a whole garden.
+  - **The stamp does not snap.** Placement ignores the snap settings the rest of the tracer has.
+  - **The tray does not survive a reload** — it is in memory, not in the project payload.
 - Speech needs a real device check — the API is present in the headless browser, but permission,
   accents and iPad Safari behaviour are untested on the actual iPad.
 
