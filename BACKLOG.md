@@ -36,8 +36,12 @@ Ordered roughly by how much it costs us to keep not doing it.
   Code Publishing, American Legal and qcode return 403 to anything that is not a browser — to the
   worker AND to Claude's own fetch, so this is not a worker problem to solve. Those cities go
   through the paste box instead, which is grounded in exactly the same way.
-- **PDFs are refused** ("not a web page"). A lot of city setback information is in PDFs. Worth
-  either passing the bytes to the model as a document block, or saying so more helpfully.
+- ~~**PDFs are refused**~~ — built v1499, worker deployed. A PDF comes back as the document itself
+  and goes to the model as a document block, so it reads the page as published. Verified live:
+  Placer County's pool-enclosure PDF (420 KB) reads as 60″ minimum barrier, no 4″ sphere, 2″
+  clearance, cited to P.C.C. 15.04.320 and HSC 115923; a 3.8 MB Tustin code attachment reads in
+  13 seconds. 8 MB cap with a readable message above it. An extension-less URL that turns out to
+  be a PDF is caught by content-type.
 - **51 of 65 cities are still estimates** (`verified:false`) — the OC cities and a band of SGV ones.
   Warwick asked for these to be researched properly as a batch, with citations, not flagged and left.
   **Re-tested 2026-09-12 from this session's own fetch:** amlegal codelibrary and burbankca.gov both
@@ -46,6 +50,16 @@ Ordered roughly by how much it costs us to keep not doing it.
   route. **v1485** makes the gap unmistakable in Project Info: the card now names the city, states
   the pattern it is using instead (20/5/15/5), says how many of the 65 are in the same position,
   and offers a button that opens a targeted search in the user's own browser.
+- **v1500 gives it a home:** Price Book › Setbacks. All 65 cities in one list with what each holds,
+  the reader pointed at any of them without changing the project, two searches aimed at the right
+  document, and what came back shown with citations before it is written.
+- **The count was wrong and is now honest.** "14 verified" meant somebody typed those figures in —
+  checking all 14 found **not one carries a citation**. It reads 0 from code, 14 on file, 51 on the
+  pattern. The 14 are as unsourced as the 51; they are just closer to right.
+- **What is left is judgement, not plumbing.** The reader works; knowing which document is the
+  authoritative one for a given city does not come out of a search result. A Tustin council-agenda
+  attachment read cleanly and gave "front 50, side 1" — real figures from the wrong document.
+  Warwick pointing it at the right page per city is now an afternoon, not a research project.
 - Only the six original edges have real figures even on verified cities; the nine landscape items
   inherit from the structure rule. Worth reading the actual accessory-structure sections so a fire
   pit, a pool heater and a patio cover carry their own numbers where the code gives them one.
