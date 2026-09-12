@@ -4072,24 +4072,32 @@ textarea.pf-box::placeholder{color:var(--tl)}
   #header,.noprint{display:none!important}
   body{background:#fff}
   .sbdy,.card,.csm{break-inside:avoid}
-  /* Exporting the cost summary on its own — everything else is hidden and the
-     card is lifted out of the page flow so it starts at the top of sheet 1. */
-  body.print-sum>*:not(#view-pro){display:none!important}
-  body.print-sum #view-pro>*:not(#pro-summary-card){display:none!important}
-  body.print-sum #pro-summary-card{margin:0;border-color:#ccc;break-inside:auto}
-  /* Collapse the page around the card so nothing paints below it. */
+  /* Exporting the cost estimate. Both buttons live on the Estimate tab, so this exports
+     the ESTIMATE — the breakdown and the totals that produce it. It used to export
+     #pro-summary-card, which is the DASHBOARD's reads-only card: the two buttons printed
+     the same dashboard either way, and none of the classes the rules below switch on
+     (.sline, .sgrp, .sumtot, .sumcard-b) exist on that card at all. They all exist here. */
+  body.print-sum>*:not(#view-estimate){display:none!important}
+  body.print-sum #view-estimate>*:not(#est-print-head):not(#est-brk):not(#pro-summary){display:none!important}
+  body.print-sum #view-estimate{display:block!important;padding:0!important;max-width:none!important;min-height:0!important;background:none!important}
+  /* Collapse the page around it so nothing paints below. */
   html.print-sum-h,body.print-sum{background:#fff!important;height:auto!important}
-  body.print-sum #view-pro{padding:0!important;max-width:none!important;min-height:0!important;background:none!important}
-  /* Chrome drops background fills when printing unless told otherwise — the group
-     dots and share bars ARE the encoding here, so they have to survive. */
-  body.print-sum #pro-summary-card,body.print-sum #pro-summary-card *{
+  /* Chrome drops background fills when printing unless told otherwise — the group dots
+     and share bars ARE the encoding here, so they have to survive. */
+  body.print-sum #view-estimate,body.print-sum #view-estimate *{
     -webkit-print-color-adjust:exact;print-color-adjust:exact}
-  body.print-sum .sumprintonly{display:block}
+  /* The letterhead is in the page at all times and hidden on screen, so it carries the
+     same figures the estimate does rather than being assembled at print time. */
+  body.print-sum .sumprintonly{display:block!important}
+  body.print-sum #est-print-head{display:block!important;margin:0 0 14px}
+  /* The breakdown is collapsed on screen; printing it means opening it. */
+  body.print-sum #pro-summary{display:block!important;max-height:none!important;overflow:visible!important}
+  body.print-sum #est-brk{display:block!important;margin:14px 0 0;border-color:#ccc}
   body.print-sum .sgrp,body.print-sum .sumtot{break-inside:avoid}
   /* Summary export: group subtotals only, section lines suppressed. */
   body.print-sum-only .sline{display:none!important}
-  /* Detail export forces the breakdown open even if collapsed on screen. */
-  body.print-sum-detail .sumcard-b{display:block!important}
+  /* Detail export keeps every section line. */
+  body.print-sum-detail .sline{display:flex!important}
 }
 #pt-modal:fullscreen, #pt-modal:-webkit-full-screen { background:#2a2f22; width:100vw; height:100vh; }
 .pt-fs-fallback { position:fixed !important; inset:0 !important; z-index:100000 !important; }
@@ -7441,7 +7449,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1494</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1495</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8069,8 +8077,11 @@ function algoRecalc(){
        to sit inside the dashboard's Project cost card; that card now carries the ring
        and the confidence band instead, so the arithmetic lives here beside the
        accordions that produce it rather than being lost. -->
-  <div class="sumtot" id="est-brk"></div>
+  <!-- Printed only. In the page at all times so it is filled by the same pass that fills
+       the totals, rather than being assembled at export time and able to disagree. -->
+  <div class="sumprintonly" id="est-print-head" style="display:none"></div>
   <div class="sumcard-b" id="pro-summary"></div>
+  <div class="sumtot" id="est-brk"></div>
   <!-- The accordions themselves. Same element and same id, so buildProCats,
        renderProCatRows and secHeaderClick all keep working untouched. -->
   <div id="pro-cats"></div>
@@ -45847,6 +45858,32 @@ function renderProSummary(){
     body.classList.toggle("open", PRO_SUM_OPEN);
   }
 
+  // The printed letterhead. Same pass, same figures — a client PDF that disagrees with the
+  // screen is worse than one with no heading, which is what this was before.
+  const ph=document.getElementById("est-print-head");
+  if(ph){
+    const pi=S.pi||{};
+    const ph_d=(function(){ try{ return pi.date?new Date(pi.date+"T12:00:00").toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})
+      :new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"}); }catch(e){ return pi.date||""; } })();
+    const ph_ph=(function(){ try{ return (PHASES[phaseIdx()]||{}).nm||""; }catch(e){ return ""; } })();
+    const ph_sf=(function(){ try{ return +S.siteSF||0; }catch(e){ return 0; } })();
+    ph.innerHTML=`<div style="border-bottom:2px solid #222;padding-bottom:9px;margin-bottom:4px">
+        <div style="font:300 19px -apple-system,'SF Pro Display',system-ui,sans-serif;letter-spacing:.18em;text-transform:uppercase">STUDIO H</div>
+        <div style="font-size:10px;letter-spacing:.1em;color:#666;margin-top:1px">LANDSCAPE ARCHITECTURE &middot; LOS ANGELES &amp; ORANGE COUNTY</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;font-size:11px;color:#333">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#111">${escAttr(pi.project||"Construction Cost Estimate")}</div>
+          ${pi.client?`<div>${escAttr(pi.client)}</div>`:""}
+          ${pi.address?`<div style="color:#666">${escAttr(pi.address)}</div>`:""}
+        </div>
+        <div style="text-align:right;white-space:nowrap">
+          <div>${escAttr(ph_d)}</div>
+          ${ph_ph?`<div style="color:#666">${escAttr(ph_ph)}</div>`:""}
+          ${ph_sf>0?`<div style="color:#666">${_tkFmt(ph_sf)} SF site</div>`:""}
+        </div>
+      </div>`;
+  }
   const tot=document.getElementById("est-brk");
   if(tot){
     tot.innerHTML=`
