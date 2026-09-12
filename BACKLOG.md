@@ -18,6 +18,9 @@ Ordered roughly by how much it costs us to keep not doing it.
   as not covered rather than guessing.
 - **Which item the bar targets** is the last one in the list. With several pools or zones it should
   let you pick.
+- **Placement is "the middle of the view", not a location.** "Along the rear setback", "next to the
+  house", "in the corner" are not understood — the shape lands centre-screen and you drag it.
+  Needs the setback lines, the building footprint and the lot edges fed to the model as anchors.
 - Speech needs a real device check — the API is present in the headless browser, but permission,
   accents and iPad Safari behaviour are untested on the actual iPad.
 

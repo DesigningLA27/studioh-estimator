@@ -7367,7 +7367,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1464</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1465</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -56947,17 +56947,31 @@ nlbRegister({ id:"pool", name:"Pool or spa",
   cur:()=>{ const L=S.pools||[]; return L[L.length-1]||null; },
   fields:()=>({
     title:{note:"a short name"},
-    shell:{values:["gunite","fiberglass","vinyl"]},
-    lenFt:{unit:"ft"}, widFt:{unit:"ft"}, sfDirect:{unit:"SF"}, useSF:{values:[true,false], note:"true to price by area instead of length x width"},
-    depthShallow:{unit:"ft"}, depthDeep:{unit:"ft"},
-    edgeType:{values:["standard","infinity","perimeter","slot"]},
-    finishType:{values:["plaster","pebble","quartz","glassTile"]},
-    copingType:{values:["copingStandard","copingStone","copingPrecast","copingTile"]},
-    copingProfile:{values:["bullnose","square","chiseled"]},
+    shell:{values:["gunite","shotcrete"], labels:["Gunite","Shotcrete"]},
+    lenFt:{unit:"ft"}, widFt:{unit:"ft"}, sfDirect:{unit:"SF"},
+    useSF:{values:[true,false], note:"true to price by area instead of length x width"},
+    depthShallow:{unit:"ft"}, depthDeep:{unit:"ft"}, perimLF:{unit:"LF"},
+    edgeType:{values:["standard","infinity","zero","knife"],
+      labels:["Standard (coping)","Infinity / vanishing","Zero / slot","Knife / Lautner"]},
+    edgeLF:{unit:"LF"},
+    finishType:{values:["plaster","quartz","pebble","tile","glass"],
+      labels:["Plaster","Quartz","Pebble","All-tile","Glass tile"]},
+    finishScope:{values:["full","waterline"], labels:["Full pool","Waterline only"]},
+    copingType:{values:["copingConcrete","copingStandard","copingPorcelain","copingPremiumStone"],
+      labels:["Concrete","Standard stone","Porcelain","Premium stone"]},
+    copingProfile:{values:["bullnose","square","dropface"], labels:["Bullnose","Square","Drop-face"]},
+    copingLF:{unit:"LF"},
     raisedBeam:{values:[true,false]}, beamLF:{unit:"LF"}, beamHeightIn:{unit:"in"},
-    bajaOn:{values:[true,false]}, bajaSF:{unit:"SF"},
-    spaOn:{values:[true,false]}, spaSeats:{unit:"ea"},
-    heater:{values:[true,false]}, autoCover:{values:[true,false]}, saltSystem:{values:[true,false]} }),
+    beamSides:{values:["one","two"], labels:["One side","Both sides"]},
+    beamCap:{values:[true,false]},
+    baja:{values:[true,false], note:"baja / tanning shelf"}, bajaSF:{unit:"SF"},
+    spa:{values:[true,false]}, spaType:{values:["attached","freestanding"],
+      labels:["Attached (shared)","Freestanding spillover"]},
+    spaJets:{unit:"ea"}, spaSpillover:{values:[true,false]},
+    heaterType:{values:["gas","heatpump","none"], labels:["Gas","Heat pump","None"]},
+    heaterQty:{unit:"ea"}, filter:{values:[true,false]}, pumpVS:{values:[true,false]},
+    salt:{values:[true,false]}, automation:{values:[true,false]}, ledQty:{unit:"ea"},
+    cover:{values:["none","manual","auto"], labels:["None","Manual","Automatic"]} }),
   set:(f,v)=>{ const i=_nlbIdx(()=>S.pools); if(i<0) return;
     if(f==="__name"||f==="title"){ setPool(i,"title",String(v)); return; }
     if(v===true||v===false) setPoolBool(i,f,v); else setPool(i,f,(isFinite(+v)&&typeof v!=="string")?+v:v);
@@ -57211,6 +57225,38 @@ const NLB_TRACE={
            back:(o,w,l)=>{ o.areaSF=Math.round(w*l); o._touched=true; }}
 };
 function nlbCanTrace(kind){ return !!NLB_TRACE[kind]; }
+// Every field a builder advertises must exist on the object it sets. A name that does not is
+// worse than useless: the patch applies to nothing and reports success. Run it against a real
+// instance of each builder and it will say which names are wrong.
+function nlbAudit(){
+  const out={};
+  Object.keys(NLB_REG).forEach(k=>{
+    const B=NLB_REG[k]; const bad=[], missing=[];
+    let obj=null; try{ obj=B.cur?B.cur():null; }catch(e){}
+    if(!obj&&B.make){ try{ B.make(); obj=B.cur(); }catch(e){} }
+    if(!obj){ out[k]={skipped:"no instance to check against"}; return; }
+    let f={}; try{ f=B.fields()||{}; }catch(e){}
+    Object.keys(f).forEach(name=>{
+      if(name==="__name") return;
+      const path=name.split(".");
+      let o=obj, ok=true;
+      for(let i=0;i<path.length-1;i++){
+        if(o==null||typeof o!=="object"||!(path[i] in o)){ ok=false; break; }
+        o=o[path[i]];
+      }
+      if(ok&&path.length===1&&!(path[0] in obj)) ok=false;
+      if(!ok) bad.push(name);
+    });
+    // and the other way: a field on the object nobody can reach by talking
+    Object.keys(obj).forEach(name=>{
+      if(name[0]==="_"||typeof obj[name]==="function") return;
+      if(Object.prototype.toString.call(obj[name])==="[object Array]") return;
+      if(!f[name] && typeof obj[name]!=="object") missing.push(name);
+    });
+    out[k]={fields:Object.keys(f).length, notOnObject:bad, notOffered:missing.length};
+  });
+  return out;
+}
 function nlbToTrace(kind){
   const T=NLB_TRACE[kind], B=nlbBuilder(kind);
   if(!T||!B) return;
