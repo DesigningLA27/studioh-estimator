@@ -7449,7 +7449,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1498</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1499</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -49931,11 +49931,11 @@ function sbOpenCode(){
 function _sbLookRow(city){
   const c=escAttr(city||"");
   return '<div class="sb-look">'
-    +'<input id="sb-url" placeholder="Link to the city\u2019s zoning or accessory-structure code" '
+    +'<input id="sb-url" placeholder="Link to the city\u2019s zoning code, or to a PDF it publishes" '
     +'onkeydown="if(event.key===\'Enter\')sbLookRun()">'
     +'<button class="hbtn ghost" style="height:auto;padding:.36rem .7rem;font-size:.74rem" onclick="sbLookRun()">Read it</button>'
     +'</div>'
-    +'<textarea id="sb-text" class="sb-paste" rows="2" placeholder="\u2026 or open the section in your browser, copy it, and paste it here. Most code sites block anything that is not a browser, so this is usually the quicker route."></textarea>'
+    +'<textarea id="sb-text" class="sb-paste" rows="2" placeholder="\u2026 or open the section in your browser, copy it, and paste it here. Municode, American Legal and Code Publishing all refuse anything that is not a browser, so for those this is the only route. A PDF the city hosts itself it can read directly."></textarea>'
     +'<div id="sb-look-out" class="sb-out"></div>';
 }
 async function sbLookRun(){
@@ -49959,6 +49959,7 @@ async function sbLookRun(){
   });
   if(r.missing&&r.missing.length) h+='<div class="sb-cite">Not stated on that page: '+escAttr(r.missing.join(", "))+'</div>';
   if(r.truncated) h+='<div class="sb-cite">The page was long and was read down to its first 120,000 characters.</div>';
+  if(r.kind==="pdf") h+='<div class="sb-cite">Read from the PDF the city publishes ('+Math.round((+r.bytes||0)/1024)+' KB).</div>';
   h+='<button class="hbtn" style="margin-top:.5rem;height:auto;padding:.36rem .8rem;font-size:.74rem" onclick="sbLookSave()">Keep these</button></div>';
   if(out) out.innerHTML=h;
 }
@@ -49977,6 +49978,7 @@ async function _sbReadPage(url){
       body:JSON.stringify({type:"readpage",url:url,max:120000})});
     if(!r.ok) return {err:"needs-worker"};
     const d=await r.json();
+    if(d&&d.ok&&d.kind==="pdf"&&d.b64) return d;     // the document itself, not a scrape of it
     if(d&&d.ok&&d.text) return d;
     return {err:(d&&d.error)||"could not read that page"};
   }catch(e){ return {err:"needs-worker"}; }
@@ -50002,7 +50004,7 @@ async function sbLookup(city, url, opts){
       return (SB_LOOK.last={ok:false, error:(page.err==="needs-worker")
         ? "The page reader is not deployed — see WORKER-add-readpage.md. Nothing is guessed without it."
         : (page.err+" \u2014 most code sites refuse anything that is not a browser. Open it yourself and paste the section in instead.")}); }
-    if((page.text||"").length<400){ SB_LOOK.busy=false;
+    if(page.kind!=="pdf" && (page.text||"").length<400){ SB_LOOK.busy=false;
       return (SB_LOOK.last={ok:false, error:"That page came back nearly empty \u2014 it builds itself with JavaScript, which a fetch cannot see. Open it yourself and paste the section in instead."}); }
   }
   const items=SB_ITEMS.map(d=>d.k+" ("+d.ai+")").join("\n- ");
@@ -50013,13 +50015,22 @@ async function sbLookup(city, url, opts){
     +"- cite must be the section number as the page writes it. quote must be words from the page.\n"
     +"- Single-family residential / R1 unless the page says the property is something else.\n"
     +"- Feet. If the page gives inches or a formula, convert only if it is unambiguous, otherwise treat it as missing.";
-  const user="CITY: "+city+"\n\nITEMS WANTED:\n- "+items
-    +"\n\nPAGE ("+page.url+"):\n"+page.text;
+  // A PDF goes across as the document, so the model reads the page the city published — tables,
+  // columns and all — rather than a flattened scrape of it. Everything else about the request is
+  // identical, including the rule that it may only report figures the document actually states.
+  const isPdf=(page.kind==="pdf"&&page.b64);
+  const ask="CITY: "+city+"\n\nITEMS WANTED:\n- "+items
+    +(isPdf?("\n\nThe document attached is "+page.url+". Read it and report only what it states.")
+           :("\n\nPAGE ("+page.url+"):\n"+page.text));
+  const content=isPdf
+    ? [{type:"document", source:{type:"base64", media_type:"application/pdf", data:page.b64}},
+       {type:"text", text:ask}]
+    : ask;
   let out=null;
   try{
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2000,temperature:0,system:sys,
-        messages:[{role:"user",content:user}]})});
+        messages:[{role:"user",content:content}]})});
     const d=await r.json();
     const t=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
     const m=t.match(/\{[\s\S]*\}/); out=m?JSON.parse(m[0]):null;
@@ -50027,7 +50038,8 @@ async function sbLookup(city, url, opts){
   SB_LOOK.busy=false;
   if(!out||!out.items) return (SB_LOOK.last={ok:false,error:"Nothing usable came back from that page."});
   return (SB_LOOK.last={ok:true, city:city, url:page.url, zone:out.zone||"", items:out.items,
-    missing:out.missing||[], note:out.note||"", truncated:!!page.truncated});
+    missing:out.missing||[], note:out.note||"", truncated:!!page.truncated,
+    kind:page.kind||"text", bytes:page.bytes||0});
 }
 // Write a lookup into the table, with its citation. Only what the page actually stated.
 function sbApply(res){

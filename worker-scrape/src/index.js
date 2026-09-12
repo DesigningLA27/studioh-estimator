@@ -176,6 +176,29 @@ async function pdfProxy(url) {
 }
 
 // ── fetch + parse one page ───────────────────────────────────
+// A lot of what a city publishes about setbacks is a PDF — a handout, a zoning matrix, a
+// development-standards sheet. readPage used to refuse them ("not a web page"), which meant the
+// grounded route stopped exactly where the information usually is. Fetching one returns its bytes
+// so the model can be handed the document itself rather than a scrape of prose about it.
+const PDF_MAX = 8 * 1024 * 1024;   // Anthropic takes far more; a Worker response should not
+async function getPdf(url) {
+  const r = await fetch(url, {
+    headers: BROWSER_HEADERS,
+    redirect: "follow",
+    signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(15000) : undefined,
+  });
+  if (!r.ok) throw new Error("http " + r.status);
+  const ct = r.headers.get("content-type") || "";
+  if (!/pdf/i.test(ct)) throw new Error("not a pdf (" + ct + ")");
+  const buf = await r.arrayBuffer();
+  if (buf.byteLength > PDF_MAX) throw new Error("that PDF is " + Math.round(buf.byteLength/1048576) + "MB — too big to send. Save the pages you need and paste them instead");
+  // base64 without blowing the stack on a multi-megabyte buffer
+  const b = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+  return { b64: btoa(bin), bytes: buf.byteLength, finalUrl: r.url || url };
+}
+
 async function getHtml(url) {
   // A slow origin must not hold the whole scan hostage — one site that never answers
   // used to stall a sale sweep across a dozen brands.
@@ -195,9 +218,24 @@ async function readPage(url, max) {
   let u;
   try { u = new URL(url); } catch (e) { return { ok: false, error: "bad url" }; }
   if (u.protocol !== "https:" && u.protocol !== "http:") return { ok: false, error: "only http(s)" };
+  // A PDF comes back as the document itself, not as a scrape of it.
+  const looksPdf = /\.pdf($|[?#])/i.test(u.pathname + u.search);
+  if (looksPdf) {
+    try { const d = await getPdf(u.href);
+      return { ok: true, kind: "pdf", url: d.finalUrl, b64: d.b64, bytes: d.bytes, truncated: false };
+    } catch (e) { return { ok: false, error: "could not read that PDF — " + (e && e.message || e) }; }
+  }
   let html, finalUrl;
   try { ({ html, finalUrl } = await getHtml(u.href)); }
-  catch (e) { return { ok: false, error: "could not read that page — " + (e && e.message || e) }; }
+  catch (e) {
+    // the extension lied, or there was not one — try it as a document before giving up
+    if (/not a web page \(.*pdf/i.test(String(e && e.message || ""))) {
+      try { const d = await getPdf(u.href);
+        return { ok: true, kind: "pdf", url: d.finalUrl, b64: d.b64, bytes: d.bytes, truncated: false };
+      } catch (e2) { return { ok: false, error: "could not read that PDF — " + (e2 && e2.message || e2) }; }
+    }
+    return { ok: false, error: "could not read that page — " + (e && e.message || e) };
+  }
   if (!html) return { ok: false, error: "could not read that page" };
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -215,7 +253,7 @@ async function readPage(url, max) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   const cap = Math.min(+max || 120000, 200000);
-  return { ok: true, url: finalUrl || u.href,
+  return { ok: true, kind: "text", url: finalUrl || u.href,
            text: text.slice(0, cap), truncated: text.length > cap };
 }
 
