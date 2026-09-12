@@ -7382,7 +7382,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1466</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1467</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27462,8 +27462,23 @@ function toggleTheme(){ setThemeMode(effectiveTheme()==="dark"?"light":"dark"); 
 // The rail button is Settings now, not a day/night toggle — it keeps its cog. This
 // stays as a no-op so the older call sites do not have to be unpicked.
 function _setThemeIcon(t){ }
-function toggleHMenu(id,e){ if(e)e.stopPropagation(); const m=document.getElementById(id); if(!m) return; const wasOpen=m.classList.contains("open"); closeHMenus(); if(!wasOpen){ m.classList.add("open"); if(m.classList.contains("pb-imgmenu")&&e){ const btn=(e.target&&e.target.closest)?e.target.closest(".pb-imgbtn"):null; if(btn){ const r=btn.getBoundingClientRect(); const mw=m.offsetWidth||222, mh=m.offsetHeight||280; let left=Math.max(8,Math.min(r.left, window.innerWidth-mw-8)); let top; if(r.bottom+8+mh<=window.innerHeight-8) top=r.bottom+8; else if(r.top-8-mh>=8) top=r.top-8-mh; else top=Math.max(8, window.innerHeight-mh-8); m.style.left=left+"px"; m.style.top=top+"px"; } } } }
-function closeHMenus(){ document.querySelectorAll(".hmenu.open").forEach(m=>m.classList.remove("open")); }
+function toggleHMenu(id,e){ if(e)e.stopPropagation(); const m=document.getElementById(id); if(!m) return; const wasOpen=m.classList.contains("open"); closeHMenus(); if(!wasOpen){ m.classList.add("open"); if(m.classList.contains("pb-imgmenu")&&e){ const btn=(e.target&&e.target.closest)?e.target.closest(".pb-imgbtn"):null; if(btn){
+    // position:fixed still obeys an ancestor that makes a stacking context, which is how a menu
+    // at z-index 9600 ended up behind the inspector panel. Lift it onto the body while it is
+    // open — nothing can be above it there — and put it back where it lives when it closes.
+    if(!m._home){ m._home={parent:m.parentNode, next:m.nextSibling}; document.body.appendChild(m); }
+    const r=btn.getBoundingClientRect(); const mw=m.offsetWidth||222, mh=m.offsetHeight||280;
+    // Open to the LEFT of the button by default, so it never runs under the panel on the right.
+    let left=r.right-mw;
+    if(left<8) left=Math.min(r.left, window.innerWidth-mw-8);
+    left=Math.max(8, Math.min(left, window.innerWidth-mw-8));
+    let top; if(r.bottom+8+mh<=window.innerHeight-8) top=r.bottom+8;
+    else if(r.top-8-mh>=8) top=r.top-8-mh;
+    else top=Math.max(8, window.innerHeight-mh-8);
+    m.style.left=left+"px"; m.style.top=top+"px"; } } } }
+function closeHMenus(){ document.querySelectorAll(".hmenu.open").forEach(m=>{ m.classList.remove("open");
+  // back to where it lives, so the list can re-render without orphaning it on the body
+  if(m._home){ try{ m._home.parent.insertBefore(m, m._home.next); }catch(e){ try{ m.remove(); }catch(_){} } m._home=null; } }); }
 // Project Info is a real tab now, so "open" means select it. Kept as a function
 // because several places (and the map's resize) still call it by name.
 function openPInfo(){ const t=document.querySelector('.tab[data-view="projectinfo"]'); if(t) t.click(); }
@@ -30444,6 +30459,11 @@ async function fillMissingDetails(){ const prog=document.getElementById("filldet
     else if(ok>0&&prog) prog.innerHTML+=`<br><b>Saving to the server…</b>`;
   }catch(e){}
   if(sb){ sb.textContent="Start"; sb.disabled=false; } if(typeof renderPlantBook==="function") renderPlantBook();
+}
+// Google Images for a plant — the fastest way to find a photo worth handing the AI as a reference.
+function _googleImgLink(p){
+  const q=((botName(p)||"")+" "+((p&&p.c)||"")).trim()||((p&&p.c)||"plant");
+  return "https://www.google.com/search?tbm=isch&q="+encodeURIComponent(q+" plant");
 }
 function _commonsSearchLink(p){ const q=(botName(p)||p.c||""); return `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(q)}&title=Special:MediaSearch&type=image`; }
 async function pasteCommonsImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
@@ -38558,6 +38578,7 @@ function _pbkInspector(){
         +(p.imgAI&&p.imgPrev?'<button onclick="restorePlantPhoto(\''+kind+'\',\''+p.id+'\')">↺&nbsp; Restore real photo</button>':'')
         +((p.imgAlts&&p.imgAlts.length>1)?'<div style="display:flex;align-items:center;justify-content:center;gap:.5rem;padding:4px"><button onclick="cyclePlantImage(\''+kind+'\',\''+p.id+'\',-1)" style="border:1px solid var(--br);background:#fff;border-radius:6px;padding:2px 9px;cursor:pointer">‹</button><span style="font-size:.7rem;color:var(--tl)">'+((p._imgIdx||0)+1)+'/'+p.imgAlts.length+'</span><button onclick="cyclePlantImage(\''+kind+'\',\''+p.id+'\',1)" style="border:1px solid var(--br);background:#fff;border-radius:6px;padding:2px 9px;cursor:pointer">›</button></div>':'')
         +'<div class="div"></div>'
+        +'<button onclick="window.open(\''+_googleImgLink(p)+'\',\'_blank\',\'noopener\')" title="Find a photo to copy and hand the AI as a reference">\ud83d\udd0d&nbsp; Google Images</button>'
         +'<button onclick="window.open(\''+_commonsSearchLink(p)+'\',\'_blank\',\'noopener\')">⧉&nbsp; Browse Wikimedia Commons</button>'
         +'<button onclick="pasteCommonsImage(\''+kind+'\',\''+p.id+'\')">🔗&nbsp; Paste image link</button>'
         +'<label>⬆&nbsp; Upload from device<input type="file" accept="image/*" style="display:none" onchange="plantImgUpload(this,\''+kind+'\',\''+p.id+'\')"></label>'
@@ -39136,6 +39157,7 @@ function renderPlantBookList(){
             ${p.imgAI&&p.imgPrev?`<button onclick="restorePlantPhoto('${kind}','${p.id}')">↺&nbsp; Restore real photo</button>`:''}
             ${(p.imgAlts&&p.imgAlts.length>1)?`<div style="display:flex;align-items:center;justify-content:center;gap:.5rem;padding:4px"><button onclick="cyclePlantImage('${kind}','${p.id}',-1)" style="border:1px solid var(--br);background:#fff;border-radius:6px;padding:2px 9px;cursor:pointer">‹</button><span style="font-size:.7rem;color:var(--tl)">${(p._imgIdx||0)+1}/${p.imgAlts.length}</span><button onclick="cyclePlantImage('${kind}','${p.id}',1)" style="border:1px solid var(--br);background:#fff;border-radius:6px;padding:2px 9px;cursor:pointer">›</button></div>`:''}
             <div class="div"></div>
+            <button onclick="window.open('${_googleImgLink(p)}','_blank','noopener')" title="Find a photo to copy and hand the AI as a reference">\u{1F50D}&nbsp; Google Images</button>
             <button onclick="window.open('${_commonsSearchLink(p)}','_blank','noopener')">⧉&nbsp; Browse Wikimedia Commons</button>
             <button onclick="pasteCommonsImage('${kind}','${p.id}')">🔗&nbsp; Paste image link</button>
             <label>⬆&nbsp; Upload from device<input type="file" accept="image/*" style="display:none" onchange="plantImgUpload(this,'${kind}','${p.id}')"></label>
