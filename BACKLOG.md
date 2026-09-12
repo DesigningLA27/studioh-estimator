@@ -24,11 +24,7 @@ Ordered roughly by how much it costs us to keep not doing it.
   All three follow-ups closed in v1472: the box is the tray's empty state and also sits in the AI
   dock panel, the stamp snaps to corners, lines, midpoints and the rest, and the tray rides with
   the project.
-  Still open on it:
-  - **Project Info has no way in.** It is where you look at the lot, the setbacks and the HOA —
-    the inputs — so a line there that opens the plan with the box focused would close the loop.
-  - **Only the first garden is anchored well.** The solver places each item independently; it does
-    not yet reason about them as a group (spa beside the pool, fire pit clear of the pergola).
+  Group placement and the Project Info way in both landed in v1473–74.
 - Speech needs a real device check — the API is present in the headless browser, but permission,
   accents and iPad Safari behaviour are untested on the actual iPad.
 
@@ -59,14 +55,6 @@ When the Fence & Gates builder is built, the Sport Court Builder's own fencing, 
 records must hand off to it rather than keeping a second set of prices that will drift.
 Same pattern as §25's retaining hand-off. **Write the seam into the spec up front.**
 
-### 4 · "Create a wall from this court" — Court §25
-Retaining is an allowance with a note pointing at the Wall Builder. It should create the wall object.
-
-### 5 · CONC and WALL do not re-read after a config pull
-Neither `CONC` nor `WALL` refreshes itself when settings arrive from the server — a device that
-pulls new concrete or wall pricing keeps the old figures until reload. `CRT` has the same gap.
-The lighting price database (`_lgtFixStoredPrices`) is the pattern to copy.
-
 ### 6 · Concrete engine §19 and §20
 - §19 the Advanced-settings UI.
 - §20 AI geometry auto-detection from the trace.
@@ -93,9 +81,6 @@ Both the Wall and Court specs ask for it: store estimated cost, actual bid, cont
 system, finish, access and region, then analyse variance and recalibrate the Price Book.
 Eventually worth more than any national cost data.
 
-### 12 · `pt-autobar` is dead code
-Never mounted anywhere. Either mount it or delete it.
-
 ### 13 · Older open items
 - Decide whether to repair "Project Sample 1" (`bid_mt9her0rfie5`).
 - Verify exports (client PDF, plant report, proposal) against DEMO data.
@@ -107,6 +92,12 @@ Never mounted anywhere. Either mount it or delete it.
 
 ## Done
 
+- **v1474** Engines re-read after a config pull; the dead auto bar deleted; a court hands its
+  retaining wall to the Wall Builder; Project Info opens the plan with the box focused.
+- **v1473** Relational placement — beside, next to, near, clear of, facing.
+- **v1472** The whole-garden box, stamp snapping, the tray saved with the project.
+- **v1471** The staging tray. **v1470** The site frame and the placement solver.
+- **v1469** Resize grips — corners keep the shape, edges do not.
 - **v1462** Natural language on the Sport Court Builder; schema generated from the rules; patch
   applied through the builder's own setter; court placed on the plan at true size.
 - **v1461** Sport Court Builder reachable without tracing — courts list in Specialty & Amenities.

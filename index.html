@@ -7438,7 +7438,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1473</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1474</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27651,7 +27651,9 @@ function _renderPInfoCards(){ const host=document.getElementById("pinfo-refcards
       +(sb.note?`<div class="pinfo-note">${escAttr(sb.note)}</div>`:"")
       +(sb.verified===false?`<div class="pinfo-note sb-warn">These are estimates, not the code. Read them off the city before you rely on them.</div>`:"")
       +(sb.cite||sb.url?`<div class="pinfo-note">Source: ${sb.url?`<a href="${escAttr(sb.url)}" target="_blank" rel="noopener">${escAttr(sb.cite||sb.url)}</a>`:escAttr(sb.cite)}${sb.checked?` \u00b7 checked ${escAttr(sb.checked)}`:""}</div>`:"")
-      +`<div class="pinfo-note">${_sbLookRow(cityRaw)}</div>`;
+      +`<div class="pinfo-note">${_sbLookRow(cityRaw)}</div>`
+      +`<div class="pinfo-note" style="margin-top:.55rem">These are the figures the plan places
+         against. <b class="rtap" onclick="pinfoToPlan()">Design the garden on the plan →</b></div>`;
   })();
   const method=WC("method")==="spray"?"Spray":"Drip"; const ie=Math.round((WC("method")==="spray"?WC("ieSpray"):WC("ieDrip"))*100);
   const waterHtml=kv("Reference ETo",WC("eto")+" in/yr")+kv("Irrigation",method+" · "+ie+"%")+kv("Water rate","$"+(+WC("rate")).toFixed(2)+"/HCF")+`<div class="pinfo-note">MWELO/WUCOLS: gallons = ETo × plant factor × canopy area × 0.62 ÷ irrigation efficiency. Enforced at the CD phase.</div>`;
@@ -28742,6 +28744,7 @@ async function configLoad(silent,force){
     // place before the reload, so the corrected numbers are what actually load —
     // and this device becomes dirty, so it pushes the correction back up.
     try{ _lgtFixStoredPrices(); }catch(e){}
+    try{ _engReload(); }catch(e){}          // concrete, wall, court and setbacks, same as above
     try{ _pavFixStoredPrices(); }catch(e){}
     try{ localStorage.setItem("studioh_cfg_applied",serverStamp); }catch(e){}
     // Applying what the server sent does not make the rest of this device agree with it —
@@ -49818,6 +49821,19 @@ function _sbHoaFor(item){
 }
 // The row in Project Info that runs the lookup. It asks for the page because a setback has to come
 // from a document, and shows what came back before anything is written.
+// Project Info is where the lot, the setbacks and the HOA are read — the inputs to placement — so
+// it points at the plan rather than carrying a second box that would behave differently there.
+function pinfoToPlan(){
+  try{ closePInfo(); }catch(e){}
+  try{ if(typeof openTracer==="function"&&(typeof PT==="undefined"||!PT.open)) openTracer(); }catch(e){}
+  setTimeout(()=>{
+    try{ PT.dockGroup="ai"; _ptDockRefresh(); }catch(e){}
+    try{ trayRender(); }catch(e){}
+    const el=document.getElementById("pt-siteask");
+    if(el){ try{ el.focus(); }catch(e){} }
+    else { try{ _toast("Trace the lot and mark the front door or the garage first.","#8A6D1F"); }catch(e){} }
+  }, 420);
+}
 function _sbLookRow(city){
   const c=escAttr(city||"");
   return '<div class="sb-look">'
@@ -56979,6 +56995,28 @@ function courtSetText(path,v){ const parts=String(path).split("."); let o=CRT;
   for(let i=0;i<parts.length-1;i++){ if(o[parts[i]]==null) o[parts[i]]={}; o=o[parts[i]]; }
   o[parts[parts.length-1]]=String(v==null?"":v); courtSave(); try{ renderPriceBook(); }catch(e){} }
 function _cRule(){ return CRT.rule||CRT_RULE; }
+// Settings pulled from the server land in localStorage, and these three engines only ever read
+// theirs once, at load. A device that pulled new concrete, wall or court pricing kept quoting the
+// old figures until somebody reloaded the page. This re-reads them, and is called on the way out
+// of a config apply the way the lighting price database already is.
+function _engReload(){
+  let n=0;
+  try{ const j=JSON.parse(localStorage.getItem("studioh_concrete_v1")||"null");
+    if(j&&j.use&&j.anchor){ CONC=j; n++; } }catch(e){}
+  try{ const j=JSON.parse(localStorage.getItem("studioh_wall_v2")||"null");
+    if(j&&j.rec&&j.rule){ WALL=j;
+      Object.keys(WALL_REC).forEach(k=>{ if(!WALL.rec[k]) WALL.rec[k]=JSON.parse(JSON.stringify(WALL_REC[k])); });
+      Object.keys(WALL_RULE).forEach(k=>{ if(WALL.rule[k]==null) WALL.rule[k]=JSON.parse(JSON.stringify(WALL_RULE[k])); });
+      n++; } }catch(e){}
+  try{ const j=JSON.parse(localStorage.getItem("studioh_court_v1")||"null");
+    if(j&&j.rec&&j.rule){ CRT=j;
+      Object.keys(CRT_REC).forEach(k=>{ if(!CRT.rec[k]) CRT.rec[k]=JSON.parse(JSON.stringify(CRT_REC[k])); });
+      Object.keys(CRT_RULE).forEach(k=>{ if(CRT.rule[k]==null) CRT.rule[k]=JSON.parse(JSON.stringify(CRT_RULE[k])); });
+      n++; } }catch(e){}
+  try{ const j=JSON.parse(localStorage.getItem("studioh_setbacks_v1")||"null");
+    if(j&&typeof j==="object"){ Object.keys(j).forEach(k=>{ SETBACKS[k]=Object.assign({},SETBACKS[k]||{},j[k]); }); n++; } }catch(e){}
+  return n;
+}
 function cRec(id){ return (CRT.rec&&CRT.rec[id])||CRT_REC[id]||null; }
 // §22 The project's own Budget / Standard / Premium point picks the band in every record. There
 // is no second contractor multiplier on top — that is how the rest of this app already works,
@@ -57906,6 +57944,29 @@ function cbToTrace(){
   try{ _toast((c.name||"Court")+" placed on the plan \u2014 drag it where you want it.","#2F5B23"); }catch(e){}
   cbRender();
 }
+// §25 A court that needs retaining hands the wall to the Wall Builder rather than guessing at it.
+// The wall starts at the length of the pad's uphill side and the allowance is dropped, because the
+// wall now prices itself and counting both would pay for it twice.
+function cbToWall(){
+  const c=CB.c; if(!c) return;
+  const g=courtGeom(c);
+  const R=_wRule();
+  const w=wallNew({type:"retain", sys:"cmu",
+    lf:Math.round(Math.max(g.padW,g.padL)),
+    h:({flat:3, mild:4, moderate:6, steep:8}[c.topo]||4),
+    access:({easy:"excellent", moderate:"normal", difficult:"restricted", veryDifficult:"extreme"}[c.access]||"normal"),
+    surcharge:"patio", slopeAbove:({flat:"level",mild:"s10",moderate:"s20",steep:"s33"}[c.topo]||"level")});
+  w.retH=w.h;
+  w.name=((c.name||"Sport court")+" retaining");
+  if(typeof courtsAll==="function"){ /* the court keeps its own identity */ }
+  if(!Array.isArray(S.walls)) S.walls=[];
+  c.retainingOn=false; c.retainingAllow=0;         // the wall pays for itself now
+  try{ _bidSchedule(); }catch(e){}
+  cbClose();
+  WB.w=w; WB.idx=null; WB.id=null; WB.open=true;
+  try{ wbRender(); }catch(e){}
+  try{ _toast("Started a retaining wall at "+w.lf+" LF and "+w.h+"\u2032 \u2014 the court's allowance is dropped.","#2F5B23"); }catch(e){}
+}
 function cbName(v){ if(CB.c){ CB.c.name=String(v||""); try{ _bidSchedule(); }catch(e){} cbRender(); } }
 function cbDup(){ if(CB.id){ const d=courtDuplicate(CB.id); if(d){ CB.id=d.courtId; CB.c=d; cbRender(); } } }
 function cbDel(){ if(!CB.id) return; courtDelete(CB.id); cbClose(); }
@@ -57963,9 +58024,10 @@ function cbRender(){
     if(!incG) si+=_cbRow("Fine grade & compaction","",_cbTog("siteFine",c.siteFine));
     if(!incA) si+=_cbRow("Aggregate base","",_cbTog("siteAgg",c.siteAgg));
     si+=_cbRow("Geotextile","",_cbTog("siteGeo",c.siteGeo));
-    si+=_cbRow("Retaining walls","not guessed here — build them properly in the Wall Builder",
+    si+=_cbRow("Retaining walls","an allowance until you build the real thing",
       _cbTog("retainingOn",c.retainingOn,c.retainingOn?"allowance":"none")
-      +(c.retainingOn?(' '+_cbNum("retainingAllow",c.retainingAllow,500,"$")):''));
+      +(c.retainingOn?(' '+_cbNum("retainingAllow",c.retainingAllow,500,"$")
+        +' <button class="wb-chip" onclick="cbToWall()">Build it in the Wall Builder</button>'):''));
   }
   h+=SEC("site","Site conditions",(R.access[c.access]||{}).label+" · "+(R.topo[c.topo]||{}).label, si);
   // ── 3 BASE (§4) ─────────────────────────────────────────────────────────
@@ -61519,19 +61581,9 @@ function _singleOn(){ return typeof PT!=="undefined" && PT.singleSeg===true; }  
 function ptToggleSingle(){ PT.singleSeg=!_singleOn(); try{ ptRenderModal(); }catch(e){}
   try{ _toast(_singleOn()?"Single-line: each line is one segment (2 points)":"Polyline: keep clicking to extend a line","#2F5B23"); }catch(e){} }
 function _lightAutoOn(){ return typeof PT!=="undefined" && PT.lightAuto!==false; } // default ON
-function ptRenderAutoBar(){ const el=document.getElementById("pt-autobar"); if(el){ el.innerHTML=_ptAutoBarHTML(); _ptCenterAutobar(); } }
+function ptRenderAutoBar(){ /* the auto bar is gone; the dock does this now */ }
 // keep the bottom bar centred in the open area (left rail's right edge -> sidebar's left edge)
-function _ptCenterAutobar(){
-  const bar=document.getElementById("pt-autobar"), host=document.getElementById("pt-stagewrap"); if(!bar||!host) return;
-  const hr=host.getBoundingClientRect();
-  // right sidebar bottom sits 20px up; left rail = stagewrap's left edge. Span the gap with 30px padding each side.
-  let rightPx=30;
-  const card=document.getElementById("pt-card"); if(card){ const cr=card.getBoundingClientRect(); if(cr.width>0) rightPx=Math.round(Math.max(30,(hr.right-cr.left)+30)); }
-  bar.style.left="30px"; bar.style.right=rightPx+"px";
-  bar.style.transform="none"; bar.style.maxWidth="none"; bar.style.bottom="20px";
-}
-window.addEventListener("resize",function(){ try{ if(typeof PT!=="undefined"&&PT.open){ _ptCenterAutobar(); } }catch(e){} });
-// pick a zone from the bottom bar: switch the trace layer; run auto-fill if that zone has it on
+function _ptCenterAutobar(){ /* nothing to centre — see ptRenderAutoBar */ }
 function ptPickZone(k){
   const a=PT_AUTOFILL.find(x=>x.k===k); if(!a) return;
   if(typeof PT==="undefined"||!PT.open) return;
@@ -62730,41 +62782,12 @@ function _ptAiHit(c){ const tol=15; let best=-1, bd=tol;
     if(d<bd){ bd=d; best=i; } });
   return best; }
 function _ptFtText(a){ try{ return Math.round(_ptFeetBetween({x:a.x,y:a.y},{x:a.tx,y:a.ty}))+"\u2032"; }catch(e){ return ""; } }
-function _ptAutoBarHTML(){
-  const active=(typeof PT!=="undefined")?PT.mode:null;
-  const catOn=(typeof PT!=="undefined");
-  const cat=catOn?('<button class="aitem catsel" title="Pick a category (all trace types)" onclick="ptCatMenu()">'
-    + '<span class="catdot" style="background:'+_ptColor(PT.mode)+'"></span><span>'+_ptMode(PT.mode).label+' \u25be</span></button><span class="asep"></span>'):'';
-  const ortho='<button class="aitem ortho'+(_orthoOn()?' on':'')+'" title="Square 90\u00b0 corners \u2014 tap to toggle on/off" onclick="event.stopPropagation();ptToggleOrtho()">'
-    + '<svg viewBox="0 0 24 24"><path d="M7 4v13h13"/><path d="M7 11h6v6"/></svg><span>'
-    + (_ptOrthoBase()?_ptOrthoBase().toFixed(0)+"\u00b0":"90\u00b0")+'</span></button>'
-    + (_orthoOn()?('<button id="pt-freechip" class="aitem" title="Hold to draw off the axis \u2014 or hold the space bar"'
-        + ' onclick="event.stopPropagation()"'
-        + ' onpointerdown="event.stopPropagation();ptOrthoFree(true)"'
-        + ' onpointerup="ptOrthoFree(false)" onpointercancel="ptOrthoFree(false)" onpointerleave="ptOrthoFree(false)">'
-        + '<svg viewBox="0 0 24 24"><path d="M4 20 20 4"/><path d="M14 4h6v6"/></svg><span>Free</span></button>'):'')
-    + '<span class="asep"></span>';
-  const fill='<button class="aitem'+((typeof PT!=="undefined"&&PT._fillPick)?' on':'')+'" title="Fill (BO): close a gap with lines, tap Fill, then tap inside the space" onclick="event.stopPropagation();ptFillMode()">'
-    + '<svg viewBox="0 0 24 24"><path d="M5 11 11 5l6 6-6 6-6-6z"/><path d="M11 5 8.5 2.5"/><path d="M18.6 14c.8 1 1.4 2 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-.8.6-1.8 1.4-2.8z"/></svg><span>Fill</span></button>'
-    + '<span class="asep"></span>';
-  const line='<button class="aitem'+(_singleOn()?' on':'')+'" title="Single-line: each line is one segment (2 points), not a connected polyline" onclick="event.stopPropagation();ptToggleSingle()">'
-    + '<svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.6 16.4 16.4 7.6"/></svg><span>Line</span></button>'
-    + '<span class="asep"></span>';
-  const rect='<button class="aitem'+(_toolRect()?' on':'')+'" title="Rectangle: click a corner, click the first edge (any angle), move for width, click to finish \u2014 shows ft + SF live" onclick="event.stopPropagation();ptToolRect()">'
-    + '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg><span>Rect</span></button>'
-    + '<span class="asep"></span>';
-  const ts=(typeof PT!=="undefined"&&PT.toolset)||"trace";
-  const seg=_ptSetSelector(ts);
-  if(ts==="ai") return seg+_ptAiBarHTML();
-  if(ts==="edit") return seg+_ptEditBarHTML();
-  return seg + cat
-    + PT_AUTOFILL.map(a=>{
-      const on=(active===a.mode), af=(a.assist==="autofill");
-      return '<button class="aitem'+(af?' af':'')+(on?' on':'')+'" data-mode="'+a.mode+'" title="'+escAttr(a.label)+'" onclick="ptPickZone(\''+a.k+'\')">'
-        + '<svg viewBox="0 0 24 24">'+a.icon+'</svg><span>'+a.label+'</span>'
-        + (a.assist?'<i class="afdot"></i>':'') + '</button>';
-    }).join("");
-}
+// The auto bar was the bottom toolbar before the dock replaced it. Nothing has mounted
+// #pt-autobar for a long time, so _ptAutoBarHTML built a category picker, an ortho toggle, a fill
+// button and the snap chips that no one could ever see — every one of them now lives in the dock.
+// Deleted rather than mounted. ptRenderAutoBar and _ptCenterAutobar stay as no-ops because half a
+// dozen call sites still ask for them, and a call that does nothing is cheaper than six edits that
+// could each be wrong.
 function ptSaveTrace(){ try{ const data={v:1,polys:PT.polys,trees:PT.trees,guides:(PT.guides||[]),ai:(PT.ai||[]),demoN:(PT.demoN||null),ppf:PT.ppf,page:PT.page,scale:PT.scale,renderScale:PT.renderScale,subtype:PT.subtype,custMat:(PT.custMat||null),pdf:PT.pdfData||null,sat:(PT.satBase||null),saved:new Date().toISOString()};
     const blob=new Blob([JSON.stringify(data)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
     const cn=(document.getElementById("client-name")||{}).value||"plan"; const base=(""+cn).replace(/[^a-z0-9]+/gi,"-").toLowerCase().replace(/^-+|-+$/g,"")||"plan";
