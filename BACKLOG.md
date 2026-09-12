@@ -24,6 +24,16 @@ Ordered roughly by how much it costs us to keep not doing it.
 - Speech needs a real device check — the API is present in the headless browser, but permission,
   accents and iPad Safari behaviour are untested on the actual iPad.
 
+### 1b · Setbacks — deploy the reader, then research the 51
+- **`WORKER-add-readpage.md` is written and not deployed.** Until it is, the lookup refuses to run
+  rather than answering from memory. `cd worker-scrape && npx wrangler deploy`.
+- **51 of 65 cities are still estimates** (`verified:false`) — the OC cities and a band of SGV ones.
+  Warwick asked for these to be researched properly as a batch, with citations, not flagged and left.
+- Only the six original edges have real figures even on verified cities; the nine landscape items
+  inherit from the structure rule. Worth reading the actual accessory-structure sections so a fire
+  pit, a pool heater and a patio cover carry their own numbers where the code gives them one.
+- Nothing reads setbacks for pricing or placement yet — that lands with AI placement (item 1).
+
 ### 2 · Materials Library on the builders — §55/§56 (Wall) and §27 (Court)
 Both engines already accept a real product with waste (`matVeneerA/B`, `matCap`, court surface and
 cap product records). Neither has a picker wired to the library.
