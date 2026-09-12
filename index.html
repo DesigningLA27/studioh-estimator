@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1486</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1487</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -57663,6 +57663,16 @@ function _bidFacts(kind, obj){
         perSF:Math.round(r.perSF*100)/100, conf:r.conf}); }
     else if(kind==="section"&&obj){
       Object.assign(f,{section:obj, estimate:Math.round(catSubtotal(obj)||0)}); }
+    else if(kind==="fence"&&obj){ const r=fenceCost(obj);
+      Object.assign(f,{type:obj.type, lf:r.lf, h:r.h, posts:r.posts, gates:r.gates,
+        finish:obj.finish, access:obj.access, slope:obj.slope, estimate:Math.round(r.total),
+        perLF:Math.round(r.perLF*100)/100, conf:r.conf}); }
+    // Which records this job actually spent on, so a later calibration has something to point at
+    // rather than a percentage with no home. Costed construction lines only.
+    try{ const rr=(kind==="wall")?wallCost(obj):((kind==="court")?courtCost(obj):((kind==="fence")?fenceCost(obj):null));
+      if(rr&&Array.isArray(rr.lines)){ const by={};
+        rr.lines.forEach(L=>{ if(L&&L.rec&&+L.cost>0) by[L.rec]=(by[L.rec]||0)+(+L.cost); });
+        f.recs=Object.keys(by).map(k=>({rec:k, cost:Math.round(by[k])})).sort((x,y)=>y.cost-x.cost); } }catch(e){}
   }catch(e){}
   try{ f.point=["Budget","Standard","Premium"][(function(){ try{ return ptPricePoint(); }catch(e){ return 1; } })()]||"Standard"; }catch(e){}
   try{ f.region=(CRT.meta||CRT_META).region; f.city=(S.pi&&S.pi.city)||""; }catch(e){}
@@ -57734,11 +57744,22 @@ function _renderBids3(_mount){
         +'<button style="border:0;background:none;color:var(--tl);cursor:pointer;font-size:13px" title="Remove"'
         +' onclick="bidLogDrop(\''+b.id+'\');renderPriceBook()">\u00d7</button></div>';
     });
-    ins+='<div style="font-size:10.5px;color:var(--tl);line-height:1.55;margin-top:10px">'
-      +(G.agree
-        ? 'Consistent enough to act on. Moving a price is still a decision \u2014 open the record this is about and change it there, so the change is one you made.'
-        : 'Not consistent enough to act on. Log more, or look at what is different about the jobs that came in high.')
-      +'</div>';
+    if(G.agree){
+      const PL=bidLogApplyPlan(G.key);
+      ins+='<div style="margin-top:10px"><button class="btn" style="width:100%" onclick="bidLogApplyAsk(\''+esc(G.key)+'\')">'
+        +(PL.ok?('Move '+(PL.items.length===1?'this price':('these '+PL.items.length+' prices'))+' '+(G.median>0?"+":"")+G.median+'%'):'Why this cannot be applied yet')
+        +'</button></div>'
+        +'<div style="font-size:10.5px;color:var(--tl);line-height:1.55;margin-top:7px">'
+        +(PL.ok?('It shows you exactly which records move and what they become before anything changes, '
+                +'and only touches the ones these jobs actually spent on \u2014 '+PL.covered+'% of the estimate'
+                +(PL.skipped?(', leaving '+PL.skipped+' smaller line'+(PL.skipped===1?'':'s')+' alone'):'')+'.')
+               :esc(PL.why))
+        +'</div>';
+    } else {
+      ins+='<div style="font-size:10.5px;color:var(--tl);line-height:1.55;margin-top:10px">'
+        +'Not consistent enough to act on. Log more, or look at what is different about the jobs that came in high.'
+        +'</div>';
+    }
   }
   const card=document.createElement("div");
   card.className="pbx-card pb3";
@@ -57769,6 +57790,125 @@ function bidLogReview(){
                  : ("bids scatter from "+Math.round(lo)+"% to "+Math.round(hi)+"% — the spread is the story, not the average"))};
   }).sort((a,b)=>b.n-a.n);
   return {n:BIDLOG.length, groups:out};
+}
+// ── APPLYING WHAT THE BIDS SAY ─────────────────────────────────────────────
+// §77 closes the loop. When three or more bids on the same kind of thing agree, the gap between
+// them and the book is a real calibration, and re-typing it by hand across a dozen records is how
+// it never happens. This proposes the exact edit — which records, what they are now, what they
+// would become — and will not touch anything until it is read and confirmed. It is still a
+// decision made by a person; all this removes is the arithmetic.
+//
+// Which records: the ones the bid jobs actually spent their money on. Every logged bid keeps the
+// record id and cost of each line, so the group is ranked by share of the estimate and the plan
+// covers the records carrying the first 70% of it. The long tail is left alone — a 14% gap on a
+// wall is not evidence about its permit allowance.
+const BID_APPLY_COVER=0.70;
+function _bidEngineOf(id){
+  try{ if((WALL.rec||WALL_REC)[id]) return {k:"wall", store:WALL, seed:WALL_REC, save:wallSave, nm:"Wall"}; }catch(e){}
+  try{ if((CRT.rec||CRT_REC)[id])   return {k:"court",store:CRT,  seed:CRT_REC,  save:courtSave, nm:"Sport Court"}; }catch(e){}
+  try{ if((FNC.rec||FNC_REC)[id])   return {k:"fence",store:FNC,  seed:FNC_REC,  save:fenceSave, nm:"Fence"}; }catch(e){}
+  return null;
+}
+// The edit, worked out and not yet made.
+function bidLogApplyPlan(key){
+  const rv=bidLogReview(); const G=(rv.groups||[]).find(g=>g.key===key);
+  if(!G) return {ok:false, why:"No such group."};
+  if(!G.agree) return {ok:false, why:G.says};
+  const rows=BIDLOG.filter(b=>{
+    const k=b.kind+(b.kind==="section"?(":"+b.section):(b.kind==="wall"?(":"+(b.sys||"")):(b.kind==="court"?(":"+(b.type||"")):"")));
+    return k===key; });
+  const withRecs=rows.filter(b=>Array.isArray(b.recs)&&b.recs.length);
+  if(!withRecs.length) return {ok:false,
+    why:"These bids were logged before the app kept which records each job spent on, so there is nothing to point the change at. Log one more bid on this kind of job and it will have it."};
+  // share of estimate by record, across every bid in the group
+  const tot={}; let grand=0;
+  withRecs.forEach(b=>{ (b.recs||[]).forEach(r=>{ if(!r||!r.rec) return;
+    tot[r.rec]=(tot[r.rec]||0)+(+r.cost||0); grand+=(+r.cost||0); }); });
+  if(!(grand>0)) return {ok:false, why:"The logged jobs carry no costed lines."};
+  const ranked=Object.keys(tot).sort((a,b)=>tot[b]-tot[a]);
+  const f=1+(G.median/100);
+  const items=[]; let run=0;
+  for(const id of ranked){
+    const share=tot[id]/grand;
+    if(run>=BID_APPLY_COVER && items.length) break;
+    run+=share;
+    const E=_bidEngineOf(id); if(!E) continue;
+    const rec=(E.store.rec||E.seed)[id]; if(!rec) continue;
+    const seed=(E.seed||{})[id]||{};
+    items.push({rec:id, engine:E.k, engineNm:E.nm, nm:rec.nm, unit:rec.u, share:share,
+      from:[+rec.lo||0, +rec.std||0, +rec.pre||0],
+      to:[_bidR(rec.lo*f), _bidR(rec.std*f), _bidR(rec.pre*f)],
+      onSeed:(+rec.lo===+seed.lo && +rec.std===+seed.std && +rec.pre===+seed.pre)});
+  }
+  const skipped=ranked.filter(id=>!items.some(x=>x.rec===id)).length;
+  // What this does to a real total, which is not the gap itself: the lines left alone dilute it,
+  // and somebody comparing the two numbers afterwards deserves to have been told that first.
+  let estTot=0, movedTot=0;
+  withRecs.forEach(b=>{ estTot+=(+b.estimate||0);
+    (b.recs||[]).forEach(r=>{ if(items.some(x=>x.rec===r.rec)) movedTot+=(+r.cost||0); }); });
+  const lift=(estTot>0)?(G.median*movedTot/estTot):G.median;
+  return {ok:items.length>0, key:key, median:G.median, factor:f, n:G.n, bids:withRecs.length,
+    covered:Math.round(run*100), items:items, skipped:skipped, lift:Math.round(lift*10)/10,
+    why:items.length?"":"None of the records these bids spent on are in the wall, court or fence books."};
+}
+// Round the way a price book is written: cents under $10, whole dollars to $1,000, then 10s.
+function _bidR(v){ v=+v||0;
+  if(v<10) return Math.round(v*100)/100;
+  if(v<1000) return Math.round(v);
+  return Math.round(v/10)*10; }
+// Make the edit. Every record changed is stamped with where the change came from, so six months
+// later the book can still say why it is not the seed any more.
+function bidLogApplyRun(key){
+  const P=bidLogApplyPlan(key); if(!P.ok) return P;
+  const stamp="Moved "+(P.median>0?"+":"")+P.median+"% on "+P.bids+" logged bid"+(P.bids===1?"":"s")+", "+new Date().toISOString().slice(0,10);
+  const saves={};
+  P.items.forEach(it=>{
+    const E=_bidEngineOf(it.rec); if(!E) return;
+    const rec=(E.store.rec||{})[it.rec]; if(!rec) return;
+    rec.lo=it.to[0]; rec.std=it.to[1]; rec.pre=it.to[2];
+    rec.src="bid log";
+    rec.upd=new Date().toISOString().slice(0,7);
+    rec.note=(rec.note?(rec.note.replace(/\s*Moved [+-]?[\d.]+% on \d+ logged bids?, \d{4}-\d\d-\d\d\.?/g,"").trim()+" "):"")+stamp+".";
+    saves[E.k]=E.save;
+  });
+  Object.keys(saves).forEach(k=>{ try{ saves[k](); }catch(e){} });
+  try{ _engReload(); }catch(e){}
+  try{ renderPriceBook(); }catch(e){}
+  return Object.assign({}, P, {applied:true, stamp:stamp});
+}
+// The button on the group. Reads the plan out first; nothing moves until the second tap.
+async function bidLogApplyAsk(key){
+  const P=bidLogApplyPlan(key);
+  if(!P.ok){ await askTell("Nothing to apply", P.why); return; }
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const m2=v=>(+v||0).toFixed(2);
+  let body='<div style="font-size:12.5px;line-height:1.6;margin-bottom:8px">'
+    +P.bids+' bid'+(P.bids===1?"":"s")+' on this put it '+(P.median>0?"+":"")+P.median+'% against the book, consistently. '
+    +'That moves '+P.items.length+' record'+(P.items.length===1?"":"s")+' — the ones these jobs actually spent on, '
+    +P.covered+'% of the estimate'+(P.skipped?(', leaving '+P.skipped+' smaller line'+(P.skipped===1?"":"s")+' alone'):"")+'.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:baseline;font-size:11.5px">'
+    +'<span style="font:700 9px var(--tkf,inherit);letter-spacing:.08em;text-transform:uppercase;opacity:.6">Record</span>'
+    +'<span style="font:700 9px var(--tkf,inherit);letter-spacing:.08em;text-transform:uppercase;opacity:.6;text-align:right">Now</span>'
+    +'<span style="font:700 9px var(--tkf,inherit);letter-spacing:.08em;text-transform:uppercase;opacity:.6;text-align:right">After</span>';
+  P.items.forEach(it=>{
+    body+='<span><b>'+esc(it.nm)+'</b><span style="display:block;opacity:.6;font-size:10px">'
+      +esc(it.engineNm)+' · '+esc(it.unit)+' · '+Math.round(it.share*100)+'% of these jobs'
+      +(it.onSeed?"":" · already edited by hand")+'</span></span>'
+      +'<span style="text-align:right;font-variant-numeric:tabular-nums">'+m2(it.from[0])+' / '+m2(it.from[1])+' / '+m2(it.from[2])+'</span>'
+      +'<span style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700">'+m2(it.to[0])+' / '+m2(it.to[1])+' / '+m2(it.to[2])+'</span>';
+  });
+  body+='</div><div style="font-size:11px;opacity:.7;margin-top:9px;line-height:1.55">'
+    +'Budget / Standard / Premium. A job like these ends up about '+(P.lift>0?"+":"")+P.lift+'% dearer, '
+    +'not the full '+(P.median>0?"+":"")+P.median+'% \u2014 the lines left alone dilute it, which is the point. '
+    +'Each record keeps a note saying this came from the bid log and when, '
+    +'and ↺ Back to the defaults on that book undoes all of it.</div>';
+  const a=await askDlg({title:"Move these prices "+(P.median>0?"+":"")+P.median+"%?", body:body,
+    actions:["Move them","Leave it"]});
+  if(a!=="Move them") return;
+  const R=bidLogApplyRun(key);
+  await askTell(R.applied?"Moved":"Nothing changed",
+    R.applied?(R.items.length+" record"+(R.items.length===1?"":"s")+" updated. "+esc(R.stamp)+".")
+             :(R.why||"Nothing changed."));
 }
 // ── REAL PRODUCTS ON THE BUILDERS ──────────────────────────────────────────
 // §55/§56 on the wall, §27 on the court. A veneer, a cap or a court surface can be a named
