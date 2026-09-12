@@ -7449,7 +7449,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1495</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1496</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -65498,11 +65498,31 @@ function ptLoadTraceFile(input){ const f=input&&input.files&&input.files[0]; if(
 function ptAutoSave(){ try{ if(window.localStorage) localStorage.setItem("studioh_pt_last", JSON.stringify({polys:PT.polys,trees:PT.trees,ppf:PT.ppf,subtype:PT.subtype,custMat:(PT.custMat||null),sat:(PT.satBase||null),demoN:(PT.demoN||null),pointBy:(PT.pointBy||null)})); }catch(e){} }
 function ptRestoreLast(){ if(!PT.doc){ alert("Open the PDF plan first, then restore the trace onto it."); return; }
   try{ const s=window.localStorage&&localStorage.getItem("studioh_pt_last"); if(!s){ alert("No auto-saved trace found in this browser."); return; } ptRestoreTrace(JSON.parse(s)); }catch(e){ alert("No auto-saved trace found."); } }
+// A project carries only the plants it actually changed — a custom one, or a shipped one somebody
+// edited. It must NOT carry the shipped book, which is a shared library: a project that carried a
+// copy would paste a stale snapshot back over the live book when it was opened.
+//
+// This compared the whole record against its default, which quietly went wrong the day the library
+// started seeding reference data onto shipped plants. _seedTreeGrowth and _seedUSFSGrowth write
+// sixteen growth fields onto every tree and palm at boot — USFS Urban Tree Database figures, not
+// anybody's edit — and PLANT_DB_DEFAULTS does not declare them, so every tree and palm looked
+// edited and every project shipped all 24 of them. Shrubs and groundcover, which get no seeded
+// fields, correctly embedded none: that is the control case.
+//
+// So only the keys the DEFAULT declares are compared. A field the library added afterwards is the
+// library's, and the library is where it stays.
+function _bidPlantEdited(p,d){
+  if(!d) return true;
+  try{
+    for(const k in d){ if(!Object.prototype.hasOwnProperty.call(d,k)) continue;
+      if(JSON.stringify(p[k])!==JSON.stringify(d[k])) return true; }
+  }catch(e){ return true; }
+  return false;
+}
 function _bidPlants(){ const out={shrub:[],gc:[],tree:[],palm:[]};
   ["shrub","tree","palm","gc"].forEach(kind=>{ const defs=(typeof PLANT_DB_DEFAULTS!=="undefined"?PLANT_DB_DEFAULTS[kind]:null)||[]; const defMap={}; defs.forEach(d=>{ defMap[d.id]=d; });
-    (PLANT_DB[kind]||[]).forEach(p=>{ if(!p||!p.id) return; const d=defMap[p.id]; let embed=false;
-      if((""+p.id).indexOf("cust_")===0 || !d){ embed=true; }            // custom / new plant
-      else { try{ embed = JSON.stringify(p)!==JSON.stringify(d); }catch(e){ embed=true; } } // edited standard plant
+    (PLANT_DB[kind]||[]).forEach(p=>{ if(!p||!p.id) return; const d=defMap[p.id];
+      const embed=((""+p.id).indexOf("cust_")===0) || _bidPlantEdited(p,d);
       if(embed) out[kind].push(JSON.parse(JSON.stringify(p))); });
   }); return out; }
 function _bidPayload(){ return { v:1, app:"studioh-estimator", savedAt:new Date().toISOString(),
@@ -66235,7 +66255,22 @@ function restoreBid(bid){
   _SPEC_CACHE=null;                       // the spec sweep memo belongs to the old project
   if(!bid||!bid.S){ alert("That doesn't look like a saved bid file."); return; }
   try{ specResync(); }catch(e){}
-  if(bid.plants){ try{ ["shrub","gc","tree","palm"].forEach(kind=>{ PLANT_DB[kind]=PLANT_DB[kind]||[]; (bid.plants[kind]||[]).forEach(pl=>{ if(pl&&pl.id){ const i=PLANT_DB[kind].findIndex(x=>x.id===pl.id); if(i>=0) PLANT_DB[kind][i]=JSON.parse(JSON.stringify(pl)); else PLANT_DB[kind].push(JSON.parse(JSON.stringify(pl))); } }); }); if(typeof plantBookSave==="function") plantBookSave(); }catch(e){} }
+  // Merge, never replace. This used to overwrite the live record wholesale, which meant opening an
+  // old project stripped every field the library has seeded since it was saved — growth data, image
+  // links, anything — and then wrote the result to the shared book. A project's copy of a plant is
+  // the project's edits, not the whole truth about that plant, so its fields go ON TOP of the live
+  // record and nothing already there is lost. It also means an old project carrying megabytes of
+  // long-expired base64 images cannot put them back into the book.
+  if(bid.plants){ try{ ["shrub","gc","tree","palm"].forEach(kind=>{ PLANT_DB[kind]=PLANT_DB[kind]||[];
+    (bid.plants[kind]||[]).forEach(pl=>{ if(!pl||!pl.id) return;
+      const i=PLANT_DB[kind].findIndex(x=>x.id===pl.id);
+      if(i<0){ PLANT_DB[kind].push(JSON.parse(JSON.stringify(pl))); return; }
+      const live=PLANT_DB[kind][i], inc=JSON.parse(JSON.stringify(pl));
+      Object.keys(inc).forEach(k=>{
+        // a stale base64 image never goes back into the book — images live in R2 now
+        if(/^(img|image|photo|thumb)/i.test(k) && typeof inc[k]==="string" && inc[k].indexOf("data:image")===0) return;
+        live[k]=inc[k]; });
+    }); }); if(typeof plantBookSave==="function") plantBookSave(); }catch(e){} }
   // Wipe any residue (e.g. the boot sample) first, so a project saved before a field existed
   // doesn't inherit that field's sample value — the summary must reflect THIS project only.
   try{ const _d=JSON.parse(JSON.stringify(_S_DEFAULT));
