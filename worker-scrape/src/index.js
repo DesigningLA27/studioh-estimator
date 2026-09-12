@@ -54,6 +54,13 @@ export default {
 
     try {
       if (body.type === "scrape")   return json(await scrapeOne(body.url));
+      // Plain text of one page, for reading a source document — municipal code, HOA
+      // guidelines, a spec sheet. It returns what the page says and nothing more; the
+      // caller does the understanding. This exists so a setback is read off the code
+      // rather than recalled: the AI proxy has no web access, and a figure remembered
+      // instead of read is exactly the kind of quiet wrong answer that shows up at
+      // plan check.
+      if (body.type === "readpage") return json(await readPage(body.url, body.max));
       // Same as "scrape" but for a page you actually want EVERY photo from — a
       // portfolio project page, not a single-product listing. "scrape" caps at 10
       // deliberately (one hero photo is the point there); this raises that cap without
@@ -181,6 +188,35 @@ async function getHtml(url) {
   const ct = r.headers.get("content-type") || "";
   if (!/html|xml/i.test(ct)) throw new Error("not a web page (" + ct + ")");
   return { html: (await r.text()).slice(0, 1500000), finalUrl: r.url || url };
+}
+
+async function readPage(url, max) {
+  url = String(url || "").trim();
+  let u;
+  try { u = new URL(url); } catch (e) { return { ok: false, error: "bad url" }; }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return { ok: false, error: "only http(s)" };
+  let html, finalUrl;
+  try { ({ html, finalUrl } = await getHtml(u.href)); }
+  catch (e) { return { ok: false, error: "could not read that page — " + (e && e.message || e) }; }
+  if (!html) return { ok: false, error: "could not read that page" };
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/(p|div|li|tr|h[1-6]|section|article|td)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&#39;|&rsquo;/g, "'").replace(/&quot;|&ldquo;|&rdquo;/g, '"')
+    .replace(/&sect;/g, "\u00a7").replace(/&mdash;/g, "\u2014").replace(/&ndash;/g, "\u2013")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const cap = Math.min(+max || 120000, 200000);
+  return { ok: true, url: finalUrl || u.href,
+           text: text.slice(0, cap), truncated: text.length > cap };
 }
 
 async function scrapeOne(url, imgLimit) {
