@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1482</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1483</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8884,7 +8884,8 @@ const CATS=[
     {n:"Natural Stone Paving",         u:"SF",q:0, lo:38, hi:101, std:52},
     {n:"Brick Paving",                 u:"SF",q:0, lo:19, hi:33, std:22},
     {n:"Gravel / Decomposed Granite",  u:"SF",q:0, lo:4,  hi:14},
-    {n:"Pebble / Baja Stone Paving",   u:"SF",q:0, lo:18, hi:55},
+    {n:"Pebble / Baja Stone Paving",   u:"SF",q:0, lo:8,  hi:20, std:12},
+    {n:"Pebble \u2014 Mortar Set",          u:"SF",q:0, lo:36, hi:50, std:40},
     {n:"Permeable Pavers",             u:"SF",q:0, lo:23, hi:38, std:28},
     {n:"Concrete Mow Strip / Edging",  u:"LF",q:0, lo:12, hi:32},
     {n:"Steps — Concrete / Stone",     u:"LF",q:0, lo:120,hi:450},
@@ -9622,7 +9623,11 @@ const PAV_PRICE_DB={
   // Permeable was banded off the plain concrete-paver section, which is the wrong build — see
   // pav.permeable. Pedestrian section at 800 SF: $5 paver $22.95 / $9 $27.57 / $13 $32.19 /
   // $19 $39.12. The No. 2 vehicular subbase adds $3.13/SF on top of any of them.
-  "Permeable Pavers":           {seed:[28,60], v:[23, 28, 38]}
+  "Permeable Pavers":           {seed:[28,60], v:[23, 28, 38]},
+  // The pebble line was banded for hand-set paving but priced by the loose assembly, so the book
+  // said $30/SF and the build-up said $14. Loose is now $8/$12/$16/$20 (pav.pebble on a $3/$6/$10
+  // cobble with freight already in the per-ton price) and the set detail is its own line.
+  "Pebble / Baja Stone Paving":  {seed:[18,55], v:[8, 12, 20]}
 };
 function _pavApplyPriceDB(book){
   let ch=false;
@@ -54706,6 +54711,28 @@ const ASM_LIB={
       {n:"Miscellaneous materials",    v:0.15, hr:0},
       {n:"Cleanup",                    v:0,    hr:0.004}],
     minThick:0, maxThick:99 },
+  // 2\u2033\u20133\u2033 cobble laid as a walking surface is hand-set in mortar over a slab, not
+  // raked loose \u2014 loose cobble that size is not walkable. Setting is the whole cost: a mason
+  // places roughly 6\u20137 SF an hour, so 0.15 hr/SF against 0.014 for raking the same stone out
+  // loose. Priced as its own assembly so the loose ground-cover product and the set paving detail
+  // stop sharing one rate. Priced 2026-09.
+  "pav.pebbleset":{
+    id:"pav.pebbleset", cat:"paving", unit:"SF",
+    name:"Pebble \u2014 hand-set in mortar over slab", short:"Pebble Set",
+    spec:["2\u2033\u20133\u2033 rounded cobble","Hand-set on edge in mortar","~1\u2033 mortar bed",
+          "4\u2033 reinforced slab","#3 rebar ~18\u2033 OC","Grouted, acid-washed and sealed"],
+    attrs:{setting:"mortar", jointType:"grouted", baseType:"aggregate", baseThickIn:4,
+           slab:true, slabThickIn:4, reinforcement:"#3 @ 18in OC", sealed:true,
+           permeable:false, vehicular:false, structural:"rigid", use:"paving"},
+    items:[
+      ...CONC_SUB(),
+      {n:"Mortar bed",                 v:2.25, hr:0.012},
+      {n:"Hand-setting pebble",        v:0,    hr:0.150, pat:true},
+      {n:"Grout, wash & acid clean",   v:0.90, hr:0.030},
+      {n:"Sealer",                     v:0.85, hr:0.008, opt:true, def:"on"},
+      {n:"Miscellaneous materials",    v:0.50, hr:0},
+      {n:"Cleanup",                    v:0,    hr:0.008}],
+    minThick:0, maxThick:99 },
   "pav.cpaver":{
     id:"pav.cpaver", cat:"paving", unit:"SF",
     name:"Concrete pavers — sand set", short:"Concrete Paver",
@@ -54971,10 +54998,15 @@ let ASM_MATS=(function(){ try{ const s=localStorage.getItem("studioh_assemblies_
   {n:"Concrete Pavers",           cat:"paving", thick:2.375,asm:["pav.cpaver"], supply:{retail:{value:3, standard:6, premium:10}}},
   {n:"Brick Paving",              cat:"paving", thick:2.25, asm:["pav.brick"], supply:{retail:{value:4, standard:7, premium:12}}},
   {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.permeable","pav.cpaver"], supply:{retail:{value:5, standard:9, premium:13}}},
-  {n:"Pebble / Baja Stone Paving",cat:"paving", thick:null, asm:["pav.pebble"], sizeIn:[2,3],
-   note:"2\u2033\u20133\u2033 rounded black or white beach cobble. Smaller material is rolled 3/8\u2033 pebble, a different product.", supply:{retail:6.00}},
+  // Bulk stone is quoted per ton delivered, so the flat $2.50/SF freight that palletised goods
+  // carry is already inside the price here \u2014 charging it again doubled the delivery on cheap
+  // material ($2.50 on a $0.90 pebble).
+  {n:"Pebble / Baja Stone Paving",cat:"paving", thick:null, asm:["pav.pebble","pav.pebbleset"], sizeIn:[2,3],
+   note:"2\u2033\u20133\u2033 rounded black or white beach cobble, raked loose as ground cover. Hand-set as a walking surface is Pebble \u2014 Mortar Set. Smaller material is rolled 3/8\u2033 pebble, a different product again.", supply:{retail:{value:3, standard:6, premium:10}, freight:0}},
+  {n:"Pebble \u2014 Mortar Set",     cat:"paving", thick:null, asm:["pav.pebbleset"], sizeIn:[2,3],
+   note:"The same cobble hand-set on edge in mortar over a reinforced slab. A luxury detail \u2014 roughly 0.15 labour hours a square foot, which is why it is usually a band or an inlay rather than a whole terrace.", supply:{retail:{value:3, standard:6, premium:10}, freight:0}},
   {n:"Rolled 3/8\u2033 Pebble",       cat:"paving", sizeIn:[0.375], asm:["pav.pebble"],
-   note:"Washed rolled pebble \u2014 a different product from 2\u2033\u20133\u2033 Mexican beach pebble.", supply:{retail:0.90}},
+   note:"Washed rolled pebble \u2014 a different product from 2\u2033\u20133\u2033 Mexican beach pebble.", supply:{retail:0.90, freight:0}},
   // Poured and loose surfaces are not a set material over a sub-base — they need their own
   // assemblies, so they declare none and keep pricing off the flat book band.
   {n:"Concrete Flatwork",         cat:"paving", thick:null, asm:["pav.concrete"], supply:{retail:null}},
@@ -58660,8 +58692,8 @@ function _renderCourt3(_mount){
   card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__court">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
   _mount.appendChild(card);
 }
-const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Permeable Pavers"];
-const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Permeable Pavers":"basket"};
+const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Pebble \u2014 Mortar Set","Permeable Pavers"];
+const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Pebble \u2014 Mortar Set":"diag","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
 function _pavPoint(){ let pt=(typeof _tkPointOverride!=="undefined"&&_tkPointOverride!=null)?_tkPointOverride:null;   // _tkAt sets this when the 3 tier buttons compute
   if(pt==null){ try{ pt=ptPointFor("paving"); }catch(e){} }
