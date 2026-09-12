@@ -7457,7 +7457,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1504</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1505</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -61186,6 +61186,89 @@ function fencesAddOpen(type){ const f=fenceAdd({type:type||"wRwSxS"}); fbOpen(f.
 //
 // Nothing here writes a figure the app worked out. Every number comes back from a document with
 // the section it came from, and it is shown before it is applied.
+// ── FINDING THE ACTUAL SETBACKS ────────────────────────────────────────────────────────
+// The hard part was never reading a document — it is finding the right one. Every code host
+// refuses anything that is not a browser, so discovery cannot be automated and somebody has to
+// look once. The system is therefore built around making that once count:
+//
+//   1. The DOCUMENT is kept, not only the figures it gave. A city read from a page or a PDF keeps
+//      that source on record.
+//   2. Anyone can re-read it. A city with a document on record is one tap, not a search.
+//   3. It is shared. studioh_setbacks_v1 syncs, so a city read by one person is read for everyone.
+//   4. A whole sweep can be run — re-read every city that has a source, and report what moved.
+//
+// A commercial zoning API (Zoneomics, Regrid) would replace step 1 for every city at once, and
+// sbProvider is the seam it drops into. It is deliberately inert until a key exists: an adapter
+// that has never been run against the real service is not something to trust a setback to.
+function sbDocs(city){ const r=(typeof SETBACKS!=="undefined")?SETBACKS[String(city||"").toLowerCase().trim()]:null;
+  return (r&&Array.isArray(r.docs))?r.docs:[]; }
+function sbAddDoc(city, url, res){
+  const k=String(city||"").toLowerCase().trim(); if(!k||!url) return;
+  const r=SETBACKS[k]||(SETBACKS[k]={});
+  r.docs=Array.isArray(r.docs)?r.docs:[];
+  const got=res?Object.keys(res.items||{}).length:0;
+  const i=r.docs.findIndex(d=>d&&d.url===url);
+  const rec={url:url, at:new Date().toISOString().slice(0,10), got:got,
+    kind:(res&&res.kind)||"text", zone:(res&&res.zone)||"", note:(res&&res.note)||"",
+    items:res?Object.keys(res.items||{}):[]};
+  if(i>=0) r.docs[i]=rec; else r.docs.push(rec);
+  r.docs=r.docs.slice(-8);
+  try{ localStorage.setItem("studioh_setbacks_v1", JSON.stringify(SETBACKS)); }catch(e){}
+  try{ cfgStampKey("studioh_setbacks_v1"); _cfgSchedulePush(); }catch(e){}
+}
+// Re-read every document on record for one city, and say what moved. Nothing is written without
+// being shown first — a code that has changed is exactly the case you want to see, not absorb.
+async function sbReread(city, o){
+  o=o||{};
+  const k=String(city||"").toLowerCase().trim();
+  const docs=sbDocs(k);
+  if(!docs.length) return {ok:false, why:"No document on record for this city yet. Read one once and it is one tap from then on — for everybody."};
+  const nm=k.replace(/(^|\s)\S/g,c=>c.toUpperCase());
+  const before=JSON.parse(JSON.stringify(SETBACKS[k]||{}));
+  const out=[], changes=[];
+  for(const d of docs){
+    let r=null;
+    try{ r=await sbLookup(nm, d.url, {}); }catch(e){ r={ok:false,error:(e&&e.message)||"failed"}; }
+    if(!r||!r.ok){ out.push({url:d.url, ok:false, why:(r&&r.error)||"could not read it"}); continue; }
+    const got=r.items||{};
+    Object.keys(got).forEach(item=>{
+      const v=got[item]||{};
+      const ft=(v.rear!=null?+v.rear:(v.side!=null?+v.side:(v.front!=null?+v.front:null)));
+      if(ft==null||!isFinite(ft)) return;
+      const was=(before[item]!=null)?+before[item]:null;
+      const wasCite=((before.src||{})[item]||{}).cite||null;
+      if(was===ft && wasCite===(v.cite||null)) return;
+      changes.push({item:item, label:(SB_ITEMS.find(x=>x.k===item)||{}).nm||item,
+        was:was, now:ft, wasCite:wasCite, cite:v.cite||null, quote:v.quote||null, url:d.url});
+    });
+    out.push({url:d.url, ok:true, got:Object.keys(got).length, res:r});
+    if(!o.dry) sbAddDoc(k, d.url, r);
+  }
+  return {ok:true, city:nm, docs:out, changes:changes,
+    results:out.filter(x=>x.ok).map(x=>x.res)};
+}
+// The sweep: every city with a document on record, re-read in one pass.
+function sbSweepList(){
+  const out=[];
+  try{ Object.keys(SETBACKS).forEach(k=>{ const d=sbDocs(k); if(d.length) out.push({city:k, docs:d.length,
+    last:d.map(x=>x.at).sort().slice(-1)[0]||""}); }); }catch(e){}
+  return out.sort((a,b)=>(a.last||"").localeCompare(b.last||""));
+}
+// ── THE PROVIDER SEAM ──────────────────────────────────────────────────────────────────
+// A zoning data service would give every city at once. Zoneomics and Regrid both publish setbacks
+// at parcel level across 22,000+ jurisdictions; both want an account and a key. This is where one
+// plugs in. It returns "no provider" until a key is configured, and it will not be wired to a
+// live service until it has been run against one — an adapter nobody has tested is a worse source
+// than an honest blank.
+const SB_PROVIDER_KEY="studioh_zoningapi_v1";
+function sbProviderCfg(){ try{ return JSON.parse(localStorage.getItem(SB_PROVIDER_KEY)||"null")||null; }catch(e){ return null; } }
+function sbProviderReady(){ const c=sbProviderCfg(); return !!(c&&c.provider&&c.key); }
+async function sbProvider(addressOrCity){
+  const c=sbProviderCfg();
+  if(!c||!c.provider||!c.key) return {ok:false, why:"No zoning data service is configured. Reading it off the city is the route until one is."};
+  return {ok:false, why:"The "+c.provider+" adapter is not written yet. It will not be until it has been run against the live service — an untested adapter is a worse source than a blank."};
+}
+
 const SETB_STATE={city:null, busy:false, res:null, err:null};
 function setbCities(){
   const out=[];
@@ -61221,8 +61304,72 @@ async function setbRead(k){
   try{ r=await sbLookup(nm, url, {text:txt}); }catch(e){ r={ok:false,error:(e&&e.message)||"failed"}; }
   SETB_STATE.busy=false;
   if(!r||!r.ok){ SETB_STATE.err=(r&&r.error)||"Nothing came back."; }
-  else SETB_STATE.res=r;
+  else { SETB_STATE.res=r;
+    // Keep the document, not only what it said. That is what makes the next read one tap, for
+    // everybody, and what makes a sweep possible when a city changes its code.
+    if(url) try{ sbAddDoc(k, url, r); }catch(e){} }
   try{ renderPriceBook(); }catch(e){}
+}
+// Re-read every document on record for this city and show what moved before writing anything.
+// A code that has changed is exactly the case worth seeing rather than absorbing.
+async function setbReread(k){
+  SETB_STATE.busy=true; SETB_STATE.err=null; SETB_STATE.res=null;
+  try{ renderPriceBook(); }catch(e){}
+  const r=await sbReread(k,{dry:true});
+  SETB_STATE.busy=false;
+  if(!r.ok){ SETB_STATE.err=r.why; try{ renderPriceBook(); }catch(e){} return; }
+  const esc=escAttr, m=x=>(x==null?"\u2014":(x+"\u2032"));
+  const okDocs=r.docs.filter(d=>d.ok).length;
+  if(!r.changes.length){
+    SETB_STATE.res=null; try{ renderPriceBook(); }catch(e){}
+    await askTell("Nothing has changed", okDocs+" document"+(okDocs===1?"":"s")
+      +" re-read for "+esc(r.city)+", and every figure still says what it said."
+      +((r.docs.length-okDocs)?(" "+(r.docs.length-okDocs)+" could not be read this time."):""));
+    return;
+  }
+  let body='<div style="font-size:12.5px;line-height:1.6;margin-bottom:8px">'
+    +r.changes.length+' figure'+(r.changes.length===1?"":"s")+' came back different for '+esc(r.city)+'.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:baseline;font-size:11.5px">';
+  r.changes.forEach(c=>{ body+='<span><b>'+esc(c.label)+'</b>'
+    +(c.cite?'<span style="display:block;opacity:.6;font-size:10px">'+esc(c.cite)+'</span>':'')+'</span>'
+    +'<span style="text-align:right;font-variant-numeric:tabular-nums;opacity:.7">'+m(c.was)+'</span>'
+    +'<span style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700">'+m(c.now)+'</span>'; });
+  body+='</div><div style="font-size:11px;opacity:.7;margin-top:9px;line-height:1.55">'
+    +'Either the code has changed, or the document reads differently from how it did. Each carries the section it came from.</div>';
+  const a2=await askDlg({title:"Re-read "+esc(r.city), body:body, actions:["Write them in","Leave it"]});
+  if(a2!=="Write them in") return;
+  let n=0; (r.results||[]).forEach(res=>{ try{ n+=sbApply(res); }catch(e){} });
+  (r.docs||[]).forEach(d=>{ if(d.ok) try{ sbAddDoc(k,d.url,d.res); }catch(e){} });
+  try{ renderPriceBook(); }catch(e){}
+  try{ _toast(n+" figure"+(n===1?"":"s")+" updated for "+esc(r.city)+".","#2F5B23"); }catch(e){}
+}
+// Every city that has a document on record, re-read in one pass.
+async function setbSweep(){
+  const L=sbSweepList();
+  if(!L.length){ await askTell("Nothing to sweep yet",
+    "No city has a document on record. Read one city off its code and it joins the sweep \u2014 and because the book is shared, it joins it for everybody."); return; }
+  const cap=s=>String(s).replace(/(^|\s)\S/g,c=>c.toUpperCase());
+  const a=await askDlg({title:"Re-read "+L.length+" cit"+(L.length===1?"y":"ies")+"?",
+    body:'<div style="font-size:12.5px;line-height:1.6">Every city with a document on record is read again and anything that moved is listed. Nothing is written without being shown. Oldest first: <b>'
+      +L.slice(0,6).map(x=>escAttr(cap(x.city))).join(", ")+(L.length>6?(" and "+(L.length-6)+" more"):"")+'</b>.</div>',
+    actions:["Run it","Not now"]});
+  if(a!=="Run it") return;
+  const all=[];
+  for(const x of L){ const r=await sbReread(x.city,{dry:true}); if(r.ok&&r.changes.length) all.push({city:x.city, r:r}); }
+  if(!all.length){ await askTell("Nothing has moved", L.length+" cities re-read; every figure still says what it said."); return; }
+  const esc=escAttr;
+  const body='<div style="font-size:12.5px;line-height:1.6;margin-bottom:8px">'
+    +all.reduce((t,x)=>t+x.r.changes.length,0)+' figures moved across '+all.length+' cit'+(all.length===1?"y":"ies")+'.</div>'
+    +'<div style="font-size:11.5px;line-height:1.6">'
+    +all.map(x=>'<b>'+esc(x.r.city)+'</b> \u2014 '+x.r.changes.map(c=>esc(c.label)+" "+(c.was==null?"\u2014":c.was+"\u2032")+" \u2192 "+c.now+"\u2032").join(", ")).join("<br>")
+    +'</div>';
+  const a2=await askDlg({title:"What moved", body:body, actions:["Write them all in","Leave it"]});
+  if(a2!=="Write them all in") return;
+  let n=0;
+  all.forEach(x=>{ (x.r.results||[]).forEach(res=>{ try{ n+=sbApply(res); }catch(e){} });
+    (x.r.docs||[]).forEach(d=>{ if(d.ok) try{ sbAddDoc(x.city,d.url,d.res); }catch(e){} }); });
+  try{ renderPriceBook(); }catch(e){}
+  try{ _toast(n+" figures updated across "+all.length+" cities.","#2F5B23"); }catch(e){}
 }
 function setbApply(){
   const r=SETB_STATE.res; if(!r||!r.ok) return;
@@ -61324,9 +61471,19 @@ function _renderSetb3(_mount){
     ins+='<div class="pb3-f"><span class="k">Link</span><input id="setb-url" placeholder="a page or a PDF the city hosts" '
       +'onkeydown="if(event.key===\'Enter\')setbRead(\''+esc(sel)+'\')"></div>';
     ins+='<textarea id="setb-text" rows="3" placeholder="… or paste the section straight in" style="width:100%;box-sizing:border-box;border:1px solid var(--br);border-radius:9px;background:var(--card);color:var(--tx);font:inherit;font-size:12px;padding:6px 8px;margin:4px 0"></textarea>';
+    // What this city has been read from before. Keeping the document is what makes the next read
+    // one tap rather than another search \u2014 and because the book is shared, for everybody.
+    const DOCS=sbDocs(sel);
+    if(DOCS.length){
+      ins+='<div style="font:700 9px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);padding:7px 0 2px">On record</div>';
+      DOCS.forEach(d=>{ ins+='<div style="display:flex;gap:7px;align-items:baseline;padding:2px 0;font-size:11px">'
+        +'<a href="'+esc(d.url)+'" target="_blank" rel="noopener" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gm)">'+esc(d.url)+'</a>'
+        +'<span style="color:var(--tl);white-space:nowrap">'+(d.kind==="pdf"?"PDF \u00b7 ":"")+d.got+' found \u00b7 '+esc(d.at)+'</span></div>'; });
+    }
     ins+='<div style="display:flex;gap:5px;flex-wrap:wrap">'
       +'<button class="btn" onclick="setbRead(\''+esc(sel)+'\')"'+(SETB_STATE.busy?' disabled':'')+'>'
       +(SETB_STATE.busy?"Reading…":"Read it")+'</button>'
+      +(DOCS.length?('<button class="btn btn-o" onclick="setbReread(\''+esc(sel)+'\')"'+(SETB_STATE.busy?' disabled':'')+'>\u21bb Read it again</button>'):'')
       +(R.verified===true?('<button class="btn btn-o" style="color:#B23F3C;border-color:#E0C4C3" onclick="setbClear(\''+esc(sel)+'\')">↺ Back to the pattern</button>'):'')
       +'</div>';
     if(SETB_STATE.err) ins+='<div style="font-size:11.5px;color:#B23F3C;line-height:1.5;margin-top:7px">'+esc(SETB_STATE.err)+'</div>';
@@ -61355,8 +61512,10 @@ function _renderSetb3(_mount){
   }
   const card=document.createElement("div");
   card.className="pbx-card pb3";
+  const SW=sbSweepList();
   const head='<div class="pb3-lh"><span class="cr">Feeds every section <i>›</i> <b>Setbacks</b></span>'
-    +'<span class="mt">'+cited.length+' of '+L.length+' read from code · '+typed.length+' on file · '+est+' on the pattern</span></div>';
+    +'<span class="mt">'+cited.length+' of '+L.length+' read from code · '+typed.length+' on file · '+est+' on the pattern</span></div>'
+    +(SW.length?('<div style="padding:6px 10px"><button class="btn btn-o" style="width:100%;font-size:.76rem" onclick="setbSweep()">↻ Re-read all '+SW.length+' cit'+(SW.length===1?'y':'ies')+' on record</button></div>'):'');
   card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__setb">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
   _mount.appendChild(card);
 }
