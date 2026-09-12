@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1489</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1490</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10430,6 +10430,7 @@ function buildProCats(){
         ${cat.id==="lighting"?`<div class="sec-meter-big" style="background:#EEF6EC"><div class="meter-line" style="font-size:.85rem">Reference — Planting area: <strong>${(S.plantingAreaSF||0).toLocaleString()} SF</strong> &nbsp;·&nbsp; Landscape area: <strong>${(S.proLandscapeArea||0).toLocaleString()} SF</strong><div style="font-size:.72rem;color:var(--tl);margin-top:.2rem;font-weight:400">Typical density: 1 path light / 400 SF · 1 uplight / 500 SF</div></div></div>`:""}
         ${cat.builder?`<div id="${cat.builder}-builder"></div>`:`<div id="tbody-${cat.id}"></div>`}
         ${cat.id==="amenities"?`<div id="court-builder"></div>`:""}
+        ${cat.id==="woodMetal"?`<div id="fence-builder"></div>`:""}
         <div id="lumprow-${cat.id}" style="display:${(cat.id==="planting"&&!cs.lumpOn)?'none':'flex'};justify-content:space-between;align-items:center;padding:.5rem 1rem;background:#FBF7EF;flex-wrap:wrap;gap:.5rem;opacity:${cs.lumpOn?'1':'.62'}">
           <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.76rem;color:var(--tm)">
             <input type="checkbox" id="lumpcb-${cat.id}" ${cs.lumpOn?'checked':''} onchange="toggleCatLump('${cat.id}',this.checked)">
@@ -10456,6 +10457,7 @@ function buildProCats(){
     else if(cat.builder==="planting"){ renderPlantingBuilder(); }
     else { renderProCatRows(cat.id); }
     if(cat.id==="amenities"){ try{ renderCourtList(); }catch(e){} }
+    if(cat.id==="woodMetal"){ try{ renderFenceList(); }catch(e){} }
   };
 
   // Same four groups as the Price Book, sub-categories included. Each group carries its own
@@ -10764,6 +10766,7 @@ function catSubtotalRaw(catId){
   // A sport court is built, not looked up, so it contributes what its builder came to — on top
   // of whatever amenity lines are ticked, the way the kitchen and the pergola already do.
   if(catId==="amenities"){ try{ base+=courtsSubtotal(); }catch(e){} }
+  if(catId==="woodMetal"){ try{ base+=fencesSubtotal(); }catch(e){} }
   return base * sectionMult(catId);
 }
 // Section subtotal honoring a per-section lump-sum override
@@ -59734,6 +59737,557 @@ function _renderCourt3(_mount){
 }
 // §31 The Price Book page. The spec's category tree, the spec's record fields, and the rule tables
 // the engine reads — so a number can be changed where it lives rather than in code.
+// ══════════════════════════════════════════════════════════════════════════════════════
+// FENCE BUILDER — THE PANEL
+// §2C manual, §9 quick conceptual inputs, §29 the expanded calculation view. One record underneath
+// all of it: the simple view and the detail are the same fence, never two estimators.
+const FB={open:false, id:null, poly:null, f:null, mode:"simple", seg:0,
+  secs:{basic:1, segs:0, site:0, detail:0, gates:0, veh:0, pilaster:0, soft:0, calc:0, assume:0, comply:0, spec:0}};
+function fbOpen(idOrPoly){
+  if(typeof idOrPoly==="number"){ FB.poly=idOrPoly; FB.id=null;
+    FB.f=fenceAttach(PT.polys[idOrPoly]); }
+  else { FB.poly=null; FB.id=idOrPoly||null;
+    FB.f=FB.id?fenceOf(FB.id):null;
+    if(!FB.f){ FB.f=fenceAdd({}); FB.id=FB.f.fenceId; } }
+  try{ fenceSiteDefaults(FB.f); }catch(e){}
+  FB.open=true; FB.seg=0; fbRender();
+}
+function fbClose(){ FB.open=false; const h=document.getElementById("fb-scrim"); if(h) h.remove();
+  try{ _bidSchedule(); }catch(e){}
+  try{ renderFenceList(); }catch(e){}
+  try{ refreshCatTotals("woodMetal"); renderProSummary(); }catch(e){}
+  try{ if(FB.poly!=null){ ptDrawOverlay(); ptUpdateInfo(); _ptDockRefresh();
+    if(document.getElementById("pt-why-pop")) ptWhy("fence"); ptBuildupRefresh(); } }catch(e){}
+}
+function fbMode(m){ FB.mode=m; fbRender(); }
+function fbSec(k){ FB.secs[k]=FB.secs[k]?0:1; fbRender(); }
+function fbSeg(i){ FB.seg=Math.max(0,Math.min(i,(FB.f.segments||[]).length-1)); fbRender(); }
+function fbName(v){ if(FB.f){ FB.f.name=String(v||""); try{ _bidSchedule(); }catch(e){} } }
+// §26 What the project already knows. Never overwrites anything set by hand, and never claims a
+// code figure is verified just because a city is on file.
+function fenceSiteDefaults(f){
+  if(!f||f._siteSet) return f;
+  try{ const city=((S.pi&&S.pi.city)||"").toLowerCase().trim();
+    const sb=(typeof SETBACKS!=="undefined")?SETBACKS[city]:null;
+    if(sb&&f.codeMaxH==null){
+      // a wall/fence height on file is the city's figure only when that record says it is verified
+      if(sb.fenceFront!=null||sb.wall!=null){
+        f.codeMaxH=(sb.fenceSide!=null)?+sb.fenceSide:null;
+        f.codeFrontMaxH=(sb.fenceFront!=null)?+sb.fenceFront:null;
+        f.codeSource=sb.cite||((S.pi&&S.pi.city)||"")+" on file";
+        f.codeUrl=sb.url||"";
+        f.codeChecked=(sb.verified===true)?(sb.checked||""):"";
+      }
+    }
+  }catch(e){}
+  f._siteSet=1; return f;
+}
+// §34/§39 One setter for everything, so a voice instruction and a tap take the same path and meet
+// the same guards. Segment fields are addressed "seg.<field>" and land on the open segment.
+function fbSet(field,v){
+  const f=FB.f; if(!f) return; const R=_fRule();
+  const F=String(field||"");
+  const num=s=>{ const n=+s; return (s===""||s==null||!isFinite(n))?null:n; };
+  if(F.indexOf("seg.")===0){
+    const sg=(f.segments||[])[FB.seg]; if(!sg) return;
+    const k=F.slice(4);
+    if(/^(lf|h|hStart|hEnd|corners|spacing|boardW|boardT|boardGap|privacyPct|pilasters|demoLF|demoFootings|rateOv|lumpSum|qtyOv)$/.test(k)){
+      sg[k]=num(v); if(k==="lf"&&sg[k]!=null) sg.lfProv="user"; }
+    else if(/^(wallTop|decompose|exclude|specOnly)$/.test(k)) sg[k]=!!v;
+    else sg[k]=v;
+  }
+  else if(/^(h|pilasters|demoFootings|hoaMaxH|codeMaxH)$/.test(F)) f[F]=num(v);
+  else if(/^(decorTop|capRail|hiddenFast|framedPanel|goodNeighbour|clearVeg|protect|poolBarrier|survey|sitePlan|engGate|permitOn|hoaPkg|frontYard|cornerLot|rightOfWay)$/.test(F)) f[F]=!!v;
+  else if(F==="engStruct") f.engStruct=(v==="auto"||v==null||v==="")?null:!!v;
+  else if(F==="type"){ if(R.types[v]){ f.type=v;
+      // §16 a factory-finished material has no separate coating to choose
+      if(fTypeOf(v).factoryFin&&["sealer","stainT","stainS","paint","special"].indexOf(f.finish)>=0) f.finish="none";
+      if(!f.name) f.name=R.types[v].label; } }
+  else if(F.indexOf("pilasterAdds.")===0){ f.pilasterAdds=Object.assign({},f.pilasterAdds);
+    const n=num(v); f.pilasterAdds[F.slice(13)]=(n==null||n<0)?0:n; }
+  else if(F.indexOf("veh.")===0){
+    const parts=F.slice(4).split("."), i=+parts[0], k=parts[1];
+    f.vehGates=(f.vehGates||[]).slice(); const g=Object.assign({},f.vehGates[i]||{});
+    if(/^(widthFt|elecLF|trackLF|restoreLF|leaves|lumpSum)$/.test(k)) g[k]=num(v);
+    else if(/^(auto|demo|demoOperator|postPair)$/.test(k)) g[k]=!!v;
+    else if(k==="access"){ const a=(g.access||[]).slice(); const j=a.indexOf(v);
+      if(j>=0) a.splice(j,1); else a.push(v); g.access=a; }
+    else g[k]=v;
+    f.vehGates[i]=g;
+  }
+  else f[F]=v;
+  if(FB.poly!=null&&PT.polys[FB.poly]){ try{ ptSnap(); }catch(e){} PT.polys[FB.poly].fence=f;
+    try{ ptAutoSave(); }catch(e){} }
+  try{ _bidSchedule(); }catch(e){}
+  fbRender();
+}
+function fbSegAdd(){ const f=FB.f; if(!f) return;
+  const last=(f.segments||[])[f.segments.length-1]||{};
+  f.segments.push(fenceSegNew({name:"Segment "+(f.segments.length+1), lf:last.lf||50,
+    h:last.h, connect:last.name||""}));
+  FB.seg=f.segments.length-1; try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbSegDel(){ const f=FB.f; if(!f||(f.segments||[]).length<2) return;
+  f.segments.splice(FB.seg,1); FB.seg=Math.max(0,FB.seg-1); try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbSegDup(){ const f=FB.f; if(!f) return;
+  const c=JSON.parse(JSON.stringify(f.segments[FB.seg]));
+  c.segmentId="s"+Math.random().toString(36).slice(2,9); c.name=(c.name||"Segment")+" copy"; c.geom=null;
+  f.segments.splice(FB.seg+1,0,c); FB.seg++; try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbGateAdd(){ const f=FB.f; if(!f) return; const sg=f.segments[FB.seg]; if(!sg) return;
+  sg.gates=(sg.gates||[]).concat([{w:4, selfClose:!!f.poolBarrier}]); try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbGateSet(i,k,v){ const sg=FB.f&&FB.f.segments[FB.seg]; if(!sg||!sg.gates||!sg.gates[i]) return;
+  const g=sg.gates[i];
+  if(k==="w"){ const n=+v; g.w=(v===""||!isFinite(n))?null:n; }
+  else if(/^(selfClose|lock|strike|double)$/.test(k)) g[k]=!!v;
+  else g[k]=v;
+  try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbGateDel(i){ const sg=FB.f&&FB.f.segments[FB.seg]; if(!sg||!sg.gates) return;
+  sg.gates.splice(i,1); try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbVehAdd(){ const f=FB.f; if(!f) return;
+  f.vehGates=(f.vehGates||[]).concat([{kind:"swing", widthFt:12, leaves:2, auto:false, access:[]}]);
+  try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbVehDel(i){ const f=FB.f; if(!f||!f.vehGates) return;
+  f.vehGates.splice(i,1); try{ _bidSchedule(); }catch(e){} fbRender(); }
+function fbDup(){ const c=fenceDuplicate(FB.id); if(c){ FB.id=c.fenceId; FB.f=c; fbRender(); } }
+async function fbDel(){ const a=await askDlg({title:"Delete this fence?",
+  body:"Its segments, gates and everything logged against it go with it.", actions:["Delete","Keep it"]});
+  if(a!=="Delete") return; fenceDelete(FB.id); fbClose(); }
+function fbLogBid(){ _bidPrompt("fence", FB.f, (FB.f&&FB.f.name)||"Fence"); }
+async function fbAsk(){ return nlbAsk("fence"); }
+// small control helpers, the same shapes the other builders use
+function _fbRow(k,sub,body){ return '<div class="wb-f"><span class="k">'+k+(sub?'<small>'+sub+'</small>':'')+'</span>'+body+'</div>'; }
+function _fbSel(f,cur,opts){ return '<select onchange="fbSet(\''+f+'\',this.value)">'
+  +opts.map(o=>'<option value="'+escAttr(o[0])+'"'+((String(cur==null?"":cur)===String(o[0]))?" selected":"")+'>'+escAttr(o[1])+'</option>').join("")+'</select>'; }
+function _fbNum(f,cur,step,unit,ph){ return '<span class="wb-dim"><input type="number" class="no-spin" step="'+(step||1)+'" value="'
+  +(cur==null||cur===""?"":cur)+'" placeholder="'+escAttr(ph||"")+'" onchange="fbSet(\''+f+'\',this.value)" onkeydown="if(event.key===\'Enter\')this.blur()">'
+  +(unit?'<span class="u">'+escAttr(unit)+'</span>':'')+'</span>'; }
+function _fbChips(f,cur,opts){ return '<span class="wb-chips">'
+  +opts.map(o=>'<button class="wb-chip'+((String(cur==null?"":cur)===String(o[0]))?" on":"")+'" onclick="fbSet(\''+f+'\',\''+escAttr(o[0])+'\')">'+escAttr(o[1])+'</button>').join("")+'</span>'; }
+function _fbTog(f,on,lbl){ return '<span class="wb-chips"><button class="wb-chip'+(on?" on":"")+'" onclick="fbSet(\''+f+'\','+(on?"false":"true")+')">'+escAttr(lbl||(on?"on":"off"))+'</button></span>'; }
+// §8 the fence types, grouped by material so the list of forty is a list of six
+function _fbTypeGroups(){ const R=_fRule(), g={};
+  Object.keys(R.types).forEach(k=>{ const grp=(fRec(R.types[k].rec)||{}).g||"Wood";
+    (g[grp]=g[grp]||[]).push([k,R.types[k].label]); });
+  return g; }
+function fbRender(){
+  if(!FB.open) return;
+  let host=document.getElementById("fb-scrim");
+  if(!host){ host=document.createElement("div"); host.id="fb-scrim"; document.body.appendChild(host); }
+  const R=_fRule(), f=FB.f;
+  const r=(function(){ try{ return fenceCost(f); }catch(e){ return null; } })();
+  if(!r){ host.className="lb-scrim on";
+    host.innerHTML='<div class="lbx wbx"><div class="lb-h"><span style="font-weight:800">Fence, Gate &amp; Screening Builder</span><span class="lb-sp"><button class="lb-ico" onclick="fbClose()">✕</button></span></div><div style="padding:20px">Could not price this fence.</div></div>';
+    return; }
+  const adv=(FB.mode==="advanced");
+  const money=v=>fmtN(Math.round(v||0));
+  const m2=v=>"$"+(+v||0).toFixed(2);
+  const esc=escAttr;
+  const SEC=(k,title,meta,body)=>'<div class="wb-sec'+(FB.secs[k]?" open":"")+'">'
+    +'<button class="wb-sh" onclick="fbSec(\''+k+'\')"><span class="cv"></span><span class="t">'+title+'</span><span class="m">'+meta+'</span></button>'
+    +'<div class="wb-sb">'+body+'</div></div>';
+  const NOTE=t=>'<div class="wb-note">'+t+'</div>';
+  const seg=(f.segments||[])[FB.seg]||f.segments[0];
+  const sq=(r.segs[FB.seg]||r.segs[0]||{}).q||{};
+  const T=fTypeOf(seg.type||f.type);
+  let h="";
+  // §2A say it in words
+  h+=nlbBar("fence");
+  // ── §9 THE FIVE THINGS ─────────────────────────────────────────────────────────────
+  let b='';
+  const TG=_fbTypeGroups();
+  b+=_fbRow("Fence or screen","what it is",
+    '<span class="wb-chips">'+Object.keys(TG).map(g=>
+      '<span style="flex-basis:100%;font:700 9px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);margin:3px 0 1px">'+esc(g)+'</span>'
+      +TG[g].map(o=>'<button class="wb-chip'+((f.type===o[0])?" on":"")+'" onclick="fbSet(\'type\',\''+esc(o[0])+'\')">'+esc(o[1])+'</button>').join("")
+    ).join("")+'</span>');
+  b+=_fbRow("Length","the whole fence",
+    _fbNum("seg.lf",seg.lf,5,"LF")
+    +' <span style="font-size:11px;color:var(--tl);font-weight:600">'+Math.round(r.totalLF)+' LF in all across '+r.segs.length+' segment'+(r.segs.length===1?"":"s")+'</span>');
+  b+=_fbRow("Height","",_fbChips("h",f.h,[[3,"3′"],[3.5,"3′-6″"],[4,"4′"],[5,"5′"],[6,"6′"],[7,"7′"],[8,"8′"]])
+    +' '+_fbNum("h",f.h,0.5,"ft"));
+  if(!T.factoryFin) b+=_fbRow("Finish","",_fbChips("finish",f.finish,
+    Object.keys(R.finishes).filter(k=>{ const rc=R.finishes[k].rec;
+      if(!rc) return true; const g=(fRec(rc)||{}).g;
+      return T.mat==="metal"?(g==="Metal Finishes"):(g==="Wood Finishes"); })
+      .map(k=>[k,R.finishes[k].label])));
+  else b+=NOTE('<b style="color:var(--tx)">'+esc(T.label)+'</b> is factory finished, so there is no separate coating to buy (§37).');
+  b+=_fbRow("Gates","in this segment",
+    '<span class="wb-chips">'+(seg.gates||[]).map((g,i)=>
+      '<span class="wb-dim" style="gap:2px"><input type="number" class="no-spin" step="0.5" value="'+(g.w==null?"":g.w)+'" style="width:46px" onchange="fbGateSet('+i+',\'w\',this.value)"><span class="u">ft</span>'
+      +'<button class="wb-chip'+(g.selfClose?" on":"")+'" style="margin-left:2px" onclick="fbGateSet('+i+',\'selfClose\','+(g.selfClose?"false":"true")+')" title="Self-closing and self-latching">self-close</button>'
+      +'<button class="wb-chip" onclick="fbGateDel('+i+')" title="Remove">✕</button></span>').join("")
+    +'<button class="wb-chip" onclick="fbGateAdd()">+ gate</button></span>');
+  b+=_fbRow("Access","how hard it is to get to",_fbSel("access",f.access,
+    Object.keys(R.access).map(k=>[k,R.access[k].label+" · ×"+(+R.access[k].f).toFixed(2)])));
+  b+=NOTE('Price point <b style="color:var(--tx)">'+esc(r.tier)+'</b>, set by the project — the band inside each record, with no second multiplier on top (§32). '
+    +'Project size ×'+r.sizeF.toFixed(2)+' at '+Math.round(r.totalLF)+' LF.');
+  h+=SEC("basic","What it is",T.label+" · "+Math.round(r.totalLF)+"′ × "+r.maxH+"′ · "+money(r.total), b);
+  // ── §6 SEGMENTS ────────────────────────────────────────────────────────────────────
+  let sb='';
+  sb+='<span class="wb-chips" style="margin-bottom:4px">'
+    +r.segs.map((x,i)=>'<button class="wb-chip'+(i===FB.seg?" on":"")+'" onclick="fbSeg('+i+')">'
+      +esc(x.sg.name||("Segment "+(i+1)))+' · '+Math.round(x.q.grossLF)+'′ × '+x.q.h+'′</button>').join("")
+    +'<button class="wb-chip" onclick="fbSegAdd()">+ segment</button>'
+    +(r.segs.length>1?'<button class="wb-chip" onclick="fbSegDel()">✕ this one</button>':'')
+    +'<button class="wb-chip" onclick="fbSegDup()">⧉ copy</button></span>';
+  sb+=_fbRow("Name","",'<input value="'+esc(seg.name||"")+'" onchange="fbSet(\'seg.name\',this.value)" style="min-width:0;flex:1;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12.5px;padding:5px 8px">');
+  sb+=_fbRow("Where it runs","",_fbSel("seg.location",seg.location||"",
+    [["","—"],["front","Front property line"],["left","Left side"],["right","Right side"],["rear","Rear"],
+     ["pool","Around the pool"],["equipment","Around equipment"],["front yard","Front-yard portion"],["custom","Drawn on the plan"]]));
+  sb+=_fbRow("Length","",_fbNum("seg.lf",seg.lf,5,"LF")
+    +' <span style="font-size:10.5px;color:var(--tl);font-weight:600">'
+    +(seg.geom?"read off the plan":(seg.lfProv==="derived"?"from the property line":(seg.lfProv==="user"?"you entered it":"an allowance")))+'</span>');
+  sb+=_fbRow("Height","blank follows the fence",_fbNum("seg.h",seg.h,0.5,"ft",String(f.h)));
+  sb+=_fbRow("Fence type","blank follows the fence",_fbSel("seg.type",seg.type||"",
+    [["","— same as the fence"]].concat(Object.keys(R.types).map(k=>[k,R.types[k].label]))));
+  if(adv){
+    sb+=_fbRow("Height transition","",_fbChips("seg.transition",seg.transition,
+      [["none","None"],["step","Step"],["rake","Rake"],["custom","Custom"]]));
+    sb+=_fbRow("Direction changes","corner posts",_fbNum("seg.corners",seg.corners,1,"EA"));
+    sb+=_fbRow("Joins","shares an end post with",'<input value="'+esc(seg.connect||"")+'" onchange="fbSet(\'seg.connect\',this.value)" style="min-width:0;flex:1;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12px;padding:5px 8px">');
+    sb+=_fbRow("Finish on","",_fbChips("seg.finishedSide",seg.finishedSide||"",
+      [["","— same as the fence"],["one","One side"],["both","Both sides"]]));
+    sb+=_fbRow("On top of a wall","§8 — mounting only, no new wall",
+      _fbTog("seg.wallTop",seg.wallTop,seg.wallTop?"yes — mounted":"no")
+      +(seg.wallTop?(' <input value="'+esc(seg.wallRef||"")+'" placeholder="which wall" onchange="fbSet(\'seg.wallRef\',this.value)" style="min-width:0;width:110px;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12px;padding:5px 8px">'):''));
+    sb+=_fbRow("Price it by its parts","§37 — the assembly rate stops",
+      _fbTog("seg.decompose",seg.decompose,seg.decompose?"components":"assembly"));
+    sb+=_fbRow("Rate for this segment","overrides the book",_fbNum("seg.rateOv",seg.rateOv,1,"$/LF",m2(fVal(T.rec)*sq.heightF||0).replace("$","")));
+    sb+=_fbRow("Contractor quote","replaces the assembly only",_fbNum("seg.lumpSum",seg.lumpSum,100,"$"));
+    sb+=_fbRow("Leave it out","",_fbTog("seg.exclude",seg.exclude,seg.exclude?"excluded":"in the estimate")
+      +_fbTog("seg.specOnly",seg.specOnly,seg.specOnly?"specification only":"priced"));
+  }
+  sb+=NOTE('<b style="color:var(--tx)">'+Math.round(sq.netLF)+' LF</b> of fence after '+Math.round(sq.gateLF)+' LF of gate opening · '
+    +'<b style="color:var(--tx)">'+sq.posts+'</b> posts at '+sq.spacing+'′ on centre · '
+    +'<b style="color:var(--tx)">'+Math.round(sq.faceSF)+' SF</b> of face');
+  h+=SEC("segs","Segments",r.segs.length+" · "+Math.round(r.totalLF)+" LF", sb);
+  // ── §17/§18/§19 SITE ───────────────────────────────────────────────────────────────
+  let si='';
+  si+=_fbRow("Ground","§17 — labour and fabrication only",_fbSel("slope",f.slope,
+    Object.keys(R.slope).map(k=>[k,R.slope[k].label+(R.slope[k].f!=null?(" · ×"+(+R.slope[k].f).toFixed(2)):" · engineered")])));
+  si+=_fbRow("Wind and exposure","",_fbChips("wind",f.wind,[["normal","Normal"],["high","High wind"],["coastal","Coastal"],["fire","Fire hazard"]]));
+  si+=_fbRow("Clear the line","brush and roots",_fbTog("clearVeg",f.clearVeg,f.clearVeg?"yes":"no"));
+  si+=_fbRow("Protect what is there","",_fbTog("protect",f.protect,f.protect?"yes":"no"));
+  si+=_fbRow("Remove an existing fence","§20 — haul is in the rate",_fbSel("demo",f.demo,
+    [["none","Nothing to remove"],["wood","Wood"],["vinyl","Vinyl"],["chain","Chain link"],["metal","Metal"],["glass","Glass"],["screen","Screen"]]));
+  if(f.demo!=="none") si+=_fbRow("Stubborn footings","per post",_fbNum("seg.demoFootings",seg.demoFootings,1,"EA"));
+  si+=_fbRow("Pool barrier","§25 — validated, never certified",_fbTog("poolBarrier",f.poolBarrier,f.poolBarrier?"yes — this encloses a pool":"no"));
+  si+=_fbRow("Where on the lot","§26",_fbTog("frontYard",f.frontYard,f.frontYard?"front yard":"side or rear")
+    +_fbTog("cornerLot",f.cornerLot,f.cornerLot?"corner lot":"mid-block")
+    +_fbTog("rightOfWay",f.rightOfWay,f.rightOfWay?"in the right-of-way":"on private land"));
+  h+=SEC("site","Site, slope & demolition",(R.slope[f.slope]||{}).label+" · "+(R.access[f.access]||{}).label+(f.demo!=="none"?" · removal":""), si);
+  // ── §15 CONSTRUCTION DETAIL ────────────────────────────────────────────────────────
+  let db='';
+  db+=_fbRow("Posts","",_fbChips("posts",f.posts,[["std","Standard"],["up6x6","6×6"],["steel","Hidden steel"]]));
+  db+=_fbRow("Finished side","§16",_fbChips("finishedSide",f.finishedSide,[["both","Both sides"],["one","One side"]]));
+  if(T.mat==="wood"){
+    db+=_fbRow("Good-neighbour","finished both sides",_fbTog("goodNeighbour",f.goodNeighbour,f.goodNeighbour?"+"+fVal("aGoodNeigh")+"%":"no"));
+    db+=_fbRow("Concealed fasteners","",_fbTog("hiddenFast",f.hiddenFast,f.hiddenFast?"+"+fVal("aHiddenFast")+"%":"no"));
+    db+=_fbRow("Custom framed panels","",_fbTog("framedPanel",f.framedPanel,f.framedPanel?"+"+fVal("aFramedPanel")+"%":"no"));
+  }
+  db+=_fbRow("Decorative top","lattice or detail",_fbTog("decorTop",f.decorTop,f.decorTop?m2(fVal("aDecorTop"))+"/LF":"no"));
+  db+=_fbRow("Cap rail and trim","",_fbTog("capRail",f.capRail,f.capRail?m2(fVal("aCapRail"))+"/LF":"no"));
+  if(adv){
+    db+=_fbRow("Board width","",_fbNum("seg.boardW",seg.boardW,0.25,"in","5.5"));
+    db+=_fbRow("Board gap","0 is solid",_fbNum("seg.boardGap",seg.boardGap,0.125,"in","0"));
+    db+=_fbRow("Orientation","",_fbChips("seg.boardOrient",seg.boardOrient||"",[["","—"],["vertical","Vertical"],["horizontal","Horizontal"]]));
+    db+=_fbRow("Post spacing","blank is the default",_fbNum("seg.spacing",seg.spacing,0.5,"ft",String(sq.spacing)));
+    db+=_fbRow("Colour","",'<input value="'+esc(seg.color||"")+'" onchange="fbSet(\'seg.color\',this.value)" style="min-width:0;flex:1;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12px;padding:5px 8px">');
+  }
+  db+=NOTE('Privacy about <b style="color:var(--tx)">'+sq.privacyPct+'%</b>'
+    +(sq.boards>0?(' · about '+sq.boards+' boards'):'')+(sq.panels>0?(' · '+sq.panels+' panels'):'')
+    +' · '+sq.railRuns+' rail run'+(sq.railRuns===1?"":"s"));
+  h+=SEC("detail","Construction",(f.posts==="steel"?"hidden steel posts":(f.posts==="up6x6"?"6×6 posts":"standard posts"))
+    +(f.goodNeighbour?" · good-neighbour":"")+(f.capRail?" · cap rail":""), db);
+  // ── §22/§23 VEHICULAR GATES ────────────────────────────────────────────────────────
+  let vb='';
+  (f.vehGates||[]).forEach((g,i)=>{
+    vb+='<div style="border:1px solid var(--br,#EFEDE6);border-radius:10px;padding:7px 9px;margin-bottom:6px">'
+      +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><b style="font-size:12px">Vehicular gate '+(i+1)+'</b>'
+      +'<button class="wb-chip" style="margin-left:auto" onclick="fbVehDel('+i+')">✕</button></div>'
+      +_fbRow("Type","",_fbChips("veh."+i+".kind",g.kind,[["swing","Swing"],["slide","Sliding"],["cantilever","Cantilever"],["bifold","Bi-fold"]]))
+      +_fbRow("Clear opening","",_fbNum("veh."+i+".widthFt",g.widthFt,1,"ft"))
+      +(g.kind==="swing"?_fbRow("Leaves","",_fbChips("veh."+i+".leaves",g.leaves,[[1,"Single"],[2,"Dual"]])):"")
+      +(g.kind!=="swing"?_fbRow("Track","",_fbNum("veh."+i+".trackLF",g.trackLF,1,"LF")):"")
+      +_fbRow("Fabrication","§22 — automation is separate",_fbSel("veh."+i+".fab",g.fab||"",
+        [["","— from the width"]].concat(Object.keys(FNC.rec).filter(k=>FNC.rec[k].g==="Vehicular Gates"&&FNC.rec[k].sub==="Fabrication").map(k=>[k,FNC.rec[k].nm+" · "+money(fVal(k))]))))
+      +_fbRow("Quote","replaces the fabrication allowance",_fbNum("veh."+i+".lumpSum",g.lumpSum,500,"$"))
+      +_fbRow("Automated","",_fbTog("veh."+i+".auto",g.auto,g.auto?"yes":"manual"))
+      +(g.auto?(_fbRow("Operator","",_fbSel("veh."+i+".operator",g.operator||"",
+          [["","— from the type"]].concat(Object.keys(FNC.rec).filter(k=>FNC.rec[k].g==="Gate Operators").map(k=>[k,FNC.rec[k].nm+" · "+money(fVal(k))]))))
+        +_fbRow("Access control","§23 — each its own line",
+          '<span class="wb-chips">'+Object.keys(FNC.rec).filter(k=>FNC.rec[k].g==="Access Control"||FNC.rec[k].g==="Safety Equipment")
+            .map(k=>'<button class="wb-chip'+(((g.access||[]).indexOf(k)>=0)?" on":"")+'" onclick="fbSet(\'veh.'+i+'.access\',\''+k+'\')">'+esc(FNC.rec[k].nm)+'</button>').join("")+'</span>')
+        +_fbRow("Power to the gate","§23 — never inside the operator",_fbNum("veh."+i+".elecLF",g.elecLF,5,"LF"))
+        +(+g.elecLF>0?_fbRow("Restore the surface","",_fbNum("veh."+i+".restoreLF",g.restoreLF,5,"LF")):"")):"")
+      +_fbRow("Remove what is there","",_fbTog("veh."+i+".demo",g.demo,g.demo?"gate out":"nothing")
+        +_fbTog("veh."+i+".demoOperator",g.demoOperator,g.demoOperator?"operator out":"no operator"))
+      +'</div>';
+  });
+  vb+='<span class="wb-chips"><button class="wb-chip" onclick="fbVehAdd()">+ vehicular gate</button></span>';
+  h+=SEC("veh","Driveway & vehicular gates",((f.vehGates||[]).length||"none")+((f.vehGates||[]).some(g=>g&&g.auto)?" · automated":""), vb);
+  // ── §24 PILASTERS ──────────────────────────────────────────────────────────────────
+  let pb='';
+  pb+=NOTE('Continuous masonry belongs in the Wall Builder — only the pilasters are priced here, and they must not appear in both (§37).');
+  pb+=_fbRow("How many","",_fbNum("pilasters",f.pilasters,1,"EA"));
+  if(+f.pilasters>0){
+    pb+=_fbRow("Which","",_fbSel("pilasterType",f.pilasterType,
+      Object.keys(FNC.rec).filter(k=>FNC.rec[k].g==="Pilasters"&&FNC.rec[k].sub==="Pilaster").map(k=>[k,FNC.rec[k].nm+" · "+money(fVal(k))])));
+    Object.keys(FNC.rec).filter(k=>FNC.rec[k].g==="Pilasters"&&FNC.rec[k].sub==="Add").forEach(k=>{
+      pb+=_fbRow(FNC.rec[k].nm,money(fVal(k))+" each",_fbNum("pilasterAdds."+k,(f.pilasterAdds||{})[k],1,"EA")); });
+  }
+  h+=SEC("pilaster","Pilasters & columns",(+f.pilasters>0?(f.pilasters+" × "+(fRec(f.pilasterType)||{}).nm):"none"), pb);
+  // ── §27 SOFT COSTS ─────────────────────────────────────────────────────────────────
+  let so='';
+  so+=NOTE('None of these are automatic, and nothing here is a percentage of construction. Access, slope and project size never touch them (§18, §27).');
+  so+=_fbRow("Property-line survey","",_fbTog("survey",f.survey,f.survey?money(fVal("sSurvey")):"no"));
+  so+=_fbRow("Fence / site plan","",_fbTog("sitePlan",f.sitePlan,f.sitePlan?money(fVal("sSitePlan")):"no"));
+  so+=_fbRow("Structural engineering","",_fbChips("engStruct",(f.engStruct==null?"auto":(f.engStruct?"true":"false")),
+    [["auto","From the height"],["true","Yes"],["false","No"]]));
+  so+=_fbRow("Gate / pilaster engineering","",_fbTog("engGate",f.engGate,f.engGate?money(fVal("sGateEng")):"no"));
+  so+=_fbRow("Permit allowance","",_fbTog("permitOn",f.permitOn,f.permitOn?money(fVal("sPermit")):"no"));
+  so+=_fbRow("HOA submittal package","",_fbTog("hoaPkg",f.hoaPkg,f.hoaPkg?money(fVal("sHOA")):"no"));
+  so+=_fbRow("HOA maximum height","§26 — stays labelled as supplied",_fbNum("hoaMaxH",f.hoaMaxH,0.5,"ft"));
+  so+=_fbRow("City maximum height","",_fbNum("codeMaxH",f.codeMaxH,0.5,"ft"));
+  h+=SEC("soft","Survey, engineering & permits",
+    [f.survey?"survey":null,f.sitePlan?"plan":null,(f.engStruct||(f.engStruct==null&&r.maxH>(+R.engH||7)))?"engineering":null,
+     f.permitOn?"permit":null,f.hoaPkg?"HOA":null].filter(Boolean).join(" · ")||"none", so);
+  // ── §29 EXPANDED CALCULATION VIEW ──────────────────────────────────────────────────
+  const KV=(k,v)=>'<div class="wb-cr"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';
+  let cb='';
+  cb+=KV("Fence after gate openings",Math.round(r.qty.netLF)+" LF");
+  cb+=KV("Gate openings taken out",Math.round(r.qty.gateLF)+" LF");
+  cb+=KV("Face area",_tkFmt(Math.round(r.qty.faceSF))+" SF");
+  cb+=KV("Posts",r.qty.posts+" — line, end, corner, transition and gate");
+  cb+=KV("Footing concrete",r.qty.concreteCY.toFixed(2)+" CY");
+  cb+=KV("Rails",Math.round(r.qty.rails)+" LF");
+  if(r.qty.boards>0) cb+=KV("Boards","about "+r.qty.boards);
+  if(r.qty.panels>0) cb+=KV("Panels",r.qty.panels);
+  cb+=KV("Finish area",_tkFmt(Math.round(r.qty.finishSF))+" SF");
+  cb+=KV("Pedestrian gates",r.qty.gates);
+  cb+='<div style="font:800 10px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);padding:7px 0 2px">What moved the price</div>';
+  r.mults.forEach(m=>{ cb+='<div class="wb-cr"><span class="k">'+esc(m[0])+'<small>'+esc(m[2])+'</small></span><span class="v">'+esc(m[1])+'</span></div>'; });
+  h+=SEC("calc","How it was calculated",r.qty.posts+" posts · "+r.qty.concreteCY.toFixed(2)+" CY · "+_tkFmt(Math.round(r.qty.faceSF))+" SF", cb);
+  // §4 provenance, said out loud
+  let ab='';
+  const PCOL={user:"var(--gm)",derived:"#4E8FD0",verified:"#6FBF5C",assumed:"var(--tl)"};
+  r.assumptions.forEach(a=>{ ab+='<div style="display:flex;gap:7px;align-items:baseline;padding:3px 0;border-top:1px solid var(--br,#EFEDE6)">'
+    +'<span style="font:800 8.5px var(--tkf);letter-spacing:.06em;text-transform:uppercase;color:'+(PCOL[a.prov]||"var(--tl)")+';white-space:nowrap;min-width:86px">'+esc(a.label)+'</span>'
+    +'<span style="font-size:11.5px;line-height:1.5;color:var(--tm)">'+esc(a.t)
+    +(a.note?('<b style="display:block;font-size:10.5px;color:var(--gold,#8A6D1F);font-weight:650">'+esc(a.note)+'</b>'):'')
+    +(a.source?('<span style="display:block;font-size:10px;color:var(--tl)">'+esc(a.source)+(a.checked?(" · checked "+esc(a.checked)):"")+'</span>'):'')
+    +'</span></div>'; });
+  h+=SEC("assume","Every assumption",r.assumptions.length+" · "+r.assumptions.filter(a=>a.prov==="assumed").length+" assumed", ab);
+  // §36 compliance and warnings
+  let wb='';
+  wb+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:7px">';
+  [["Known",r.confKnown,"var(--gm)"],["Assumed",r.confAssumed,"var(--tl)"],["Unresolved",r.confUnresolved,"var(--gold,#8A6D1F)"]].forEach(([t,L,c])=>{
+    wb+='<div><div style="font:800 9px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:'+c+';padding-bottom:3px">'+t+'</div>'
+      +(L.length?L.map(x=>'<div style="font-size:11px;line-height:1.45;color:var(--tm);padding:1px 0">'+esc(x)+'</div>').join(""):'<div style="font-size:11px;color:var(--tl)">—</div>')+'</div>'; });
+  wb+='</div>';
+  r.warnings.forEach(w=>{ wb+='<div class="wb-warn">'+esc(w)+'</div>'; });
+  h+=SEC("comply","Compliance & warnings",r.confUnresolved.length+" unresolved · "+r.warnings.length+" notes", wb);
+  // §33 what goes to the specification book
+  let spb='';
+  spb+=NOTE('Everything known about this fence, ready for the Project Specification Book. Blank fields are simply not known yet.');
+  fenceSpec(f).forEach(row=>{ spb+='<div style="padding:4px 0;border-top:1px solid var(--br,#EFEDE6)">'
+    +'<b style="font-size:12px">'+esc(row.name)+'</b>'
+    +'<div style="font-size:11px;color:var(--tm);line-height:1.5">'
+    +Object.keys(row).filter(k=>!/^(fenceId|segmentId|name)$/.test(k))
+      .map(k=>'<span style="margin-right:8px"><span style="color:var(--tl)">'+esc(k)+'</span> '+esc(typeof row[k]==="object"?JSON.stringify(row[k]):row[k])+'</span>').join("")
+    +'</div></div>'; });
+  h+=SEC("spec","Specification",fenceSpec(f).length+" record"+(fenceSpec(f).length===1?"":"s"), spb);
+
+  // ── the cost column ────────────────────────────────────────────────────────────────
+  let right='<div class="wb-cost">'
+    +'<div class="wb-cr"><span class="k" style="font-weight:800;color:var(--tx)">'+esc(T.label)+'</span>'
+      +'<span class="v">'+Math.round(r.totalLF)+'′ × '+r.maxH+'′</span></div>'
+    +'<div class="wb-cr"><span class="k">Face area</span><span class="v">'+_tkFmt(Math.round(r.qty.faceSF))+' SF</span></div>'
+    +'<div class="wb-cr"><span class="k">Posts · concrete</span><span class="v">'+r.qty.posts+' · '+r.qty.concreteCY.toFixed(2)+' CY</span></div>'
+    +'<div class="wb-cr"><span class="k">Contractor</span><span class="v">'+esc(r.tier)+'</span></div></div>';
+  const GORDER=FNC_GROUPS;
+  right+='<div class="wb-cost" style="gap:0">'
+    +'<div style="font:800 11px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);padding-bottom:4px">Cost sections</div>';
+  GORDER.forEach(k=>{ const v=r.groups[k]; if(!(v>0)) return;
+    right+='<div class="wb-cr" style="padding:3px 0"><span class="k">'+esc(k)+'</span><span class="v">'+money(v)+'</span></div>'; });
+  right+='<div class="wb-ct"><span class="k">Total estimated cost</span><span class="v">'+money(r.total)+'</span></div>'
+    +'<div class="wb-cr"><span class="k">Cost / LF of fence</span><span class="v">'+m2(r.perLF)+'</span></div>'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">'
+      +'<span class="wb-conf '+(r.conf==="medium"?"med":r.conf)+'">'+({high:"High",medium:"Medium",low:"Low"}[r.conf])+' confidence</span>'
+      +'<span class="wb-rng">Likely '+money(r.low)+' – '+money(r.high)+'</span></div>'
+    +'<div class="wb-note" style="padding-top:4px">'+esc(r.confWhy)+'</div>'
+    +'</div>';
+  // §28 the line items, never one opaque lump
+  let li='';
+  r.lines.forEach(L=>{ li+='<div class="wb-cr" style="padding:3px 0;align-items:baseline">'
+    +'<span class="k" style="min-width:0">'+esc(L.nm.replace(/^Fence — /,""))
+    +'<small>'+L.qty+' '+esc(L.unit)+' × '+m2(L.rate)
+    +(L.mult!==1?(' · ×'+L.mult.toFixed(2)+' labour'):'')
+    +(L.sizeF!==1?(' · ×'+L.sizeF.toFixed(2)+' size'):'')
+    +(L.status!=="included"?(' · '+esc(L.status)):'')+'</small></span>'
+    +'<span class="v">'+money(L.cost)+'</span></div>'; });
+  right+='<div class="wb-cost" style="gap:0"><div style="font:800 11px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);padding-bottom:4px">Line items</div>'
+    +li+'<div class="wb-ct" style="margin-top:6px"><span class="k">Total</span><span class="v">'+money(r.total)+'</span></div></div>';
+  host.className="lb-scrim on";
+  host.innerHTML='<div class="lbx wbx" role="dialog" aria-modal="true" aria-label="Fence, Gate &amp; Screening Builder">'
+    +'<div class="lb-h"><span style="font-weight:800;font-size:15px;letter-spacing:-.01em">Fence, Gate &amp; Screening</span>'
+    +'<input value="'+esc(f.name||"")+'" placeholder="'+esc(T.label)+'" onchange="fbName(this.value)" '
+      +'style="margin-left:6px;min-width:0;width:180px;box-sizing:border-box;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12.5px;font-weight:700;padding:5px 8px">'
+    +'<span class="lb-pos">'+Math.round(r.totalLF)+' LF · '+money(r.total)+'</span>'
+    +'<span class="lb-sp">'
+    +(FB.poly==null?'<button class="lb-ico" onclick="fbToTrace()" title="Draw this fence on the plan">↗</button>':'')
+    +_stSeg(FB.mode,[{v:"simple",nm:"Simple"},{v:"advanced",nm:"Advanced"}],"fbMode")
+    +'<button class="lb-ico" onclick="fbCompareAsk()" title="Compare this against another option">⇄</button>'
+    +'<button class="lb-ico" onclick="fbLogBid()" title="Log what a contractor bid for this">$</button>'
+    +(FB.id?'<button class="lb-ico" onclick="fbDup()" title="Duplicate this fence">⧉</button>'
+           +'<button class="lb-ico" onclick="fbDel()" title="Delete this fence">🗑</button>':'')
+    +'<button class="lb-ico" onclick="fbClose()" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>'
+    +'<div class="wb-b"><div class="wb-l">'+h+'</div><aside class="wb-r">'+right+'</aside></div></div>';
+  host.onmousedown=e=>{ if(e.target===host) fbClose(); };
+}
+// §2B Draw this fence on the plan. One polyline per segment, laid end to end along the middle of
+// the view, so each one can be dragged onto its real line afterwards and re-measures itself there.
+function fbToTrace(){
+  const f=FB.f; if(!f) return;
+  if(typeof PT==="undefined"||!PT.open){ try{ _toast("Open the design tracer first, then send it across.","#8A6D1F"); }catch(e){} return; }
+  if(!PT.ppf){ try{ _toast("Set the plan scale first — the fence needs to know how big a foot is.","#8A6D1F"); }catch(e){} return; }
+  const st=document.getElementById("pt-stage");
+  const mid=_toPdf({x:(st?st.scrollLeft+st.clientWidth/2:300), y:(st?st.scrollTop+st.clientHeight/2:300)});
+  const r=fenceCost(f);
+  try{ ptSnap(); }catch(e){}
+  let y=mid.y - (r.segs.length-1)*14*PT.ppf/2, first=null;
+  r.segs.forEach((x,i)=>{
+    const lf=Math.max(1,x.q.grossLF), w=lf*PT.ppf;
+    const pts=[{x:mid.x-w/2, y:y}, {x:mid.x+w/2, y:y}];
+    PT.polys.push({mode:"fence", kind:"line", pts:pts,
+      name:(x.sg.name||("Segment "+(i+1))), type:fTypeOf(x.sg.type||f.type).label,
+      zone:"", phase:"", tags:"", page:PT.page,
+      fence:(i===0?f:null), fenceId:f.fenceId, fenceSeg:x.sg.segmentId});
+    if(i===0) first=PT.polys.length-1;
+    y+=14*PT.ppf;
+  });
+  if(FB.id){ fenceDelete(FB.id); FB.id=null; }    // it lives on the plan now
+  FB.poly=first;
+  try{ ptDrawOverlay(); ptUpdateInfo(); ptRenderFloat(); ptSelect(first); }catch(e){}
+  try{ _toast((f.name||"Fence")+" drawn on the plan — drag each run onto its line and it re-measures itself.","#2F5B23"); }catch(e){}
+  fbRender();
+}
+// A traced line becomes this fence's geometry, and the fence rides on the polyline.
+function fenceAttach(p){
+  if(!p) return fenceNew({});
+  if(p.fence&&p.fence.fenceId){
+    // the plan is the authority on length once the line is drawn there
+    const lf=(function(){ try{ return Math.round(_ptTraceNet(p)||0); }catch(e){ return 0; } })();
+    if(lf>0&&(p.fence.segments||[])[0]){ p.fence.segments[0].lf=lf; p.fence.segments[0].lfProv="derived"; }
+    return p.fence;
+  }
+  const lf=(function(){ try{ return Math.round(_ptTraceNet(p)||0); }catch(e){ return 0; } })();
+  const f=fenceNew({name:p.name||p.label||"Traced fence",
+    segments:[fenceSegNew({name:p.name||"Run", lf:lf||100, lfProv:lf?"derived":"assumed",
+      geom:(p.fenceSeg||null)})]});
+  p.fence=f; return f;
+}
+// How a fence reads in one line, wherever it is listed.
+function _fenceDesc(r){
+  if(!r) return "";
+  const f=r.fence, T=fTypeOf(f.type);
+  const hs=r.segs.map(x=>x.q.h).filter(h=>h>0);
+  const lo=hs.length?Math.min.apply(null,hs):0, hi=hs.length?Math.max.apply(null,hs):0;
+  const ft=v=>{ const a=Math.floor(v+1e-6), i=Math.round((v-a)*12); return (i>0)?(a+"′ "+i+"″"):(a+"′"); };
+  // the label of a record written at its own height would otherwise argue with the height beside it
+  const lbl=(T.atH&&Math.abs(hi-T.atH)>0.01)?T.label.replace(/^\d+(\.\d+)?\u2032\s*/,""):T.label;
+  return (r.segs.length>1?(r.segs.length+" segments · "):"")
+    +lbl+" · "+Math.round(r.totalLF)+" LF · "+(lo===hi?ft(hi):(ft(lo)+"–"+ft(hi)))
+    +(r.qty.gates>0?(" · "+r.qty.gates+" gate"+(r.qty.gates===1?"":"s")):"")
+    +((f.vehGates||[]).length?(" · "+(f.vehGates||[]).length+" vehicular"):"");
+}
+// §35 Compare an option without replacing what is selected.
+const FB_COMPARE=[
+  {k:"Cedar instead of redwood",  ch:{type:"wCedar"},      when:f=>/^wRw/.test(f.type)},
+  {k:"Composite instead of wood", ch:{type:"vComposite"},  when:f=>fTypeOf(f.type).mat==="wood"},
+  {k:"Vinyl instead of wood",     ch:{type:"vVinyl"},      when:f=>fTypeOf(f.type).mat==="wood"},
+  {k:"Horizontal instead of vertical", ch:{type:"wRwHoriz"}, when:f=>/^wRw(SxS|BnB|TG)$/.test(f.type)},
+  {k:"Tongue-and-groove instead", ch:{type:"wRwTG"},       when:f=>/^wRw(SxS|BnB)$/.test(f.type)},
+  {k:"Ornamental steel instead",  ch:{type:"m6Steel"},     when:f=>fTypeOf(f.type).mat!=="metal"},
+  {k:"Aluminium instead of steel",ch:{type:"m6Alum"},      when:f=>f.type==="m6Steel"},
+  {k:"Hidden steel posts",        ch:{posts:"steel"},      when:f=>f.posts!=="steel"},
+  {k:"8′ instead of this height", ch:{h:8},                when:f=>(+f.h||6)<8},
+  {k:"6′ instead of this height", ch:{h:6},                when:f=>(+f.h||6)!==6},
+  {k:"Natural instead of stained",ch:{finish:"none"},      when:f=>f.finish&&f.finish!=="none"},
+  {k:"Stained instead of natural",ch:{finish:"stainT"},    when:f=>(!f.finish||f.finish==="none")&&fTypeOf(f.type).mat==="wood"},
+  {k:"Finish one side only",      ch:{finishedSide:"one"}, when:f=>f.finishedSide!=="one"},
+  {k:"Glass instead of metal",    ch:{type:"gSemi"},       when:f=>f.poolBarrier&&fTypeOf(f.type).mat!=="glass"}
+];
+const FB_LIFE={wood:"15–25 years, refinished every 3–5",composite:"25–30 years, washed not refinished",
+  vinyl:"20–30 years, washed not refinished",metal:"30–50 years, recoated every 10–15",
+  chain:"20–30 years",glass:"30+ years, cleaned often"};
+async function fbCompareAsk(){
+  const f=FB.f; if(!f) return;
+  const opts=FB_COMPARE.filter(o=>{ try{ return o.when(f); }catch(e){ return false; } });
+  if(!opts.length){ await askTell("Nothing obvious to compare","Change the fence type or height and the comparisons come back."); return; }
+  const esc=escAttr, money=v=>fmtN(Math.round(v||0));
+  const rows=opts.map(o=>{ let c=null; try{ c=fenceCompare(f,o.ch); }catch(e){} return c?{o:o,c:c}:null; }).filter(Boolean);
+  const base=rows.length?rows[0].c.base:fenceCost(f);
+  let body='<div style="font-size:12.5px;line-height:1.6;margin-bottom:8px">'
+    +esc(fTypeOf(f.type).label)+' as selected is <b>'+money(base.total)+'</b>. Nothing here changes the fence — pick one to apply it.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:baseline;font-size:11.5px">'
+    +'<span style="font:700 9px var(--tkf,inherit);letter-spacing:.08em;text-transform:uppercase;opacity:.6">Option</span>'
+    +'<span style="font:700 9px var(--tkf,inherit);letter-spacing:.08em;text-transform:uppercase;opacity:.6;text-align:right">Total</span>'
+    +'<span style="font:700 9px var(--tkf,inherit);letter-spacing:.08em;text-transform:uppercase;opacity:.6;text-align:right">Difference</span>';
+  rows.forEach(({o,c})=>{
+    const mat=fTypeOf((o.ch.type||f.type)).mat;
+    body+='<span><b>'+esc(o.k)+'</b><span style="display:block;opacity:.6;font-size:10px">'
+      +esc(FB_LIFE[mat]||"")+'</span></span>'
+      +'<span style="text-align:right;font-variant-numeric:tabular-nums">'+money(c.alt.total)+'</span>'
+      +'<span style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:'
+      +(c.delta>0?"var(--gold,#8A6D1F)":"var(--gm)")+'">'+(c.delta>0?"+":"−")+money(Math.abs(c.delta))
+      +' <span style="font-weight:500;opacity:.7">'+(c.pct>0?"+":"")+c.pct.toFixed(0)+'%</span></span>';
+  });
+  body+='</div><div style="font-size:11px;opacity:.7;margin-top:9px;line-height:1.55">'
+    +'Each option re-prices the whole fence, so it carries the height, the gates, the finish and the site conditions you have set — not a rate swap.</div>';
+  const picks=rows.slice(0,3).map(x=>x.o.k);
+  const a=await askDlg({title:"Compare this fence", body:body, actions:picks.concat(["Leave it as it is"])});
+  const hit=rows.find(x=>x.o.k===a);
+  if(!hit) return;
+  Object.keys(hit.o.ch).forEach(k=>{ FB.f[k]=hit.o.ch[k]; });
+  try{ _bidSchedule(); }catch(e){}
+  fbRender();
+}
+// The list in the estimate, under Wood, Metal & Glass.
+function renderFenceList(){
+  const host=document.getElementById("fence-builder"); if(!host) return;
+  const R=_fRule();
+  const traced=(function(){ try{ return (PT.polys||[]).map((p,i)=>({p,i}))
+    .filter(x=>x.p.mode==="fence"&&x.p.fence&&x.p.fence.fenceId); }catch(e){ return []; } })();
+  const money=v=>fmtN(Math.round(v||0));
+  const card=(nm,sub,tot,open,extra)=>'<div style="display:flex;align-items:center;gap:.7rem;padding:.6rem 1rem;border-top:1px solid var(--br)">'
+    +'<span style="flex:1;min-width:0"><b style="display:block;font-size:.86rem;font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escAttr(nm)+'</b>'
+    +'<span style="display:block;font-size:.72rem;color:var(--tl)">'+escAttr(sub)+'</span></span>'
+    +'<b style="font-size:.9rem;font-weight:750;color:var(--gm);font-variant-numeric:tabular-nums;white-space:nowrap">'+money(tot)+'</b>'
+    +'<button class="btn btn-o" style="padding:.22rem .6rem;font-size:.72rem" onclick="'+open+'">Open</button>'
+    +(extra||'')+'</div>';
+  let html='';
+  fencesAll().forEach(f=>{ let r=null; try{ r=fenceCost(f); }catch(e){}
+    if(!r) return;
+    html+=card((f.name||"Fence"), _fenceDesc(r), r.total, "fbOpen('"+f.fenceId+"')",
+      '<button class="btn" style="padding:.22rem .55rem;font-size:.7rem;color:#B23F3C;background:transparent;border:1px solid #E0C4C3" onclick="fenceDelete(\''+f.fenceId+'\');fencesRefresh()">Remove</button>');
+  });
+  traced.forEach(x=>{ let r=null; try{ r=fenceCost(x.p.fence); }catch(e){}
+    if(!r) return;
+    html+=card((x.p.fence.name||x.p.name||"Traced fence"), "On the plan · "+_fenceDesc(r), r.total, "fbOpen("+x.i+")");
+  });
+  if(!html) html='<div style="padding:.75rem 1rem;font-size:.8rem;color:var(--tl)">No fence yet. A fence is built from its parts — posts, footings, infill, rails, hardware, finish and gates — so a conceptual figure can be opened up and refined rather than replaced.</div>';
+  const G=_fbTypeGroups();
+  html+='<div style="padding:.85rem 1rem;display:flex;gap:.45rem;flex-wrap:wrap">'
+    +Object.keys(G).map(g=>'<span style="flex-basis:100%;font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tl);margin:.2rem 0 0">'+escAttr(g)+'</span>'
+      +G[g].map(o=>'<button class="btn btn-o" style="font-size:.76rem" onclick="fencesAddOpen(\''+o[0]+'\')">+ '+escAttr(o[1])+'</button>').join("")).join("")
+    +'</div>';
+  host.innerHTML='<div style="border-top:1px solid var(--br)"><div style="padding:.7rem 1rem .1rem;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tl)">Fences, gates &amp; screens</div>'+html+'</div>';
+}
+function fencesRefresh(){ try{ renderFenceList(); }catch(e){}
+  try{ refreshCatTotals("woodMetal"); renderProSummary(); }catch(e){}
+  try{ _bidSchedule(); }catch(e){} }
+function fencesAddOpen(type){ const f=fenceAdd({type:type||"wRwSxS"}); fbOpen(f.fenceId); }
+
 const FNC_GROUPS=["Wood","Vinyl & Composite","Chain Link","Metal","Glass","Cable & Open",
   "Construction","Posts","Footings","Rails & Framing","Infill","Hardware",
   "Wood Finishes","Metal Finishes","Demolition","Pedestrian Gates","Vehicular Gates",
