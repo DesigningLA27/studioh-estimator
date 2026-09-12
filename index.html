@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1485</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1486</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27952,7 +27952,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1","studioh_bookstamps_v1","studioh_concrete_v1","studioh_wall_v2","studioh_court_v1","studioh_setbacks_v1","studioh_bidlog_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1","studioh_bookstamps_v1","studioh_concrete_v1","studioh_wall_v2","studioh_court_v1","studioh_fence_v1","studioh_setbacks_v1","studioh_bidlog_v1"];
 // ── Settings save themselves ─────────────────────────────────────────────────
 // "We have so many publish to serve, publish to this. Export this, and that. And 'pick
 // server or pick local'. I've never seen an app with all this shit." Correct — and the
@@ -58646,6 +58646,334 @@ function cbRender(){
 const CRT_GROUPS=["Site Work","Base System","Surface","Striping","Fencing","Gates","Windscreens",
   "Drainage","Court Lighting","Tennis Equipment","Pickleball Equipment","Basketball Equipment",
   "Multi-Sport Equipment","Accessories","Demolition","Engineering","Permits"];
+// ══════════════════════════════════════════════════════════════════════════════════════
+// FENCE & GATES ENGINE
+// ──────────────────────────────────────────────────────────────────────────────────────
+// Every fence record is a COMPLETE fence at 6 ft on flat ground, posts at 8 ft on centre —
+// which is what a published $/LF figure means, so the numbers can be checked against the
+// market directly. Everything that makes a particular fence harder than that is its own
+// adjustment: a taller run, bigger posts, deeper footings, rock, a slope to step, a gate.
+// That way nothing is counted twice and every adder is small enough to defend on its own.
+//
+// Southern California runs 20–30% above the national figures, which is why these sit above
+// the published national bands. Sources, all read September 2026:
+//   Wood, LA specifically $45–70/LF  · angi.com/articles/how-much-does-it-cost-install-wood-fence/ca/los-angeles
+//   Wood national $32–62/LF          · ergeon.com/blog/post/wood-fence-costs
+//   6 ft privacy $25–50, 8 ft to $75 · homeguide.com/costs/wood-fence-cost
+//   Horizontal +15–25% labour        · allcountyfenceandgate.com horizontal fence guide
+//   Wrought iron $50–85/LF           · homeguide.com/costs/wrought-iron-fence-cost
+//   Vinyl $35–65, aluminium $25–75   · homeguide.com/costs/metal-fence-cost
+//   Composite $35–95, typical $60    · angi.com/articles/composite-fencing-cost
+//   Glass semi-frameless $115–175,
+//     frameless $150–210             · homeguide.com/costs/glass-pool-fence-cost
+//   Pool barrier 60 in min, 2 in max
+//     gap, no 4 in sphere, gate
+//     self-closing and self-latching
+//     with the release at 60 in      · CA Health & Safety Code 115923
+const FNC_META={ region:"Southern California / Los Angeles", regionMult:1.00,
+  priceDate:"September 2026", status:"Initial Market Calibration" };
+function _fr(g,nm,u,lo,std,pre,lab,src,conf,note){
+  return {g:g,nm:nm,u:u,lo:lo,std:std,pre:pre,lab:lab,src:src,upd:"2026-09",conf:conf,note:note||""}; }
+const FNC_REC={
+  // ── the fence itself: complete, 6 ft, flat, posts at 8 ft OC ──────────────────────
+  fWoodBoard:  _fr("Fence","Wood board — dog-ear or flat-top","LF",38,52,70,0.55,"Angi LA $45–70","high",""),
+  fWoodBnB:    _fr("Fence","Board-on-board / good-neighbour","LF",48,65,88,0.55,"+25% on board","high",""),
+  fSlatHoriz:  _fr("Fence","Horizontal slat","LF",55,78,105,0.55,"cedar $30–45 / redwood $40–65 +horizontal premium +LA","high","Long horizontal spans need higher-grade lumber or they sag."),
+  fSlatVert:   _fr("Fence","Vertical slat / spaced picket","LF",42,58,78,0.55,"published picket +LA","high",""),
+  fLouver:     _fr("Fence","Louvered / fin screen","LF",75,105,150,0.50,"shop-built","med","Milled and set one blade at a time."),
+  fComposite:  _fr("Fence","Composite","LF",55,75,105,0.45,"Angi $35–95, typical $60 +LA","high",""),
+  fVinyl:      _fr("Fence","Vinyl","LF",42,58,78,0.45,"published $35–65 +LA","high",""),
+  fChain:      _fr("Fence","Chain link — galvanised","LF",22,30,42,0.60,"published residential +LA","high","Court and sport fencing is heavier gauge on closer posts — see the Sport Court Builder."),
+  fChainVinyl: _fr("Fence","Chain link — vinyl-coated","LF",28,38,52,0.58,"+25% on galvanised","high",""),
+  fTubular:    _fr("Fence","Tubular steel / wrought iron","LF",52,70,90,0.45,"homeguide $50–85","high",""),
+  fOrnamental: _fr("Fence","Ornamental iron — scrolls, finials, custom","LF",75,105,150,0.45,"homeguide $65–85 ornamental +LA","med",""),
+  fAluminum:   _fr("Fence","Aluminium picket","LF",34,48,66,0.45,"published $25–75","high",""),
+  fWeldedWire: _fr("Fence","Welded wire / hog panel in a frame","LF",40,58,82,0.55,"shop-built","med",""),
+  fCable:      _fr("Fence","Cable rail","LF",60,90,135,0.45,"allowance","low","Allowance until a Price Book product replaces it — no published residential band found."),
+  fGlassSemi:  _fr("Fence","Glass pool fence — semi-frameless","LF",120,160,215,0.35,"homeguide $115–175","high",""),
+  fGlassFrame: _fr("Fence","Glass pool fence — frameless","LF",150,195,260,0.35,"homeguide $150–210","high",""),
+  fMeshPool:   _fr("Fence","Removable mesh pool fence","LF",16,22,32,0.35,"published $15–25","high",""),
+  fBamboo:     _fr("Fence","Bamboo / reed screen on a frame","LF",24,36,52,0.50,"allowance","low","Allowance — screen material varies widely."),
+  fSplitRail:  _fr("Fence","Split rail / ranch","LF",16,24,36,0.60,"published","med",""),
+  // ── what makes a run harder than the reference fence ─────────────────────────────
+  postUp6x6:   _fr("Posts","Upgrade to 6×6 posts","EA",45,65,95,0.50,"material delta","med",""),
+  postSteel:   _fr("Posts","Galvanised steel post core in a wood fence","EA",55,80,115,0.50,"material delta","med","Outlasts the boards it carries."),
+  footDeep:    _fr("Posts","Deep footing — 36″ or more","EA",60,95,150,0.75,"concrete + dig","med",""),
+  rockDig:     _fr("Posts","Rock or hardpan digging","EA",45,85,150,0.90,"allowance","low",""),
+  slopeStep:   _fr("Site","Stepping or raking on a slope","LF",3,5,9,0.85,"labour","med",""),
+  clearLine:   _fr("Site","Clear the fence line — brush and roots","LF",2,4,8,0.95,"labour","med",""),
+  layout:      _fr("Site","Layout and string line","LF",0.75,1.25,2.00,1.00,"labour","high",""),
+  // ── demolition ───────────────────────────────────────────────────────────────────
+  demoWood:    _fr("Demolition","Remove an existing wood fence","LF",4,6,9,0.95,"labour","high",""),
+  demoChain:   _fr("Demolition","Remove an existing chain link fence","LF",3,4.50,7,0.95,"labour","high",""),
+  demoMasonry: _fr("Demolition","Remove an existing masonry fence","LF",18,28,45,0.85,"labour + equipment","med",""),
+  haulAway:    _fr("Demolition","Debris haul and disposal","LF",1.50,2.50,4,0.50,"dump fees","high",""),
+  // ── gates ────────────────────────────────────────────────────────────────────────
+  gatePedWood: _fr("Gates","Pedestrian gate — wood","EA",450,750,1200,0.55,"published","high",""),
+  gatePedMetal:_fr("Gates","Pedestrian gate — metal","EA",600,1000,1700,0.50,"published","high",""),
+  gatePedGlass:_fr("Gates","Pedestrian gate — glass pool gate","EA",1200,1900,2800,0.40,"published","med",""),
+  gateDbl:     _fr("Gates","Double / drive gate — manual","EA",1800,3200,5500,0.50,"published","med",""),
+  gateSlide:   _fr("Gates","Sliding gate — manual","EA",2500,4200,7000,0.50,"published","med",""),
+  gatePostHvy: _fr("Gates","Heavy gate post and footing","EA",350,600,1000,0.60,"concrete + steel","med",""),
+  gateSafety:  _fr("Gates","Self-closing, self-latching pool-code hardware","EA",120,220,380,0.45,"HSC 115923","high","Latch release at 60″ or on the pool side."),
+  // ── automation (§ the gate is a machine once it moves by itself) ──────────────────
+  autoSwing:   _fr("Automation","Swing gate operator","EA",2800,4500,7500,0.45,"published","med",""),
+  autoSlide:   _fr("Automation","Slide gate operator","EA",3200,5200,8500,0.45,"published","med",""),
+  autoAccess:  _fr("Automation","Keypad, intercom and loop detector","LS",800,1800,3500,0.40,"published","med",""),
+  autoElec:    _fr("Automation","Electrical to the gate — trench, conduit, wire","LF",18,28,45,0.75,"published","high",""),
+  // ── finish ───────────────────────────────────────────────────────────────────────
+  finStain:    _fr("Finish","Stain or seal a wood fence","LF",4,7,11,0.75,"published","high",""),
+  finPaint:    _fr("Finish","Paint a fence","LF",6,10,16,0.78,"published","high",""),
+  finPowder:   _fr("Finish","Powder-coat or custom colour on metal","LF",8,14,22,0.30,"shop finish","med",""),
+  finCapRail:  _fr("Finish","Cap rail or trim detail","LF",7,12,20,0.50,"material + labour","med",""),
+  // ── professional and government money: access never touches these ────────────────
+  engTall:     _fr("Engineering","Structural detail for a fence over 6′","LS",600,1200,2200,0,"engineering","med",""),
+  surveyLine:  _fr("Engineering","Property line survey and staking","LS",900,1500,2500,0,"survey","high","A fence on the line is the one thing a neighbour will measure."),
+  permitFence: _fr("Permits","Permit allowance","LS",250,650,1400,0,"allowance","low","")
+};
+const FNC_RULE={
+  // The fence records are written at 6 ft. About 30% of a fence does not change with height —
+  // posts, footings, layout, the gate hardware, getting there — and the rest scales with it.
+  refH:6, fixedShare:0.30,
+  postSpacing:8,
+  // Access moves the LABOUR SHARE of a line and nothing else. Never the whole price, and never
+  // engineering, survey or permits.
+  access:{ easy:{f:1.00,label:"Easy — truck to the line"},
+           moderate:{f:1.12,label:"Moderate — some carrying"},
+           difficult:{f:1.28,label:"Difficult — hand-carry, tight side yard"},
+           veryDifficult:{f:1.50,label:"Very difficult — no vehicle access at all"} },
+  accessOn:{Fence:true, Posts:true, Site:true, Demolition:true, Gates:true, Automation:true,
+            Finish:true, Engineering:false, Permits:false},
+  // Which fences can legally enclose a pool: 60 in minimum, nothing a 4 in sphere passes through.
+  poolOK:["fTubular","fOrnamental","fAluminum","fGlassSemi","fGlassFrame","fMeshPool",
+          "fWoodBoard","fWoodBnB","fComposite","fVinyl","fChain","fChainVinyl","fSlatVert","fWeldedWire"],
+  poolMinH:5,                                    // 60 inches
+  // Above this the run needs a bigger post, a deeper footing and usually a drawing.
+  tallH:6, engH:7,
+  types:{
+    fWoodBoard:{label:"Wood board",rec:"fWoodBoard",mat:"wood",stain:true},
+    fWoodBnB:{label:"Board-on-board",rec:"fWoodBnB",mat:"wood",stain:true},
+    fSlatHoriz:{label:"Horizontal slat",rec:"fSlatHoriz",mat:"wood",stain:true},
+    fSlatVert:{label:"Vertical slat",rec:"fSlatVert",mat:"wood",stain:true},
+    fLouver:{label:"Louvered screen",rec:"fLouver",mat:"wood",stain:true},
+    fComposite:{label:"Composite",rec:"fComposite",mat:"composite"},
+    fVinyl:{label:"Vinyl",rec:"fVinyl",mat:"vinyl"},
+    fChain:{label:"Chain link",rec:"fChain",mat:"metal"},
+    fChainVinyl:{label:"Chain link — coated",rec:"fChainVinyl",mat:"metal"},
+    fTubular:{label:"Tubular steel",rec:"fTubular",mat:"metal",powder:true},
+    fOrnamental:{label:"Ornamental iron",rec:"fOrnamental",mat:"metal",powder:true},
+    fAluminum:{label:"Aluminium picket",rec:"fAluminum",mat:"metal",powder:true},
+    fWeldedWire:{label:"Welded wire panel",rec:"fWeldedWire",mat:"metal",stain:true},
+    fCable:{label:"Cable rail",rec:"fCable",mat:"metal"},
+    fGlassSemi:{label:"Glass — semi-frameless",rec:"fGlassSemi",mat:"glass"},
+    fGlassFrame:{label:"Glass — frameless",rec:"fGlassFrame",mat:"glass"},
+    fMeshPool:{label:"Removable mesh",rec:"fMeshPool",mat:"mesh"},
+    fBamboo:{label:"Bamboo screen",rec:"fBamboo",mat:"wood"},
+    fSplitRail:{label:"Split rail",rec:"fSplitRail",mat:"wood",stain:true}
+  },
+  band:{high:14, med:22, low:32}                  // plus or minus, by confidence
+};
+// Market bands for the finished fence at 6 ft, used to check the answer and never to make it.
+const FNC_QA={
+  fWoodBoard:[38,70], fWoodBnB:[45,95], fSlatHoriz:[40,110], fSlatVert:[35,80],
+  fComposite:[35,95], fVinyl:[35,65], fChain:[15,45], fChainVinyl:[22,55],
+  fTubular:[50,85], fOrnamental:[65,150], fAluminum:[25,75],
+  fGlassSemi:[115,175], fGlassFrame:[150,210], fMeshPool:[15,25]
+};
+let FNC=(function(){ try{ const s=localStorage.getItem("studioh_fence_v1");
+  if(s){ const j=JSON.parse(s); if(j&&j.rec&&j.rule) return j; } }catch(e){} return null; })()
+  || {rec:JSON.parse(JSON.stringify(FNC_REC)), rule:JSON.parse(JSON.stringify(FNC_RULE)), meta:JSON.parse(JSON.stringify(FNC_META))};
+(function(){ try{ Object.keys(FNC_REC).forEach(k=>{ if(!FNC.rec[k]) FNC.rec[k]=JSON.parse(JSON.stringify(FNC_REC[k])); });
+  Object.keys(FNC_RULE).forEach(k=>{ if(FNC.rule[k]==null) FNC.rule[k]=JSON.parse(JSON.stringify(FNC_RULE[k])); });
+  if(!FNC.meta) FNC.meta=JSON.parse(JSON.stringify(FNC_META)); }catch(e){} })();
+function fenceSave(){ try{ localStorage.setItem("studioh_fence_v1", JSON.stringify(FNC)); }catch(e){}
+  try{ cfgStampKey("studioh_fence_v1"); }catch(e){}
+  try{ _cfgSchedulePush(); }catch(e){} }
+function fenceReset(){ FNC={rec:JSON.parse(JSON.stringify(FNC_REC)), rule:JSON.parse(JSON.stringify(FNC_RULE)), meta:JSON.parse(JSON.stringify(FNC_META))}; fenceSave(); }
+function fenceResetAll(){ fenceReset(); try{ renderPriceBook(); }catch(e){} }
+function fenceSet(path,v){ const parts=String(path).split("."); let o=FNC;
+  for(let i=0;i<parts.length-1;i++){ if(o[parts[i]]==null) o[parts[i]]={}; o=o[parts[i]]; }
+  const last=parts[parts.length-1]; const n=(v===""||v==null)?null:+v;
+  o[last]=(n==null||!isFinite(n))?0:n; fenceSave(); try{ renderPriceBook(); }catch(e){} }
+function fenceSetText(path,v){ const parts=String(path).split("."); let o=FNC;
+  for(let i=0;i<parts.length-1;i++){ if(o[parts[i]]==null) o[parts[i]]={}; o=o[parts[i]]; }
+  o[parts[parts.length-1]]=String(v==null?"":v); fenceSave(); try{ renderPriceBook(); }catch(e){} }
+function _fRule(){ return FNC.rule||FNC_RULE; }
+function fRec(id){ return (FNC.rec||FNC_REC)[id]||null; }
+function _fencePoint(){ let pt=null;
+  try{ pt=ptPointFor("woodMetal"); }catch(e){}   // fencing and gates live in Wood, Metal & Glass
+  if(pt==null){ try{ pt=ptPricePoint(); }catch(e){} }
+  return (pt===0||pt===1||pt===2)?pt:1; }
+function fVal(id,pt){ const r=fRec(id); if(!r) return 0;
+  const p=(pt==null)?_fencePoint():pt;
+  const v=(p===0)?r.lo:((p===2)?r.pre:r.std);
+  return (+v||0)*((+((FNC.meta||FNC_META).regionMult))||1); }
+function fLab(id){ const r=fRec(id); return r?(+r.lab||0):0; }
+// A fence record is written at 6 ft. Roughly a third of it — posts, footings, layout, hauling
+// the material in — does not change when the fence gets taller, and the rest does.
+function fenceHeightF(h){ const R=_fRule(), ref=+R.refH||6, fx=+R.fixedShare||0.30;
+  const H=Math.max(1,+h||ref);
+  return fx+(1-fx)*(H/ref); }
+// One fence object. Persistent id so a project can hold several and they are told apart by
+// identity, not by type.
+function fenceNew(o){ const R=_fRule();
+  const t=(o&&o.type&&R.types[o.type])?o.type:"fWoodBoard";
+  return Object.assign({
+    fenceId:"f"+Math.random().toString(36).slice(2,9),
+    name:"", type:t, lf:100, h:6,
+    access:"easy", slope:"flat", clear:false, rock:0, survey:false,
+    posts:"std",                                  // std | up6x6 | steel
+    deepFoot:false,
+    poolBarrier:false,
+    demo:"none", demoLF:null,                     // none | wood | chain | masonry
+    finish:"none",                                // none | stain | paint | powder
+    capRail:false,
+    gatesPed:0, gatePedType:"auto", gatesDbl:0, gatesSlide:0,
+    autoSwing:0, autoSlide:0, autoAccess:false, autoElecLF:0,
+    engOn:null, permitOn:false,                   // null = decide from the height
+    notes:""
+  }, o||{});
+}
+function fenceTypeOf(f){ const R=_fRule(); return R.types[f.type]||R.types.fWoodBoard; }
+// §Cost. One pass, every line showing its own quantity, unit and rate.
+function fenceCost(fin){
+  const f=fenceNew(fin), R=_fRule(), T=fenceTypeOf(f);
+  const pt=_fencePoint(), acc=(R.access[f.access]||R.access.easy).f;
+  const lf=Math.max(0,+f.lf||0), h=Math.max(1,+f.h||6);
+  const hf=fenceHeightF(h);
+  const spacing=Math.max(2,+R.postSpacing||8);
+  const posts=lf>0?(Math.floor(lf/spacing)+1):0;
+  const lines=[];
+  const add=(grp,sub,nm,qty,unit,id,rate,opt)=>{
+    const q=+qty||0; if(!(q>0)) return null;
+    const r=(rate!=null)?+rate:fVal(id,pt);
+    if(!(r>0)&&!(opt&&opt.allowZero)) return null;
+    const lab=(opt&&opt.lab!=null)?+opt.lab:fLab(id);
+    const hard=!!(opt&&opt.hard);
+    const accOn=!hard && (!!(opt&&opt.acc) || !!((R.accessOn||FNC_RULE.accessOn)[grp]));
+    const raw=q*r;
+    const cost=accOn?(raw*(1-lab)+raw*lab*acc):raw;
+    lines.push({g:grp, sub:sub, nm:"Fence — "+nm, qty:q, unit:unit, rate:r, cost:cost,
+      rec:id||null, tier:["Budget","Standard","Premium"][pt], mult:accOn?acc:1,
+      status:(opt&&opt.status)||"included", override:!!(opt&&opt.override), note:(opt&&opt.note)||""});
+    return lines[lines.length-1];
+  };
+  // demolition first, the way the job runs
+  if(f.demo&&f.demo!=="none"){
+    const dl=(f.demoLF!=null&&+f.demoLF>0)?+f.demoLF:lf;
+    const dm={wood:"demoWood",chain:"demoChain",masonry:"demoMasonry"}[f.demo];
+    if(dm){ add("Demolition","Remove",(fRec(dm)||{}).nm||"Remove existing fence",dl,"LF",dm);
+            add("Demolition","Haul","Debris Haul & Disposal",dl,"LF","haulAway"); }
+  }
+  add("Site","Layout","Layout & String Line",lf,"LF","layout");
+  if(f.clear) add("Site","Clearing","Clear the Fence Line",lf,"LF","clearLine");
+  if(f.slope==="stepped"||f.slope==="raked") add("Site","Slope","Stepping / Raking on Slope",lf,"LF","slopeStep");
+  if(f.survey) add("Engineering","Survey","Property Line Survey & Staking",1,"LS","surveyLine",null,{hard:true});
+  // the fence itself, at this height
+  const baseRate=fVal(T.rec,pt)*hf;
+  add("Fence","Run",T.label+" Fence — "+h+"′",lf,"LF",T.rec,baseRate,
+      {note:hf!==1?("Record is written at "+(R.refH||6)+"′; "+h+"′ is ×"+hf.toFixed(2)):""});
+  // posts, footings, ground
+  if(f.posts==="up6x6") add("Posts","Upgrade","Upgrade to 6×6 Posts",posts,"EA","postUp6x6");
+  else if(f.posts==="steel") add("Posts","Upgrade","Galvanised Steel Post Core",posts,"EA","postSteel");
+  const needDeep=!!f.deepFoot || h>(+R.tallH||6);
+  if(needDeep) add("Posts","Footing","Deep Footing — 36″ or More",posts,"EA","footDeep",null,
+    {note:(!f.deepFoot&&h>(+R.tallH||6))?("Required by the "+h+"′ height."):""});
+  if(+f.rock>0) add("Posts","Ground","Rock or Hardpan Digging",Math.min(+f.rock,posts),"EA","rockDig",null,{status:"allowance"});
+  // gates
+  const pedRec=(f.gatePedType&&f.gatePedType!=="auto")?f.gatePedType
+    :(T.mat==="glass"?"gatePedGlass":(T.mat==="metal"?"gatePedMetal":"gatePedWood"));
+  if(+f.gatesPed>0){ add("Gates","Pedestrian",(fRec(pedRec)||{}).nm||"Pedestrian Gate",+f.gatesPed,"EA",pedRec);
+    add("Gates","Post","Heavy Gate Post & Footing",+f.gatesPed,"EA","gatePostHvy"); }
+  if(+f.gatesDbl>0){ add("Gates","Drive","Double / Drive Gate",+f.gatesDbl,"EA","gateDbl");
+    add("Gates","Post","Heavy Gate Post & Footing",2*(+f.gatesDbl),"EA","gatePostHvy"); }
+  if(+f.gatesSlide>0){ add("Gates","Sliding","Sliding Gate",+f.gatesSlide,"EA","gateSlide");
+    add("Gates","Post","Heavy Gate Post & Footing",2*(+f.gatesSlide),"EA","gatePostHvy"); }
+  const gateN=(+f.gatesPed||0)+(+f.gatesDbl||0)+(+f.gatesSlide||0);
+  if(f.poolBarrier&&gateN>0)
+    add("Gates","Safety","Self-Closing, Self-Latching Pool Hardware",gateN,"EA","gateSafety",null,
+      {note:"California Health & Safety Code 115923."});
+  // automation
+  if(+f.autoSwing>0) add("Automation","Operator","Swing Gate Operator",+f.autoSwing,"EA","autoSwing");
+  if(+f.autoSlide>0) add("Automation","Operator","Slide Gate Operator",+f.autoSlide,"EA","autoSlide");
+  if(f.autoAccess)   add("Automation","Access","Keypad, Intercom & Loop Detector",1,"LS","autoAccess");
+  if(+f.autoElecLF>0)add("Automation","Electrical","Trench, Conduit & Wire",+f.autoElecLF,"LF","autoElec",null,{acc:1});
+  // finish
+  if(f.finish==="stain") add("Finish","Coating","Stain / Seal",lf,"LF","finStain",fVal("finStain",pt)*hf);
+  else if(f.finish==="paint") add("Finish","Coating","Paint",lf,"LF","finPaint",fVal("finPaint",pt)*hf);
+  else if(f.finish==="powder") add("Finish","Coating","Powder-Coat / Custom Colour",lf,"LF","finPowder",fVal("finPowder",pt)*hf);
+  if(f.capRail) add("Finish","Detail","Cap Rail / Trim",lf,"LF","finCapRail");
+  // professional and government
+  const engNeeded=(f.engOn==null)?(h>(+R.engH||7)):!!f.engOn;
+  if(engNeeded) add("Engineering","Structural","Structural Detail — Fence Over 6′",1,"LS","engTall",null,
+    {hard:true, note:(f.engOn==null)?("Required by the "+h+"′ height."):""});
+  if(f.permitOn) add("Permits","Permit","Permit Allowance",1,"LS","permitFence",null,{hard:true, status:"allowance"});
+
+  const groups={}; let total=0, construction=0, professional=0;
+  lines.forEach(L=>{ groups[L.g]=(groups[L.g]||0)+L.cost; total+=L.cost;
+    if(L.g==="Engineering"||L.g==="Permits") professional+=L.cost; else construction+=L.cost; });
+  // confidence: what is not known about the site, not how big the number is
+  let conf="high";
+  if(f.slope!=="flat"||+f.rock>0||f.demo==="masonry") conf="med";
+  if(f.access==="difficult"||f.access==="veryDifficult"||(fRec(T.rec)||{}).conf==="low") conf="low";
+  const reasons=[];
+  if(f.slope!=="flat") reasons.push("the line is not flat");
+  if(+f.rock>0) reasons.push("rock digging is an allowance");
+  if(f.access!=="easy") reasons.push("access is "+(R.access[f.access]||{}).label.toLowerCase());
+  if((fRec(T.rec)||{}).conf==="low") reasons.push("this fence type is still on an allowance rate");
+  const pm=(R.band||FNC_RULE.band)[conf]||22;
+  return {fence:f, type:T, point:pt, tier:["Budget","Standard","Premium"][pt], access:acc,
+    lf:lf, h:h, heightF:hf, posts:posts, spacing:spacing, gates:gateN,
+    lines:lines, groups:groups, total:total, construction:construction, professional:professional,
+    perLF:(lf>0?total/lf:0), runPerLF:baseRate,
+    conf:conf, confWhy:reasons.join("; "), band:pm, low:total*(1-pm/100), high:total*(1+pm/100),
+    qa:fenceQA(f,baseRate), warnings:fenceWarnings(f,h,gateN)};
+}
+// Reality check on the fence itself at 6 ft — the one figure the market publishes. Everything
+// else on the estimate is an adjustment to it and is excluded from the comparison by design.
+function fenceQA(f,runRate){
+  const R=_fRule(), band=FNC_QA[f.type]; if(!band||!(runRate>0)) return null;
+  const h=Math.max(1,+f.h||6), hf=fenceHeightF(h);
+  const at6=runRate/hf;                             // back out the height, compare like for like
+  const inBand=(at6>=band[0]&&at6<=band[1]);
+  const off=band[1]>band[0]?((at6-(band[0]+band[1])/2)/((band[0]+band[1])/2)*100):0;
+  return {band:band, at6:at6, thisRate:runRate, inBand:inBand, offPct:off,
+    flag:!inBand,
+    basis:"the fence alone at "+(R.refH||6)+"′, which is what a published $/LF figure covers",
+    excluded:"demolition, layout, slope, posts and footings, gates, automation, finish, survey, engineering and permits",
+    note:inBand?"Inside the published range for this fence."
+      :(at6<band[0]?"Below the published range — check the height, the type and the price point."
+                   :"Above the published range — check the height, the type and the price point.")};
+}
+function fenceWarnings(f,h,gateN){
+  const R=_fRule(), T=fenceTypeOf(f), out=[];
+  if(f.poolBarrier){
+    if(h<(+R.poolMinH||5)) out.push("A pool barrier must be at least 60″ (5′) high — this run is "+h+"′. California Health & Safety Code 115923.");
+    if((R.poolOK||[]).indexOf(f.type)<0) out.push(T.label+" will not pass as a pool barrier on its own — nothing a 4″ sphere can pass through, and no more than 2″ of clearance at the bottom.");
+    if(f.type==="fSplitRail"||f.type==="fCable") out.push("Check the opening size: rails and cables spaced wider than 4″ are not a pool barrier.");
+    if(gateN>0) out.push("Every gate in a pool barrier must open away from the pool, be self-closing and self-latching, with the release at least 60″ above grade or on the pool side.");
+    else out.push("No gate is counted in this run — if the barrier is the only way in, a compliant gate is required.");
+  }
+  if(h>(+R.engH||7)) out.push("Over "+(R.engH||7)+"′ — most cities want a structural detail and a permit for a fence this tall, and many cap fence height without a variance.");
+  else if(h>(+R.tallH||6)) out.push("Over "+(R.tallH||6)+"′ — check the city's fence height limit before pricing it.");
+  if(f.slope==="flat"&&(f.type==="fVinyl"||f.type==="fComposite")) out.push("Vinyl and composite panels do not rake — on any fall the run has to be stepped.");
+  if(f.type==="fSlatHoriz") out.push("Horizontal boards sag over long spans — posts closer than "+R.postSpacing+"′, or higher-grade lumber, on runs over about 60′.");
+  if(f.survey===false) out.push("A fence on a property line is the one thing a neighbour will measure. A survey is not in this price.");
+  if(+f.autoSwing>0||+f.autoSlide>0){ if(!(+f.autoElecLF>0)) out.push("An automated gate needs power run to it — no electrical length is entered."); }
+  if(f.demo==="masonry") out.push("Removing a masonry fence may expose a footing, a shared wall or a retaining condition — build that in the Wall Builder.");
+  out.push("This is a design estimate, not a contractor bid.");
+  return out;
+}
+// Several fences on one project, each its own record.
+function fencesAll(){ try{ return (S.fences=S.fences||[]); }catch(e){ return []; } }
+function fencesSubtotal(){ let t=0; fencesAll().forEach(f=>{ try{ t+=fenceCost(f).total; }catch(e){} }); return t; }
+function fenceAdd(o){ const f=fenceNew(o); fencesAll().push(f); try{ _bidSchedule(); }catch(e){} return f; }
+function fenceDelete(id){ const A=fencesAll(); const i=A.findIndex(x=>x&&x.fenceId===id);
+  if(i>=0){ A.splice(i,1); try{ _bidSchedule(); }catch(e){} } }
+function fenceDuplicate(id){ const f=fencesAll().find(x=>x&&x.fenceId===id); if(!f) return null;
+  const c=JSON.parse(JSON.stringify(f)); c.fenceId="f"+Math.random().toString(36).slice(2,9);
+  c.name=(f.name||fenceTypeOf(f).label)+" copy"; fencesAll().push(c); try{ _bidSchedule(); }catch(e){} return c; }
+
 const COURT_PANES=(function(){
   const a=CRT_GROUPS.map(g=>({g:"Price records", k:"rec:"+g, nm:g, sub:"unit, band, source and date"}));
   return a.concat([
