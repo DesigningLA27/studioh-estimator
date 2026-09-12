@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1488</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1489</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -45365,7 +45365,7 @@ function _renderPriceBook_inner(){
   _groups.forEach(({g,idxs})=>{ idxs.forEach(ci=>_flat.push({g, ci, id:PB[ci].id})); });
   if(!_flat.length){ return; }
   let _sel=pbSel();
-  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && _sel!=="__conc" && _sel!=="__wall" && _sel!=="__court" && _sel!=="__bids" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
+  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && _sel!=="__conc" && _sel!=="__wall" && _sel!=="__court" && _sel!=="__fence" && _sel!=="__bids" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
   let _th="";
   _groups.forEach(({g,idxs})=>{
     if(!idxs.length) return;
@@ -45395,6 +45395,8 @@ function _renderPriceBook_inner(){
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Walls</span><span class="n">${WALL_PANES.length}</span></button>
     <button class="pbz-t feed${_sel==="__court"?" on":""}" onclick="pbSelSet('__court')">
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Sport Courts</span><span class="n">${COURT_PANES.length}</span></button>
+    <button class="pbz-t feed${_sel==="__fence"?" on":""}" onclick="pbSelSet('__fence')">
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Fences &amp; Gates</span><span class="n">${FENCE_PANES.length}</span></button>
     <button class="pbz-t feed${_sel==="__bids"?" on":""}" onclick="pbSelSet('__bids')">
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Bids vs estimates</span><span class="n">${(typeof BIDLOG!=="undefined")?BIDLOG.length:0}</span></button>`;
   _tree.innerHTML=_th;
@@ -45411,6 +45413,8 @@ function _renderPriceBook_inner(){
     _renderWall3(_main);
   } else if(_sel==="__court"){
     _renderCourt3(_main);
+  } else if(_sel==="__fence"){
+    _renderFence3(_main);
   } else if(_sel==="__bids"){
     _renderBids3(_main);
   } else if(_sel==="__assume"){
@@ -59728,6 +59732,156 @@ function _renderCourt3(_mount){
   card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__court">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
   _mount.appendChild(card);
 }
+// §31 The Price Book page. The spec's category tree, the spec's record fields, and the rule tables
+// the engine reads — so a number can be changed where it lives rather than in code.
+const FNC_GROUPS=["Wood","Vinyl & Composite","Chain Link","Metal","Glass","Cable & Open",
+  "Construction","Posts","Footings","Rails & Framing","Infill","Hardware",
+  "Wood Finishes","Metal Finishes","Demolition","Pedestrian Gates","Vehicular Gates",
+  "Gate Operators","Access Control","Safety Equipment","Electrical & Trenching","Pilasters",
+  "Wall Coordination","Engineering","Permits & HOA"];
+const FENCE_PANES=(function(){
+  const a=FNC_GROUPS.map(g=>({g:"Price records", k:"rec:"+g, nm:g, sub:"unit, band, labour share, what it includes"}));
+  return a.concat([
+    {g:"Rules", k:"height",  nm:"Height factors",        sub:"§13 — the 6′ fence is the reference"},
+    {g:"Rules", k:"spacing", nm:"Post spacing",          sub:"§11 — by fence system"},
+    {g:"Rules", k:"footings",nm:"Footing assumptions",   sub:"§12 — estimating, not structural"},
+    {g:"Rules", k:"slope",   nm:"Slope & grade",         sub:"§17 — labour and fabrication only"},
+    {g:"Rules", k:"access",  nm:"Access & difficulty",   sub:"§18 — labour share only"},
+    {g:"Rules", k:"size",    nm:"Project size",          sub:"§19 — instead of a mobilisation charge"},
+    {g:"Rules", k:"pool",    nm:"Pool barrier",          sub:"§25 — seed figures, never a certificate"},
+    {g:"Rules", k:"zoning",  nm:"Height, zoning & HOA",  sub:"§26 — a pattern, not a rule"},
+    {g:"Rules", k:"conf",    nm:"Confidence bands",      sub:"§30 — how wide the answer is stated"},
+    {g:"Rules", k:"meta",    nm:"Region & data version", sub:"where and when these prices are from"}
+  ]);
+})();
+function _renderFence3(_mount){
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const sel=Math.max(0,Math.min(pb3Sel("__fence"), FENCE_PANES.length-1));
+  const P=FENCE_PANES[sel];
+  const R=_fRule(), M=FNC.meta||FNC_META;
+  const nRec=g=>Object.keys(FNC.rec).filter(k=>FNC.rec[k].g===g).length;
+  const val=k=>{
+    if(k.indexOf("rec:")===0) return nRec(k.slice(4))+" records";
+    if(k==="height")  return Object.keys(R.heightF).length+" points";
+    if(k==="spacing") return Object.keys(R.spacing).length+" systems";
+    if(k==="footings")return (R.footings||[]).length+" bands";
+    if(k==="slope")   return Object.keys(R.slope).length+" grades";
+    if(k==="access")  return Object.keys(R.access).length+" levels";
+    if(k==="size")    return (R.size||[]).length+" bands";
+    if(k==="pool")    return Math.round((+R.pool.minH||5)*12)+"″ min";
+    if(k==="zoning")  return (+R.zoning.frontMaxFt||0)+"′ / "+(+R.zoning.sideRearMaxFt||0)+"′";
+    if(k==="conf")    return "±"+R.band.med+"%";
+    if(k==="meta")    return (+M.regionMult||1).toFixed(2)+"×";
+    return ""; };
+  let list="", run=null;
+  FENCE_PANES.forEach((p,i)=>{
+    if(p.g!==run){ run=p.g; list+='<div class="pb3-sec">'+esc(p.g)+'</div>'; }
+    list+='<button class="pb3-li'+(i===sel?" on":"")+'" onclick="pb3Pick(\'__fence\','+i+')">'
+      +'<span class="cv"></span><span class="nm">'+esc(p.nm)+'</span>'
+      +'<span class="u"></span><span class="v">'+esc(val(p.k))+'</span></button>';
+  });
+  const F=(label,path,cur,step,suffix)=>'<div class="pb3-f"><span class="k">'+esc(label)+'</span>'
+    +'<span style="display:flex;align-items:center;gap:3px">'
+    +'<input type="number" class="no-spin" value="'+(+cur||0)+'" step="'+(step||0.05)+'" '
+    +'onchange="fenceSet(\''+path+'\',this.value)">'
+    +(suffix?'<span style="color:var(--tl);font-size:12px">'+esc(suffix)+'</span>':'')+'</span></div>';
+  const TX=(label,path,cur)=>'<div class="pb3-f"><span class="k">'+esc(label)+'</span>'
+    +'<input value="'+esc(cur)+'" onchange="fenceSetText(\''+path+'\',this.value)"></div>';
+  const NOTE=t=>'<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">'+t+'</div>';
+  let ins='<div class="pb3-nm" style="cursor:default">'+esc(P.nm)+'</div>'
+    +'<div class="t">'+esc(P.sub)+'</div>';
+  if(P.k.indexOf("rec:")===0){
+    const grp=P.k.slice(4);
+    const IN='style="width:72px;box-sizing:border-box;text-align:right"';
+    const CONF={high:"#6FBF5C",med:"#D9A441",low:"#C9605C"};
+    ins+=NOTE('<b>Budget / Standard / Premium</b> is the band the project’s own price point reads — there is no second contractor multiplier on top (§32). <b>Labour %</b> is the only share that access and slope are allowed to move. An <b>assembly</b> is a complete installed fence; what it already carries is printed under it, so the builder never buys it twice (§37).');
+    ins+='<div style="display:grid;grid-template-columns:1fr 46px 72px 72px 72px 58px;gap:6px;align-items:center;font:700 9px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);padding:0 0 4px">'
+      +'<span></span><span>Unit</span><span style="text-align:right">Budget</span><span style="text-align:right">Standard</span><span style="text-align:right">Premium</span><span style="text-align:right">Labour</span></div>';
+    Object.keys(FNC.rec).filter(k=>FNC.rec[k].g===grp).forEach(k=>{ const r=FNC.rec[k];
+      ins+='<div style="display:grid;grid-template-columns:1fr 46px 72px 72px 72px 58px;gap:6px;align-items:center;padding:4px 0;border-top:1px solid var(--br,#EFEDE6)">'
+        +'<span style="min-width:0"><b style="display:block;font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.nm)+'</b>'
+        +'<span style="font-size:9.5px;color:var(--tl)">'+esc(r.src||"")+' · '+esc(r.upd||"")
+        +' · <b style="color:'+(CONF[r.conf]||"#888")+'">'+esc(r.conf||"")+'</b>'
+        +(r.assembly?' · <b style="color:var(--gm)">assembly</b>':'')
+        +(r.atH?(' · written at '+r.atH+'′'):'')+'</span></span>'
+        +'<span style="font-size:10.5px;font-weight:700;color:var(--tl)">'+esc(r.u)+'</span>'
+        +'<input type="number" class="no-spin" '+IN+' value="'+(+r.lo||0)+'" step="0.25" onchange="fenceSet(\'rec.'+k+'.lo\',this.value)">'
+        +'<input type="number" class="no-spin" '+IN+' value="'+(+r.std||0)+'" step="0.25" onchange="fenceSet(\'rec.'+k+'.std\',this.value)">'
+        +'<input type="number" class="no-spin" '+IN+' value="'+(+r.pre||0)+'" step="0.25" onchange="fenceSet(\'rec.'+k+'.pre\',this.value)">'
+        +'<input type="number" class="no-spin" style="width:58px;box-sizing:border-box;text-align:right" value="'+Math.round((+r.lab||0)*100)+'" step="5" onchange="fenceSet(\'rec.'+k+'.lab\',(+this.value||0)/100)">'
+        +'</div>'
+        +((r.inc||r.exc)?'<div style="font-size:10px;color:var(--tl);line-height:1.45;margin:-2px 0 3px 2px">'
+          +(r.inc?'<b>Includes</b> '+esc(r.inc)+'. ':'')+(r.exc?'<b>Not included</b> '+esc(r.exc)+'.':'')+'</div>':'')
+        +(r.note?'<div style="font-size:10px;color:var(--gold,#8A6D1F);line-height:1.45;margin:-1px 0 4px 2px">'+esc(r.note)+'</div>':'');
+    });
+  } else if(P.k==="height"){
+    ins+=NOTE('§13. The 6′ fence is 1.00 and everything else is relative to it, interpolated between these points. Not proportional to height — posts, layout, mobilisation and some labour stay where they are. A record written at its own height (chain link, ornamental metal) is already there and is not scaled from 6. Above the top of the table the factor is extrapolated and the estimate says so.');
+    Object.keys(R.heightF).map(Number).sort((a,b)=>a-b).forEach(h=>{
+      ins+=F(h+"′","rule.heightF."+h,R.heightF[h],0.01,"×"); });
+    ins+='<h4>Thresholds</h4>'
+      +F("Reference height","rule.refH",R.refH,0.5,"ft")
+      +F("Warn and extrapolate above","rule.maxH",R.maxH,0.5,"ft")
+      +F("Recommend engineering above","rule.engH",R.engH,0.5,"ft");
+  } else if(P.k==="spacing"){
+    ins+=NOTE('§11 default post spacing, in feet on centre, by fence system. Line posts are ceil(net length ÷ spacing) − 1; end, corner, transition and gate posts are added on top, and an end post shared between two runs is counted once (§37).');
+    Object.keys(R.spacing).forEach(k=>{ ins+=F(k,"rule.spacing."+k,R.spacing[k],0.5,"ft"); });
+  } else if(P.k==="footings"){
+    ins+=NOTE('§12 conceptual footing assumptions by fence height. <b>Estimating assumptions, not structural prescriptions</b> — a footing is an assumption until it is engineered or specified. Concrete volume is π r² d per footing, plus waste.');
+    (R.footings||[]).forEach((f,i)=>{ ins+='<h4>'+(i===0?"Up to":"Over "+((R.footings[i-1]||{}).toH)+"′, up to")+" "+(f.toH>100?"taller":f.toH+"′")+'</h4>'
+      +F("Diameter","rule.footings."+i+".dia",f.dia,0.5,"in")
+      +F("Depth","rule.footings."+i+".depth",f.depth,1,"in"); });
+    ins+='<h4>Allowance</h4>'+F("Concrete waste and minimum load","rule.footWaste",R.footWaste,0.01,"×");
+  } else if(P.k==="slope"){
+    ins+=NOTE('§17. Applied to the labour and fabrication share only — never indiscriminately to product cost. A retaining condition belongs in the Wall Builder.');
+    Object.keys(R.slope).forEach(k=>{ const g=R.slope[k];
+      ins+=(g.f==null)?('<div class="pb3-f"><span class="k">'+esc(g.label)+'</span><span style="font-size:11.5px;color:var(--gold,#8A6D1F)">engineered — no factor</span></div>')
+        :F(g.label,"rule.slope."+k+".f",g.f,0.01,"×"); });
+  } else if(P.k==="access"){
+    ins+=NOTE('§18. Applied to the labour share of demolition, excavation, footings, concrete handling, material transport, installation, welding and cleanup. <b>Never</b> to factory-fabricated product, to operator equipment, or to permit and engineering fees.');
+    Object.keys(R.access).forEach(k=>{ ins+=F(R.access[k].label,"rule.access."+k+".f",R.access[k].f,0.01,"×"); });
+    ins+='<h4>Groups it touches</h4>';
+    Object.keys(R.accessOn||{}).forEach(k=>{ ins+=F(k,"rule.accessOn."+k,R.accessOn[k]?1:0,1); });
+  } else if(P.k==="size"){
+    ins+=NOTE('§19. A short fence costs more per foot. This runs <b>instead of</b> a separate mobilisation charge, never alongside one (§37), and only on work measured along or across the fence — a gate, an operator or a keypad is a discrete item whose price does not care how much fence is beside it.');
+    (R.size||[]).forEach((b,i)=>{ const from=i===0?0:(R.size[i-1].toLF);
+      ins+=F(from+(b.toLF>1e8?" LF and over":"–"+b.toLF+" LF"),"rule.size."+i+".f",b.f,0.01,"×"); });
+    ins+='<h4>On or off</h4>'+F("Apply the size factor","rule.sizeOn",R.sizeOn?1:0,1);
+  } else if(P.k==="pool"){
+    ins+=NOTE('§25. Seed figures for validation and warnings. <b>The app never certifies compliance</b> — requirements vary by jurisdiction and project condition, and the governing agency is the authority.');
+    ins+=F("Minimum barrier height","rule.pool.minH",R.pool.minH,0.5,"ft")
+      +F("Largest opening","rule.pool.maxGapIn",R.pool.maxGapIn,0.5,"in")
+      +F("Largest clearance underneath","rule.pool.maxBottomIn",R.pool.maxBottomIn,0.5,"in")
+      +F("Latch release height","rule.pool.latchH",R.pool.latchH,0.5,"ft");
+    ins+='<div style="font-size:11px;color:var(--gold,#8A6D1F);line-height:1.5;margin-top:7px">'+esc(R.pool.note)+'</div>';
+    ins+='<h4>Fences flagged as unsuitable on their own</h4><div style="font-size:11px;color:var(--tl);line-height:1.7">'
+      +(R.poolUnsuitable||[]).map(k=>esc((R.types[k]||{}).label||k)).join("<br>")+'</div>';
+  } else if(P.k==="zoning"){
+    ins+=NOTE('§26. A starting pattern for this region, <b>not a universal rule and never marked verified</b>. The jurisdiction, the date checked and the source are stored on the fence, and a figure supplied by the user stays labelled as supplied.');
+    ins+=F("Front yard maximum","rule.zoning.frontMaxFt",R.zoning.frontMaxFt,0.5,"ft")
+      +F("Side and rear maximum","rule.zoning.sideRearMaxFt",R.zoning.sideRearMaxFt,0.5,"ft")
+      +F("Permit likely above","rule.permitH",R.permitH,0.5,"ft");
+    ins+='<div style="font-size:11px;color:var(--gold,#8A6D1F);line-height:1.5;margin-top:7px">'+esc(R.zoning.note)+'</div>';
+  } else if(P.k==="conf"){
+    ins+=NOTE('§30. How wide the answer is stated, by confidence. Confidence itself is calculated from what is known, what was assumed and what is unresolved — and the estimate lists all three rather than printing a letter.');
+    ins+=F("High","rule.band.high",R.band.high,1,"±%")
+      +F("Medium","rule.band.med",R.band.med,1,"±%")
+      +F("Low","rule.band.low",R.band.low,1,"±%");
+  } else if(P.k==="meta"){
+    ins+=NOTE('These allowances were seeded for one region on one date. §14: they are starting allowances, and the regional and contractor architecture is the app’s own.');
+    ins+=TX("Region","meta.region",M.region)
+      +F("Location multiplier","meta.regionMult",M.regionMult,0.01,"×")
+      +TX("Price date","meta.priceDate",M.priceDate)
+      +TX("Status","meta.status",M.status);
+  }
+  ins+='<div class="pb3-acts"><button class="btn" onclick="fenceResetAll()">↺ Back to the defaults</button></div>';
+  const card=document.createElement("div");
+  card.className="pbx-card pb3";
+  const head='<div class="pb3-lh"><span class="cr">Feeds every section <i>›</i> <b>Fences, Gates &amp; Screens</b></span>'
+    +'<span class="mt">'+esc(M.region)+' · '+esc(M.priceDate)+'</span></div>';
+  card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__fence">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+  _mount.appendChild(card);
+}
+
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Porcelain Pavers","Natural Stone Paving","Brick Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Pebble \u2014 Mortar Set","Permeable Pavers"];
 const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Pebble \u2014 Mortar Set":"diag","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
