@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1481</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1482</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -8885,7 +8885,7 @@ const CATS=[
     {n:"Brick Paving",                 u:"SF",q:0, lo:19, hi:33, std:22},
     {n:"Gravel / Decomposed Granite",  u:"SF",q:0, lo:4,  hi:14},
     {n:"Pebble / Baja Stone Paving",   u:"SF",q:0, lo:18, hi:55},
-    {n:"Permeable Pavers",             u:"SF",q:0, lo:28, hi:60},
+    {n:"Permeable Pavers",             u:"SF",q:0, lo:23, hi:38, std:28},
     {n:"Concrete Mow Strip / Edging",  u:"LF",q:0, lo:12, hi:32},
     {n:"Steps — Concrete / Stone",     u:"LF",q:0, lo:120,hi:450},
     {n:"Pool / Spa Coping",            u:"LF",q:0, lo:45, hi:145},
@@ -9618,7 +9618,11 @@ const PAV_PRICE_DB={
   "Natural Stone Paving":       {seed:[40,95], v:[38, 52, 101]},
   "Porcelain Pavers":           {seed:[35,75], v:[33, 38, 51]},
   "Concrete Pavers":            {seed:[22,55], v:[17, 20, 29]},
-  "Brick Paving":               {seed:[22,48], v:[19, 22, 33]}
+  "Brick Paving":               {seed:[22,48], v:[19, 22, 33]},
+  // Permeable was banded off the plain concrete-paver section, which is the wrong build — see
+  // pav.permeable. Pedestrian section at 800 SF: $5 paver $22.95 / $9 $27.57 / $13 $32.19 /
+  // $19 $39.12. The No. 2 vehicular subbase adds $3.13/SF on top of any of them.
+  "Permeable Pavers":           {seed:[28,60], v:[23, 28, 38]}
 };
 function _pavApplyPriceDB(book){
   let ch=false;
@@ -54722,6 +54726,41 @@ const ASM_LIB={
       {n:"Miscellaneous materials",    v:0.25, hr:0},
       {n:"Cleanup",                    v:0,    hr:0.005}],
     minThick:1.25, maxThick:99 },
+  // Permeable paving is not a concrete-paver job with a different unit on top. The section is
+  // open-graded clean stone, not road base and sand, the subgrade is deliberately NOT compacted,
+  // and the joints are filled with No. 8 chip rather than polymeric sand. Section per ICPI/CMHA
+  // Tech Spec 18 residential pedestrian: No. 57 open-graded base 6in (the No. 2 subbase is only
+  // required for vehicular use, so it is an optional modifier), No. 8 bedding 2in, No. 8 joint
+  // fill, non-woven geotextile against the subgrade, and an observation well.
+  // Clean washed stone in LA runs about $60/ton delivered (bulk gravel $42-68 plus $5-15 for
+  // washing): No. 57 at 6in is 0.5 CF/SF, near 100 lb/CF open-graded, so $1.50/SF; No. 8 at
+  // 2in is $0.50/SF. Sources: mygravelbuddy.com LA delivery, hellogravel.com 2026 guide,
+  // cmha.org PAV-TEC-018. Priced 2026-09.
+  "pav.permeable":{
+    id:"pav.permeable", cat:"paving", unit:"SF",
+    name:"Permeable pavers \u2014 open-graded section", short:"Permeable",
+    spec:["Permeable paving units","No. 57 open-graded base ~6\u2033","No. 8 chip bedding ~2\u2033",
+          "No. 8 chip joint fill","Non-woven geotextile","Uncompacted subgrade","Observation well"],
+    attrs:{setting:"open-graded", jointType:"No. 8 chip", baseType:"ASTM No. 57 open-graded",
+           baseThickIn:6, beddingStoneIn:2, subgradeCompacted:false, geotextile:true,
+           slab:false, edgeRestraint:true, sealed:false, defaultPattern:"running",
+           permeable:true, vehicular:false, structural:"flexible", observationWell:true},
+    waste:0.05,
+    items:[
+      {n:"Excavation \u2014 deeper open-graded section", v:0,    hr:0.018},
+      {n:"Subgrade preparation (not compacted)",      v:0,    hr:0.006},
+      {n:"Non-woven geotextile",                      v:0.32, hr:0.005},
+      {n:"No. 2 open-graded subbase \u2014 vehicular", v:2.00, hr:0.014, opt:true, def:"off"},
+      {n:"No. 57 open-graded base",                   v:1.50, hr:0.020},
+      {n:"No. 8 chip bedding",                        v:0.50, hr:0.008},
+      {n:"Paver installation",                        v:0,    hr:0.042, pat:true},
+      {n:"Cutting / fitting",                         v:0,    hr:0.007, pat:true},
+      {n:"No. 8 chip joint fill",                     v:0.20, hr:0.010},
+      {n:"Edge restraint",                            v:0.65, hr:0.008},
+      {n:"Observation well / cleanout",               v:0.35, hr:0.006},
+      {n:"Miscellaneous materials",                   v:0.25, hr:0},
+      {n:"Cleanup",                                   v:0,    hr:0.005}],
+    minThick:1.25, maxThick:99 },
   "pav.brick":{
     id:"pav.brick", cat:"paving", unit:"SF",
     name:"Brick pavers — sand set", short:"Brick",
@@ -54931,7 +54970,7 @@ let ASM_MATS=(function(){ try{ const s=localStorage.getItem("studioh_assemblies_
   {n:"Porcelain Pavers",          cat:"paving", thick:null, asm:["pav.mortarset","pav.sandset"], supply:{retail:{value:6, standard:10, premium:16}}},
   {n:"Concrete Pavers",           cat:"paving", thick:2.375,asm:["pav.cpaver"], supply:{retail:{value:3, standard:6, premium:10}}},
   {n:"Brick Paving",              cat:"paving", thick:2.25, asm:["pav.brick"], supply:{retail:{value:4, standard:7, premium:12}}},
-  {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.cpaver"], supply:{retail:{value:5, standard:9, premium:13}}},
+  {n:"Permeable Pavers",          cat:"paving", thick:3.125,asm:["pav.permeable","pav.cpaver"], supply:{retail:{value:5, standard:9, premium:13}}},
   {n:"Pebble / Baja Stone Paving",cat:"paving", thick:null, asm:["pav.pebble"], sizeIn:[2,3],
    note:"2\u2033\u20133\u2033 rounded black or white beach cobble. Smaller material is rolled 3/8\u2033 pebble, a different product.", supply:{retail:6.00}},
   {n:"Rolled 3/8\u2033 Pebble",       cat:"paving", sizeIn:[0.375], asm:["pav.pebble"],
