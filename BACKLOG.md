@@ -25,8 +25,13 @@ Ordered roughly by how much it costs us to keep not doing it.
   accents and iPad Safari behaviour are untested on the actual iPad.
 
 ### 1b · Setbacks — deploy the reader, then research the 51
-- **`WORKER-add-readpage.md` is written and not deployed.** Until it is, the lookup refuses to run
-  rather than answering from memory. `cd worker-scrape && npx wrangler deploy`.
+- **Deployed v1468.** The page reader is live. It reads ordinary city .gov pages fine.
+- **It cannot read the big code hosts.** Municode is a JavaScript shell (16 characters of content);
+  Code Publishing, American Legal and qcode return 403 to anything that is not a browser — to the
+  worker AND to Claude's own fetch, so this is not a worker problem to solve. Those cities go
+  through the paste box instead, which is grounded in exactly the same way.
+- **PDFs are refused** ("not a web page"). A lot of city setback information is in PDFs. Worth
+  either passing the bytes to the model as a document block, or saying so more helpfully.
 - **51 of 65 cities are still estimates** (`verified:false`) — the OC cities and a band of SGV ones.
   Warwick asked for these to be researched properly as a batch, with citations, not flagged and left.
 - Only the six original edges have real figures even on verified cities; the nine landscape items

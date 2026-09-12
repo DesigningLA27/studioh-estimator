@@ -5875,6 +5875,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .sb-look{display:flex;gap:6px;align-items:center;margin-top:.4rem}
 .sb-look input{flex:1;min-width:0;box-sizing:border-box;border:1px solid var(--br);border-radius:8px;
   background:var(--card);color:var(--tx);font:inherit;font-size:11.5px;padding:6px 8px}
+.sb-paste{width:100%;box-sizing:border-box;margin-top:5px;border:1px solid var(--br);border-radius:8px;
+  background:var(--card);color:var(--tx);font:inherit;font-size:11px;line-height:1.45;padding:6px 8px;resize:vertical}
+.sb-paste:focus{outline:0;border-color:var(--gm)}
 .sb-out{font-size:11px;color:var(--tl);line-height:1.5;margin-top:.35rem}
 .sb-out .sb-bad{color:#B23F3C}
 .sb-prev{border:1px solid var(--br);border-radius:10px;padding:8px 10px;background:var(--card)}
@@ -7382,7 +7385,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1467</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1468</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -49768,16 +49771,19 @@ function _sbLookRow(city){
     +'<input id="sb-url" placeholder="Link to the city\u2019s zoning or accessory-structure code" '
     +'onkeydown="if(event.key===\'Enter\')sbLookRun()">'
     +'<button class="hbtn ghost" style="height:auto;padding:.36rem .7rem;font-size:.74rem" onclick="sbLookRun()">Read it</button>'
-    +'</div><div id="sb-look-out" class="sb-out"></div>';
+    +'</div>'
+    +'<textarea id="sb-text" class="sb-paste" rows="2" placeholder="\u2026 or open the section in your browser, copy it, and paste it here. Most code sites block anything that is not a browser, so this is usually the quicker route."></textarea>'
+    +'<div id="sb-look-out" class="sb-out"></div>';
 }
 async function sbLookRun(){
   const city=(S.pi&&S.pi.city)||"";
   const el=document.getElementById("sb-url"); const url=el?el.value.trim():"";
   const out=document.getElementById("sb-look-out");
   if(!city){ if(out) out.innerHTML='<b class="sb-bad">Set the project city first.</b>'; return; }
-  if(!url){ if(out) out.innerHTML='<b class="sb-bad">Paste a link to the page that states them.</b>'; return; }
-  if(out) out.innerHTML='Reading the page\u2026';
-  const r=await sbLookup(city,url);
+  const te=document.getElementById("sb-text"); const txt=te?te.value.trim():"";
+  if(!url&&!txt){ if(out) out.innerHTML='<b class="sb-bad">Give it a link, or paste the code section in.</b>'; return; }
+  if(out) out.innerHTML=txt?'Reading what you pasted\u2026':'Reading the page\u2026';
+  const r=await sbLookup(city,url,{text:txt});
   if(!r.ok){ if(out) out.innerHTML='<b class="sb-bad">'+escAttr(r.error||"Nothing came back.")+'</b>'; return; }
   const got=Object.keys(r.items||{});
   if(!got.length){ if(out) out.innerHTML='<b class="sb-bad">That page does not state a setback for any of these.</b>'; return; }
@@ -49814,17 +49820,28 @@ async function _sbReadPage(url){
 }
 function sbLookupReady(){ return typeof SCRAPE_URL==="string"&&!!SCRAPE_URL; }
 // city + the page you want it read from -> numbers with the section each came from
+// Two ways in, both grounded: a link it can fetch, or the code pasted straight in. The big code
+// hosts — Municode, Code Publishing, American Legal — refuse anything that is not a browser, so
+// for most California cities the paste is the reliable route: open the section in your own
+// browser, select it, paste it here. Either way the model only ever reads words it was given.
 async function sbLookup(city, url, opts){
   opts=opts||{};
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep) return (SB_LOOK.last={ok:false,error:"No worker connected."});
-  if(!url) return (SB_LOOK.last={ok:false,error:"Give it the page to read — a link to the city's zoning or accessory-structure code."});
+  const pasted=String((opts&&opts.text)||"").trim();
+  if(!url&&!pasted) return (SB_LOOK.last={ok:false,error:"Give it a link it can read, or paste the code section in."});
   SB_LOOK.busy=true;
-  const page=await _sbReadPage(url);
-  if(page.err){ SB_LOOK.busy=false;
-    return (SB_LOOK.last={ok:false, error:(page.err==="needs-worker")
-      ? "The page reader is not deployed yet — see WORKER-add-readpage.md. Nothing is guessed without it."
-      : page.err}); }
+  let page;
+  if(pasted){ page={ok:true, url:(url||"pasted by hand"), text:pasted, truncated:false}; }
+  else {
+    page=await _sbReadPage(url);
+    if(page.err){ SB_LOOK.busy=false;
+      return (SB_LOOK.last={ok:false, error:(page.err==="needs-worker")
+        ? "The page reader is not deployed — see WORKER-add-readpage.md. Nothing is guessed without it."
+        : (page.err+" \u2014 most code sites refuse anything that is not a browser. Open it yourself and paste the section in instead.")}); }
+    if((page.text||"").length<400){ SB_LOOK.busy=false;
+      return (SB_LOOK.last={ok:false, error:"That page came back nearly empty \u2014 it builds itself with JavaScript, which a fetch cannot see. Open it yourself and paste the section in instead."}); }
+  }
   const items=SB_ITEMS.map(d=>d.k+" ("+d.ai+")").join("\n- ");
   const sys="You read municipal code and report what it says. You never supply a figure that is not in the text.\n"
     +"Return ONLY JSON: {\"city\":\"...\",\"zone\":\"...\",\"items\":{\"<key>\":{\"front\":n,\"side\":n,\"rear\":n,\"cite\":\"section number\",\"quote\":\"the clause, under 20 words\"}},\"missing\":[\"key\"],\"note\":\"one sentence\"}\n"
