@@ -7449,7 +7449,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1499</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1500</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -45379,7 +45379,7 @@ function _renderPriceBook_inner(){
   _groups.forEach(({g,idxs})=>{ idxs.forEach(ci=>_flat.push({g, ci, id:PB[ci].id})); });
   if(!_flat.length){ return; }
   let _sel=pbSel();
-  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && _sel!=="__conc" && _sel!=="__wall" && _sel!=="__court" && _sel!=="__fence" && _sel!=="__bids" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
+  if(_sel!=="__rates" && _sel!=="__assume" && _sel!=="__asm" && _sel!=="__conc" && _sel!=="__wall" && _sel!=="__court" && _sel!=="__fence" && _sel!=="__setb" && _sel!=="__bids" && !_flat.some(f=>f.id===_sel)){ _sel=_flat[0].id; }
   let _th="";
   _groups.forEach(({g,idxs})=>{
     if(!idxs.length) return;
@@ -45411,6 +45411,8 @@ function _renderPriceBook_inner(){
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Sport Courts</span><span class="n">${COURT_PANES.length}</span></button>
     <button class="pbz-t feed${_sel==="__fence"?" on":""}" onclick="pbSelSet('__fence')">
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Fences &amp; Gates</span><span class="n">${FENCE_PANES.length}</span></button>
+    <button class="pbz-t feed${_sel==="__setb"?" on":""}" onclick="pbSelSet('__setb')">
+      <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Setbacks</span><span class="n">${(typeof SETBACKS!=="undefined")?Object.keys(SETBACKS).length:0}</span></button>
     <button class="pbz-t feed${_sel==="__bids"?" on":""}" onclick="pbSelSet('__bids')">
       <span class="dot" style="background:var(--mg-acc)"></span><span class="lb">Bids vs estimates</span><span class="n">${(typeof BIDLOG!=="undefined")?BIDLOG.length:0}</span></button>`;
   _tree.innerHTML=_th;
@@ -45429,6 +45431,8 @@ function _renderPriceBook_inner(){
     _renderCourt3(_main);
   } else if(_sel==="__fence"){
     _renderFence3(_main);
+  } else if(_sel==="__setb"){
+    _renderSetb3(_main);
   } else if(_sel==="__bids"){
     _renderBids3(_main);
   } else if(_sel==="__assume"){
@@ -60930,6 +60934,189 @@ function fencesRefresh(){ try{ renderFenceList(); }catch(e){}
   try{ refreshCatTotals("woodMetal"); renderProSummary(); }catch(e){}
   try{ _bidSchedule(); }catch(e){} }
 function fencesAddOpen(type){ const f=fenceAdd({type:type||"wRwSxS"}); fbOpen(f.fenceId); }
+
+// ── THE SETBACK BOOK ───────────────────────────────────────────────────────────────────
+// 51 of the 65 cities on file carry the regional pattern rather than their own code, and the
+// single-city lookup in Project Info only reaches whichever city the open project is in. This is
+// the whole table in one place: what each city actually has, what it is still guessing, and the
+// reader pointed at any of them without changing the project.
+//
+// Nothing here writes a figure the app worked out. Every number comes back from a document with
+// the section it came from, and it is shown before it is applied.
+const SETB_STATE={city:null, busy:false, res:null, err:null};
+function setbCities(){
+  const out=[];
+  try{ Object.keys(SETBACKS).forEach(k=>{ const r=SETBACKS[k]||{};
+    const src=r.src||{};
+    const cited=Object.keys(src).filter(x=>src[x]&&src[x].verified).length;
+    out.push({key:k, nm:k.replace(/(^|\s)\S/g,c=>c.toUpperCase()),
+      verified:(r.verified===true), cited:cited, checked:r.checked||"", url:r.url||"",
+      zone:r.zone||"", items:SB_ITEMS.filter(d=>r[d.k]!=null&&r[d.k]!=="").length}); });
+  }catch(e){}
+  // the ones still guessing first — they are the work
+  return out.sort((a,b)=>(a.verified===b.verified)?a.nm.localeCompare(b.nm):(a.verified?1:-1));
+}
+function setbPick(k){ SETB_STATE.city=k; SETB_STATE.res=null; SETB_STATE.err=null;
+  try{ renderPriceBook(); }catch(e){} }
+// The search that finds the document, opened in the user's own browser — the code hosts refuse
+// everything else, and a search aimed at the sections carrying the figures beats a home page.
+function setbSearch(k,what){
+  const nm=String(k||"").replace(/(^|\s)\S/g,c=>c.toUpperCase());
+  const q=(what==="pdf")
+    ? (nm+' California residential development standards setbacks filetype:pdf site:.gov')
+    : (nm+' California municipal code zoning "front yard" "rear yard" setback single-family swimming pool accessory structure fence height');
+  try{ window.open("https://www.google.com/search?q="+encodeURIComponent(q),"_blank","noopener"); }catch(e){}
+}
+async function setbRead(k){
+  const url=((document.getElementById("setb-url")||{}).value||"").trim();
+  const txt=((document.getElementById("setb-text")||{}).value||"").trim();
+  if(!url&&!txt){ SETB_STATE.err="Give it a link, or paste the section in."; try{ renderPriceBook(); }catch(e){} return; }
+  SETB_STATE.busy=true; SETB_STATE.err=null; SETB_STATE.res=null;
+  try{ renderPriceBook(); }catch(e){}
+  const nm=String(k||"").replace(/(^|\s)\S/g,c=>c.toUpperCase());
+  let r=null;
+  try{ r=await sbLookup(nm, url, {text:txt}); }catch(e){ r={ok:false,error:(e&&e.message)||"failed"}; }
+  SETB_STATE.busy=false;
+  if(!r||!r.ok){ SETB_STATE.err=(r&&r.error)||"Nothing came back."; }
+  else SETB_STATE.res=r;
+  try{ renderPriceBook(); }catch(e){}
+}
+function setbApply(){
+  const r=SETB_STATE.res; if(!r||!r.ok) return;
+  const n=sbApply(r);
+  SETB_STATE.res=null;
+  try{ renderPriceBook(); }catch(e){}
+  try{ _toast(n?(n+" figure"+(n===1?"":"s")+" written to "+(r.city||"the city")+", each with its section."):"Nothing was stated that could be written.", n?"#2F5B23":"#8A6D1F"); }catch(e){}
+}
+// A city that was read and turns out to be wrong goes back to the regional pattern rather than
+// staying half-right. Deliberate: it drops the citations with it.
+async function setbClear(k){
+  const a=await askDlg({title:"Back to the regional pattern?",
+    body:"Drops every figure read from "+String(k).replace(/(^|\\s)\\S/g,c=>c.toUpperCase())+"'s code, and the sections they came from, and puts the city back on the 20 / 5 / 15 / 5 pattern.",
+    actions:["Drop them","Keep them"]});
+  if(a!=="Drop them") return;
+  try{ const r=SETBACKS[k]; if(!r) return;
+    SB_ITEMS.forEach(d=>{ if(r.src&&r.src[d.k]) delete r[d.k]; });
+    delete r.src; r.verified=false; r.checked=""; r.url=""; r.zone="";
+    r.note="Estimated — confirm with city.";
+    const P={front:20, side:5, rear:15, pool:5, wall:3, structure:5};
+    Object.keys(P).forEach(x=>{ if(r[x]==null) r[x]=P[x]; });
+    localStorage.setItem("studioh_setbacks_v1", JSON.stringify(SETBACKS));
+    cfgStampKey("studioh_setbacks_v1"); _cfgSchedulePush();
+  }catch(e){}
+  try{ renderPriceBook(); }catch(e){}
+}
+const SETB_PANES=[{g:"Setbacks", k:"cities", nm:"Cities", sub:"what each one actually has"}];
+function _renderSetb3(_mount){
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const L=setbCities();
+  const est=L.filter(c=>!c.verified).length;
+  const sel=SETB_STATE.city||((L[0]||{}).key)||null;
+  const R=sel?(SETBACKS[sel]||{}):{};
+  // Three states, not two. "Verified" in the seed meant somebody typed it, not that a section was
+  // recorded — every one of the 14 turns out to carry no citation at all — so the list says which
+  // is which rather than letting an unsourced figure sit under the same heading as a read one.
+  const cited=L.filter(c=>c.verified&&c.cited>0);
+  const typed=L.filter(c=>c.verified&&!c.cited);
+  let list='<div class="pb3-sec">Still on the regional pattern · '+est+'</div>';
+  L.filter(c=>!c.verified).forEach(c=>{
+    list+='<button class="pb3-li'+((c.key===sel)?" on":"")+'" onclick="setbPick(\''+esc(c.key)+'\')">'
+      +'<span class="cv"></span><span class="nm">'+esc(c.nm)+'</span>'
+      +'<span class="u"></span><span class="v" style="color:var(--gold,#8A6D1F)">pattern</span></button>';
+  });
+  const row=(c,col,lbl)=>'<button class="pb3-li'+((c.key===sel)?" on":"")+'" onclick="setbPick(\''+esc(c.key)+'\')">'
+      +'<span class="cv"></span><span class="nm">'+esc(c.nm)+'</span>'
+      +'<span class="u">'+(c.checked?esc(c.checked):"")+'</span>'
+      +'<span class="v" style="color:'+col+'">'+lbl+'</span></button>';
+  if(typed.length){ list+='<div class="pb3-sec">On file, no section recorded · '+typed.length+'</div>';
+    typed.forEach(c=>{ list+=row(c,"var(--tm)","on file"); }); }
+  if(cited.length){ list+='<div class="pb3-sec">Read from the code · '+cited.length+'</div>';
+    cited.forEach(c=>{ list+=row(c,"var(--gm)",c.cited+" cited"); }); }
+  const NOTE=t=>'<div style="font-size:11px;color:var(--tl);line-height:1.5;margin-bottom:6px">'+t+'</div>';
+  const nm=sel?sel.replace(/(^|\s)\S/g,c=>c.toUpperCase()):"";
+  let ins='<div class="pb3-nm" style="cursor:default">'+esc(nm||"Setbacks")+'</div>'
+    +'<div class="t">'+(function(){
+        if(R.verified!==true) return "the regional pattern, not this city\u2019s code";
+        const c=Object.keys(R.src||{}).filter(x=>(R.src[x]||{}).cite).length;
+        // verified:true with no section on record means somebody entered it, not that it was read
+        return c?("read from the code \u00b7 "+c+" section"+(c===1?"":"s")+(R.checked?(" \u00b7 "+esc(R.checked)):""))
+                :("on file, no section recorded"+(R.checked?(" \u00b7 "+esc(R.checked)):""));
+      })()+'</div>';
+  if(!sel){ ins+=NOTE("No cities on file."); }
+  else {
+    if(R.verified!==true) ins+='<div style="font-size:11.5px;color:var(--gold,#8A6D1F);line-height:1.55;margin-bottom:8px">'
+      +'These are not '+esc(nm)+'’s code. They are the pattern most Southern California cities use — 20′ front, 5′ side, 15′ rear, 5′ to a pool — carried so the plan has something to place against.</div>';
+    // what it holds now
+    ins+='<div style="display:grid;grid-template-columns:1fr 58px 58px 58px;gap:5px 8px;align-items:baseline;font:700 9px var(--tkf);letter-spacing:.08em;text-transform:uppercase;color:var(--tl);padding:2px 0 3px">'
+      +'<span></span><span style="text-align:right">Front</span><span style="text-align:right">Side</span><span style="text-align:right">Rear</span></div>';
+    SB_ITEMS.forEach(d=>{
+      let g=null; try{ g=sbGoverning(sel,d.k); }catch(e){}
+      const s=(R.src||{})[d.k];
+      const ft=v=>(v==null||v==="")?"—":(v+"′");
+      const own=(R[d.k]!=null&&R[d.k]!=="");
+      // A row with no line of its own still has a governing figure — the one it inherits. Showing a
+      // dash there said the app had nothing to place against, which is not what it does.
+      const gv=(g&&g.ft!=null)?g.ft:(own?R[d.k]:null);
+      const cell=(v,cited)=>'<span style="text-align:right;font-size:11.5px;font-variant-numeric:tabular-nums'
+        +(cited?';color:var(--gm);font-weight:700':(own?'':';opacity:.55'))+'">'+ft(v)+'</span>';
+      ins+='<div style="display:grid;grid-template-columns:1fr 58px 58px 58px;gap:5px 8px;align-items:baseline;padding:3px 0;border-top:1px solid var(--br,#EFEDE6)">'
+        +'<span style="min-width:0;font-size:11.5px'+(own?'':';opacity:.7')+'">'+esc(d.nm)
+        +(own?'':'<i style="font-style:normal;font-size:9px;color:var(--tl)"> · inherited'
+           +((g&&g.inherited)?(" from "+esc((SB_ITEMS.find(x=>x.k===g.inherited)||{}).nm||g.inherited).toLowerCase()):"")+'</i>')+'</span>'
+        +cell(s?s.front:null, !!(s&&s.front!=null))
+        +cell(s&&s.side!=null?s.side:gv, !!(s&&s.side!=null))
+        +cell(s?s.rear:null, !!(s&&s.rear!=null))
+        +'</div>'
+        +(s&&s.cite?'<div style="font-size:9.5px;color:var(--tl);line-height:1.4;margin:-1px 0 2px 2px">'+esc(s.cite)
+          +(s.quote?(' — “'+esc(s.quote)+'”'):'')+(s.checked?(' · '+esc(s.checked)):'')+'</div>':'');
+    });
+    // read one
+    ins+='<h4>Read it off the code</h4>';
+    ins+=NOTE('Municode, American Legal and Code Publishing refuse anything that is not a browser, so for those cities open the section yourself and paste it. <b>A PDF the city hosts itself it can read directly</b> — a development-standards handout or a zoning matrix is usually the fastest thing to point it at.');
+    ins+='<div style="display:flex;gap:5px;margin-bottom:5px;flex-wrap:wrap">'
+      +'<button class="btn btn-o" style="font-size:.75rem" onclick="setbSearch(\''+esc(sel)+'\',\'pdf\')">Find a PDF ↗</button>'
+      +'<button class="btn btn-o" style="font-size:.75rem" onclick="setbSearch(\''+esc(sel)+'\',\'code\')">Find the code ↗</button>'
+      +(R.url?('<a class="btn btn-o" style="font-size:.75rem;text-decoration:none" href="'+esc(R.url)+'" target="_blank" rel="noopener">What it read last ↗</a>'):'')
+      +'</div>';
+    ins+='<div class="pb3-f"><span class="k">Link</span><input id="setb-url" placeholder="a page or a PDF the city hosts" '
+      +'onkeydown="if(event.key===\'Enter\')setbRead(\''+esc(sel)+'\')"></div>';
+    ins+='<textarea id="setb-text" rows="3" placeholder="… or paste the section straight in" style="width:100%;box-sizing:border-box;border:1px solid var(--br);border-radius:9px;background:var(--card);color:var(--tx);font:inherit;font-size:12px;padding:6px 8px;margin:4px 0"></textarea>';
+    ins+='<div style="display:flex;gap:5px;flex-wrap:wrap">'
+      +'<button class="btn" onclick="setbRead(\''+esc(sel)+'\')"'+(SETB_STATE.busy?' disabled':'')+'>'
+      +(SETB_STATE.busy?"Reading…":"Read it")+'</button>'
+      +(R.verified===true?('<button class="btn btn-o" style="color:#B23F3C;border-color:#E0C4C3" onclick="setbClear(\''+esc(sel)+'\')">↺ Back to the pattern</button>'):'')
+      +'</div>';
+    if(SETB_STATE.err) ins+='<div style="font-size:11.5px;color:#B23F3C;line-height:1.5;margin-top:7px">'+esc(SETB_STATE.err)+'</div>';
+    const res=SETB_STATE.res;
+    if(res&&res.ok){
+      const got=Object.keys(res.items||{});
+      ins+='<div style="margin-top:9px;border:1px solid var(--gm);border-radius:11px;padding:9px 11px">'
+        +'<b style="font-size:12px">'+got.length+' found'+(res.zone?(" · "+esc(res.zone)):"")+'</b>'
+        +(res.kind==="pdf"?('<span style="font-size:10px;color:var(--tl)"> · from a '+Math.round((+res.bytes||0)/1024)+' KB PDF</span>'):'');
+      got.forEach(k2=>{ const v=res.items[k2]||{}; const d=SB_ITEMS.find(x=>x.k===k2);
+        ins+='<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0;border-top:1px solid var(--br,#EFEDE6)">'
+          +'<span style="flex:1;font-size:11.5px">'+esc(d?d.nm:k2)+'</span>'
+          +'<b style="font-size:11.5px;font-variant-numeric:tabular-nums">'
+          +[v.front!=null?("F "+v.front+"′"):null,v.side!=null?("S "+v.side+"′"):null,v.rear!=null?("R "+v.rear+"′"):null].filter(Boolean).join(" / ")
+          +'</b></div>'
+          +(v.cite?'<div style="font-size:9.5px;color:var(--tl);line-height:1.4;margin:-1px 0 2px 2px">'+esc(v.cite)+(v.quote?(' — “'+esc(v.quote)+'”'):'')+'</div>':'');
+      });
+      if(res.missing&&res.missing.length) ins+='<div style="font-size:10.5px;color:var(--tl);line-height:1.45;padding-top:4px">Not stated there: '
+        +esc(res.missing.map(k2=>{const d=SB_ITEMS.find(x=>x.k===k2); return d?d.nm:k2;}).join(", "))+'.</div>';
+      if(res.note) ins+='<div style="font-size:10.5px;color:var(--tl);line-height:1.45;padding-top:3px">'+esc(res.note)+'</div>';
+      ins+='<div style="display:flex;gap:5px;margin-top:8px">'
+        +(got.length?('<button class="btn" onclick="setbApply()">Write '+got.length+' to '+esc(nm)+'</button>'):'')
+        +'<button class="btn btn-o" onclick="SETB_STATE.res=null;renderPriceBook()">Discard</button></div>';
+      ins+='</div>';
+    }
+  }
+  const card=document.createElement("div");
+  card.className="pbx-card pb3";
+  const head='<div class="pb3-lh"><span class="cr">Feeds every section <i>›</i> <b>Setbacks</b></span>'
+    +'<span class="mt">'+cited.length+' of '+L.length+' read from code · '+typed.length+' on file · '+est+' on the pattern</span></div>';
+  card.innerHTML='<div class="pb3-b"><div class="pb3-list" data-sec="__setb">'+head+list+'</div><aside class="pb3-ins">'+ins+'</aside></div>';
+  _mount.appendChild(card);
+}
 
 const FNC_GROUPS=["Wood","Vinyl & Composite","Chain Link","Metal","Glass","Cable & Open",
   "Construction","Posts","Footings","Rails & Framing","Infill","Hardware",
