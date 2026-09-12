@@ -5900,6 +5900,9 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .pt-tray .tr-chip.done{opacity:.4;cursor:default}
 .pt-tray .tr-chip.done:hover{border-color:#3A4C2E;background:transparent}
 .pt-tray .tr-chip .tick{color:#7CE05E;font-weight:800;font-size:12px;margin-left:1px}
+.pt-tray .tr-chip.waits{border-style:dashed;opacity:.72}
+.pt-tray .tr-chip .wait{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:#D9A441;background:#2A2312;border-radius:5px;padding:1px 5px;margin-left:2px}
 .pt-tray .tr-why{margin-top:9px;padding-top:9px;border-top:1px solid #2C3826;display:flex;flex-direction:column;gap:3px}
 .pt-tray .tr-why b{font-size:12px;font-weight:700;color:#EAF0E4;line-height:1.45}
 .pt-tray .tr-src{font-size:9.5px;color:#7E8B74}
@@ -7435,7 +7438,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1472</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1473</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -61864,6 +61867,9 @@ function siteSchema(){
     place:{
       anchor:{values:Object.keys(PLACE_ANCHORS), labels:Object.keys(PLACE_ANCHORS).map(k=>PLACE_ANCHORS[k].nm)},
       offsetFt:{unit:"ft", note:"leave it out and the setback on file is used"},
+      near:{values:Object.keys(PLACE_NEAR),
+        note:"use instead of anchor when the thing belongs next to something else in this list"},
+      nearWhat:{note:"the name of another element in this same list, e.g. Pool"},
       align:{values:["parallel","none"]},
       centreOn:{note:"a room or marker already on the plan, e.g. living, kitchen, garage"},
       lenFt:{unit:"ft"}, depFt:{unit:"ft"}
@@ -61882,6 +61888,7 @@ async function siteAsk(text){
     +"- kind must be one from SCHEMA.elements. Anything else goes in unmapped.\n"
     +"- Never output a coordinate, a price, a cost or a total. Say where it belongs, not where it is.\n"
     +"- Leave offsetFt out unless the request names a distance — the setback on file is used otherwise.\n"
+    +"- When one thing belongs next to another — a spa beside its pool, a fire pit clear of the pergola — use near and nearWhat instead of an anchor, and put the thing it refers to EARLIER in the list.\n"
     +"- centreOn only if that room or marker is in ROOMS ON THE PLAN.\n"
     +"- Sizes only if the request gives them or a standard size is obvious. Order the list most constrained first: the biggest and most tightly ruled thing before the small movable ones.";
   const user="SCHEMA:\n"+JSON.stringify(siteSchema())
@@ -61907,6 +61914,7 @@ async function siteAsk(text){
       dim:(Math.round(len*10)/10)+"′ × "+(Math.round(dep*10)/10)+"′",
       lenFt:len, depFt:dep,
       anchor:(PLACE_ANCHORS[e.anchor]?e.anchor:D.anchor),
+      near:(PLACE_NEAR[e.near]?e.near:null), nearWhat:(e.nearWhat||null),
       offsetFt:(e.offsetFt!=null&&isFinite(+e.offsetFt))?+e.offsetFt:null,
       align:(e.align==="none"?"none":"parallel"),
       centreOn:(e.centreOn||null)});
@@ -61934,7 +61942,8 @@ function trayPick(id){
   if(TRAY.armed===id){ trayCancel(); return; }
   let sol=null;
   try{ sol=ptSolvePlace({anchor:t.anchor, offsetFt:t.offsetFt, align:t.align,
-    centreOn:t.centreOn, lenFt:t.lenFt, depFt:t.depFt, item:t.item}); }catch(e){}
+    centreOn:t.centreOn, near:t.near, nearWhat:t.nearWhat,
+    lenFt:t.lenFt, depFt:t.depFt, item:t.item}); }catch(e){}
   if(!sol||!sol.ok){ try{ _toast("Could not work out where that goes.","#B23F3C"); }catch(e){} return; }
   t.sol=sol;
   TRAY.armed=id;
@@ -62019,12 +62028,14 @@ function trayRender(){
     +'<button class="tr-x" onclick="trayClear()" title="Clear the tray">✕</button></div>';
   h+='<div class="tr-chips">'+TRAY.items.map(t=>{
     const on=(TRAY.armed===t.id), done=(t.state==="placed");
-    return '<button class="tr-chip'+(done?" done":"")+(on?" on":"")+'"'
-      +(done?" disabled":"")+' onclick="trayPick(\''+t.id+'\')">'
+    const waitsOn=(!done&&t.near&&t.nearWhat&&!_ptPlacedNamed(t.nearWhat))?t.nearWhat:null;
+    return '<button class="tr-chip'+(done?" done":"")+(on?" on":"")+(waitsOn?" waits":"")+'"'
+      +(done?" disabled":"")+(waitsOn?(' title="Place the '+escAttr(waitsOn)+' first"'):"")
+      +' onclick="trayPick(\''+t.id+'\')">'
       +'<span class="ic"><svg viewBox="0 0 24 24">'+(TRAY_IC[t.mode]||TRAY_IC.pool)+'</svg></span>'
       +'<span class="tx"><span class="n">'+esc(t.name||_ptMode(t.mode||"paving").label)+'</span>'
       +'<span class="s">'+esc(t.dim||"")+'</span></span>'
-      +(done?'<span class="tick">✓</span>':'')+'</button>';
+      +(done?'<span class="tick">✓</span>':(waitsOn?'<span class="wait">after '+escAttr(waitsOn)+'</span>':''))+'</button>';
   }).join("")+'</div>';
   const a=TRAY.items.find(x=>x.id===TRAY.armed);
   if(a&&a.sol){
@@ -62151,6 +62162,17 @@ function ptSiteFrame(){
 // line, parallel to it, centred on the living room" — and this works out where that is, against
 // the lot, the setbacks, the house and whatever is already down. When it cannot honour a part of
 // it, it says which part rather than quietly putting the thing somewhere else.
+// A garden is not six independent objects. A spa sits beside the pool it spills into, a fire pit
+// keeps clear of the pergola, a water feature faces the terrace. These anchors point at something
+// already on the drawing rather than at a property line — so the order things are placed in
+// matters, which is why the tray puts the most constrained thing first.
+const PLACE_NEAR={
+  "beside":  {nm:"beside", gapFt:2,  side:"long"},
+  "next-to": {nm:"next to", gapFt:4,  side:"long"},
+  "near":    {nm:"near",   gapFt:10, side:"any"},
+  "clear-of":{nm:"clear of",gapFt:12, side:"far"},
+  "facing":  {nm:"facing", gapFt:14, side:"far"}
+};
 const PLACE_ANCHORS={
   "rear":  {nm:"rear property line",  edge:"rear"},
   "front": {nm:"front property line", edge:"front"},
@@ -62159,6 +62181,49 @@ const PLACE_ANCHORS={
   "house": {nm:"the house",           house:1},
   "centre":{nm:"the middle of the yard", centre:1}
 };
+// Something already on the plan, by name or by what it is.
+function _ptPlacedNamed(name){
+  const want=String(name||"").toLowerCase().trim(); if(!want) return null;
+  const onPage=p=>(p.page==null||p.page===PT.page);
+  let best=null, bs=0;
+  (PT.polys||[]).forEach(p=>{
+    if(!onPage(p)||!p.pts||p.pts.length<3) return;
+    if(["lot","limit","building","exclude","demo"].indexOf(p.mode)>=0) return;
+    const nm=String(p.name||"").toLowerCase(), md=String(_ptMode(p.mode).label||"").toLowerCase();
+    let sc=0;
+    if(nm&&nm===want) sc=4;
+    else if(nm&&nm.indexOf(want)>=0) sc=3;
+    else if(md===want) sc=3;
+    else if(md.indexOf(want)>=0||want.indexOf(p.mode)>=0) sc=2;
+    if(sc>bs){ bs=sc; best=p; }
+  });
+  return best;
+}
+// Put one thing next to another: out along the neighbour's long axis for "beside", away from it
+// for "clear of", and always outside its own footprint by the gap.
+function _ptBesidePlace(nb, mode, lenFt, depFt, rotHint){
+  const pts=nb.pts, ctr=_ptCentroid(pts), u=_ptUnitsPerFoot(ctr);
+  const R=PLACE_NEAR[mode]||PLACE_NEAR.beside;
+  // the neighbour's own axes, from its longest edge
+  let bi=0, bl=0;
+  for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length];
+    const L=Math.hypot(b.x-a.x,b.y-a.y); if(L>bl){ bl=L; bi=i; } }
+  const a1=pts[bi], b1=pts[(bi+1)%pts.length];
+  const ang=Math.atan2(b1.y-a1.y, b1.x-a1.x)*180/Math.PI;
+  const ux=(b1.x-a1.x)/(bl||1), uy=(b1.y-a1.y)/(bl||1);
+  const px=-uy, py=ux;
+  // how far out of the neighbour we have to start
+  let halfAlong=0, halfAcross=0;
+  pts.forEach(q=>{ const dx=q.x-ctr.x, dy=q.y-ctr.y;
+    halfAlong=Math.max(halfAlong, Math.abs(dx*ux+dy*uy));
+    halfAcross=Math.max(halfAcross, Math.abs(dx*px+dy*py)); });
+  const gap=R.gapFt*u;
+  let c;
+  if(R.side==="long"){ c={x:ctr.x+ux*(halfAlong+gap+lenFt*u/2), y:ctr.y+uy*(halfAlong+gap+lenFt*u/2)}; }
+  else               { c={x:ctr.x+px*(halfAcross+gap+depFt*u/2), y:ctr.y+py*(halfAcross+gap+depFt*u/2)}; }
+  return {c, rot:(rotHint!=null?rotHint:ang), along:{ux,uy}, across:{px,py},
+    halfAlong, halfAcross, gap, ctr, u};
+}
 function _ptRoomMarker(name){
   const onPage=o=>(o.page==null||o.page===PT.page);
   const want=String(name||"").toLowerCase();
@@ -62236,6 +62301,41 @@ function ptSolvePlace(spec){
     const c=_toPdf({x:(st?st.scrollLeft+st.clientWidth/2:300), y:(st?st.scrollTop+st.clientHeight/2:300)});
     return {ok:true, loose:true, c, rot:0, lenFt, depFt,
       why:F.why, notes:[F.why], missed:["where it should sit"], fits:{ok:true,bad:[]}};
+  }
+  // "beside the pool" — placed against something already down, not against a property line
+  if(spec.near&&spec.nearWhat){
+    const nb=_ptPlacedNamed(spec.nearWhat);
+    if(!nb){
+      missed.push("the "+spec.nearWhat+" \u2014 it is not on the plan yet, so this went to the "
+        +((PLACE_ANCHORS[spec.anchor]||PLACE_ANCHORS.rear).nm)+" instead");
+    } else {
+      const R=PLACE_NEAR[spec.near]||PLACE_NEAR.beside;
+      let got=_ptBesidePlace(nb, spec.near, lenFt, depFt, (spec.align==="none"?0:null));
+      let pts0=_ptRectPts(got.c, lenFt, depFt, got.rot);
+      let fit0=_ptFits(pts0,{skip:spec.skip});
+      // walk it round the neighbour until it is clear of everything
+      if(!fit0.ok){
+        const tries=[[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+        for(const [sa,sc2] of tries){
+          for(let k=1;k<=6&&!fit0.ok;k++){
+            const d1=(got.halfAlong+got.gap*k+lenFt*got.u/2)*sa;
+            const d2=(got.halfAcross+got.gap*k+depFt*got.u/2)*sc2;
+            got.c={x:got.ctr.x+got.along.ux*d1+got.across.px*d2,
+                   y:got.ctr.y+got.along.uy*d1+got.across.py*d2};
+            pts0=_ptRectPts(got.c, lenFt, depFt, got.rot);
+            fit0=_ptFits(pts0,{skip:spec.skip});
+          }
+          if(fit0.ok) break;
+        }
+        if(fit0.ok) notes.push("Moved round the "+spec.nearWhat+" to clear what was in the way.");
+      }
+      notes.push(R.nm.charAt(0).toUpperCase()+R.nm.slice(1)+" the "+spec.nearWhat
+        +", "+R.gapFt+"\u2032 off, square to it.");
+      return {ok:true, c:got.c, rot:got.rot, lenFt, depFt, pts:pts0, fits:fit0, frame:F,
+        anchor:{nm:R.nm+" the "+spec.nearWhat}, edge:null, setback:null, offsetFt:R.gapFt,
+        movedFt:0, notes, missed, near:{what:spec.nearWhat, mode:spec.near},
+        why:R.nm.charAt(0).toUpperCase()+R.nm.slice(1)+" the "+spec.nearWhat+"."};
+    }
   }
   const A=PLACE_ANCHORS[spec.anchor]||PLACE_ANCHORS.rear;
   let edge=null, base=null, rot=0;
