@@ -5864,6 +5864,18 @@ body.shell-framed.ins-on .view.active{padding-right:1.4rem!important}
 .conf-edit-btn:hover{background:var(--surface2);color:var(--gm)}
 .ic-gear{position:absolute;top:8px;right:32px}
 .st-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+/* ── Describe the garden ──────────────────────────────────────────────── */
+.pdask{display:flex;gap:6px;align-items:center;padding:2px 0 4px}
+.pdask input{flex:1;min-width:0;box-sizing:border-box;border:1px solid #3A4C2E;border-radius:9px;
+  background:rgba(255,255,255,.06);color:#EAF0E4;font:inherit;font-size:12px;font-weight:600;padding:7px 9px}
+.pdask input::placeholder{color:#68765B}
+.pdask input:focus{outline:0;border-color:#7CE05E}
+.pdaskgo{flex:none;border:1px solid #2F5B23;background:#2F5B23;color:#fff;border-radius:9px;
+  padding:7px 12px;font:inherit;font-size:12px;font-weight:750;cursor:pointer}
+.pdaskgo:hover{background:#3C7A2C}
+.pdasknote{font:600 10px var(--tkf);color:#68765B;line-height:1.5;padding:0 2px 5px}
+.pdasknote b{color:#9FBF95}
+.pdasknote.bad{color:#E08B88}
 /* ── The staging tray ─────────────────────────────────────────────────── */
 .pt-tray{position:fixed;left:96px;bottom:14px;z-index:10002;display:none;
   width:min(430px,calc(100vw - 120px));background:rgba(21,29,15,.95);border:1px solid #3A4C2E;
@@ -7423,7 +7435,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1471</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1472</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -50997,6 +51009,29 @@ function _ptWallSection(pp){
   return h;
 }
 // A traced court is a summary plus the way into the Sport Court Builder.
+// One sentence, a whole garden. Everything it names is built, costed and put in the tray.
+async function ptSiteAsk(){
+  const el=document.getElementById("pt-siteask"); const q=el?el.value.trim():"";
+  if(!q) return;
+  if(el){ el.disabled=true; el.value="Thinking\u2026"; }
+  PT._siteSaid="Reading that\u2026"; PT._siteOK=true;
+  try{ _ptDockRefresh(); }catch(e){}
+  let r=null;
+  try{ r=await siteAsk(q); }catch(e){ r={ok:false,error:String(e&&e.message||e)}; }
+  const el2=document.getElementById("pt-siteask");
+  if(el2){ el2.disabled=false; el2.value=""; }
+  if(!r||!r.ok){
+    PT._siteOK=false;
+    PT._siteSaid=(r&&r.error)||"Nothing in that was something this app builds.";
+  } else {
+    PT._siteOK=true;
+    PT._siteSaid=r.added.length+" in the tray \u2014 "+r.added.join(", ")+". Tap one to place it."
+      +((r.refused&&r.refused.length)?(" Skipped: "+r.refused.join("; ")+".") : "")
+      +((r.unmapped&&r.unmapped.length)?(" Not covered: "+r.unmapped.join("; ")+".") : "");
+    try{ _toast(r.added.length+" built and waiting in the tray.","#2F5B23"); }catch(e){}
+  }
+  try{ _ptDockRefresh(); }catch(e){}
+}
 function _ptCourtSection(pp){
   if(!pp||pp.mode!=="court") return "";
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -51520,7 +51555,11 @@ function ptStampMove(e){
   const st=PT.stamp, d=_tkStampDrag; if(!st||!d) return false;
   const c=ptCanvasXY(e);
   if(d.mode==="move"){ const p=_toPdf(c);
-    st.c={x: d.c0.x + (p.x-d.from.x), y: d.c0.y + (p.y-d.from.y)}; }
+    st.c={x: d.c0.x + (p.x-d.from.x), y: d.c0.y + (p.y-d.from.y)};
+    // The rest of the tracer snaps and this did not, so a pool could never be lined up on the
+    // corner of a patio. Every corner AND the centre is offered to the snap; whichever is nearest
+    // a target wins, and the whole shape moves so that point lands on it.
+    try{ _ptStampSnap(st); }catch(e){} }
   else if(d.mode==="size"){
     const L=_tkStampLocal(st,c);
     const MIN=0.5;
@@ -51544,7 +51583,22 @@ function ptStampMove(e){
   ptStampBar(); try{ ptDrawOverlay(); }catch(e){}
   return true;
 }
-function ptStampUp(){ if(!_tkStampDrag) return false; _tkStampDrag=null; return true; }
+function ptStampUp(){ if(!_tkStampDrag) return false; _tkStampDrag=null;
+  try{ _ptSnapMarker(null); }catch(e){} return true; }
+function _ptStampSnap(st){
+  if(!st||PT.snapOff) return;
+  const cands=ptStampPts(st).concat([{x:st.c.x,y:st.c.y}]);
+  let best=null, bd=Infinity, bi=-1;
+  cands.forEach((q,i)=>{ const cq=_toCanvas(q);
+    let sn=null; try{ sn=_ptSnapTarget(cq); }catch(e){}
+    if(!sn||sn.x==null) return;
+    const d=Math.hypot(cq.x-sn.x, cq.y-sn.y);
+    if(d<bd){ bd=d; best=sn; bi=i; } });
+  if(!best||bi<0) return;
+  const from=cands[bi], to=_toPdf({x:best.x, y:best.y});
+  st.c={x: st.c.x + (to.x-from.x), y: st.c.y + (to.y-from.y)};
+  try{ _ptSnapMarker(best); }catch(e){}
+}
 // The size bar, redrawn on its own so dragging never rebuilds the whole panel.
 function ptStampBar(){
   const el=document.getElementById("pt-stampbar"); if(!el) return;
@@ -61053,6 +61107,22 @@ function _ptDockPanel(g){
     +'<button class="pdmaster'+(PT.snapOff?"":" on")+'" onclick="ptSnapMaster()"><span class="dot"></span><b>Snaps '+(PT.snapOff?"OFF":"ON")+'</b><span class="key">\u2018</span></button>'; }
   if(g==="ai"){ const bp=_ptBuildingPoly(); const A=t=>PT._aiTool===t;
     let h=H("AI Tools",'<span class="free">Design intelligence \u00b7 never priced</span>')
+    // Describe a whole garden. What it names is built and costed and put in the tray; nothing
+    // reaches the drawing until you tap it on.
+    +(function(){ const F=(function(){ try{ return ptSiteFrame(); }catch(e){ return {ok:false}; } })();
+      const rooms=(PT.ai||[]).filter(x=>x.t==="room").length;
+      return S("Design the garden")
+        +'<div class="pdask">'
+        +'<input id="pt-siteask" placeholder="A pool and spa in the back, an outdoor kitchen off the house, a fire pit" '
+        +'onkeydown="if(event.key===&#39;Enter&#39;)ptSiteAsk()">'
+        +'<button class="pdaskgo" onclick="ptSiteAsk()">Build</button></div>'
+        +'<div class="pdasknote">'
+        +(F.ok?('Front, rear and sides known \u00b7 <b>'+({high:"high",med:"medium",low:"low"}[F.conf])+'</b> confidence'
+               +(rooms?(' \u00b7 '+rooms+' room'+(rooms===1?"":"s")+' marked'):' \u00b7 no rooms marked'))
+              :'Trace the lot and mark the front door or the garage, and it can put things where you say.')
+        +'</div>'
+        +(PT._siteSaid?('<div class="pdasknote'+(PT._siteOK?"":" bad")+'">'+escAttr(PT._siteSaid)+'</div>'):'');
+    })()
     +(function(){ const AD=dt=>(PT._aiTool==="door"&&PT._doorType===dt); let d=S("Doors");
         Object.keys(PT_DOORTYPES).forEach(k=>{ const D=PT_DOORTYPES[k]; d+=T("ptAiDoor('"+k+"')",D.label,_AI_ICON.door,AD(k),D.ft+"\u2032"+(D.face==="front"?" \u00b7 front":D.face==="rear"?" \u00b7 rear":"")); });
         d+=T("ptAiTool('garage')","Garage",_AI_ICON.garage,A("garage"),"18\u2032 \u00b7 front");
@@ -61926,7 +61996,21 @@ const TRAY_IC={
 };
 function trayRender(){
   const host=document.getElementById("pt-tray"); if(!host) return;
-  if(!TRAY.items.length){ host.innerHTML=""; host.classList.remove("on"); return; }
+  if(!TRAY.items.length){
+    // Empty, the tray is the invitation. It sits on the plan because that is where the answer
+    // lands — and because it needs the lot and the house, which only exist here.
+    let F=null; try{ F=ptSiteFrame(); }catch(e){}
+    if(!F||!F.ok){ host.innerHTML=""; host.classList.remove("on"); return; }
+    host.classList.add("on");
+    const rooms=(PT.ai||[]).filter(x=>x.t==="room").length;
+    host.innerHTML='<div class="tr-h"><span class="lb">Design the garden</span>'
+      +'<span class="ct">'+({high:"front and rear known",med:"front and rear, fairly sure",low:"front and rear, unsure"}[F.conf])
+      +(rooms?(" \u00b7 "+rooms+" room"+(rooms===1?"":"s")):"")+'</span></div>'
+      +'<div class="pdask"><input id="pt-siteask" placeholder="A pool and spa in the back, an outdoor kitchen off the house, a fire pit" '
+      +'onkeydown="if(event.key===&#39;Enter&#39;)ptSiteAsk()">'
+      +'<button class="pdaskgo" onclick="ptSiteAsk()">Build</button></div>'
+      +(PT._siteSaid?('<div class="tr-'+(PT._siteOK?"note":"miss")+'">'+String(PT._siteSaid).replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</div>'):'');
+    return; }
   host.classList.add("on");
   const left=trayLeft();
   const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -62594,6 +62678,9 @@ async function ptRestoreTrace(d){ if(!d||(!d.polys&&!d.trees&&!d.demoN)){ alert(
   if(d.pdf){ try{ await _ptOpenDocBuf(_b642ab(d.pdf), true); }catch(e){ alert("Couldn't open the embedded plan."); } }
   PT.polys=polys; PT.trees=trees; PT.guides=Array.isArray(d.guides)?d.guides:[]; PT.ai=Array.isArray(d.ai)?d.ai:[]; if(d.ppf!=null) PT.ppf=d.ppf; if(d.subtype) PT.subtype=d.subtype; if(d.custMat) PT.custMat=d.custMat; PT.pdfData=d.pdf||null; if(d.sat) PT.satBase=d.sat;
   if(d.flatRot!=null) PT.flatRot=+d.flatRot||0;
+  // things the AI built and you have not placed yet are part of the job, not a session's scratch
+  try{ if(typeof TRAY!=="undefined"){ TRAY.items=Array.isArray(d.tray)?d.tray:[]; TRAY.armed=null;
+    TRAY.items.forEach(t=>{ if(t.state!=="placed") t.state="waiting"; }); trayRender(); } }catch(e){}
   if(d.flat!=null&&!d.live) PT.flat=!!d.flat;
   PT.cur=[]; PT.undo=[]; PT.redo=[];
   ptRenderModal(); await ptRenderPage(); ptDrawOverlay(); ptUpdateInfo(); }
@@ -62635,6 +62722,7 @@ function _bidTrace(){
   if(typeof PT!=="undefined"&&(PT.polys.length||PT.trees.length||(PT.demoN&&Object.keys(PT.demoN).length)))
     return {polys:PT.polys,trees:PT.trees,guides:(PT.guides||[]),ai:(PT.ai||[]),
       ppf:PT.ppf,subtype:PT.subtype,custMat:(PT.custMat||null),page:PT.page,scale:PT.scale,
+      tray:((typeof TRAY!=="undefined"&&TRAY.items&&TRAY.items.length)?TRAY.items:null),
       flat:!!PT.flat,flatRot:(PT.flatRot||0),
       pdf:PT.pdfData||null,sat:(PT.satBase||null),live:!!PT.live,demoN:(PT.demoN||null),pointBy:(PT.pointBy||null)};
   const keep=window._traceBackup;                 // copied: the save path nulls .pdf on what it's given

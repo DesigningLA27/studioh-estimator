@@ -21,11 +21,14 @@ Ordered roughly by how much it costs us to keep not doing it.
 - **Placement built in v1470–71.** ptSiteFrame reads front/rear/left/right off the drawing,
   ptSolvePlace turns "rear yard, 5′ off, centred on the living room" into a position, and the
   staging tray holds what the AI built until you tap it onto the plan.
+  All three follow-ups closed in v1472: the box is the tray's empty state and also sits in the AI
+  dock panel, the stamp snaps to corners, lines, midpoints and the rest, and the tray rides with
+  the project.
   Still open on it:
-  - **No UI calls `siteAsk` yet.** The whole-site sentence has no box to be typed into — the
-    builders each have their own bar, but nothing asks for a whole garden.
-  - **The stamp does not snap.** Placement ignores the snap settings the rest of the tracer has.
-  - **The tray does not survive a reload** — it is in memory, not in the project payload.
+  - **Project Info has no way in.** It is where you look at the lot, the setbacks and the HOA —
+    the inputs — so a line there that opens the plan with the box focused would close the loop.
+  - **Only the first garden is anchored well.** The solver places each item independently; it does
+    not yet reason about them as a group (spa beside the pool, fire pit clear of the pergola).
 - Speech needs a real device check — the API is present in the headless browser, but permission,
   accents and iPad Safari behaviour are untested on the actual iPad.
 
