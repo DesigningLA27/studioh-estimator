@@ -17,8 +17,9 @@ Ordered roughly by how much it costs us to keep not doing it.
 - **Adding plants by name** ("three olive trees") is not covered — the planting adapter sets zone
   area, cover bands and layers, not plant rows. It needs the plant book, and reports the request
   as not covered rather than guessing.
-- **Which item the bar targets** is the last one in the list. With several pools or zones it should
-  let you pick.
+- ~~**Which item the bar targets**~~ — built v1497. It was the last in the list, for both `cur()` and
+  the setter, so on a job with two pools every instruction hit the second. The bar now names the one
+  it will change and lets you pick; the choice is per builder and survives a stale index.
 - **Placement built in v1470–71.** ptSiteFrame reads front/rear/left/right off the drawing,
   ptSolvePlace turns "rear yard, 5′ off, centred on the living room" into a position, and the
   staging tray holds what the AI built until you tap it onto the plan.
@@ -137,13 +138,30 @@ its permit allowance. The dialog shows each record, what it is now and what it b
 price points, its share of these jobs, whether it had already been edited by hand, and that the job
 ends up about 10% dearer rather than the full 15% because of what is deliberately not moved.
 Nothing changes until a second tap; each record is stamped with where the change came from.
-**Still open:** there is no undo other than "Back to the defaults" on the whole book, which also
-discards any other edits. A per-record revert would be better.
+~~Still open: there is no undo other than "Back to the defaults".~~ — built v1498. Each moved record
+keeps what it was, on the record, because dividing the new figure back out does not land on the old
+one (bands are rounded the way a price book is written). The Bids page undoes a whole group; each
+record carries a text link saying what it would go back to. A rate typed by hand before the move
+survives the undo, which "Back to the defaults" would have discarded.
 
-### 13 · Older open items
-- Decide whether to repair "Project Sample 1" (`bid_mt9her0rfie5`).
-- Verify exports (client PDF, plant report, proposal) against DEMO data.
-- Confirm the mood board renders its ten sections.
+### 13 · Older open items — verified v1495–96
+All three were checked against a real DEMO build driven headlessly, not read.
+- **Exports.** The plant report and the specification schedule are both correct and complete — four
+  zones, 20 species with botanical names, water by year, sizes, colours, quantities and a pet/child
+  safety block; six products grouped by section with manufacturer, finish, thickness, dimensions and
+  quantity. **The client PDFs were broken** and are fixed in v1495: both buttons exported the
+  Dashboard's card, not the estimate, and produced identical output. The Proposal export is
+  `_reportSoon(…)` — deliberately not built, see the Proposals tab roadmap.
+- **Mood board** renders its ten sections.
+- **"Project Sample 1"** (`bid_mt9her0rfie5`) is not repairable and does not need to be. 6.2 MB, of
+  which 6.24 MB is a snapshot of the plant book from before the image migration — 4,554 rows with 15
+  embedded base64 images, Rosemary alone at 569 KB. Until v1496 **opening it would have replaced the
+  live plant book with that snapshot**, which is a good deal worse than the record being stale. That
+  path now merges and refuses base64 images, so it is safe to open. It is still 6.2 MB of nothing
+  useful: **Warwick's call whether to delete it.** The nine other saved projects are unaffected.
+- **The bug behind it was live.** Every save was embedding all 16 trees and 8 palms because the
+  library seeds USFS growth data onto them at boot and `PLANT_DB_DEFAULTS` does not declare those
+  fields — fixed v1496, a clean book now embeds nothing.
 - ~~`builderTotalFor` referenced and never defined~~ — fixed v1476.
 - ~~`projDigest()` stamped `totalIsExact` on a subtotal~~ — fixed v1476.
 
