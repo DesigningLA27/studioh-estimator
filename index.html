@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1487</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1488</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -58787,139 +58787,283 @@ const CRT_GROUPS=["Site Work","Base System","Surface","Striping","Fencing","Gate
   "Drainage","Court Lighting","Tennis Equipment","Pickleball Equipment","Basketball Equipment",
   "Multi-Sport Equipment","Accessories","Demolition","Engineering","Permits"];
 // ══════════════════════════════════════════════════════════════════════════════════════
-// FENCE & GATES ENGINE
+// FENCE, GATE & SCREENING BUILDER — ENGINE
 // ──────────────────────────────────────────────────────────────────────────────────────
-// Every fence record is a COMPLETE fence at 6 ft on flat ground, posts at 8 ft on centre —
-// which is what a published $/LF figure means, so the numbers can be checked against the
-// market directly. Everything that makes a particular fence harder than that is its own
-// adjustment: a taller run, bigger posts, deeper footings, rock, a slope to step, a gate.
-// That way nothing is counted twice and every adder is small enough to defend on its own.
+// One persistent fence record that gets more accurate as more is known, never two estimators.
+// §10: the conceptual answer is an assembly $/LF, but the component quantities behind it —
+// posts, footings, concrete, rails, boards, fasteners, caps, finish area, waste, labour — are
+// always calculated and always inspectable. They are only CHARGED separately when the assembly
+// is deliberately decomposed (§37), so nothing is ever counted twice.
 //
-// Southern California runs 20–30% above the national figures, which is why these sit above
-// the published national bands. Sources, all read September 2026:
-//   Wood, LA specifically $45–70/LF  · angi.com/articles/how-much-does-it-cost-install-wood-fence/ca/los-angeles
-//   Wood national $32–62/LF          · ergeon.com/blog/post/wood-fence-costs
-//   6 ft privacy $25–50, 8 ft to $75 · homeguide.com/costs/wood-fence-cost
-//   Horizontal +15–25% labour        · allcountyfenceandgate.com horizontal fence guide
-//   Wrought iron $50–85/LF           · homeguide.com/costs/wrought-iron-fence-cost
-//   Vinyl $35–65, aluminium $25–75   · homeguide.com/costs/metal-fence-cost
-//   Composite $35–95, typical $60    · angi.com/articles/composite-fencing-cost
-//   Glass semi-frameless $115–175,
-//     frameless $150–210             · homeguide.com/costs/glass-pool-fence-cost
-//   Pool barrier 60 in min, 2 in max
-//     gap, no 4 in sphere, gate
-//     self-closing and self-latching
-//     with the release at 60 in      · CA Health & Safety Code 115923
+// Prices are the spec's initial Southern California allowances, 2026 dollars (§14, §16, §20–§27).
+// Every one is an editable Price Book record; nothing is hard-coded at a call site.
 const FNC_META={ region:"Southern California / Los Angeles", regionMult:1.00,
-  priceDate:"September 2026", status:"Initial Market Calibration" };
-function _fr(g,nm,u,lo,std,pre,lab,src,conf,note){
-  return {g:g,nm:nm,u:u,lo:lo,std:std,pre:pre,lab:lab,src:src,upd:"2026-09",conf:conf,note:note||""}; }
+  priceDate:"September 2026", status:"Initial conceptual allowances — spec §14" };
+// g=group, sub=subgroup, u=unit, lab=labour share (the only share access and slope may move),
+// inc=what the record includes, exc=what it does not (§31, §37).
+function _fr(g,sub,nm,u,lo,std,pre,lab,o){ o=o||{};
+  return {g:g, sub:sub, nm:nm, u:u, lo:lo, std:std, pre:pre, lab:lab,
+    inc:o.inc||"", exc:o.exc||"", src:o.src||"spec §14", upd:"2026-09",
+    conf:o.conf||"med", note:o.note||"", assembly:!!o.assembly, active:true,
+    mfr:o.mfr||"", model:o.model||"", url:o.url||"", atH:o.atH||null}; }
+const _FASM="posts, conceptual footings, rails and framing, infill, ordinary hardware, installation";
+const _FEXC="finish, gates, demolition, slope work, engineering, permits";
 const FNC_REC={
-  // ── the fence itself: complete, 6 ft, flat, posts at 8 ft OC ──────────────────────
-  fWoodBoard:  _fr("Fence","Wood board — dog-ear or flat-top","LF",38,52,70,0.55,"Angi LA $45–70","high",""),
-  fWoodBnB:    _fr("Fence","Board-on-board / good-neighbour","LF",48,65,88,0.55,"+25% on board","high",""),
-  fSlatHoriz:  _fr("Fence","Horizontal slat","LF",55,78,105,0.55,"cedar $30–45 / redwood $40–65 +horizontal premium +LA","high","Long horizontal spans need higher-grade lumber or they sag."),
-  fSlatVert:   _fr("Fence","Vertical slat / spaced picket","LF",42,58,78,0.55,"published picket +LA","high",""),
-  fLouver:     _fr("Fence","Louvered / fin screen","LF",75,105,150,0.50,"shop-built","med","Milled and set one blade at a time."),
-  fComposite:  _fr("Fence","Composite","LF",55,75,105,0.45,"Angi $35–95, typical $60 +LA","high",""),
-  fVinyl:      _fr("Fence","Vinyl","LF",42,58,78,0.45,"published $35–65 +LA","high",""),
-  fChain:      _fr("Fence","Chain link — galvanised","LF",22,30,42,0.60,"published residential +LA","high","Court and sport fencing is heavier gauge on closer posts — see the Sport Court Builder."),
-  fChainVinyl: _fr("Fence","Chain link — vinyl-coated","LF",28,38,52,0.58,"+25% on galvanised","high",""),
-  fTubular:    _fr("Fence","Tubular steel / wrought iron","LF",52,70,90,0.45,"homeguide $50–85","high",""),
-  fOrnamental: _fr("Fence","Ornamental iron — scrolls, finials, custom","LF",75,105,150,0.45,"homeguide $65–85 ornamental +LA","med",""),
-  fAluminum:   _fr("Fence","Aluminium picket","LF",34,48,66,0.45,"published $25–75","high",""),
-  fWeldedWire: _fr("Fence","Welded wire / hog panel in a frame","LF",40,58,82,0.55,"shop-built","med",""),
-  fCable:      _fr("Fence","Cable rail","LF",60,90,135,0.45,"allowance","low","Allowance until a Price Book product replaces it — no published residential band found."),
-  fGlassSemi:  _fr("Fence","Glass pool fence — semi-frameless","LF",120,160,215,0.35,"homeguide $115–175","high",""),
-  fGlassFrame: _fr("Fence","Glass pool fence — frameless","LF",150,195,260,0.35,"homeguide $150–210","high",""),
-  fMeshPool:   _fr("Fence","Removable mesh pool fence","LF",16,22,32,0.35,"published $15–25","high",""),
-  fBamboo:     _fr("Fence","Bamboo / reed screen on a frame","LF",24,36,52,0.50,"allowance","low","Allowance — screen material varies widely."),
-  fSplitRail:  _fr("Fence","Split rail / ranch","LF",16,24,36,0.60,"published","med",""),
-  // ── what makes a run harder than the reference fence ─────────────────────────────
-  postUp6x6:   _fr("Posts","Upgrade to 6×6 posts","EA",45,65,95,0.50,"material delta","med",""),
-  postSteel:   _fr("Posts","Galvanised steel post core in a wood fence","EA",55,80,115,0.50,"material delta","med","Outlasts the boards it carries."),
-  footDeep:    _fr("Posts","Deep footing — 36″ or more","EA",60,95,150,0.75,"concrete + dig","med",""),
-  rockDig:     _fr("Posts","Rock or hardpan digging","EA",45,85,150,0.90,"allowance","low",""),
-  slopeStep:   _fr("Site","Stepping or raking on a slope","LF",3,5,9,0.85,"labour","med",""),
-  clearLine:   _fr("Site","Clear the fence line — brush and roots","LF",2,4,8,0.95,"labour","med",""),
-  layout:      _fr("Site","Layout and string line","LF",0.75,1.25,2.00,1.00,"labour","high",""),
-  // ── demolition ───────────────────────────────────────────────────────────────────
-  demoWood:    _fr("Demolition","Remove an existing wood fence","LF",4,6,9,0.95,"labour","high",""),
-  demoChain:   _fr("Demolition","Remove an existing chain link fence","LF",3,4.50,7,0.95,"labour","high",""),
-  demoMasonry: _fr("Demolition","Remove an existing masonry fence","LF",18,28,45,0.85,"labour + equipment","med",""),
-  haulAway:    _fr("Demolition","Debris haul and disposal","LF",1.50,2.50,4,0.50,"dump fees","high",""),
-  // ── gates ────────────────────────────────────────────────────────────────────────
-  gatePedWood: _fr("Gates","Pedestrian gate — wood","EA",450,750,1200,0.55,"published","high",""),
-  gatePedMetal:_fr("Gates","Pedestrian gate — metal","EA",600,1000,1700,0.50,"published","high",""),
-  gatePedGlass:_fr("Gates","Pedestrian gate — glass pool gate","EA",1200,1900,2800,0.40,"published","med",""),
-  gateDbl:     _fr("Gates","Double / drive gate — manual","EA",1800,3200,5500,0.50,"published","med",""),
-  gateSlide:   _fr("Gates","Sliding gate — manual","EA",2500,4200,7000,0.50,"published","med",""),
-  gatePostHvy: _fr("Gates","Heavy gate post and footing","EA",350,600,1000,0.60,"concrete + steel","med",""),
-  gateSafety:  _fr("Gates","Self-closing, self-latching pool-code hardware","EA",120,220,380,0.45,"HSC 115923","high","Latch release at 60″ or on the pool side."),
-  // ── automation (§ the gate is a machine once it moves by itself) ──────────────────
-  autoSwing:   _fr("Automation","Swing gate operator","EA",2800,4500,7500,0.45,"published","med",""),
-  autoSlide:   _fr("Automation","Slide gate operator","EA",3200,5200,8500,0.45,"published","med",""),
-  autoAccess:  _fr("Automation","Keypad, intercom and loop detector","LS",800,1800,3500,0.40,"published","med",""),
-  autoElec:    _fr("Automation","Electrical to the gate — trench, conduit, wire","LF",18,28,45,0.75,"published","high",""),
-  // ── finish ───────────────────────────────────────────────────────────────────────
-  finStain:    _fr("Finish","Stain or seal a wood fence","LF",4,7,11,0.75,"published","high",""),
-  finPaint:    _fr("Finish","Paint a fence","LF",6,10,16,0.78,"published","high",""),
-  finPowder:   _fr("Finish","Powder-coat or custom colour on metal","LF",8,14,22,0.30,"shop finish","med",""),
-  finCapRail:  _fr("Finish","Cap rail or trim detail","LF",7,12,20,0.50,"material + labour","med",""),
-  // ── professional and government money: access never touches these ────────────────
-  engTall:     _fr("Engineering","Structural detail for a fence over 6′","LS",600,1200,2200,0,"engineering","med",""),
-  surveyLine:  _fr("Engineering","Property line survey and staking","LS",900,1500,2500,0,"survey","high","A fence on the line is the one thing a neighbour will measure."),
-  permitFence: _fr("Permits","Permit allowance","LS",250,650,1400,0,"allowance","low","")
+  // ── §14 WOOD ASSEMBLIES — complete installed 6′ fence ────────────────────────────
+  wPT:        _fr("Wood","Assembly","Pressure-treated vertical privacy","LF",40,55,75,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wCedar:     _fr("Wood","Assembly","Cedar vertical privacy","LF",45,65,90,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wRwSxS:     _fr("Wood","Assembly","Redwood vertical side-by-side","LF",50,70,95,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wRwBnB:     _fr("Wood","Assembly","Redwood board-on-board","LF",60,85,115,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wRwTG:      _fr("Wood","Assembly","Redwood tongue-and-groove","LF",70,100,140,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wRwHoriz:   _fr("Wood","Assembly","Redwood horizontal boards","LF",65,95,135,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wRwHorizFr: _fr("Wood","Assembly","Premium framed horizontal redwood","LF",85,125,180,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wRwClear:   _fr("Wood","Assembly","Clear-heart / custom redwood","LF",95,140,200,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"med"}),
+  wIpe:       _fr("Wood","Assembly","Ipe / premium hardwood","LF",120,180,275,0.50,{assembly:true,inc:_FASM,exc:_FEXC,conf:"med"}),
+  wPicket:    _fr("Wood","Assembly","Wood picket, about 3′–4′","LF",35,50,75,0.58,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high",note:"Written at its own height — the 6′ height factor does not apply below 4′."}),
+  wPostRail:  _fr("Wood","Assembly","Post-and-rail","LF",25,40,65,0.60,{assembly:true,inc:_FASM,exc:_FEXC,conf:"high"}),
+  wSlatScreen:_fr("Wood","Assembly","Wood slat privacy screen","LF",65,95,145,0.55,{assembly:true,inc:_FASM,exc:_FEXC,conf:"med"}),
+  // ── §14 VINYL / COMPOSITE ────────────────────────────────────────────────────────
+  vVinyl:     _fr("Vinyl & Composite","Assembly","Vinyl privacy","LF",45,60,80,0.45,{assembly:true,inc:_FASM+", factory finish",exc:"gates, demolition, slope work, engineering, permits",conf:"high",note:"Factory finish — no separate coating."}),
+  vVinylPrem: _fr("Vinyl & Composite","Assembly","Premium vinyl privacy","LF",55,75,100,0.45,{assembly:true,inc:_FASM+", factory finish",exc:"gates, demolition, slope work, engineering, permits",conf:"high"}),
+  vComposite: _fr("Vinyl & Composite","Assembly","Composite privacy","LF",65,95,140,0.45,{assembly:true,inc:_FASM+", factory finish",exc:"gates, demolition, slope work, engineering, permits",conf:"high"}),
+  vCompPrem:  _fr("Vinyl & Composite","Assembly","Premium manufacturer composite","LF",85,125,185,0.45,{assembly:true,inc:_FASM+", factory finish",exc:"gates, demolition, slope work, engineering, permits",conf:"med"}),
+  vScreen:    _fr("Vinyl & Composite","Assembly","Composite privacy screen","LF",80,115,175,0.45,{assembly:true,inc:_FASM+", factory finish",exc:"gates, demolition, slope work, engineering, permits",conf:"med"}),
+  // ── §14 CHAIN LINK — written at their own heights ─────────────────────────────────
+  cl4Galv:    _fr("Chain Link","Assembly","4′ galvanised residential","LF",22,30,42,0.60,{assembly:true,inc:_FASM,exc:"privacy slats, windscreen, "+_FEXC,conf:"high",atH:4}),
+  cl6Galv:    _fr("Chain Link","Assembly","6′ galvanised residential","LF",30,42,58,0.60,{assembly:true,inc:_FASM,exc:"privacy slats, windscreen, "+_FEXC,conf:"high",atH:6}),
+  cl8Galv:    _fr("Chain Link","Assembly","8′ galvanised / heavy duty","LF",42,58,80,0.60,{assembly:true,inc:_FASM,exc:"privacy slats, windscreen, "+_FEXC,conf:"high",atH:8}),
+  cl6Vinyl:   _fr("Chain Link","Assembly","6′ black vinyl-coated","LF",36,50,68,0.58,{assembly:true,inc:_FASM+", factory coating",exc:"privacy slats, windscreen, "+_FEXC,conf:"high",atH:6}),
+  cl8Vinyl:   _fr("Chain Link","Assembly","8′ black vinyl-coated","LF",50,68,92,0.58,{assembly:true,inc:_FASM+", factory coating",exc:"privacy slats, windscreen, "+_FEXC,conf:"high",atH:8}),
+  clSlats:    _fr("Chain Link","Add","Privacy slats","LF",8,13,20,0.35,{conf:"med"}),
+  clWind:     _fr("Chain Link","Add","Windscreen","LF",8,12,18,0.35,{conf:"med"}),
+  // ── §14 METAL ────────────────────────────────────────────────────────────────────
+  m4Alum:     _fr("Metal","Assembly","4′ ornamental aluminium","LF",50,70,100,0.45,{assembly:true,inc:_FASM+", factory powder coat",exc:"gates, demolition, slope work, engineering, permits",conf:"high",atH:4}),
+  m6Alum:     _fr("Metal","Assembly","6′ ornamental aluminium","LF",65,95,140,0.45,{assembly:true,inc:_FASM+", factory powder coat",exc:"gates, demolition, slope work, engineering, permits",conf:"high",atH:6}),
+  m4Steel:    _fr("Metal","Assembly","4′ standard ornamental steel","LF",65,95,145,0.45,{assembly:true,inc:_FASM+", standard finish",exc:"custom finish, gates, demolition, slope work, engineering, permits",conf:"high",atH:4}),
+  m6Steel:    _fr("Metal","Assembly","6′ ornamental steel","LF",85,130,200,0.45,{assembly:true,inc:_FASM+", standard finish",exc:"custom finish, gates, demolition, slope work, engineering, permits",conf:"high",atH:6}),
+  mWeldWire:  _fr("Metal","Assembly","Architectural welded-wire panels","LF",75,110,165,0.50,{assembly:true,inc:_FASM,exc:_FEXC,conf:"med"}),
+  mSlatAlum:  _fr("Metal","Assembly","Horizontal aluminium slat","LF",90,135,210,0.45,{assembly:true,inc:_FASM+", factory powder coat",exc:"gates, demolition, slope work, engineering, permits",conf:"med"}),
+  mSlatSteel: _fr("Metal","Assembly","Horizontal steel slat","LF",100,150,235,0.45,{assembly:true,inc:_FASM,exc:_FEXC,conf:"med"}),
+  mCustom:    _fr("Metal","Assembly","Custom fabricated steel","LF",140,210,325,0.40,{assembly:true,inc:_FASM,exc:_FEXC,conf:"low",note:"Moves to SF, panel, weight or a fabrication quote as soon as the details exist."}),
+  mLaserCut:  _fr("Metal","Assembly","Laser-cut decorative metal screen","LF",175,275,450,0.35,{assembly:true,inc:_FASM,exc:_FEXC,conf:"low",note:"Moves to SF, panel or a fabrication quote as soon as the details exist."}),
+  mSlatScreen:_fr("Metal","Assembly","Aluminium slat privacy screen","LF",95,145,225,0.45,{assembly:true,inc:_FASM+", factory powder coat",exc:"gates, demolition, slope work, engineering, permits",conf:"med"}),
+  mPanelScreen:_fr("Metal","Assembly","Architectural metal panel screen","LF",150,240,400,0.35,{assembly:true,inc:_FASM,exc:_FEXC,conf:"low"}),
+  // ── §14 GLASS ────────────────────────────────────────────────────────────────────
+  gFramed:    _fr("Glass","Assembly","Framed glass","LF",130,190,285,0.35,{assembly:true,inc:_FASM,exc:"core drilling, base shoe, engineering, "+_FEXC,conf:"med"}),
+  gSemi:      _fr("Glass","Assembly","Semi-frameless glass","LF",155,225,335,0.35,{assembly:true,inc:_FASM,exc:"core drilling, base shoe, engineering, "+_FEXC,conf:"med"}),
+  gFrameless: _fr("Glass","Assembly","Frameless glass","LF",190,280,425,0.30,{assembly:true,inc:_FASM,exc:"core drilling, base shoe, engineering, "+_FEXC,conf:"med",note:"Panel size, thickness, hardware and engineering all move this — replace with a manufacturer quote."}),
+  // ── CABLE / OPEN ─────────────────────────────────────────────────────────────────
+  kCableWood: _fr("Cable & Open","Assembly","Stainless cable with wood posts","LF",70,105,160,0.45,{assembly:true,inc:_FASM,exc:_FEXC,conf:"low",src:"allowance",note:"Allowance — no published residential band found."}),
+  kCableMetal:_fr("Cable & Open","Assembly","Stainless cable with metal posts","LF",85,130,195,0.45,{assembly:true,inc:_FASM,exc:_FEXC,conf:"low",src:"allowance"}),
+  kWire:      _fr("Cable & Open","Assembly","Open wire / ranch wire","LF",16,26,40,0.60,{assembly:true,inc:_FASM,exc:_FEXC,conf:"med"}),
+  // ── §15 WOOD CONSTRUCTION ADDERS — used until component quantities replace them ───
+  aGoodNeigh: _fr("Construction","Adder","Finished both sides / good-neighbour","%",10,17,25,0.55,{conf:"med",note:"Percentage on the fence assembly only. Replaced by component pricing once boards are counted."}),
+  aSteelPost: _fr("Construction","Adder","Hidden steel posts","LF",15,25,35,0.50,{conf:"med"}),
+  aDecorTop:  _fr("Construction","Adder","Decorative top / lattice","LF",10,20,30,0.55,{conf:"med"}),
+  aHiddenFast:_fr("Construction","Adder","Premium concealed fasteners","%",5,8,12,0.60,{conf:"med"}),
+  aFramedPanel:_fr("Construction","Adder","Custom framed panels","%",15,25,35,0.55,{conf:"med"}),
+  aCapRail:   _fr("Construction","Adder","Top cap and bottom trim","LF",7,12,20,0.50,{conf:"med"}),
+  // ── COMPONENTS — charged only when the assembly is decomposed (§37) ───────────────
+  pWood4x4:   _fr("Posts","Post","4×4 pressure-treated post","EA",38,55,78,0.50,{conf:"med"}),
+  pWood6x6:   _fr("Posts","Post","6×6 post","EA",72,105,150,0.50,{conf:"med"}),
+  pSteel:     _fr("Posts","Post","Galvanised steel post","EA",85,120,170,0.45,{conf:"med"}),
+  pMetalLine: _fr("Posts","Post","Metal line post","EA",48,70,100,0.45,{conf:"med"}),
+  pGateHeavy: _fr("Posts","Post","Heavy gate post","EA",180,320,560,0.50,{conf:"med"}),
+  fFootSet:   _fr("Footings","Footing","Drill, set and backfill a post footing","EA",38,58,88,0.88,{conf:"med",note:"Labour and equipment. The concrete is its own line."}),
+  fConcrete:  _fr("Footings","Concrete","Footing concrete, delivered and placed","CY",280,380,520,0.45,{conf:"med"}),
+  fRockDig:   _fr("Footings","Ground","Difficult / rock excavation per post","EA",75,125,225,0.90,{conf:"low",src:"spec §20"}),
+  rRail:      _fr("Rails & Framing","Rail","Horizontal rail","LF",2.20,3.40,5.00,0.55,{conf:"med"}),
+  rFrame:     _fr("Rails & Framing","Frame","Panel frame","LF",6,10,16,0.50,{conf:"med"}),
+  iBoard:     _fr("Infill","Board","Fence board, supplied and fitted","SF",4.50,7.00,11.00,0.50,{conf:"med"}),
+  iPanel:     _fr("Infill","Panel","Manufactured panel","EA",95,150,240,0.35,{conf:"med"}),
+  hFasteners: _fr("Hardware","Fasteners","Fasteners and connectors","LF",1.20,2.00,3.20,0.40,{conf:"med"}),
+  hCapPost:   _fr("Hardware","Cap","Post cap","EA",9,16,28,0.35,{conf:"med"}),
+  // ── §16 WOOD FINISHES — $/SF of face area ────────────────────────────────────────
+  finSealer:  _fr("Wood Finishes","Coating","Clear sealer","SF",1.50,2.50,4.00,0.75,{conf:"high",src:"spec §16"}),
+  finStainT:  _fr("Wood Finishes","Coating","Transparent / semi-transparent stain","SF",2.00,3.25,5.00,0.75,{conf:"high",src:"spec §16"}),
+  finStainS:  _fr("Wood Finishes","Coating","Solid stain","SF",2.50,4.00,6.00,0.75,{conf:"high",src:"spec §16"}),
+  finPaint:   _fr("Wood Finishes","Coating","Exterior paint","SF",3.00,4.75,7.00,0.78,{conf:"high",src:"spec §16"}),
+  finSpecial: _fr("Wood Finishes","Coating","Specialty finish — shou sugi ban or custom","SF",5.00,9.00,16.00,0.70,{conf:"low",src:"allowance"}),
+  // ── §16 METAL FINISHES ───────────────────────────────────────────────────────────
+  finGalv:    _fr("Metal Finishes","Coating","Hot-dip galvanising","SF",3.50,5.50,8.50,0.20,{conf:"med"}),
+  finPowder:  _fr("Metal Finishes","Coating","Standard powder coat","SF",4.00,6.50,10.00,0.20,{conf:"med"}),
+  finPowderP: _fr("Metal Finishes","Coating","Premium / custom powder coat","SF",6.50,10.00,16.00,0.20,{conf:"med"}),
+  finPatina:  _fr("Metal Finishes","Coating","Patina or specialty metal finish","SF",6.00,11.00,20.00,0.35,{conf:"low",src:"allowance"}),
+  // ── §20 DEMOLITION ───────────────────────────────────────────────────────────────
+  dWood:      _fr("Demolition","Remove","Wood fence removal","LF",8,12,18,0.92,{conf:"high",src:"spec §20",inc:"haul and disposal"}),
+  dVinyl:     _fr("Demolition","Remove","Vinyl fence removal","LF",7,11,17,0.92,{conf:"high",src:"spec §20",inc:"haul and disposal"}),
+  dChain:     _fr("Demolition","Remove","Chain-link removal","LF",7,11,16,0.92,{conf:"high",src:"spec §20",inc:"haul and disposal"}),
+  dMetal:     _fr("Demolition","Remove","Metal fence removal","LF",10,16,25,0.88,{conf:"high",src:"spec §20",inc:"haul and disposal"}),
+  dGlass:     _fr("Demolition","Remove","Glass fence removal","LF",20,35,55,0.85,{conf:"med",src:"spec §20",inc:"haul and disposal"}),
+  dScreen:    _fr("Demolition","Remove","Screen removal","LF",8,13,20,0.90,{conf:"med",src:"spec §20",inc:"haul and disposal"}),
+  dFooting:   _fr("Demolition","Remove","Difficult post / footing extraction","EA",75,125,225,0.90,{conf:"med",src:"spec §20"}),
+  dGatePed:   _fr("Demolition","Remove","Manual pedestrian gate removal","EA",250,450,750,0.88,{conf:"med",src:"spec §20"}),
+  dGateVeh:   _fr("Demolition","Remove","Vehicular gate removal","EA",750,1500,3000,0.80,{conf:"med",src:"spec §20"}),
+  dOperator:  _fr("Demolition","Remove","Operator / access-control removal","EA",400,750,1400,0.75,{conf:"med"}),
+  dClearVeg:  _fr("Demolition","Clear","Vegetation clearing along the line","LF",2,4,8,0.95,{conf:"med"}),
+  dHaul:      _fr("Demolition","Disposal","Separate haul and disposal","LF",2,3.50,5.50,0.50,{conf:"high",note:"Only when the removal record excludes disposal — otherwise it is already in it (§37)."}),
+  dProtect:   _fr("Demolition","Protect","Protect adjacent improvements","LS",250,600,1200,0.85,{conf:"med"}),
+  // ── §21 PEDESTRIAN GATES ─────────────────────────────────────────────────────────
+  gpWood:     _fr("Pedestrian Gates","Gate","3′–4′ wood pedestrian gate","EA",1250,2250,4000,0.50,{conf:"high",src:"spec §21",inc:"leaf, frame, hinges, latch, structural posts, footings, installation",exc:"finish, self-closing hardware, access control"}),
+  gpVinyl:    _fr("Pedestrian Gates","Gate","3′–4′ vinyl / composite gate","EA",1400,2500,4500,0.45,{conf:"high",src:"spec §21",inc:"leaf, frame, hinges, latch, structural posts, footings, factory finish, installation",exc:"self-closing hardware, access control"}),
+  gpMetal:    _fr("Pedestrian Gates","Gate","3′–4′ ornamental metal gate","EA",1750,3250,6000,0.45,{conf:"high",src:"spec §21",inc:"leaf, frame, hinges, latch, structural posts, footings, standard finish, installation",exc:"custom finish, self-closing hardware, access control"}),
+  gpGlass:    _fr("Pedestrian Gates","Gate","3′–4′ glass gate","EA",2500,4500,7500,0.35,{conf:"med",src:"spec §21",inc:"panel, hardware, hinges, latch, installation",exc:"core drilling, self-closing hardware, engineering"}),
+  gpDouble:   _fr("Pedestrian Gates","Gate","Double pedestrian / service gate","EA",2500,4500,8000,0.48,{conf:"high",src:"spec §21",inc:"leaves, frame, hinges, latch, structural posts, footings, installation",exc:"finish, self-closing hardware, access control"}),
+  gpSelfClose:_fr("Pedestrian Gates","Hardware","Self-closing, self-latching hardware","EA",180,320,560,0.40,{conf:"high",note:"Pool gates: latch release at 60″ or on the pool side — verify with the governing agency."}),
+  gpLock:     _fr("Pedestrian Gates","Hardware","Lockable latch or keyed hardware","EA",120,260,480,0.40,{conf:"med"}),
+  gpStrike:   _fr("Pedestrian Gates","Hardware","Keypad and electric strike","EA",650,1200,2200,0.40,{conf:"med"}),
+  // ── §22 VEHICULAR GATE FABRICATION — automation is always separate ───────────────
+  gvSwingBasic:_fr("Vehicular Gates","Fabrication","Basic 10′–12′ manual swing gate","EA",3000,5000,8000,0.45,{conf:"high",src:"spec §22",inc:"leaf, frame, infill, hinges, latch, installation",exc:"automation, access control, electrical, posts or pilasters if oversized"}),
+  gvSwingCust:_fr("Vehicular Gates","Fabrication","Custom 12′–16′ swing gate","EA",5000,8500,14000,0.42,{conf:"high",src:"spec §22",inc:"leaf, frame, infill, hinges, latch, installation",exc:"automation, access control, electrical"}),
+  gvSlide:    _fr("Vehicular Gates","Fabrication","Manual sliding gate","EA",5000,8500,15000,0.42,{conf:"high",src:"spec §22",inc:"leaf, frame, infill, track or cantilever, installation",exc:"automation, access control, electrical"}),
+  gvPremium:  _fr("Vehicular Gates","Fabrication","Premium architectural gate","EA",8000,15000,30000,0.38,{conf:"low",src:"spec §22",note:"Move to a fabrication quote by frame, infill, finish, weight and hardware as soon as the details exist."}),
+  gvPostPair: _fr("Vehicular Gates","Support","Heavy gate post pair and foundations","EA",900,1700,3200,0.55,{conf:"med"}),
+  gvTrack:    _fr("Vehicular Gates","Support","Track, rollers and guide for a sliding gate","LF",55,95,160,0.50,{conf:"med"}),
+  // ── §22 AUTOMATION PACKAGES ──────────────────────────────────────────────────────
+  auSwing1:   _fr("Gate Operators","Package","Single swing operator package","EA",3500,5500,9000,0.40,{conf:"high",src:"spec §22",inc:"operator, mounting, basic controls, receiver and remotes, safety photo eyes, commissioning, basic electrical connection",exc:"trenching or a long electrical run, advanced access control, battery backup, safety edges"}),
+  auSwing2:   _fr("Gate Operators","Package","Dual swing operator package","EA",5000,8000,13000,0.40,{conf:"high",src:"spec §22",inc:"two operators, mounting, basic controls, receiver and remotes, safety photo eyes, commissioning, basic electrical connection",exc:"trenching or a long electrical run, advanced access control, battery backup, safety edges"}),
+  auSlide:    _fr("Gate Operators","Package","Sliding operator package","EA",5000,8500,14000,0.40,{conf:"high",src:"spec §22",inc:"operator, mounting, basic controls, receiver and remotes, safety photo eyes, commissioning, basic electrical connection",exc:"trenching or a long electrical run, advanced access control, battery backup, safety edges"}),
+  auHeavy:    _fr("Gate Operators","Package","Heavy-duty / custom operator","EA",8000,14000,25000,0.38,{conf:"low",src:"spec §22"}),
+  // ── §23 ACCESS CONTROL AND SAFETY ────────────────────────────────────────────────
+  acKeypad:   _fr("Access Control","Control","Wireless keypad","EA",500,900,1500,0.35,{conf:"high",src:"spec §23"}),
+  acKeypadPed:_fr("Access Control","Control","Keypad with pedestal","EA",900,1500,2500,0.40,{conf:"high",src:"spec §23"}),
+  acPhone:    _fr("Access Control","Control","Telephone entry","EA",1500,3000,5500,0.35,{conf:"high",src:"spec §23"}),
+  acVideo:    _fr("Access Control","Control","Video intercom","EA",2500,4500,8000,0.35,{conf:"high",src:"spec §23"}),
+  acCloud:    _fr("Access Control","Control","App / cloud access system","EA",1000,2500,5000,0.35,{conf:"med",src:"spec §23"}),
+  acRFID:     _fr("Access Control","Control","RFID / card reader","EA",1500,3000,6000,0.35,{conf:"med",src:"spec §23"}),
+  acLoop:     _fr("Access Control","Detection","Vehicle loop detector","EA",1500,2500,4000,0.55,{conf:"high",src:"spec §23"}),
+  acPhotoEye: _fr("Safety Equipment","Safety","Safety photo-eye pair","EA",400,750,1200,0.40,{conf:"high",src:"spec §23",note:"Already inside an operator package — only add when the package excludes it (§37)."}),
+  acSafetyEdge:_fr("Safety Equipment","Safety","Safety edge","EA",500,900,1500,0.40,{conf:"high",src:"spec §23"}),
+  acBattery:  _fr("Access Control","Power","Battery-backup upgrade","EA",500,1000,2000,0.30,{conf:"high",src:"spec §23"}),
+  acSolar:    _fr("Access Control","Power","Solar package","EA",1500,3000,5000,0.35,{conf:"med",src:"spec §23"}),
+  acKnox:     _fr("Safety Equipment","Safety","Knox box / fire-department access","EA",350,700,1400,0.40,{conf:"low",src:"allowance"}),
+  // ── §23 ELECTRICAL AND TRENCHING — never hidden inside an operator ───────────────
+  elTrench:   _fr("Electrical & Trenching","Run","Trench, conduit and wire to the gate","LF",18,28,45,0.72,{conf:"high",src:"spec §23"}),
+  elCircuit:  _fr("Electrical & Trenching","Circuit","Dedicated circuit and panel connection","LS",650,1200,2200,0.60,{conf:"high"}),
+  elRestore:  _fr("Electrical & Trenching","Restore","Surface restoration over the trench","LF",6,12,22,0.70,{conf:"med"}),
+  // ── §24 PILASTERS ────────────────────────────────────────────────────────────────
+  piStucco:   _fr("Pilasters","Pilaster","Basic stucco pilaster","EA",2500,4000,6500,0.55,{conf:"med",src:"spec §24",inc:"footing, block, stucco, cap",exc:"lighting, address numbers, mailbox, intercom, gate hardware"}),
+  piVeneer:   _fr("Pilasters","Pilaster","Stone or tile veneer pilaster","EA",4000,6500,10000,0.52,{conf:"med",src:"spec §24",inc:"footing, block, veneer, cap",exc:"lighting, address numbers, mailbox, intercom, gate hardware"}),
+  piGate:     _fr("Pilasters","Pilaster","Large gate-support pilaster","EA",5000,8500,14000,0.50,{conf:"low",src:"spec §24",inc:"enlarged foundation, block, finish, cap",exc:"engineering, gate hardware, lighting",note:"Structural gate supports usually need engineering and a larger foundation."}),
+  piLight:    _fr("Pilasters","Add","Pilaster light","EA",350,650,1200,0.40,{conf:"med"}),
+  piAddress:  _fr("Pilasters","Add","Address numbers","EA",180,400,850,0.45,{conf:"med"}),
+  piMailbox:  _fr("Pilasters","Add","Mailbox","EA",350,750,1600,0.45,{conf:"med"}),
+  // ── WALL COORDINATION (§8) ───────────────────────────────────────────────────────
+  wtMount:    _fr("Wall Coordination","Mounting","Wall-top post mounting — core drill and base plate","EA",140,240,400,0.60,{conf:"med",note:"Structural attachment to an existing wall needs verification."}),
+  // ── §27 SOFT COSTS: access and slope never touch these ───────────────────────────
+  sSurvey:    _fr("Engineering","Survey","Property-line survey allowance","LS",1500,2500,4500,0,{conf:"high",src:"spec §27"}),
+  sSitePlan:  _fr("Engineering","Drawing","Fence / site plan","LS",750,1500,3000,0,{conf:"high",src:"spec §27"}),
+  sStruct:    _fr("Engineering","Engineering","Structural engineering","LS",1500,3000,6000,0,{conf:"high",src:"spec §27"}),
+  sGateEng:   _fr("Engineering","Engineering","Gate / pilaster engineering","LS",2000,4000,7500,0,{conf:"high",src:"spec §27"}),
+  sPermit:    _fr("Permits & HOA","Permit","Permit allowance","LS",500,1500,4000,0,{conf:"low",src:"spec §27",note:"An allowance you edit — never a percentage of construction."}),
+  sHOA:       _fr("Permits & HOA","Submittal","HOA submittal package","LS",500,1250,2500,0,{conf:"high",src:"spec §27"})
 };
 const FNC_RULE={
-  // The fence records are written at 6 ft. About 30% of a fence does not change with height —
-  // posts, footings, layout, the gate hardware, getting there — and the rest scales with it.
-  refH:6, fixedShare:0.30,
-  postSpacing:8,
-  // Access moves the LABOUR SHARE of a line and nothing else. Never the whole price, and never
-  // engineering, survey or permits.
-  access:{ easy:{f:1.00,label:"Easy — truck to the line"},
-           moderate:{f:1.12,label:"Moderate — some carrying"},
-           difficult:{f:1.28,label:"Difficult — hand-carry, tight side yard"},
-           veryDifficult:{f:1.50,label:"Very difficult — no vehicle access at all"} },
-  accessOn:{Fence:true, Posts:true, Site:true, Demolition:true, Gates:true, Automation:true,
-            Finish:true, Engineering:false, Permits:false},
-  // Which fences can legally enclose a pool: 60 in minimum, nothing a 4 in sphere passes through.
-  poolOK:["fTubular","fOrnamental","fAluminum","fGlassSemi","fGlassFrame","fMeshPool",
-          "fWoodBoard","fWoodBnB","fComposite","fVinyl","fChain","fChainVinyl","fSlatVert","fWeldedWire"],
-  poolMinH:5,                                    // 60 inches
-  // Above this the run needs a bigger post, a deeper footing and usually a drawing.
-  tallH:6, engH:7,
+  // §13 height factors. The 6′ fence is the reference; a record with its own atH is already
+  // written at that height and is not scaled from 6.
+  refH:6,
+  heightF:{3:0.72, 3.5:0.76, 4:0.80, 5:0.90, 6:1.00, 7:1.15, 8:1.30},
+  maxH:8,                                        // above this: custom calculation + a warning
+  // §11 default post spacing by system
+  spacing:{wood:8, woodHoriz:6, woodTG:8, vinyl:6, composite:6, metal:6, chain:10, glass:6, screen:5, cable:6},
+  // §12 conceptual footing assumptions by fence height — estimating assumptions, not prescriptions
+  footings:[{toH:4,  dia:11, depth:24},
+            {toH:6,  dia:12, depth:27},
+            {toH:8,  dia:15, depth:33},
+            {toH:999,dia:18, depth:36}],
+  footWaste:0.10,                                // §12 concrete waste and minimum-load allowance
+  // §17 slope — labour and fabrication only, never product cost
+  slope:{level:{f:1.00,label:"Level"}, mild:{f:1.08,label:"Mild slope"},
+         moderate:{f:1.18,label:"Moderate slope"}, steep:{f:1.35,label:"Steep / custom stepped"},
+         extreme:{f:null,label:"Extreme — engineered"}},
+  // §18 access — labour only, and never factory-fabricated product, operators or permit fees
+  access:{easy:{f:1.00,label:"Easy"}, moderate:{f:1.12,label:"Moderate"},
+          difficult:{f:1.30,label:"Difficult"}, veryDifficult:{f:1.55,label:"Very difficult / hillside"}},
+  accessOn:{Wood:true,"Vinyl & Composite":true,"Chain Link":true,Metal:true,Glass:true,
+            "Cable & Open":true,Construction:true,Posts:true,Footings:true,"Rails & Framing":true,
+            Infill:true,Hardware:true,"Wood Finishes":true,"Metal Finishes":true,Demolition:true,
+            "Pedestrian Gates":true,"Vehicular Gates":true,Pilasters:true,"Wall Coordination":true,
+            "Electrical & Trenching":true,
+            "Gate Operators":false,"Access Control":false,"Safety Equipment":false,
+            Engineering:false,"Permits & HOA":false},
+  // §19 project size. A minimum mobilisation is the better model, so this factor and a separate
+  // mobilisation charge are never both applied (§37).
+  size:[{toLF:25,f:1.35},{toLF:50,f:1.20},{toLF:100,f:1.10},{toLF:200,f:1.00},
+        {toLF:400,f:0.96},{toLF:1e9,f:0.92}],
+  sizeOn:true,
+  // §25 pool barrier. Seed figures only — the jurisdiction is the authority.
+  pool:{minH:5, maxGapIn:4, maxBottomIn:2, latchH:5,
+        note:"Pool-barrier requirements vary by jurisdiction and project condition. Verify the selected system with the governing agency."},
+  poolUnsuitable:["kCableWood","kCableMetal","kWire","wPostRail","wPicket"],
+  // §26 seed zoning pattern for Los Angeles. NOT a universal rule and never marked verified.
+  zoning:{frontMaxFt:3.5, sideRearMaxFt:6,
+          note:"City of Los Angeles official guidance generally limits residential fences to about 3′-6″ in front yards and 6′ in side and rear yards, with zoning exceptions. Verify for the parcel."},
+  engH:7, permitH:7,
+  // §30 confidence bands
+  band:{high:12, med:20, low:30},
+  // Which assembly each fence type is, what spacing it wants, and what it is made of
   types:{
-    fWoodBoard:{label:"Wood board",rec:"fWoodBoard",mat:"wood",stain:true},
-    fWoodBnB:{label:"Board-on-board",rec:"fWoodBnB",mat:"wood",stain:true},
-    fSlatHoriz:{label:"Horizontal slat",rec:"fSlatHoriz",mat:"wood",stain:true},
-    fSlatVert:{label:"Vertical slat",rec:"fSlatVert",mat:"wood",stain:true},
-    fLouver:{label:"Louvered screen",rec:"fLouver",mat:"wood",stain:true},
-    fComposite:{label:"Composite",rec:"fComposite",mat:"composite"},
-    fVinyl:{label:"Vinyl",rec:"fVinyl",mat:"vinyl"},
-    fChain:{label:"Chain link",rec:"fChain",mat:"metal"},
-    fChainVinyl:{label:"Chain link — coated",rec:"fChainVinyl",mat:"metal"},
-    fTubular:{label:"Tubular steel",rec:"fTubular",mat:"metal",powder:true},
-    fOrnamental:{label:"Ornamental iron",rec:"fOrnamental",mat:"metal",powder:true},
-    fAluminum:{label:"Aluminium picket",rec:"fAluminum",mat:"metal",powder:true},
-    fWeldedWire:{label:"Welded wire panel",rec:"fWeldedWire",mat:"metal",stain:true},
-    fCable:{label:"Cable rail",rec:"fCable",mat:"metal"},
-    fGlassSemi:{label:"Glass — semi-frameless",rec:"fGlassSemi",mat:"glass"},
-    fGlassFrame:{label:"Glass — frameless",rec:"fGlassFrame",mat:"glass"},
-    fMeshPool:{label:"Removable mesh",rec:"fMeshPool",mat:"mesh"},
-    fBamboo:{label:"Bamboo screen",rec:"fBamboo",mat:"wood"},
-    fSplitRail:{label:"Split rail",rec:"fSplitRail",mat:"wood",stain:true}
+    wPT:        {label:"Pressure-treated privacy",     rec:"wPT",        mat:"wood",     sp:"wood"},
+    wCedar:     {label:"Cedar privacy",                rec:"wCedar",     mat:"wood",     sp:"wood"},
+    wRwSxS:     {label:"Redwood side-by-side",         rec:"wRwSxS",     mat:"wood",     sp:"wood"},
+    wRwBnB:     {label:"Redwood board-on-board",       rec:"wRwBnB",     mat:"wood",     sp:"wood"},
+    wRwTG:      {label:"Redwood tongue-and-groove",    rec:"wRwTG",      mat:"wood",     sp:"woodTG"},
+    wRwHoriz:   {label:"Redwood horizontal",           rec:"wRwHoriz",   mat:"wood",     sp:"woodHoriz"},
+    wRwHorizFr: {label:"Framed horizontal redwood",    rec:"wRwHorizFr", mat:"wood",     sp:"woodHoriz"},
+    wRwClear:   {label:"Clear-heart redwood",          rec:"wRwClear",   mat:"wood",     sp:"wood"},
+    wIpe:       {label:"Ipe / premium hardwood",       rec:"wIpe",       mat:"wood",     sp:"woodHoriz"},
+    wPicket:    {label:"Wood picket",                  rec:"wPicket",    mat:"wood",     sp:"wood", open:true},
+    wPostRail:  {label:"Post-and-rail",                rec:"wPostRail",  mat:"wood",     sp:"wood", open:true},
+    wSlatScreen:{label:"Wood slat screen",             rec:"wSlatScreen",mat:"wood",     sp:"screen", screen:true},
+    vVinyl:     {label:"Vinyl privacy",                rec:"vVinyl",     mat:"vinyl",    sp:"vinyl", factoryFin:true, noRake:true},
+    vVinylPrem: {label:"Premium vinyl privacy",        rec:"vVinylPrem", mat:"vinyl",    sp:"vinyl", factoryFin:true, noRake:true},
+    vComposite: {label:"Composite privacy",            rec:"vComposite", mat:"composite",sp:"composite", factoryFin:true, noRake:true},
+    vCompPrem:  {label:"Premium composite",            rec:"vCompPrem",  mat:"composite",sp:"composite", factoryFin:true, noRake:true},
+    vScreen:    {label:"Composite screen",             rec:"vScreen",    mat:"composite",sp:"screen", factoryFin:true, screen:true},
+    cl4Galv:    {label:"4′ galvanised chain link",     rec:"cl4Galv",    mat:"chain",    sp:"chain", atH:4, open:true},
+    cl6Galv:    {label:"6′ galvanised chain link",     rec:"cl6Galv",    mat:"chain",    sp:"chain", atH:6, open:true},
+    cl8Galv:    {label:"8′ heavy chain link",          rec:"cl8Galv",    mat:"chain",    sp:"chain", atH:8, open:true},
+    cl6Vinyl:   {label:"6′ vinyl-coated chain link",   rec:"cl6Vinyl",   mat:"chain",    sp:"chain", atH:6, factoryFin:true, open:true},
+    cl8Vinyl:   {label:"8′ vinyl-coated chain link",   rec:"cl8Vinyl",   mat:"chain",    sp:"chain", atH:8, factoryFin:true, open:true},
+    m4Alum:     {label:"4′ ornamental aluminium",      rec:"m4Alum",     mat:"metal",    sp:"metal", atH:4, factoryFin:true, open:true},
+    m6Alum:     {label:"6′ ornamental aluminium",      rec:"m6Alum",     mat:"metal",    sp:"metal", atH:6, factoryFin:true, open:true},
+    m4Steel:    {label:"4′ ornamental steel",          rec:"m4Steel",    mat:"metal",    sp:"metal", atH:4, open:true},
+    m6Steel:    {label:"6′ ornamental steel",          rec:"m6Steel",    mat:"metal",    sp:"metal", atH:6, open:true},
+    mWeldWire:  {label:"Welded-wire panels",           rec:"mWeldWire",  mat:"metal",    sp:"metal"},
+    mSlatAlum:  {label:"Horizontal aluminium slat",    rec:"mSlatAlum",  mat:"metal",    sp:"metal", factoryFin:true},
+    mSlatSteel: {label:"Horizontal steel slat",        rec:"mSlatSteel", mat:"metal",    sp:"metal"},
+    mCustom:    {label:"Custom fabricated steel",      rec:"mCustom",    mat:"metal",    sp:"metal"},
+    mLaserCut:  {label:"Laser-cut metal screen",       rec:"mLaserCut",  mat:"metal",    sp:"screen", screen:true},
+    mSlatScreen:{label:"Aluminium slat screen",        rec:"mSlatScreen",mat:"metal",    sp:"screen", factoryFin:true, screen:true},
+    mPanelScreen:{label:"Architectural panel screen",  rec:"mPanelScreen",mat:"metal",   sp:"screen", screen:true},
+    gFramed:    {label:"Framed glass",                 rec:"gFramed",    mat:"glass",    sp:"glass", factoryFin:true, noRake:true},
+    gSemi:      {label:"Semi-frameless glass",         rec:"gSemi",      mat:"glass",    sp:"glass", factoryFin:true, noRake:true},
+    gFrameless: {label:"Frameless glass",              rec:"gFrameless", mat:"glass",    sp:"glass", factoryFin:true, noRake:true},
+    kCableWood: {label:"Cable with wood posts",        rec:"kCableWood", mat:"wood",     sp:"cable", open:true},
+    kCableMetal:{label:"Cable with metal posts",       rec:"kCableMetal",mat:"metal",    sp:"cable", open:true},
+    kWire:      {label:"Open / ranch wire",            rec:"kWire",      mat:"metal",    sp:"cable", open:true}
   },
-  band:{high:14, med:22, low:32}                  // plus or minus, by confidence
+  finishes:{none:{label:"Natural / uncoated",rec:null}, sealer:{label:"Clear sealer",rec:"finSealer"},
+    stainT:{label:"Transparent / semi-transparent stain",rec:"finStainT"},
+    stainS:{label:"Solid stain",rec:"finStainS"}, paint:{label:"Exterior paint",rec:"finPaint"},
+    special:{label:"Specialty finish",rec:"finSpecial"},
+    galv:{label:"Galvanised",rec:"finGalv"}, powder:{label:"Standard powder coat",rec:"finPowder"},
+    powderP:{label:"Premium powder coat",rec:"finPowderP"}, patina:{label:"Patina / specialty",rec:"finPatina"}},
+  gatesPed:{wood:"gpWood", vinyl:"gpVinyl", composite:"gpVinyl", metal:"gpMetal", glass:"gpGlass",
+            chain:"gpMetal", dbl:"gpDouble"},
+  demoRec:{wood:"dWood", vinyl:"dVinyl", chain:"dChain", metal:"dMetal", glass:"dGlass", screen:"dScreen"}
 };
-// Market bands for the finished fence at 6 ft, used to check the answer and never to make it.
-const FNC_QA={
-  fWoodBoard:[38,70], fWoodBnB:[45,95], fSlatHoriz:[40,110], fSlatVert:[35,80],
-  fComposite:[35,95], fVinyl:[35,65], fChain:[15,45], fChainVinyl:[22,55],
-  fTubular:[50,85], fOrnamental:[65,150], fAluminum:[25,75],
-  fGlassSemi:[115,175], fGlassFrame:[150,210], fMeshPool:[15,25]
-};
+// §4 Provenance. Every value the engine uses carries where it came from, and the engine never
+// upgrades a claim: a height the user typed is User Defined, a length read off the property line is
+// Project Derived, a code figure is Externally Verified only when a source and a date are recorded,
+// and everything else is a System Assumption — said out loud, not hidden.
+const FNC_PROV={user:{k:"user",label:"User Defined"}, derived:{k:"derived",label:"Project Derived"},
+  verified:{k:"verified",label:"Externally Verified"}, assumed:{k:"assumed",label:"System Assumption"}};
+function fProv(k,value,o){ o=o||{};
+  return {prov:(FNC_PROV[k]||FNC_PROV.assumed).k, label:(FNC_PROV[k]||FNC_PROV.assumed).label,
+    value:value, source:o.source||"", url:o.url||"", jurisdiction:o.jurisdiction||"",
+    checked:o.checked||"", conf:o.conf||"", override:!!o.override, note:o.note||""}; }
+// ── the live store ───────────────────────────────────────────────────────────────────
 let FNC=(function(){ try{ const s=localStorage.getItem("studioh_fence_v1");
   if(s){ const j=JSON.parse(s); if(j&&j.rec&&j.rule) return j; } }catch(e){} return null; })()
   || {rec:JSON.parse(JSON.stringify(FNC_REC)), rule:JSON.parse(JSON.stringify(FNC_RULE)), meta:JSON.parse(JSON.stringify(FNC_META))};
@@ -58941,7 +59085,7 @@ function fenceSetText(path,v){ const parts=String(path).split("."); let o=FNC;
 function _fRule(){ return FNC.rule||FNC_RULE; }
 function fRec(id){ return (FNC.rec||FNC_REC)[id]||null; }
 function _fencePoint(){ let pt=null;
-  try{ pt=ptPointFor("woodMetal"); }catch(e){}   // fencing and gates live in Wood, Metal & Glass
+  try{ pt=ptPointFor("woodMetal"); }catch(e){}            // fencing lives in Wood, Metal & Glass
   if(pt==null){ try{ pt=ptPricePoint(); }catch(e){} }
   return (pt===0||pt===1||pt===2)?pt:1; }
 function fVal(id,pt){ const r=fRec(id); if(!r) return 0;
@@ -58949,170 +59093,515 @@ function fVal(id,pt){ const r=fRec(id); if(!r) return 0;
   const v=(p===0)?r.lo:((p===2)?r.pre:r.std);
   return (+v||0)*((+((FNC.meta||FNC_META).regionMult))||1); }
 function fLab(id){ const r=fRec(id); return r?(+r.lab||0):0; }
-// A fence record is written at 6 ft. Roughly a third of it — posts, footings, layout, hauling
-// the material in — does not change when the fence gets taller, and the rest does.
-function fenceHeightF(h){ const R=_fRule(), ref=+R.refH||6, fx=+R.fixedShare||0.30;
-  const H=Math.max(1,+h||ref);
-  return fx+(1-fx)*(H/ref); }
-// One fence object. Persistent id so a project can hold several and they are told apart by
-// identity, not by type.
-function fenceNew(o){ const R=_fRule();
-  const t=(o&&o.type&&R.types[o.type])?o.type:"fWoodBoard";
+function fTypeOf(t){ const R=_fRule(); return R.types[t]||R.types.wRwSxS; }
+
+// §13 Height factor, interpolated across the spec's table. An assembly written at its own height
+// (chain link, ornamental metal) is already at that height and is not scaled from 6.
+function fenceHeightF(h,type){
+  const R=_fRule(), T=type?fTypeOf(type):null;
+  if(T&&T.atH) return (Math.abs((+h||T.atH)-T.atH)<0.01)?1:_fHf(h,R)/_fHf(T.atH,R);
+  return _fHf(h,R);
+}
+function _fHf(h,R){
+  const tab=R.heightF||FNC_RULE.heightF;
+  const ks=Object.keys(tab).map(Number).sort((a,b)=>a-b);
+  const H=Math.max(1,+h||6);
+  if(H<=ks[0]) return tab[ks[0]]*(H/ks[0]);                       // below the table: proportional
+  for(let i=0;i<ks.length-1;i++){
+    if(H<=ks[i+1]){ const a=ks[i], b=ks[i+1];
+      return tab[a]+(tab[b]-tab[a])*(H-a)/(b-a); } }
+  // above the table: carry on at the slope of the last two points, and the warnings say so
+  const a=ks[ks.length-2], b=ks[ks.length-1], m=(tab[b]-tab[a])/(b-a);
+  return tab[b]+m*(H-b);
+}
+// §12 Footing assumption for a height, and the concrete it comes to.
+function fenceFooting(h){ const R=_fRule(), t=(R.footings||FNC_RULE.footings);
+  const H=Math.max(1,+h||6);
+  const f=t.find(x=>H<=x.toH)||t[t.length-1];
+  const rFT=f.dia/24, dFT=f.depth/12;
+  return {dia:f.dia, depth:f.depth, cf:Math.PI*rFT*rFT*dFT}; }
+// §19 project-size factor, on the whole fence's length rather than each segment's.
+function fenceSizeF(totalLF){ const R=_fRule();
+  if(!R.sizeOn) return 1;
+  const t=R.size||FNC_RULE.size, L=Math.max(0,+totalLF||0);
+  return (t.find(x=>L<x.toLF)||t[t.length-1]).f; }
+
+// §6 One segment. Every field the spec lists, defaulted rather than demanded.
+function fenceSegNew(o){ const R=_fRule();
+  const t=(o&&o.type&&R.types[o.type])?o.type:null;
   return Object.assign({
-    fenceId:"f"+Math.random().toString(36).slice(2,9),
-    name:"", type:t, lf:100, h:6,
-    access:"easy", slope:"flat", clear:false, rock:0, survey:false,
-    posts:"std",                                  // std | up6x6 | steel
-    deepFoot:false,
-    poolBarrier:false,
-    demo:"none", demoLF:null,                     // none | wood | chain | masonry
-    finish:"none",                                // none | stain | paint | powder
-    capRail:false,
-    gatesPed:0, gatePedType:"auto", gatesDbl:0, gatesSlide:0,
-    autoSwing:0, autoSlide:0, autoAccess:false, autoElecLF:0,
-    engOn:null, permitOn:false,                   // null = decide from the height
-    notes:""
+    segmentId:"s"+Math.random().toString(36).slice(2,9),
+    name:"", location:"", geom:null,                   // geom: a trace polyline id when drawn
+    lf:null, lfProv:"assumed",
+    h:null, hStart:null, hEnd:null, transition:"none",  // none | step | rake | custom
+    corners:0,                                         // §11 direction changes inside this run
+    type:t,                                            // null = inherit the fence's type
+    style:"", productId:"", assemblyId:"",
+    post:"", spacing:null, rail:"", infill:"",
+    boardW:null, boardT:null, boardOrient:"", boardGap:null, privacyPct:null,
+    finishedSide:"",                                   // one | both | neighbour
+    finish:"", color:"",
+    slope:"", footing:null, demo:"", demoLF:null, demoFootings:0,
+    gates:[],                                          // [{w,type,selfClose,pool,...}]
+    connect:"", pilasters:0, pilasterType:"piStucco",
+    access:"", wind:"normal", poolBarrier:null,
+    wallTop:false, wallRef:"",
+    hoaMaxH:null, codeMaxH:null,
+    notes:"", decompose:false,
+    qtyOv:null, rateOv:null, lumpSum:null, exclude:false, specOnly:false
   }, o||{});
 }
-function fenceTypeOf(f){ const R=_fRule(); return R.types[f.type]||R.types.fWoodBoard; }
-// §Cost. One pass, every line showing its own quantity, unit and rate.
+// §6 The fence system: one record, many segments, one shared set of defaults.
+function fenceNew(o){ const R=_fRule();
+  const t=(o&&o.type&&R.types[o.type])?o.type:"wRwSxS";
+  const f=Object.assign({
+    fenceId:"f"+Math.random().toString(36).slice(2,9),
+    name:"", type:t, h:6, finish:"none", finishedSide:"both",
+    access:"easy", slope:"level", wind:"normal",
+    posts:"std", decorTop:false, capRail:false, hiddenFast:false, framedPanel:false, goodNeighbour:false,
+    demo:"none", demoFootings:0, clearVeg:false, protect:false,
+    poolBarrier:false, survey:false, sitePlan:false, engStruct:null, engGate:false,
+    permitOn:false, hoaPkg:false,
+    hoaMaxH:null, hoaSource:"", codeMaxH:null, codeSource:"", codeUrl:"", codeChecked:"",
+    frontYard:false, cornerLot:false, rightOfWay:false,
+    vehGates:[],                                       // [{kind,widthFt,auto,access:[],elecLF}]
+    pilasters:0, pilasterType:"piStucco", pilasterAdds:{},
+    segments:[], notes:"", history:[]
+  }, o||{});
+  if(!f.segments.length) f.segments=[fenceSegNew({lf:(o&&o.lf!=null)?+o.lf:100, name:"Run"})];
+  f.segments=f.segments.map(s=>fenceSegNew(s));
+  return f;
+}
+// §10/§11/§12 Component quantities for one segment. Always calculated, whether or not they are
+// charged — the spec is explicit that a fence must never be stored as one opaque $/LF.
+function fenceSegQty(f,sg,idx){
+  const R=_fRule(), T=fTypeOf(sg.type||f.type);
+  const grossLF=Math.max(0,+(sg.lf!=null?sg.lf:0)||0);
+  const h=Math.max(0.5,+(sg.h!=null?sg.h:f.h)||6);
+  // §37 a gate opening comes OUT of the fence infill, but its own posts still go in
+  const gates=(sg.gates||[]).filter(g=>g&&+g.w>0);
+  const gateLF=gates.reduce((t,g)=>t+(+g.w||0),0);
+  const netLF=Math.max(0,grossLF-gateLF);
+  const spacing=+(sg.spacing||(R.spacing||FNC_RULE.spacing)[T.sp]||8);
+  // §11 conceptual line-post calculation, stated exactly as the spec writes it
+  const lineBays=netLF>0?Math.ceil(netLF/spacing):0;
+  const linePosts=Math.max(0,lineBays-1);
+  // §11/§37 end posts are shared where segments connect, so only the first segment of a chain
+  // pays for both ends and the rest pay for one
+  const endPosts=(grossLF>0)?((idx===0||!sg.connect)?2:1):0;
+  const cornerPosts=Math.max(0,+sg.corners||0);
+  const transPosts=(sg.transition&&sg.transition!=="none")?1:0;
+  const gatePosts=gates.length*2;                    // a hinge post and a latch post each
+  const posts=linePosts+endPosts+cornerPosts+transPosts+gatePosts;
+  const ft=(sg.footing&&+sg.footing.dia>0)?sg.footing:fenceFooting(h);
+  const concreteCY=posts>0?(posts*ft.cf/27)*(1+(+R.footWaste||0)):0;
+  // rails: 2 at or below 4 ft, 3 to 7 ft, 4 above — horizontal boards are framed, not railed
+  const railRuns=T.sp==="woodHoriz"?0:(h<=4?2:(h<=7?3:4));
+  const rails=netLF*railRuns;
+  const faceSF=netLF*h;
+  const oneSide=faceSF, bothSides=faceSF*2;
+  const sides=(sg.finishedSide||f.finishedSide)==="one"?1:2;
+  // §16 "add posts, caps, rails and exposed framing when appropriate" — on a solid privacy fence
+  // the posts sit behind the boards and are not separate surface, so it is only appropriate on an
+  // open fence, where they are. That also makes the spec's own Test A come out at 1,200 SF exactly.
+  const exposedPosts=(T.open||T.sp==="cable")?(posts*h*0.6):0;
+  const finishSF=faceSF*sides + exposedPosts;
+  const boardW=(+sg.boardW||5.5)/12, boardGap=(+sg.boardGap||0)/12;
+  const boards=(T.open||T.sp==="cable")?0:Math.ceil(netLF/Math.max(0.1,boardW+boardGap));
+  const panels=(T.mat==="vinyl"||T.mat==="composite"||T.mat==="metal"||T.mat==="glass")
+    ? (netLF>0?Math.ceil(netLF/spacing):0) : 0;
+  const privacy=(sg.privacyPct!=null)?+sg.privacyPct
+    :(T.open?(T.sp==="cable"?15:35):(boardGap>0?Math.round(boardW/(boardW+boardGap)*100):100));
+  return {grossLF:grossLF, gateLF:gateLF, netLF:netLF, h:h, spacing:spacing,
+    lineBays:lineBays, linePosts:linePosts, endPosts:endPosts, cornerPosts:cornerPosts,
+    transPosts:transPosts, gatePosts:gatePosts, posts:posts,
+    footingDia:ft.dia, footingDepth:ft.depth, footingCF:ft.cf,
+    concreteCY:Math.round(concreteCY*1000)/1000,
+    railRuns:railRuns, rails:rails, faceSF:faceSF, oneSideSF:oneSide, bothSidesSF:bothSides,
+    finishSides:sides, finishSF:finishSF, boards:boards, panels:panels, privacyPct:privacy,
+    gates:gates, heightF:fenceHeightF(h,sg.type||f.type)};
+}
+// §10 The cost engine. One pass over the fence system; every line carries its quantity, unit,
+// rate, record reference, which multiplier touched it and why.
 function fenceCost(fin){
-  const f=fenceNew(fin), R=_fRule(), T=fenceTypeOf(f);
-  const pt=_fencePoint(), acc=(R.access[f.access]||R.access.easy).f;
-  const lf=Math.max(0,+f.lf||0), h=Math.max(1,+f.h||6);
-  const hf=fenceHeightF(h);
-  const spacing=Math.max(2,+R.postSpacing||8);
-  const posts=lf>0?(Math.floor(lf/spacing)+1):0;
-  const lines=[];
-  const add=(grp,sub,nm,qty,unit,id,rate,opt)=>{
-    const q=+qty||0; if(!(q>0)) return null;
-    const r=(rate!=null)?+rate:fVal(id,pt);
-    if(!(r>0)&&!(opt&&opt.allowZero)) return null;
-    const lab=(opt&&opt.lab!=null)?+opt.lab:fLab(id);
-    const hard=!!(opt&&opt.hard);
-    const accOn=!hard && (!!(opt&&opt.acc) || !!((R.accessOn||FNC_RULE.accessOn)[grp]));
-    const raw=q*r;
-    const cost=accOn?(raw*(1-lab)+raw*lab*acc):raw;
-    lines.push({g:grp, sub:sub, nm:"Fence — "+nm, qty:q, unit:unit, rate:r, cost:cost,
-      rec:id||null, tier:["Budget","Standard","Premium"][pt], mult:accOn?acc:1,
-      status:(opt&&opt.status)||"included", override:!!(opt&&opt.override), note:(opt&&opt.note)||""});
-    return lines[lines.length-1];
+  const f=fenceNew(fin), R=_fRule(), pt=_fencePoint();
+  const acc=(R.access[f.access]||R.access.easy).f;
+  const lines=[], assump=[], warn=[];
+  const segs=(f.segments||[]).map((sg,i)=>({sg:sg, q:fenceSegQty(f,sg,i)}));
+  const totalLF=segs.reduce((t,x)=>t+x.q.grossLF,0);
+  const sizeF=fenceSizeF(totalLF);
+  // §17 slope touches labour and fabrication only
+  const slp=(R.slope[f.slope]||R.slope.level);
+  const slopeF=(slp.f==null)?1.35:slp.f;
+  // grp: which group this is (access table keys off it) · labF: an extra labour-only factor
+  const add=(grp,sub,nm,qty,unit,id,o)=>{
+    o=o||{};
+    const q=+qty||0; if(!(q>0)&&!o.allowZero) return null;
+    const r=(o.rate!=null)?+o.rate:fVal(id,pt);
+    if(!(r>0)&&!o.allowZero) return null;
+    const lab=(o.lab!=null)?+o.lab:fLab(id);
+    const hard=!!o.hard;                                    // §18/§27 soft costs: nothing moves them
+    const accOn=!hard && (o.acc!=null?!!o.acc:!!(R.accessOn||FNC_RULE.accessOn)[grp]);
+    const labF=(accOn?acc:1)*(o.slope?slopeF:1);
+    // §19 is about what a linear foot of fence costs on a short job. A gate, an operator, a
+    // pilaster or an access keypad is a discrete item whose price does not care how much fence is
+    // beside it — same reasoning §18 gives for not putting access on factory-fabricated goods.
+    const sizeOn=!hard && o.size!==false && (unit==="LF"||unit==="SF"||unit==="CY"||o.size===true);
+    const raw=q*r*(sizeOn?sizeF:1);
+    const cost=raw*(1-lab)+raw*lab*labF;
+    const L={g:grp, sub:sub, nm:"Fence — "+nm, qty:Math.round(q*1000)/1000, unit:unit,
+      rate:Math.round(r*100)/100, cost:cost, rec:id||null, fenceId:f.fenceId,
+      segmentId:o.seg||null, tier:["Budget","Standard","Premium"][pt],
+      mult:Math.round(labF*1000)/1000, sizeF:sizeOn?sizeF:1,
+      labShare:lab, status:o.status||"included", override:!!o.override,
+      prov:o.prov||"assumed", note:o.note||"",
+      inc:(fRec(id)||{}).inc||"", exc:(fRec(id)||{}).exc||""};
+    lines.push(L); return L;
   };
-  // demolition first, the way the job runs
-  if(f.demo&&f.demo!=="none"){
-    const dl=(f.demoLF!=null&&+f.demoLF>0)?+f.demoLF:lf;
-    const dm={wood:"demoWood",chain:"demoChain",masonry:"demoMasonry"}[f.demo];
-    if(dm){ add("Demolition","Remove",(fRec(dm)||{}).nm||"Remove existing fence",dl,"LF",dm);
-            add("Demolition","Haul","Debris Haul & Disposal",dl,"LF","haulAway"); }
-  }
-  add("Site","Layout","Layout & String Line",lf,"LF","layout");
-  if(f.clear) add("Site","Clearing","Clear the Fence Line",lf,"LF","clearLine");
-  if(f.slope==="stepped"||f.slope==="raked") add("Site","Slope","Stepping / Raking on Slope",lf,"LF","slopeStep");
-  if(f.survey) add("Engineering","Survey","Property Line Survey & Staking",1,"LS","surveyLine",null,{hard:true});
-  // the fence itself, at this height
-  const baseRate=fVal(T.rec,pt)*hf;
-  add("Fence","Run",T.label+" Fence — "+h+"′",lf,"LF",T.rec,baseRate,
-      {note:hf!==1?("Record is written at "+(R.refH||6)+"′; "+h+"′ is ×"+hf.toFixed(2)):""});
-  // posts, footings, ground
-  if(f.posts==="up6x6") add("Posts","Upgrade","Upgrade to 6×6 Posts",posts,"EA","postUp6x6");
-  else if(f.posts==="steel") add("Posts","Upgrade","Galvanised Steel Post Core",posts,"EA","postSteel");
-  const needDeep=!!f.deepFoot || h>(+R.tallH||6);
-  if(needDeep) add("Posts","Footing","Deep Footing — 36″ or More",posts,"EA","footDeep",null,
-    {note:(!f.deepFoot&&h>(+R.tallH||6))?("Required by the "+h+"′ height."):""});
-  if(+f.rock>0) add("Posts","Ground","Rock or Hardpan Digging",Math.min(+f.rock,posts),"EA","rockDig",null,{status:"allowance"});
-  // gates
-  const pedRec=(f.gatePedType&&f.gatePedType!=="auto")?f.gatePedType
-    :(T.mat==="glass"?"gatePedGlass":(T.mat==="metal"?"gatePedMetal":"gatePedWood"));
-  if(+f.gatesPed>0){ add("Gates","Pedestrian",(fRec(pedRec)||{}).nm||"Pedestrian Gate",+f.gatesPed,"EA",pedRec);
-    add("Gates","Post","Heavy Gate Post & Footing",+f.gatesPed,"EA","gatePostHvy"); }
-  if(+f.gatesDbl>0){ add("Gates","Drive","Double / Drive Gate",+f.gatesDbl,"EA","gateDbl");
-    add("Gates","Post","Heavy Gate Post & Footing",2*(+f.gatesDbl),"EA","gatePostHvy"); }
-  if(+f.gatesSlide>0){ add("Gates","Sliding","Sliding Gate",+f.gatesSlide,"EA","gateSlide");
-    add("Gates","Post","Heavy Gate Post & Footing",2*(+f.gatesSlide),"EA","gatePostHvy"); }
-  const gateN=(+f.gatesPed||0)+(+f.gatesDbl||0)+(+f.gatesSlide||0);
-  if(f.poolBarrier&&gateN>0)
-    add("Gates","Safety","Self-Closing, Self-Latching Pool Hardware",gateN,"EA","gateSafety",null,
-      {note:"California Health & Safety Code 115923."});
-  // automation
-  if(+f.autoSwing>0) add("Automation","Operator","Swing Gate Operator",+f.autoSwing,"EA","autoSwing");
-  if(+f.autoSlide>0) add("Automation","Operator","Slide Gate Operator",+f.autoSlide,"EA","autoSlide");
-  if(f.autoAccess)   add("Automation","Access","Keypad, Intercom & Loop Detector",1,"LS","autoAccess");
-  if(+f.autoElecLF>0)add("Automation","Electrical","Trench, Conduit & Wire",+f.autoElecLF,"LF","autoElec",null,{acc:1});
-  // finish
-  if(f.finish==="stain") add("Finish","Coating","Stain / Seal",lf,"LF","finStain",fVal("finStain",pt)*hf);
-  else if(f.finish==="paint") add("Finish","Coating","Paint",lf,"LF","finPaint",fVal("finPaint",pt)*hf);
-  else if(f.finish==="powder") add("Finish","Coating","Powder-Coat / Custom Colour",lf,"LF","finPowder",fVal("finPowder",pt)*hf);
-  if(f.capRail) add("Finish","Detail","Cap Rail / Trim",lf,"LF","finCapRail");
-  // professional and government
-  const engNeeded=(f.engOn==null)?(h>(+R.engH||7)):!!f.engOn;
-  if(engNeeded) add("Engineering","Structural","Structural Detail — Fence Over 6′",1,"LS","engTall",null,
-    {hard:true, note:(f.engOn==null)?("Required by the "+h+"′ height."):""});
-  if(f.permitOn) add("Permits","Permit","Permit Allowance",1,"LS","permitFence",null,{hard:true, status:"allowance"});
+  // ── per segment ────────────────────────────────────────────────────────────────────
+  segs.forEach(({sg,q},i)=>{
+    if(sg.exclude||sg.specOnly) return;
+    const T=fTypeOf(sg.type||f.type);
+    const nm=sg.name||sg.location||("Segment "+(i+1));
+    const seg=sg.segmentId;
+    if(q.netLF>0){
+      const grp=(fRec(T.rec)||{}).g||"Wood";
+      // §39/Test G: a quote replaces THIS SEGMENT'S assembly allowance and nothing else — the
+      // finish, the demolition, the gates and the geometry all stand, and so does the history.
+      const quoted=(sg.lumpSum!=null&&+sg.lumpSum>0);
+      // The record's own name may carry a height that is not this segment's (§14 writes chain link
+      // and ornamental metal at their own heights), so say which is which rather than both.
+      const tLbl=(T.atH&&Math.abs(q.h-T.atH)>0.01)
+        ? T.label.replace(/^\d+(\.\d+)?\u2032\s*/,"")+", "+q.h+"\u2032 (record written at "+T.atH+"\u2032)"
+        : T.label+", "+q.h+"\u2032";
+      if(quoted){
+        add(grp,"Quote",nm+" — "+tLbl+", contractor quote",1,"LS",null,
+          {rate:+sg.lumpSum, lab:0, seg:seg, size:false, prov:"user", override:true,
+           status:"quoted", note:"A quote replaces the assembly allowance for this segment. Everything else on it still prices normally (§39)."});
+      } else {
+      const base=(sg.rateOv!=null&&+sg.rateOv>0)?+sg.rateOv:(fVal(T.rec,pt)*q.heightF);
+      add(grp,"Assembly",nm+" — "+tLbl,q.netLF,"LF",T.rec,
+        {rate:base, seg:seg, slope:true, override:(sg.rateOv!=null&&+sg.rateOv>0),
+         prov:(sg.rateOv!=null&&+sg.rateOv>0)?"user":"assumed",
+         note:(q.heightF!==1?("Record written at "+((T.atH)||R.refH)+"′; "+q.h+"′ is ×"+q.heightF.toFixed(2)+" (§13)."):"")
+             +(q.gateLF>0?(" Gate openings of "+q.gateLF+" LF taken out of the infill (§37)."):"")});
+      }
+      // §15 construction adders — percentage on the assembly only, until components replace them.
+      // A quoted segment gets none of them: the quote is the whole assembly (§37).
+      const asmCostSeg=quoted?0:(fVal(T.rec,pt)*q.heightF*q.netLF);
+      if(!quoted&&f.goodNeighbour&&T.mat==="wood")
+        add("Construction","Adder",nm+" — finished both sides",1,"LS","aGoodNeigh",
+          {rate:asmCostSeg*fVal("aGoodNeigh",pt)/100, seg:seg, slope:true,
+           note:fVal("aGoodNeigh",pt)+"% of the assembly (§15)."});
+      if(!quoted&&f.hiddenFast)
+        add("Construction","Adder",nm+" — concealed fasteners",1,"LS","aHiddenFast",
+          {rate:asmCostSeg*fVal("aHiddenFast",pt)/100, seg:seg, slope:true,
+           note:fVal("aHiddenFast",pt)+"% of the assembly (§15)."});
+      if(!quoted&&f.framedPanel)
+        add("Construction","Adder",nm+" — custom framed panels",1,"LS","aFramedPanel",
+          {rate:asmCostSeg*fVal("aFramedPanel",pt)/100, seg:seg, slope:true,
+           note:fVal("aFramedPanel",pt)+"% of the assembly (§15)."});
+      if(!quoted&&f.posts==="steel") add("Construction","Adder",nm+" — hidden steel posts",q.netLF,"LF","aSteelPost",{seg:seg,slope:true});
+      if(!quoted&&f.decorTop)   add("Construction","Adder",nm+" — decorative top",q.netLF,"LF","aDecorTop",{seg:seg,slope:true});
+      if(!quoted&&f.capRail)    add("Construction","Adder",nm+" — cap rail and trim",q.netLF,"LF","aCapRail",{seg:seg,slope:true});
+      // §37 components are charged ONLY when the assembly is deliberately decomposed
+      if(!quoted&&sg.decompose){
+        const pRec=(f.posts==="steel")?"pSteel":(T.mat==="metal"||T.mat==="chain")?"pMetalLine":
+                   ((q.h>6||f.posts==="up6x6")?"pWood6x6":"pWood4x4");
+        add("Posts","Post",nm+" — line, end and corner posts",q.posts-q.gatePosts,"EA",pRec,{seg:seg,slope:true});
+        // §37 the gate record already carries its structural posts and footings, so a decomposed
+        // fence does not buy them twice
+        if(q.gatePosts>0) assump.push({k:"gatePosts",t:nm+": "+q.gatePosts+" gate posts are inside the gate record and are not charged again.",prov:"derived"});
+        const fPosts=q.posts-q.gatePosts;
+        add("Footings","Footing",nm+" — drill and set footings, "+q.footingDia+"″ × "+q.footingDepth+"″",fPosts,"EA","fFootSet",{seg:seg,slope:true});
+        add("Footings","Concrete",nm+" — footing concrete",Math.round((q.concreteCY*(q.posts?fPosts/q.posts:1))*1000)/1000,"CY","fConcrete",{seg:seg});
+        if(q.rails>0) add("Rails & Framing","Rail",nm+" — rails",q.rails,"LF","rRail",{seg:seg,slope:true});
+        if(T.sp==="woodHoriz") add("Rails & Framing","Frame",nm+" — panel frame",q.netLF,"LF","rFrame",{seg:seg,slope:true});
+        if(q.boards>0) add("Infill","Board",nm+" — boards",q.faceSF,"SF","iBoard",{seg:seg,slope:true});
+        if(q.panels>0) add("Infill","Panel",nm+" — panels",q.panels,"EA","iPanel",{seg:seg});
+        add("Hardware","Fasteners",nm+" — fasteners",q.netLF,"LF","hFasteners",{seg:seg,slope:true});
+        add("Hardware","Cap",nm+" — post caps",q.posts,"EA","hCapPost",{seg:seg});
+        assump.push({k:"decomposed",t:nm+" is priced by its components, so the assembly rate is not charged on it.",prov:"user"});
+      }
+      // §16 finish. Never on top of a factory finish (§37).
+      const finKey=sg.finish||f.finish;
+      const FIN=(R.finishes||FNC_RULE.finishes)[finKey];
+      if(FIN&&FIN.rec){
+        if(T.factoryFin){
+          warn.push(T.label+" is factory finished — the separate "+FIN.label.toLowerCase()+" on "+nm+" is not charged (§37).");
+        } else {
+          add((fRec(FIN.rec)||{}).g||"Wood Finishes","Coating",
+            nm+" — "+FIN.label+", "+(q.finishSides===1?"one side":"both sides"),
+            Math.round(q.finishSF),"SF",FIN.rec,{seg:seg,slope:true,
+            note:"Face area "+Math.round(q.netLF)+" LF × "+q.h+"′"+(q.finishSides===2?" × 2 sides":"")+", plus posts and exposed framing (§16)."});
+        }
+      }
+      // §20 demolition along this segment
+      const dm=sg.demo||f.demo;
+      if(dm&&dm!=="none"&&(R.demoRec||FNC_RULE.demoRec)[dm]){
+        const dl=(sg.demoLF!=null&&+sg.demoLF>0)?+sg.demoLF:q.grossLF;
+        add("Demolition","Remove",nm+" — "+(fRec((R.demoRec)[dm])||{}).nm,dl,"LF",(R.demoRec)[dm],{seg:seg,slope:true,
+          note:"Haul and disposal are in this rate — not added again (§37)."});
+        const df=(sg.demoFootings!=null&&+sg.demoFootings>0)?+sg.demoFootings:0;
+        if(df>0) add("Demolition","Remove",nm+" — difficult footing extraction",df,"EA","dFooting",{seg:seg,slope:true});
+      }
+      // §21 gates in this segment
+      (q.gates||[]).forEach((g,gi)=>{
+        const kind=g.double?"dbl":(g.mat||T.mat);
+        const rid=(R.gatesPed||FNC_RULE.gatesPed)[kind]||"gpWood";
+        add("Pedestrian Gates","Gate",nm+" — "+(fRec(rid)||{}).nm+(g.w?(", "+g.w+"′ clear"):""),1,"EA",rid,
+          {seg:seg, note:"Leaf, frame, hinges, latch, structural posts, footings and installation are in this rate (§21)."});
+        if(g.selfClose||f.poolBarrier)
+          add("Pedestrian Gates","Hardware",nm+" — self-closing, self-latching hardware",1,"EA","gpSelfClose",{seg:seg});
+        if(g.lock) add("Pedestrian Gates","Hardware",nm+" — lockable latch",1,"EA","gpLock",{seg:seg});
+        if(g.strike) add("Pedestrian Gates","Hardware",nm+" — keypad and electric strike",1,"EA","gpStrike",{seg:seg});
+      });
+      // §8/§24 pilasters on this segment
+      if(+sg.pilasters>0) add("Pilasters","Pilaster",nm+" — "+(fRec(sg.pilasterType||"piStucco")||{}).nm,+sg.pilasters,"EA",sg.pilasterType||"piStucco",{seg:seg,slope:true});
+      // §8 a screen on top of an existing wall: mounting only, never a new wall
+      if(sg.wallTop) add("Wall Coordination","Mounting",nm+" — wall-top post mounting",q.posts,"EA","wtMount",{seg:seg,slope:true,
+        note:"Mounted on existing wall"+(sg.wallRef?(" "+sg.wallRef):"")+" — no new wall is priced here (§8)."});
+    }
+  });
+  // ── fence-wide ─────────────────────────────────────────────────────────────────────
+  if(f.clearVeg) add("Demolition","Clear","Vegetation clearing along the line",totalLF,"LF","dClearVeg",{slope:true});
+  if(f.protect)  add("Demolition","Protect","Protect adjacent improvements",1,"LS","dProtect");
+  if(+f.pilasters>0) add("Pilasters","Pilaster",(fRec(f.pilasterType||"piStucco")||{}).nm,+f.pilasters,"EA",f.pilasterType||"piStucco",{slope:true});
+  Object.keys(f.pilasterAdds||{}).forEach(k=>{ const n=+f.pilasterAdds[k]||0;
+    if(n>0&&fRec(k)) add("Pilasters","Add",(fRec(k)||{}).nm,n,"EA",k); });
+  // §22/§23 vehicular gates: fabrication, automation and access control all separate
+  (f.vehGates||[]).forEach((g,i)=>{
+    if(!g) return;
+    const tag="Vehicular gate "+(i+1)+(g.widthFt?(" — "+g.widthFt+"′ clear"):"");
+    const fabRec=g.fab||(g.kind==="slide"?"gvSlide":(g.widthFt>12?"gvSwingCust":"gvSwingBasic"));
+    if(g.lumpSum!=null&&+g.lumpSum>0)
+      add("Vehicular Gates","Quote",tag+" — fabrication quote",1,"LS",null,
+        {rate:+g.lumpSum, lab:0, size:false, prov:"user", override:true, status:"quoted"});
+    else add("Vehicular Gates","Fabrication",tag,1,"EA",fabRec,{});
+    if(g.postPair!==false&&g.kind!=="slide") add("Vehicular Gates","Support",tag+" — heavy post pair and foundations",1,"EA","gvPostPair",{slope:true});
+    if(g.kind==="slide"&&+g.trackLF>0) add("Vehicular Gates","Support",tag+" — track and rollers",+g.trackLF,"LF","gvTrack",{slope:true});
+    // §37 automation once, never through both a gate package and an operator
+    if(g.auto){
+      const opRec=g.operator||(g.kind==="slide"?"auSlide":(g.leaves===2?"auSwing2":"auSwing1"));
+      add("Gate Operators","Package",tag+" — "+(fRec(opRec)||{}).nm,1,"EA",opRec,
+        {note:"Photo eyes and a basic electrical connection are in this package — not added again (§37). Trenching, advanced access control and battery backup are not."});
+      (g.access||[]).forEach(k=>{ if(!fRec(k)) return;
+        if(k==="acPhotoEye"){ warn.push(tag+": photo eyes are already in the operator package — the separate pair is not charged (§37)."); return; }
+        add((fRec(k)||{}).g||"Access Control","Control",tag+" — "+(fRec(k)||{}).nm,1,"EA",k,{}); });
+      if(+g.elecLF>0){
+        add("Electrical & Trenching","Run",tag+" — trench, conduit and wire, "+g.elecLF+" LF",+g.elecLF,"LF","elTrench",{slope:true});
+        add("Electrical & Trenching","Circuit",tag+" — dedicated circuit and connection",1,"LS","elCircuit",{});
+        if(g.restoreLF>0) add("Electrical & Trenching","Restore",tag+" — surface restoration",+g.restoreLF,"LF","elRestore",{slope:true});
+      }
+    } else if((g.access||[]).length){
+      (g.access||[]).forEach(k=>{ if(fRec(k)) add((fRec(k)||{}).g||"Access Control","Control",tag+" — "+(fRec(k)||{}).nm,1,"EA",k,{}); });
+    }
+    if(g.demo) add("Demolition","Remove",tag+" — remove the existing vehicular gate",1,"EA","dGateVeh",{slope:true});
+    if(g.demoOperator) add("Demolition","Remove",tag+" — remove the existing operator",1,"EA","dOperator",{slope:true});
+  });
+  // §27 soft costs — selected, never automatic, and untouched by access, slope or size
+  if(f.survey)   add("Engineering","Survey","Property-line survey allowance",1,"LS","sSurvey",{hard:true});
+  if(f.sitePlan) add("Engineering","Drawing","Fence / site plan",1,"LS","sSitePlan",{hard:true});
+  const maxH=segs.reduce((m,x)=>Math.max(m,x.q.h),0);
+  const engAuto=(f.engStruct==null)?(maxH>(+R.engH||7)):!!f.engStruct;
+  if(engAuto) add("Engineering","Engineering","Structural engineering",1,"LS","sStruct",
+    {hard:true, note:(f.engStruct==null)?("Recommended by the "+maxH+"′ height (§27)."):""});
+  if(f.engGate||(f.vehGates||[]).some(g=>g&&g.auto&&+g.widthFt>=14))
+    add("Engineering","Engineering","Gate / pilaster engineering",1,"LS","sGateEng",{hard:true});
+  if(f.permitOn) add("Permits & HOA","Permit","Permit allowance",1,"LS","sPermit",{hard:true,status:"allowance"});
+  if(f.hoaPkg)   add("Permits & HOA","Submittal","HOA submittal package",1,"LS","sHOA",{hard:true});
 
+  // ── totals ─────────────────────────────────────────────────────────────────────────
   const groups={}; let total=0, construction=0, professional=0;
   lines.forEach(L=>{ groups[L.g]=(groups[L.g]||0)+L.cost; total+=L.cost;
-    if(L.g==="Engineering"||L.g==="Permits") professional+=L.cost; else construction+=L.cost; });
-  // confidence: what is not known about the site, not how big the number is
-  let conf="high";
-  if(f.slope!=="flat"||+f.rock>0||f.demo==="masonry") conf="med";
-  if(f.access==="difficult"||f.access==="veryDifficult"||(fRec(T.rec)||{}).conf==="low") conf="low";
-  const reasons=[];
-  if(f.slope!=="flat") reasons.push("the line is not flat");
-  if(+f.rock>0) reasons.push("rock digging is an allowance");
-  if(f.access!=="easy") reasons.push("access is "+(R.access[f.access]||{}).label.toLowerCase());
-  if((fRec(T.rec)||{}).conf==="low") reasons.push("this fence type is still on an allowance rate");
-  const pm=(R.band||FNC_RULE.band)[conf]||22;
-  return {fence:f, type:T, point:pt, tier:["Budget","Standard","Premium"][pt], access:acc,
-    lf:lf, h:h, heightF:hf, posts:posts, spacing:spacing, gates:gateN,
+    if(L.g==="Engineering"||L.g==="Permits & HOA") professional+=L.cost; else construction+=L.cost; });
+  const q={posts:0,concreteCY:0,faceSF:0,netLF:0,gateLF:0,finishSF:0,boards:0,panels:0,rails:0,gates:0};
+  segs.forEach(({q:s})=>{ q.posts+=s.posts; q.concreteCY+=s.concreteCY; q.faceSF+=s.faceSF;
+    q.netLF+=s.netLF; q.gateLF+=s.gateLF; q.finishSF+=s.finishSF; q.boards+=s.boards;
+    q.panels+=s.panels; q.rails+=s.rails; q.gates+=(s.gates||[]).length; });
+  q.concreteCY=Math.round(q.concreteCY*1000)/1000;
+  const C=fenceConfidence(f,segs,R);
+  const pm=(R.band||FNC_RULE.band)[C.level]||20;
+  return {fence:f, segs:segs, point:pt, tier:["Budget","Standard","Premium"][pt],
+    access:acc, slopeF:slopeF, sizeF:sizeF, totalLF:totalLF, maxH:maxH, qty:q,
     lines:lines, groups:groups, total:total, construction:construction, professional:professional,
-    perLF:(lf>0?total/lf:0), runPerLF:baseRate,
-    conf:conf, confWhy:reasons.join("; "), band:pm, low:total*(1-pm/100), high:total*(1+pm/100),
-    qa:fenceQA(f,baseRate), warnings:fenceWarnings(f,h,gateN)};
+    perLF:(totalLF>0?total/totalLF:0),
+    conf:C.level, confKnown:C.known, confAssumed:C.assumed, confUnresolved:C.unresolved,
+    confWhy:C.why, band:pm, low:total*(1-pm/100), high:total*(1+pm/100),
+    assumptions:assump.concat(fenceAssumptions(f,segs,R)),
+    warnings:warn.concat(fenceWarnings(f,segs,R)),
+    mults:[["Contractor",["Budget","Standard","Premium"][pt],"the price point inside every record"],
+           ["Access",acc.toFixed(2)+"×",(R.access[f.access]||{}).label+" — labour share only"],
+           ["Slope",slopeF.toFixed(2)+"×",(R.slope[f.slope]||{}).label+" — labour and fabrication only"],
+           ["Project size",sizeF.toFixed(2)+"×",Math.round(totalLF)+" LF total — no separate mobilisation charge (§37)"]]};
 }
-// Reality check on the fence itself at 6 ft — the one figure the market publishes. Everything
-// else on the estimate is an adjustment to it and is excluded from the comparison by design.
-function fenceQA(f,runRate){
-  const R=_fRule(), band=FNC_QA[f.type]; if(!band||!(runRate>0)) return null;
-  const h=Math.max(1,+f.h||6), hf=fenceHeightF(h);
-  const at6=runRate/hf;                             // back out the height, compare like for like
-  const inBand=(at6>=band[0]&&at6<=band[1]);
-  const off=band[1]>band[0]?((at6-(band[0]+band[1])/2)/((band[0]+band[1])/2)*100):0;
-  return {band:band, at6:at6, thisRate:runRate, inBand:inBand, offPct:off,
-    flag:!inBand,
-    basis:"the fence alone at "+(R.refH||6)+"′, which is what a published $/LF figure covers",
-    excluded:"demolition, layout, slope, posts and footings, gates, automation, finish, survey, engineering and permits",
-    note:inBand?"Inside the published range for this fence."
-      :(at6<band[0]?"Below the published range — check the height, the type and the price point."
-                   :"Above the published range — check the height, the type and the price point.")};
+// §30 Confidence from what is known, what was assumed and what is unresolved — with the reasons,
+// because a letter on its own tells nobody anything.
+function fenceConfidence(f,segs,R){
+  const known=[], assumed=[], unresolved=[];
+  const T=fTypeOf(f.type);
+  segs.forEach(({sg,q},i)=>{
+    const nm=sg.name||("Segment "+(i+1));
+    if(q.grossLF>0){
+      if(sg.geom) known.push(nm+" length read off the plan — "+Math.round(q.grossLF)+" LF");
+      else if(sg.lfProv==="derived") known.push(nm+" length derived from the property line — "+Math.round(q.grossLF)+" LF");
+      else if(sg.lfProv==="user") known.push(nm+" length supplied — "+Math.round(q.grossLF)+" LF");
+      else assumed.push(nm+" length is an allowance — "+Math.round(q.grossLF)+" LF");
+    } else unresolved.push(nm+" has no length yet");
+    if(sg.h!=null||f.h!=null) known.push(nm+" height "+q.h+"′");
+    if(sg.productId) known.push(nm+" product selected");
+    else assumed.push(nm+" is a generic "+(fTypeOf(sg.type||f.type).label.toLowerCase())+" assembly, not a named product");
+    if(!sg.spacing) assumed.push(nm+" posts at "+q.spacing+"′ on centre");
+    if(!sg.footing) assumed.push(nm+" footings about "+q.footingDia+"″ × "+q.footingDepth+"″, normal soil");
+  });
+  known.push((fTypeOf(f.type).label)+" selected");
+  if(f.access!=="easy") known.push("access is "+(R.access[f.access]||{}).label.toLowerCase());
+  else assumed.push("normal access");
+  if(f.slope==="level") assumed.push("level ground");
+  else known.push("ground is "+(R.slope[f.slope]||{}).label.toLowerCase());
+  if(f.survey) known.push("a property-line survey is in the scope");
+  else unresolved.push("the property line has not been surveyed");
+  if(f.poolBarrier) unresolved.push("pool-barrier compliance has not been verified with the governing agency");
+  if(f.hoaMaxH!=null&&!f.hoaSource) unresolved.push("the HOA height limit was supplied but no HOA document has been provided");
+  if(f.codeMaxH!=null&&!f.codeChecked) unresolved.push("the municipal fence height limit still needs verification for this parcel");
+  if(f.codeMaxH==null) unresolved.push("no municipal fence height limit has been checked for this parcel");
+  (f.vehGates||[]).forEach((g,i)=>{ if(!g) return;
+    if(g.auto&&!(+g.elecLF>0)) unresolved.push("the electrical run to vehicular gate "+(i+1)+" is unknown");
+    if(!g.fab&&!g.lumpSum) assumed.push("vehicular gate "+(i+1)+" fabrication is an allowance, not a quote"); });
+  if((fRec(T.rec)||{}).conf==="low") assumed.push(T.label+" is on an allowance rate — no published band was found");
+  let level="high";
+  if(assumed.length>3||unresolved.length>0) level="medium";
+  if(unresolved.length>=3 || segs.some(({q,sg})=>!(q.grossLF>0)) || (fRec(T.rec)||{}).conf==="low"
+     || f.access==="veryDifficult" || f.slope==="extreme") level="low";
+  return {level:level, known:known, assumed:assumed, unresolved:unresolved,
+    why:(level==="high"?"Geometry, assembly, access and gates are all known."
+       :(level==="low"?"Enough is unresolved that this is a budget figure."
+                      :"Length and height are known; construction assumptions remain."))};
 }
-function fenceWarnings(f,h,gateN){
-  const R=_fRule(), T=fenceTypeOf(f), out=[];
+// §29 Every assumption the engine made, each one editable where the UI exposes it, each carrying
+// where it came from (§4).
+function fenceAssumptions(f,segs,R){
+  const out=[];
+  const push=(k,t,prov,o)=>out.push(Object.assign({k:k,t:t},fProv(prov,null,o||{})));
+  segs.forEach(({sg,q},i)=>{ const nm=sg.name||("Segment "+(i+1));
+    push("spacing",nm+": posts at "+q.spacing+"′ on centre — "+fTypeOf(sg.type||f.type).label+" default",sg.spacing?"user":"assumed");
+    push("posts",nm+": "+q.posts+" posts — "+q.linePosts+" line, "+q.endPosts+" end, "
+      +q.cornerPosts+" corner, "+q.transPosts+" transition, "+q.gatePosts+" gate"
+      +(i>0&&sg.connect?" (one end post shared with the run before it)":""),"derived");
+    push("footing",nm+": footings about "+q.footingDia+"″ diameter × "+q.footingDepth+"″ deep, "
+      +q.concreteCY.toFixed(2)+" CY of concrete including "+Math.round((+R.footWaste||0)*100)+"% waste — an estimating assumption, not a structural prescription",sg.footing?"user":"assumed");
+    if(q.gateLF>0) push("gateOpening",nm+": "+q.gateLF+" LF of gate opening taken out of the fence infill; the gate's own posts are still counted","derived");
+    if(q.heightF!==1) push("heightF",nm+": the assembly is written at "+((fTypeOf(sg.type||f.type).atH)||R.refH)+"′, so "+q.h+"′ is ×"+q.heightF.toFixed(2),"assumed");
+    const fin=sg.finish||f.finish;
+    if(fin&&fin!=="none"&&!fTypeOf(sg.type||f.type).factoryFin)
+      push("finishSides",nm+": finish on "+(q.finishSides===1?"one side":"both sides")+" — "+Math.round(q.finishSF)+" SF","assumed");
+    if(sg.h==null&&f.h!=null) push("height",nm+": height taken from the fence — "+q.h+"′","user");
+  });
+  push("size","Project size ×"+fenceSizeF(segs.reduce((t,x)=>t+x.q.grossLF,0)).toFixed(2)+" on construction — no separate mobilisation charge","assumed");
+  push("access","Access ×"+(R.access[f.access]||R.access.easy).f.toFixed(2)+" on labour only","assumed");
+  if(f.hoaMaxH!=null) push("hoa","HOA maximum height "+f.hoaMaxH+"′"+(f.hoaSource?(" — "+f.hoaSource):""),
+    f.hoaSource?"verified":"user",{source:f.hoaSource||"stated by the user", note:f.hoaSource?"":"HOA document not provided"});
+  if(f.codeMaxH!=null) push("code","Municipal maximum height "+f.codeMaxH+"′",
+    f.codeChecked?"verified":"assumed",{source:f.codeSource||"", url:f.codeUrl||"", checked:f.codeChecked||"",
+     jurisdiction:(function(){ try{ return (S.pi&&S.pi.city)||""; }catch(e){ return ""; } })(),
+     note:f.codeChecked?"":"Not verified for this parcel"});
+  return out;
+}
+// §36 Warnings inform; they never block an estimate.
+function fenceWarnings(f,segs,R){
+  const out=[], T=fTypeOf(f.type);
+  const maxH=segs.reduce((m,x)=>Math.max(m,x.q.h),0);
+  const P=R.pool||FNC_RULE.pool, Z=R.zoning||FNC_RULE.zoning;
   if(f.poolBarrier){
-    if(h<(+R.poolMinH||5)) out.push("A pool barrier must be at least 60″ (5′) high — this run is "+h+"′. California Health & Safety Code 115923.");
-    if((R.poolOK||[]).indexOf(f.type)<0) out.push(T.label+" will not pass as a pool barrier on its own — nothing a 4″ sphere can pass through, and no more than 2″ of clearance at the bottom.");
-    if(f.type==="fSplitRail"||f.type==="fCable") out.push("Check the opening size: rails and cables spaced wider than 4″ are not a pool barrier.");
-    if(gateN>0) out.push("Every gate in a pool barrier must open away from the pool, be self-closing and self-latching, with the release at least 60″ above grade or on the pool side.");
-    else out.push("No gate is counted in this run — if the barrier is the only way in, a compliant gate is required.");
+    out.push(P.note);
+    segs.forEach(({sg,q},i)=>{ const nm=sg.name||("Segment "+(i+1));
+      if(q.h<(+P.minH||5)) out.push(nm+" is "+q.h+"′ — a pool barrier is generally at least "+Math.round((+P.minH||5)*12)+"″ measured from the side away from the pool. Verify with the governing agency.");
+      const tt=fTypeOf(sg.type||f.type);
+      if((R.poolUnsuitable||[]).indexOf(tt.rec)>=0||(R.poolUnsuitable||[]).indexOf(sg.type||f.type)>=0)
+        out.push(tt.label+" on "+nm+" may not be suitable as a pool barrier — opening size and climbability both matter.");
+      if((q.gates||[]).length===0&&segs.length===1) out.push("No gate is counted — if the barrier is the only way in, a compliant gate is required.");
+    });
+    out.push("Pool gates may require outward swing, self-closing and self-latching operation and a regulated latch height. Retrieve the applicable official requirement before treating it as verified.");
   }
-  if(h>(+R.engH||7)) out.push("Over "+(R.engH||7)+"′ — most cities want a structural detail and a permit for a fence this tall, and many cap fence height without a variance.");
-  else if(h>(+R.tallH||6)) out.push("Over "+(R.tallH||6)+"′ — check the city's fence height limit before pricing it.");
-  if(f.slope==="flat"&&(f.type==="fVinyl"||f.type==="fComposite")) out.push("Vinyl and composite panels do not rake — on any fall the run has to be stepped.");
-  if(f.type==="fSlatHoriz") out.push("Horizontal boards sag over long spans — posts closer than "+R.postSpacing+"′, or higher-grade lumber, on runs over about 60′.");
-  if(f.survey===false) out.push("A fence on a property line is the one thing a neighbour will measure. A survey is not in this price.");
-  if(+f.autoSwing>0||+f.autoSlide>0){ if(!(+f.autoElecLF>0)) out.push("An automated gate needs power run to it — no electrical length is entered."); }
-  if(f.demo==="masonry") out.push("Removing a masonry fence may expose a footing, a shared wall or a retaining condition — build that in the Wall Builder.");
+  if(T.sp==="cable"||T.open) out.push(T.label+": opening and cable configuration may not suit a pool barrier — check the "+(+P.maxGapIn||4)+"″ sphere rule.");
+  if(maxH>(R.maxH||8)) out.push(maxH+"′ is past the height table — the factor is extrapolated and the fence needs a real calculation, engineering and almost certainly a permit.");
+  else if(maxH>(+R.engH||7)) out.push(maxH+"′ may require engineering or a permit.");
+  if(f.frontYard&&maxH>(+Z.frontMaxFt||3.5)) out.push("Front-yard fence height may exceed the typical zoning limit. "+Z.note);
+  if(!f.frontYard&&maxH>(+Z.sideRearMaxFt||6)) out.push("Side and rear fence height may exceed the typical zoning limit. "+Z.note);
+  if(f.cornerLot) out.push("Corner lot — the fence may sit inside a visibility triangle. Check driveway and intersection sightlines.");
+  if(f.rightOfWay) out.push("A fence in the public right-of-way may need additional review.");
+  if(!f.survey) out.push("The property line has not been surveyed.");
+  if(f.hoaMaxH!=null&&!f.hoaSource) out.push("The HOA requirement has not been independently verified — it was supplied, not read off a document.");
+  if(f.slope==="level") out.push("Slope and grade conditions have not been defined — level ground is assumed.");
+  if(f.slope==="extreme") out.push("Extreme grade — this needs a custom, engineered detail rather than a factor.");
+  segs.forEach(({sg,q},i)=>{ const nm=sg.name||("Segment "+(i+1)), tt=fTypeOf(sg.type||f.type);
+    if(tt.noRake&&f.slope!=="level") out.push(tt.label+" panels do not rake — "+nm+" has to be stepped on any fall.");
+    if(q.gateLF>0) out.push(nm+": "+q.gateLF+" LF of gate opening has been subtracted from the fence quantities.");
+    if(sg.wallTop) out.push(nm+" is mounted on an existing wall — structural attachment needs verification, and the wall itself belongs in the Wall Builder.");
+  });
+  if(f.wind==="high"||f.wind==="coastal")
+    out.push("A solid fence in a high-wind or coastal location may need closer post spacing, larger foundations and corrosion-resistant hardware.");
+  if(T.mat==="glass") out.push("Glass design needs manufacturer and code verification — panel size, thickness, hardware, core drilling and base shoe all move the price.");
+  if(+f.pilasters>0) out.push("Continuous masonry belongs in the Wall Builder — only the pilasters are priced here, and they must not appear in both (§37).");
+  (f.vehGates||[]).forEach((g,i)=>{ if(!g) return;
+    if(g.auto&&!(+g.elecLF>0)) out.push("Vehicular gate "+(i+1)+": the electrical distance is unknown and no trenching is priced.");
+    if(g.auto) out.push("Vehicular gate "+(i+1)+": automated-gate safety and compliance must be verified for the selected operator and jurisdiction. Conceptual selections do not make it compliant."); });
   out.push("This is a design estimate, not a contractor bid.");
   return out;
 }
-// Several fences on one project, each its own record.
+// §35 Compare an option without replacing what is selected.
+function fenceCompare(f,changes){
+  const base=fenceCost(f);
+  const alt=fenceCost(Object.assign(JSON.parse(JSON.stringify(fenceNew(f))),changes||{}));
+  const moved=Object.keys(changes||{});
+  return {base:base, alt:alt, delta:alt.total-base.total,
+    pct:(base.total>0?((alt.total/base.total-1)*100):0),
+    changed:moved, perLFDelta:alt.perLF-base.perLF,
+    label:moved.map(k=>k+" → "+JSON.stringify(changes[k])).join(", ")};
+}
+// §39 several fences per project, each its own record, with save, duplicate, delete and history.
 function fencesAll(){ try{ return (S.fences=S.fences||[]); }catch(e){ return []; } }
 function fencesSubtotal(){ let t=0; fencesAll().forEach(f=>{ try{ t+=fenceCost(f).total; }catch(e){} }); return t; }
+function fenceOf(id){ return fencesAll().find(x=>x&&x.fenceId===id)||null; }
 function fenceAdd(o){ const f=fenceNew(o); fencesAll().push(f); try{ _bidSchedule(); }catch(e){} return f; }
-function fenceDelete(id){ const A=fencesAll(); const i=A.findIndex(x=>x&&x.fenceId===id);
+function fenceDelete(id){ const A=fencesAll(), i=A.findIndex(x=>x&&x.fenceId===id);
   if(i>=0){ A.splice(i,1); try{ _bidSchedule(); }catch(e){} } }
-function fenceDuplicate(id){ const f=fencesAll().find(x=>x&&x.fenceId===id); if(!f) return null;
+function fenceDuplicate(id){ const f=fenceOf(id); if(!f) return null;
   const c=JSON.parse(JSON.stringify(f)); c.fenceId="f"+Math.random().toString(36).slice(2,9);
-  c.name=(f.name||fenceTypeOf(f).label)+" copy"; fencesAll().push(c); try{ _bidSchedule(); }catch(e){} return c; }
+  c.segments=(c.segments||[]).map(s=>{ s.segmentId="s"+Math.random().toString(36).slice(2,9); return s; });
+  c.name=(f.name||fTypeOf(f.type).label)+" copy"; fencesAll().push(c); try{ _bidSchedule(); }catch(e){} return c; }
+function fenceSegAdd(id,o){ const f=fenceOf(id); if(!f) return null;
+  const s=fenceSegNew(o); (f.segments=f.segments||[]).push(s); try{ _bidSchedule(); }catch(e){} return s; }
+function fenceSegDelete(id,sid){ const f=fenceOf(id); if(!f) return;
+  const i=(f.segments||[]).findIndex(s=>s&&s.segmentId===sid);
+  if(i>=0&&f.segments.length>1){ f.segments.splice(i,1); try{ _bidSchedule(); }catch(e){} } }
+// §33 What goes to the Specification Book. Only what is actually known.
+function fenceSpec(f){
+  const r=fenceCost(f), out=[];
+  r.segs.forEach(({sg,q},i)=>{
+    const T=fTypeOf(sg.type||f.type);
+    const row={fenceId:f.fenceId, segmentId:sg.segmentId,
+      name:sg.name||("Segment "+(i+1)), location:sg.location||"",
+      type:T.label, material:T.mat, lengthLF:Math.round(q.netLF), heightFT:q.h,
+      style:sg.style||"", orientation:sg.boardOrient||"", gapIn:sg.boardGap,
+      privacyPct:q.privacyPct, post:sg.post||f.posts, spacingFT:q.spacing,
+      rail:sg.rail||"", finish:(R=>{ const k=sg.finish||f.finish;
+        return ((_fRule().finishes||{})[k]||{}).label||""; })(), color:sg.color||"",
+      finishedSide:sg.finishedSide||f.finishedSide,
+      mfr:sg.productId?((fRec(sg.productId)||{}).mfr||""):"",
+      model:sg.productId?((fRec(sg.productId)||{}).model||""):"",
+      url:sg.productId?((fRec(sg.productId)||{}).url||""):"",
+      gates:(q.gates||[]).map(g=>({width:g.w, material:g.mat||T.mat, selfClose:!!g.selfClose})),
+      notes:sg.notes||""};
+    Object.keys(row).forEach(k=>{ if(row[k]===""||row[k]==null) delete row[k]; });
+    out.push(row);
+  });
+  (f.vehGates||[]).forEach((g,i)=>{ if(!g) return;
+    out.push({fenceId:f.fenceId, name:"Vehicular gate "+(i+1), kind:g.kind||"swing",
+      widthFT:g.widthFt, automated:!!g.auto, operator:g.auto?((fRec(g.operator)||{}).nm||"package"):"",
+      accessControl:(g.access||[]).map(k=>(fRec(k)||{}).nm).filter(Boolean)}); });
+  return out;
+}
 
 const COURT_PANES=(function(){
   const a=CRT_GROUPS.map(g=>({g:"Price records", k:"rec:"+g, nm:g, sub:"unit, band, source and date"}));
