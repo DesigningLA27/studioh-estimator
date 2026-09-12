@@ -7457,7 +7457,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1505</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1506</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -61206,11 +61206,16 @@ function sbAddDoc(city, url, res){
   const k=String(city||"").toLowerCase().trim(); if(!k||!url) return;
   const r=SETBACKS[k]||(SETBACKS[k]={});
   r.docs=Array.isArray(r.docs)?r.docs:[];
-  const got=res?Object.keys(res.items||{}).length:0;
+  // What was actually usable, not what was mentioned. A document can name an item and give no
+  // distance for it — Placer County's pool handout states a barrier height and no setback at all —
+  // and counting that as "found" would overstate what the read achieved.
+  const usable=res?Object.keys(res.items||{}).filter(k=>{ const v=res.items[k]||{};
+    return (v.front!=null||v.side!=null||v.rear!=null); }):[];
+  const got=usable.length;
   const i=r.docs.findIndex(d=>d&&d.url===url);
   const rec={url:url, at:new Date().toISOString().slice(0,10), got:got,
     kind:(res&&res.kind)||"text", zone:(res&&res.zone)||"", note:(res&&res.note)||"",
-    items:res?Object.keys(res.items||{}):[]};
+    items:usable, mentioned:res?Object.keys(res.items||{}).length:0};
   if(i>=0) r.docs[i]=rec; else r.docs.push(rec);
   r.docs=r.docs.slice(-8);
   try{ localStorage.setItem("studioh_setbacks_v1", JSON.stringify(SETBACKS)); }catch(e){}
@@ -61490,8 +61495,11 @@ function _renderSetb3(_mount){
     const res=SETB_STATE.res;
     if(res&&res.ok){
       const got=Object.keys(res.items||{});
+      const withFt=got.filter(k2=>{ const v=res.items[k2]||{}; return (v.front!=null||v.side!=null||v.rear!=null); });
       ins+='<div style="margin-top:9px;border:1px solid var(--gm);border-radius:11px;padding:9px 11px">'
-        +'<b style="font-size:12px">'+got.length+' found'+(res.zone?(" · "+esc(res.zone)):"")+'</b>'
+        +'<b style="font-size:12px">'+withFt.length+' figure'+(withFt.length===1?"":"s")+' found'
+        +((got.length>withFt.length)?(' · '+(got.length-withFt.length)+' mentioned without a distance'):'')
+        +(res.zone?(" · "+esc(res.zone)):"")+'</b>'
         +(res.kind==="pdf"?('<span style="font-size:10px;color:var(--tl)"> · from a '+Math.round((+res.bytes||0)/1024)+' KB PDF</span>'):'');
       got.forEach(k2=>{ const v=res.items[k2]||{}; const d=SB_ITEMS.find(x=>x.k===k2);
         ins+='<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0;border-top:1px solid var(--br,#EFEDE6)">'
@@ -61505,7 +61513,7 @@ function _renderSetb3(_mount){
         +esc(res.missing.map(k2=>{const d=SB_ITEMS.find(x=>x.k===k2); return d?d.nm:k2;}).join(", "))+'.</div>';
       if(res.note) ins+='<div style="font-size:10.5px;color:var(--tl);line-height:1.45;padding-top:3px">'+esc(res.note)+'</div>';
       ins+='<div style="display:flex;gap:5px;margin-top:8px">'
-        +(got.length?('<button class="btn" onclick="setbApply()">Write '+got.length+' to '+esc(nm)+'</button>'):'')
+        +(withFt.length?('<button class="btn" onclick="setbApply()">Write '+withFt.length+' to '+esc(nm)+'</button>'):'')
         +'<button class="btn btn-o" onclick="SETB_STATE.res=null;renderPriceBook()">Discard</button></div>';
       ins+='</div>';
     }
