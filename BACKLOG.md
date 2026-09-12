@@ -56,9 +56,12 @@ When the Fence & Gates builder is built, the Sport Court Builder's own fencing, 
 records must hand off to it rather than keeping a second set of prices that will drift.
 Same pattern as §25's retaining hand-off. **Write the seam into the spec up front.**
 
-### 6 · Concrete engine §19 and §20
-- §19 the Advanced-settings UI.
-- §20 AI geometry auto-detection from the trace.
+### 6 · Concrete engine §19 — the Advanced split
+§20 done in v1479: the pad count is read off the trace, so separated pours stop getting the bulk
+discount of a single big one.
+Still open: **§19 wanted a simple UI with an Advanced section.** The per-zone concrete controls in
+Properties show every option at once — thickness, strength, reinforcement, finish, colour,
+scoring — where the wall and court builders split Simple from Advanced. Same treatment wanted.
 
 ### 7 · Paving book rates still unreviewed
 Natural Stone $58, Porcelain $48, Permeable $39, Concrete Pavers $33, Brick $31, Pebble $30,
@@ -71,9 +74,9 @@ engine's finish **adder** ($12.00), which are not the same thing — the assembl
 labour. Built up in full: the assembly installs at **$21.84/SF** and the concrete engine at
 **$22.21/SF** on the same 600 SF slab. They agree to 1.7%. Nothing to fix.
 
-### 9 · Wall Builder §68 — height zones inside one drawn run
-Separate wall runs price separately, and stepped/sloped zones work. Splitting **one polyline** into
-height zones by vertex is the remaining piece.
+### 9 · ~~Wall §68 height zones inside one drawn run~~ — already built
+`wbSplitDrawn()` makes one zone per leg of the drawn polyline, each with its own measured length.
+The note predated it.
 
 ### 10 · Court §31 band for a fully-loaded full basketball court
 $149,940 against a published $55–120k. Flagged, not overwritten, which is correct — but the band may

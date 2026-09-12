@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1478</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1479</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -55461,6 +55461,41 @@ const CONC_MAT={
 // A traced shape already carries the two numbers the engine cares about most — how much area and
 // how much edge — so concrete prices off the drawing rather than off a rate card. A driveway is
 // vehicular by definition; everything else is pedestrian until someone says otherwise.
+// How many separate concrete pads this job pours. Two shapes that touch are one pour; two that do
+// not are two, and two pours of 500 feet cost more per foot than one of 1,000.
+function _pavConcPads(){
+  try{
+    const onPage=q=>(q.page==null||q.page===PT.page);
+    const conc=(PT.polys||[]).filter(q=>{
+      if(!onPage(q)||q.kind!=="area"||!q.pts||q.pts.length<3) return false;
+      if(q.mode!=="paving"&&q.mode!=="driveway") return false;
+      if(q._demo||q._excl) return false;
+      let nm=q.type; try{ nm=asmMatName(q.type); }catch(e){}
+      return !!CONC_MAT[nm];
+    });
+    if(conc.length<2) return conc.length||1;
+    const seen=conc.map(()=>-1); let groups=0;
+    for(let i=0;i<conc.length;i++){
+      if(seen[i]>=0) continue;
+      const g=groups++; const stack=[i];
+      while(stack.length){ const k=stack.pop(); if(seen[k]>=0) continue; seen[k]=g;
+        for(let j=0;j<conc.length;j++){ if(seen[j]>=0) continue;
+          let hit=false; try{ hit=_ptPolyHits(conc[k].pts, conc[j].pts); }catch(e){}
+          if(!hit){ try{ hit=_ptPolyNear(conc[k].pts, conc[j].pts, 0.5); }catch(e){} }
+          if(hit) stack.push(j); } }
+    }
+    return Math.max(1, groups);
+  }catch(e){ return 1; }
+}
+// Two shapes that do not overlap but sit within a few inches of each other are still one pour.
+function _ptPolyNear(A,B,ft){
+  let u=1; try{ u=_ptUnitsPerFoot(A[0]); }catch(e){}
+  const tol=(+ft||0.5)*u;
+  for(const q of A){ for(let j=0;j<B.length;j++){
+    const b1=B[j], b2=B[(j+1)%B.length];
+    if(_ptSegDist(q.x,q.y,b1.x,b1.y,b2.x,b2.y)<=tol) return true; } }
+  return false;
+}
 function _pavConcRate(p){
   if(!p) return null;
   let nm=p.type; try{ nm=asmMatName(p.type); }catch(e){}
@@ -55473,7 +55508,8 @@ function _pavConcRate(p){
   const r=concreteCost({areaSF, perimLF, projectSF, tier,
     use:(p.mode==="driveway")?"vehicular":"pedestrian",
     finish:(p.concFinish&&p.concFinish.length)?p.concFinish:M.finish,
-    form:p.concForm, padCount:p.concPads, scoring:p.concScore, scoreLF:p.concScoreLF,
+    form:p.concForm, padCount:(p.concPads!=null?p.concPads:_pavConcPads()),
+    scoring:p.concScore, scoreLF:p.concScoreLF,
     scoreGridFt:p.concGrid, thickIn:p.concThick, psi:p.concPsi, rebar:p.concRebar,
     baseIn:p.concBase, access:p.concAccess, wastePct:p.concWaste,
     standalone:false});                 // concrete inside a landscape install, not a lone pour
@@ -55492,7 +55528,8 @@ function pavConcBreakdown(p){
   return concreteCost({areaSF, perimLF, projectSF, tier,
     use:(p.mode==="driveway")?"vehicular":"pedestrian",
     finish:(p.concFinish&&p.concFinish.length)?p.concFinish:M.finish,
-    form:p.concForm, padCount:p.concPads, scoring:p.concScore, scoreLF:p.concScoreLF,
+    form:p.concForm, padCount:(p.concPads!=null?p.concPads:_pavConcPads()),
+    scoring:p.concScore, scoreLF:p.concScoreLF,
     scoreGridFt:p.concGrid, thickIn:p.concThick, psi:p.concPsi, rebar:p.concRebar,
     baseIn:p.concBase, access:p.concAccess, wastePct:p.concWaste, standalone:false});
 }
