@@ -60,6 +60,20 @@ Ordered roughly by how much it costs us to keep not doing it.
   authoritative one for a given city does not come out of a search result. A Tustin council-agenda
   attachment read cleanly and gave "front 50, side 1" — real figures from the wrong document.
   Warwick pointing it at the right page per city is now an afternoon, not a research project.
+- **v1504 — one definition of where a figure came from.** `verified:true` on a record used to be
+  enough to call a figure the city's code, and each surface had its own idea of what that meant.
+  `sbFor` now decides once from whether a section is on record: **code** / **on file** / **estimated**,
+  with one badge and one sentence used everywhere. Placement says it at the moment it matters —
+  the point where the figure stops being a note and decides where something is built.
+- **v1505–06 — the finding system.** Discovery cannot be automated (every code host 403s), so the
+  once-somebody-looks now counts: a city keeps the **document**, not just the figures, so the next
+  read is one tap; "Read it again" re-runs every source and shows what moved before writing;
+  a **sweep** does that across every city on record. The book syncs, so a city read by one person is
+  read for everybody. The counts are honest — figures found vs items mentioned without a distance.
+- **A zoning API is the real answer at scale, and it is a commercial decision.** Zoneomics and
+  Regrid both publish setbacks at parcel level across 22,000+ jurisdictions; both want an account.
+  `sbProvider` is the seam, deliberately inert, and will not be wired to a live service until it
+  has been run against one.
 - Only the six original edges have real figures even on verified cities; the nine landscape items
   inherit from the structure rule. Worth reading the actual accessory-structure sections so a fire
   pit, a pool heater and a patio cover carry their own numbers where the code gives them one.
