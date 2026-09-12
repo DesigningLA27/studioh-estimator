@@ -7449,7 +7449,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1502</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1503</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -61439,6 +61439,80 @@ function _renderFence3(_mount){
   _mount.appendChild(card);
 }
 
+// ── §32 THE SANITY CHECK ───────────────────────────────────────────────────────────────
+// After an assembly is priced, compare it against what that family normally installs for in
+// Southern California — and when it is outside, say WHY rather than forcing it back. The reasons
+// are measured, not guessed: the same job is re-priced with one factor at a time returned to the
+// baseline, and the difference is what that factor cost. Same idea as the court's reality check.
+//
+// The bands are §4's calibration targets. They are validation, never the calculation, and they
+// are editable like everything else in the book.
+const PAV_CAL={
+  "Limestone Paving":[28,45], "Travertine Paving":[25,40], "Bluestone Paving":[30,50],
+  "Flagstone Paving":[28,48], "Sandstone Paving":[25,45], "Granite Paving":[32,55],
+  "Slate Paving":[26,44], "Quartzite Paving":[32,55], "Natural Stone Paving":[28,45],
+  "Porcelain Pavers":[25,42], "Porcelain Tile — bonded":[25,42], "Terra Cotta Paving":[28,48],
+  "Concrete Pavers":[17,28], "Architectural Precast Pavers":[23,38],
+  "Large-Format Concrete Pavers":[20,36], "Brick Paving":[20,35], "Permeable Pavers":[20,35],
+  "Pebble / Baja Stone Paving":[14,28], "Pebble — Mortar Set":[28,48],
+  "Gravel / Decomposed Granite":[8,15], "Concrete Flatwork":[14,20], "Stamped / Colored Concrete":[17,30]
+};
+function pavCalBand(name){ const b=PAV_CAL[asmMatName(name)||name]; return b?b.slice():null; }
+// The baseline this compares against: standard material, its own default module, running bond,
+// 1,000 SF, no project modifiers, and the material's first installation system.
+const PAV_BASE_SF=1000;
+function pavSanity(o){
+  o=o||{};
+  const name=asmMatName(o.material)||o.material;
+  const band=pavCalBand(name); if(!band) return null;
+  const m=asmMat(name); if(!m) return null;
+  const run=(x)=>{ try{ return asmCost(Object.assign({}, o, x)); }catch(e){ return null; } };
+  const here=run({}); if(!here||here.needsRetail||here.needsNumbers) return null;
+  const v=here.installedSF;
+  const inBand=(v>=band[0]&&v<=band[1]);
+  // baseline, and one factor at a time back to it
+  const R=(m.supply&&m.supply.retail);
+  const stdRetail=(R&&typeof R==="object")?R.standard:R;
+  const baseOpts={asm:(m.asm||[])[0], material:name, areaSF:PAV_BASE_SF,
+    supply:(stdRetail!=null?{retail:stdRetail}:null), pattern:"running", module:(m.mod||null),
+    lines:undefined, mods:false, tier:undefined};
+  const base=run(Object.assign({},baseOpts)); if(!base||base.needsRetail) return null;
+  const one=(x)=>{ const r=run(Object.assign({},o,x)); return r&&!r.needsRetail?r.installedSF:null; };
+  const why=[];
+  const push=(lbl,alt)=>{ if(alt==null) return; const d=v-alt; if(Math.abs(d)>=0.5) why.push({t:lbl, d:Math.round(d*100)/100}); };
+  // material grade
+  if(stdRetail!=null) push((here.supply&&here.supply.retail>stdRetail)?"a dearer material grade":"a cheaper material grade",
+    one({supply:Object.assign({},o.supply,{retail:stdRetail})}));
+  // installation system
+  if(o.asm&&o.asm!==(m.asm||[])[0]) push("the "+((asmGet(o.asm)||{}).short||o.asm)+" installation",
+    one({asm:(m.asm||[])[0]}));
+  // module
+  if((o.module||m.mod)&&(o.module||m.mod)!==m.mod) push("a "+((asmModule(o.module)||{}).n||o.module)+" module",
+    one({module:m.mod}));
+  // pattern
+  if(o.pattern&&o.pattern!=="running") push("a "+asmPattern(o.pattern).n.toLowerCase()+" pattern",
+    one({pattern:"running"}));
+  // quantity
+  if(+o.areaSF && +o.areaSF!==PAV_BASE_SF) push(Math.round(+o.areaSF)+" SF rather than "+PAV_BASE_SF,
+    one({areaSF:PAV_BASE_SF}));
+  // project conditions
+  if(o.mods!==false) push("site access and project conditions", one({mods:false}));
+  // lines switched on or off by hand
+  if(o.lines&&Object.keys(o.lines).length) push("components you changed", one({lines:undefined}));
+  why.sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+  const named=why.reduce((t,x)=>t+x.d,0);
+  return {rate:v, band:band, inBand:inBand,
+    baseline:base.installedSF, baselineInBand:(base.installedSF>=band[0]&&base.installedSF<=band[1]),
+    why:why, named:Math.round(named*100)/100,
+    // out of range with nothing to point at is the case worth flagging — the rest is scope
+    flag:(!inBand && (Math.abs(named) < Math.abs(v-(inBand?v:(v>band[1]?band[1]:band[0])))*0.5)),
+    note:inBand?("Inside the usual Southern California range for "+name.toLowerCase().replace(/ paving$/,"")+".")
+      :((v>band[1]?"Above":"Below")+" the usual range of "+_pavM(band[0])+"–"+_pavM(band[1])
+        +(why.length?(", because of "+why.slice(0,3).map(x=>x.t+" "+(x.d>0?"+":"−")+_pavM(Math.abs(x.d))).join(", ")+".")
+                    :". Nothing in the selections explains it — worth a look."))};
+}
+function _pavM(v){ return "$"+(+v||0).toFixed(2); }
+
 const PAV_MATS=["Concrete Flatwork","Stamped / Colored Concrete","Concrete Pavers","Architectural Precast Pavers","Large-Format Concrete Pavers","Permeable Pavers","Porcelain Pavers","Porcelain Tile \u2014 bonded","Limestone Paving","Travertine Paving","Bluestone Paving","Flagstone Paving","Sandstone Paving","Granite Paving","Slate Paving","Quartzite Paving","Natural Stone Paving","Brick Paving","Terra Cotta Paving","Gravel / Decomposed Granite","Pebble / Baja Stone Paving","Pebble \u2014 Mortar Set"];
 const PAV_HATCH={"Concrete Flatwork":null,"Stamped / Colored Concrete":"grid","Concrete Pavers":"grid","Porcelain Pavers":"grid","Natural Stone Paving":"cube","Brick Paving":"brick","Gravel / Decomposed Granite":"diag","Pebble / Baja Stone Paving":"diag","Pebble \u2014 Mortar Set":"diag","Limestone Paving":"cube","Travertine Paving":"cube","Bluestone Paving":"cube","Flagstone Paving":"cube","Sandstone Paving":"cube","Granite Paving":"cube","Slate Paving":"cube","Quartzite Paving":"cube","Architectural Precast Pavers":"grid","Large-Format Concrete Pavers":"grid","Porcelain Tile \u2014 bonded":"grid","Terra Cotta Paving":"brick","Permeable Pavers":"basket"};
 function _pavItem(name){ if(!name) return null; try{ return (S.cats&&S.cats.paving&&S.cats.paving.items||[]).find(it=>it.n===name)||null; }catch(e){ return null; } }
@@ -63150,8 +63224,33 @@ function _ptBuildupHtml(idx, side){
   if(R.deferred&&R.deferred.n) h+='<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(217,164,65,.14);font:700 10.5px '+F+';color:#D9A441">'
     +R.deferred.n+' deferred \u2014 '+m2(R.deferred.valueSF)+'/'+escAttr(R.unit)+', '+fmtN(Math.round(R.deferred.valueSF*net))+' still on the job</div>';
   h+='<div style="font:600 9.5px '+F+';color:#68765B;margin-top:8px;line-height:1.55">'
-    +R.baseHours.toFixed(3)+' hr \u00d7 '+R.patternCx.toFixed(2)+' pattern \u00d7 '+R.areaMult.toFixed(2)+' size \u00d7 '+R.productivity.toFixed(2)+' crew \u00d7 '+m2(R.laborRate)+'/hr \u00b7 before O&amp;P. '
+    +R.baseHours.toFixed(3)+' hr \u00d7 '+R.patternCx.toFixed(2)+' pattern \u00d7 '
+    +(R.moduleF&&R.moduleF!==1?(R.moduleF.toFixed(2)+' module \u00d7 '):'')
+    +R.areaMult.toFixed(2)+' size \u00d7 '+R.productivity.toFixed(2)+' crew \u00d7 '+m2(R.laborRate)+'/hr \u00b7 before O&amp;P. '
     +'Every figure is read from the price book. Ticking a line changes this project\u2019s scope, not the price of it.</div>';
+  // §32 What this normally installs for, and when it is outside that, WHY \u2014 measured by
+  // re-pricing the same job with one factor at a time back at the baseline, never by forcing the
+  // number anywhere. Scope that explains itself is not an error, so it is not flagged as one.
+  h+=(function(){
+    let SN=null;
+    try{ SN=pavSanity({asm:p.asm, material:p.type, areaSF:net, pattern:p.asmPat, module:p.asmMod,
+      tier:p.tier||undefined, lines:p.asmLines,
+      supply:(p.matOv!=null&&p.matOv!=="")?{retail:+p.matOv}:null}); }catch(e){}
+    if(!SN) return "";
+    const col=SN.inBand?"#8FE07A":(SN.flag?"#E08B88":"#D9A441");
+    const bg=SN.inBand?"rgba(143,224,122,.10)":(SN.flag?"rgba(224,139,136,.12)":"rgba(217,164,65,.12)");
+    let x='<div style="margin-top:8px;padding:8px 10px;border-radius:9px;background:'+bg+'">'
+      +'<div style="display:flex;gap:8px;align-items:baseline">'
+      +'<span style="flex:1;font:800 9.5px '+F+';letter-spacing:.1em;text-transform:uppercase;color:'+col+'">Usual range</span>'
+      +'<b style="font:700 10.5px '+MN+';color:'+col+'">'+m2(SN.band[0])+'\u2013'+m2(SN.band[1])+'</b></div>'
+      +'<div style="font:600 10.5px '+F+';color:#C7D6BB;line-height:1.5;margin-top:3px">'+escAttr(SN.note)+'</div>';
+    if(SN.why.length){ x+='<div style="margin-top:4px">'
+      +SN.why.map(w=>'<div style="display:flex;gap:6px;font:600 10px '+F+';color:#8FA383;padding:1px 0">'
+        +'<span style="flex:1">'+escAttr(w.t)+'</span>'
+        +'<b style="font:700 10px '+MN+';color:'+(w.d>0?"#D9A441":"#8FE07A")+'">'+(w.d>0?"+":"\u2212")+m2(Math.abs(w.d))+'</b></div>').join("")
+      +'</div>'; }
+    return x+'</div>';
+  })();
   // Delete lives here so it can never be hidden behind another popup — the row's ✕
   // sat under the docked take-off card at some widths.
   h+=_delBtn;
@@ -63256,6 +63355,7 @@ function _ptAsmBlock(e){
     <div style="display:flex;gap:8px;padding:8px 0 0;margin-top:5px;border-top:1px solid rgba(255,255,255,.22)">
       <span style="flex:1;font:750 12px var(--tkf);color:#EAF0E4">Direct cost<span style="display:block;font:600 9px var(--tkf);color:#68765B">before O&amp;P</span></span>
       <b style="font:800 13px ui-monospace,Menlo,monospace;color:#8FE07A">${money2(R.installedSF)} / SF</b></div>
+
     ${om.n?`<div style="margin-top:7px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.06);font:700 10.5px var(--tkf);color:#C7D6BB">
         ${om.n} line${om.n===1?"":"s"} removed — saves ${money2(om.savingSF)}/SF, ${fmtN(Math.round(om.savingSF*R.area))}</div>`:""}
     ${R.deferred.n?`<div style="margin-top:6px;padding:7px 9px;border-radius:9px;background:rgba(217,164,65,.14);font:700 10.5px var(--tkf);color:#D9A441">
