@@ -7385,7 +7385,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1468</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1469</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -51409,11 +51409,50 @@ function ptStampDown(e){
   const ctr=_toCanvas(st.c); const arm=_tkStampArm(st);
   if(Math.hypot(c.x-ctr.x,c.y-(ctr.y-arm))<=20){ _tkStampDrag={mode:"rot"}; return true; }
   if(Math.hypot(c.x-ctr.x,c.y-(ctr.y+arm))<=20){ _tkStampDrag={mode:"move", from:_toPdf(c), c0:{x:st.c.x,y:st.c.y}}; return true; }
+  // grips before the body, so a grip sitting over the shape still resizes rather than moves
+  const _gr=_tkStampGrips(st);
+  for(let i=0;i<_gr.length;i++){ const g=_gr[i];
+    if(Math.hypot(c.x-g.x,c.y-g.y)<=17){
+      _tkStampDrag={mode:"size", k:g.k, sl:g.sl, sd:g.sd, corner:g.corner,
+        len0:+st.len||1, dep0:+st.dep||1, L0:_tkStampLocal(st,c)};
+      return true; } }
   if(_ptPointInPoly(c,pts)){ _tkStampDrag={mode:"move", from:_toPdf(c), c0:{x:st.c.x,y:st.c.y}}; return true; }
   return false;
 }
 // How far above and below the shape the handles sit — clear of the outline at any rotation,
 // so the thing you are lining up is never hidden by the tools you line it up with.
+// The eight resize grips. Corners keep the shape's proportions — a pool dragged bigger by its
+// corner stays a pool — and the edges take one dimension each, which is how you say "a bit longer"
+// rather than "a bit bigger". They live in the shape's own rotated frame, so a turned shape
+// stretches along its own edges and not along the screen.
+function _tkStampGrips(st){
+  if(!st||st.custom) return [];                       // a traced custom shape is not a rectangle
+  const ctr=_toCanvas(st.c);
+  const cp=ptStampPts(st).map(_toCanvas);
+  if(cp.length<4) return [];
+  const mid=(a,b)=>({x:(cp[a].x+cp[b].x)/2, y:(cp[a].y+cp[b].y)/2});
+  // ptStampPts returns the four corners in order: back-left, back-right, front-right, front-left
+  return [
+    {k:"nw", x:cp[0].x, y:cp[0].y, sl:-1, sd:-1, corner:1},
+    {k:"n",  ...mid(0,1),          sl: 0, sd:-1, corner:0},
+    {k:"ne", x:cp[1].x, y:cp[1].y, sl: 1, sd:-1, corner:1},
+    {k:"e",  ...mid(1,2),          sl: 1, sd: 0, corner:0},
+    {k:"se", x:cp[2].x, y:cp[2].y, sl: 1, sd: 1, corner:1},
+    {k:"s",  ...mid(2,3),          sl: 0, sd: 1, corner:0},
+    {k:"sw", x:cp[3].x, y:cp[3].y, sl:-1, sd: 1, corner:1},
+    {k:"w",  ...mid(3,0),          sl:-1, sd: 0, corner:0}
+  ];
+}
+// A canvas point in the stamp's own unrotated frame, in feet from its centre.
+function _tkStampLocal(st, c){
+  const ctr=_toCanvas(st.c);
+  const dx=c.x-ctr.x, dy=c.y-ctr.y;
+  const a=-((st.rot||0))*Math.PI/180;
+  const lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a);
+  const ppf=(PT.ppf||1)*((PT.renderScale||1));
+  const k=ppf>0?ppf:1;
+  return {l:lx/k, d:ly/k};
+}
 function _tkStampArm(st){
   try{ const cp=ptStampPts(st).map(_toCanvas), ctr=_toCanvas(st.c); let m=0;
     cp.forEach(q=>{ m=Math.max(m, Math.abs(q.y-ctr.y)); });
@@ -51431,6 +51470,24 @@ function ptStampMove(e){
   const c=ptCanvasXY(e);
   if(d.mode==="move"){ const p=_toPdf(c);
     st.c={x: d.c0.x + (p.x-d.from.x), y: d.c0.y + (p.y-d.from.y)}; }
+  else if(d.mode==="size"){
+    const L=_tkStampLocal(st,c);
+    const MIN=0.5;
+    let len=d.len0, dep=d.dep0;
+    if(d.corner){
+      // a corner keeps the proportions — take whichever axis you pulled furthest and
+      // bring the other with it, so the shape never distorts under a diagonal drag
+      const dl=(L.l-d.L0.l)*d.sl*2, dd=(L.d-d.L0.d)*d.sd*2;
+      const fl=(d.len0>0)?(d.len0+dl)/d.len0:1, fd=(d.dep0>0)?(d.dep0+dd)/d.dep0:1;
+      const f=Math.max(0.06, Math.abs(fl-1)>Math.abs(fd-1)?fl:fd);
+      len=d.len0*f; dep=d.dep0*f;
+    } else {
+      if(d.sl) len=d.len0+(L.l-d.L0.l)*d.sl*2;
+      if(d.sd) dep=d.dep0+(L.d-d.L0.d)*d.sd*2;
+    }
+    st.len=Math.max(MIN, Math.round(len*100)/100);
+    st.dep=Math.max(MIN, Math.round(dep*100)/100);
+  }
   else { const ctr=_toCanvas(st.c);
     st.rot=((Math.atan2(c.y-ctr.y, c.x-ctr.x)*180/Math.PI)+90+360)%360; }
   ptStampBar(); try{ ptDrawOverlay(); }catch(e){}
@@ -60425,6 +60482,18 @@ function _ptArmSvg(ctr, arm, color, live){
   s+=`<text x="${x}" y="${dn}" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="700" fill="${color}" style="pointer-events:none">✥</text>`;
   return s;
 }
+// The resize grips, drawn on the outline itself. Square at the corners, round on the edges —
+// the shape of the grip says which one keeps the proportions.
+function _ptGripSvg(st, color){
+  let s="";
+  (_tkStampGrips(st)||[]).forEach(g=>{
+    const x=g.x.toFixed(1), y=g.y.toFixed(1);
+    s+=g.corner
+      ? `<rect x="${(g.x-6.5).toFixed(1)}" y="${(g.y-6.5).toFixed(1)}" width="13" height="13" rx="3" fill="#fff" stroke="${color}" stroke-width="2.4" style="pointer-events:auto;cursor:nwse-resize"/>`
+      : `<circle cx="${x}" cy="${y}" r="6.5" fill="#fff" stroke="${color}" stroke-width="2.4" style="pointer-events:auto;cursor:${(g.sl?"ew":"ns")}-resize"/>`;
+  });
+  return s;
+}
 function _ptUpr(x,y){ return (_ptFlatOn()&&PT.flatRot)?(' transform="rotate('+(-PT.flatRot)+' '+(+x).toFixed(1)+' '+(+y).toFixed(1)+')"'):''; }
 function _ptTagSvg(x,y,txt,col){ const esc=v=>(""+v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const w=(""+txt).length*6.6+14; const upr=(_ptFlatOn()&&PT.flatRot)?(' transform="rotate('+(-PT.flatRot)+' '+x.toFixed(1)+' '+y.toFixed(1)+')"'):'';
@@ -60688,6 +60757,7 @@ function ptDrawOverlay(){ const svg=document.getElementById("pt-svg"); if(!svg) 
     const cp=ptStampPts(st).map(_toCanvas); const ctr=_toCanvas(st.c); const arm=_tkStampArm(st);
     s+=`<polygon points="${cp.map(q=>q.x.toFixed(1)+","+q.y.toFixed(1)).join(" ")}" fill="${md.color}33" stroke="${md.color}" stroke-width="2.5" style="pointer-events:auto;cursor:move"/>`;
     cp.forEach(q=>{ s+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="3.5" fill="#fff" stroke="${md.color}" stroke-width="1.8"/>`; });
+    s+=_ptGripSvg(st, md.color);
     s+=_ptArmSvg(ctr, arm, md.color, true);
   }
   // the wet stroke under the nib
