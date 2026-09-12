@@ -7385,7 +7385,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1469</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1470</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -61718,6 +61718,274 @@ function _ptFlatOn(){ return typeof PT!=="undefined" && PT.flat===true && !PT.li
 // So it takes the smallest rectangle that encloses the shape instead — the orientation a builder
 // would call square — and if the house is not traced yet it squares to the property line, then to
 // the limit of work. A missing page no longer disqualifies a shape either.
+// ── WHICH SIDE IS WHICH ────────────────────────────────────────────────────
+// A designer knows the rear of a lot at a glance; the app has to work it out. It does not guess —
+// it reads the evidence already on the plan and says which piece of it decided, and how sure it is.
+// The front is whichever property line the house faces the street across, and everything else
+// follows from that: the rear is opposite, and left and right are named standing at the street
+// looking in, the way a person describes a garden.
+function _ptUnitsPerFoot(near){
+  try{
+    const a=near||{x:0,y:0};
+    const b={x:a.x+1, y:a.y};
+    const ft=_ptFeetBetween(a,b);
+    if(ft>0) return 1/ft;
+  }catch(e){}
+  return (PT.ppf||1);
+}
+function _ptLotPoly(){
+  const onPage=p=>(p.page==null||p.page===PT.page);
+  const pick=m=>(PT.polys||[]).filter(p=>p.mode===m&&p.pts&&p.pts.length>=3&&onPage(p))
+    .sort((a,b)=>(+b.sf||0)-(+a.sf||0))[0];
+  return pick("lot")||pick("limit")||null;
+}
+function _ptBuildingPoly(){
+  const onPage=p=>(p.page==null||p.page===PT.page);
+  return (PT.polys||[]).filter(p=>p.mode==="building"&&p.pts&&p.pts.length>=3&&onPage(p))
+    .sort((a,b)=>(+b.sf||0)-(+a.sf||0))[0]||null;
+}
+// The lot's edges, each with its midpoint, its direction and the way it faces out of the lot.
+function _ptLotEdges(){
+  const lot=_ptLotPoly(); if(!lot) return [];
+  const pts=lot.pts, n=pts.length, ctr=_ptCentroid(pts), out=[];
+  for(let i=0;i<n;i++){
+    const a=pts[i], b=pts[(i+1)%n];
+    const mid={x:(a.x+b.x)/2, y:(a.y+b.y)/2};
+    const vx=b.x-a.x, vy=b.y-a.y, L=Math.hypot(vx,vy)||1;
+    // outward normal: the perpendicular that points away from the middle of the lot
+    let nx=-vy/L, ny=vx/L;
+    if((mid.x-ctr.x)*nx+(mid.y-ctr.y)*ny<0){ nx=-nx; ny=-ny; }
+    let ft=0; try{ ft=_ptFeetBetween(a,b); }catch(e){}
+    out.push({i, a, b, mid, ctr, nx, ny, lenFt:ft,
+      ang:Math.atan2(vy,vx)*180/Math.PI, len:L});
+  }
+  return out;
+}
+// Everything on the plan that says where the street is.
+function _ptFrontSignals(){
+  const onPage=o=>(o.page==null||o.page===PT.page);
+  const out=[];
+  (PT.ai||[]).forEach(a=>{ if(!onPage(a)) return;
+    const p=(a.tx!=null)?{x:(a.x+a.tx)/2, y:(a.y+a.ty)/2}:{x:a.x, y:a.y};
+    if(a.t==="door"&&a.dt==="front") out.push({p, w:3.0, why:"the front door"});
+    else if(a.t==="garage")          out.push({p, w:2.5, why:"the garage"});
+  });
+  (PT.polys||[]).forEach(q=>{ if(!onPage(q)||q.mode!=="driveway"||!q.pts||q.pts.length<3) return;
+    out.push({p:_ptCentroid(q.pts), w:2.0, why:"the driveway"});
+  });
+  return out;
+}
+// front / rear / left / right, with what decided and how sure it is.
+function ptSiteFrame(){
+  const edges=_ptLotEdges();
+  if(edges.length<3) return {ok:false, why:"No lot or limit of work traced, so the app cannot tell one property line from another."};
+  const lot=_ptLotPoly(), ctr=_ptCentroid(lot.pts);
+  const sig=_ptFrontSignals();
+  const score=edges.map(()=>0), saw=edges.map(()=>[]);
+  sig.forEach(s=>{
+    const dx=s.p.x-ctr.x, dy=s.p.y-ctr.y, L=Math.hypot(dx,dy)||1;
+    const ux=dx/L, uy=dy/L;
+    let best=-2, bi=-1;
+    edges.forEach((e,i)=>{ const d=e.nx*ux+e.ny*uy; if(d>best){ best=d; bi=i; } });
+    if(bi>=0&&best>0.25){ score[bi]+=s.w*best; saw[bi].push(s.why); }
+  });
+  // Nothing to go on? A house sits nearer the street than the back fence, so the edge the
+  // building is closest to is the front — weak, and said to be weak.
+  let fallback=null;
+  if(!sig.length){
+    const b=_ptBuildingPoly();
+    if(b){ const bc=_ptCentroid(b.pts);
+      let bd=Infinity, bi=-1;
+      edges.forEach((e,i)=>{ const d=_ptSegDist(bc.x,bc.y,e.a.x,e.a.y,e.b.x,e.b.y); if(d<bd){ bd=d; bi=i; } });
+      if(bi>=0){ score[bi]+=0.8; saw[bi].push("the house sitting nearer that line"); fallback="building"; } }
+  }
+  let fi=0, fs=-1;
+  score.forEach((v,i)=>{ if(v>fs){ fs=v; fi=i; } });
+  if(fs<=0) return {ok:false, edges,
+    why:"Nothing on the plan says where the street is. Mark the front door, the garage or the driveway and it will work it out."};
+  const front=edges[fi];
+  // the rear is the edge facing most nearly the opposite way
+  let ri=-1, rb=2;
+  edges.forEach((e,i)=>{ if(i===fi) return; const d=front.nx*e.nx+front.ny*e.ny; if(d<rb){ rb=d; ri=i; } });
+  // left and right, standing at the street looking in: cross product against the inward direction
+  const inx=-front.nx, iny=-front.ny;
+  const rest=edges.map((e,i)=>i).filter(i=>i!==fi&&i!==ri);
+  let li=-1, gi=-1;
+  rest.forEach(i=>{ const e=edges[i];
+    const cross=inx*(e.mid.y-ctr.y)-iny*(e.mid.x-ctr.x);
+    if(cross>0){ if(li<0) li=i; } else { if(gi<0) gi=i; } });
+  if(li<0&&rest.length) li=rest[0];
+  if(gi<0&&rest.length>1) gi=rest.find(i=>i!==li);
+  const nSig=saw[fi].length;
+  const conf=fallback?"low":(nSig>=2?"high":(nSig===1?"med":"low"));
+  return {ok:true, edges, ctr,
+    front:edges[fi], rear:(ri>=0?edges[ri]:null), left:(li>=0?edges[li]:null), right:(gi>=0?edges[gi]:null),
+    conf, evidence:saw[fi],
+    why:saw[fi].length?("Front is the line "+saw[fi].join(" and ")+" face."):"Front taken from where the house sits."};
+}
+// ── WHERE IT GOES ──────────────────────────────────────────────────────────
+// The model never returns a coordinate. It says what it wants — "rear yard, five feet off the
+// line, parallel to it, centred on the living room" — and this works out where that is, against
+// the lot, the setbacks, the house and whatever is already down. When it cannot honour a part of
+// it, it says which part rather than quietly putting the thing somewhere else.
+const PLACE_ANCHORS={
+  "rear":  {nm:"rear property line",  edge:"rear"},
+  "front": {nm:"front property line", edge:"front"},
+  "left":  {nm:"left property line",  edge:"left"},
+  "right": {nm:"right property line", edge:"right"},
+  "house": {nm:"the house",           house:1},
+  "centre":{nm:"the middle of the yard", centre:1}
+};
+function _ptRoomMarker(name){
+  const onPage=o=>(o.page==null||o.page===PT.page);
+  const want=String(name||"").toLowerCase();
+  let best=null;
+  (PT.ai||[]).forEach(a=>{ if(!onPage(a)) return;
+    const lab=String(a.label||a.t||"").toLowerCase();
+    if(a.t==="room"&&want&&lab.indexOf(want.split(/[ -]/)[0])>=0) best=best||{x:a.x,y:a.y};
+    if(!want&&a.t==="room") best=best||{x:a.x,y:a.y};
+    if(a.t==="window"&&want.indexOf("window")>=0&&a.tx!=null) best=best||{x:(a.x+a.tx)/2,y:(a.y+a.ty)/2};
+  });
+  return best;
+}
+// The setback that governs one item, in feet, and where the figure came from.
+function _ptSetbackFor(item, side){
+  const city=(S.pi&&S.pi.city)||"";
+  let g=null; try{ g=sbGoverning(city,item||"structure"); }catch(e){}
+  if(!g) return null;
+  const s=(g.alsoCity&&g.alsoCity.ft!=null)?g:g;
+  let ft=g.ft;
+  // a record that split its figure by edge uses the edge you asked for
+  try{ const rec=SETBACKS[String(city).toLowerCase().trim()];
+    const per=rec&&rec.src&&rec.src[g.usedKey];
+    if(per&&side&&per[side]!=null) ft=+per[side];
+    else if(rec&&side&&rec[side]!=null&&g.usedKey==="structure") ft=+rec[side];
+  }catch(e){}
+  return {ft:+ft||0, verified:!!g.verified, cite:g.cite||null, label:g.label,
+    inherited:g.inherited||null, source:g.source||"city"};
+}
+// Does a rectangle sit clear of everything it has to sit clear of?
+function _ptFits(pts, opts){
+  opts=opts||{};
+  const lot=_ptLotPoly();
+  const bad=[];
+  if(lot){ const inside=pts.every(q=>_ptPointInPoly(q,lot.pts));
+    if(!inside) bad.push("outside the "+(lot.mode==="lot"?"property line":"limit of work")); }
+  if(!opts.overHouse){ const b=_ptBuildingPoly();
+    if(b&&_ptPolyHits(pts,b.pts)) bad.push("on top of the house"); }
+  const skip=opts.skip;
+  (PT.polys||[]).forEach(p=>{
+    if(p===skip||!p.pts||p.pts.length<3) return;
+    if(p.page!=null&&p.page!==PT.page) return;
+    if(["lot","limit","building","planting","turf","paving","driveway","exclude","demo"].indexOf(p.mode)>=0) return;
+    if(_ptPolyHits(pts,p.pts)) bad.push("over "+((p.name||"").trim()||_ptMode(p.mode).label.toLowerCase()));
+  });
+  return {ok:!bad.length, bad};
+}
+// Two convex-ish polygons overlapping — corner inside the other, or edges crossing.
+function _ptPolyHits(A,B){
+  for(const q of A) if(_ptPointInPoly(q,B)) return true;
+  for(const q of B) if(_ptPointInPoly(q,A)) return true;
+  for(let i=0;i<A.length;i++){ const a1=A[i], a2=A[(i+1)%A.length];
+    for(let j=0;j<B.length;j++){ const b1=B[j], b2=B[(j+1)%B.length];
+      if(_ptSegCross(a1,a2,b1,b2)) return true; } }
+  return false;
+}
+function _ptSegCross(p1,p2,p3,p4){
+  const d=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+  const d1=d(p3,p4,p1), d2=d(p3,p4,p2), d3=d(p1,p2,p3), d4=d(p1,p2,p4);
+  return ((d1>0&&d2<0)||(d1<0&&d2>0)) && ((d3>0&&d4<0)||(d3<0&&d4>0));
+}
+function _ptRectPts(c, lenFt, depFt, rotDeg){
+  const u=_ptUnitsPerFoot(c);
+  const hl=lenFt*u/2, hd=depFt*u/2;
+  const r=(rotDeg||0)*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r);
+  return [[-hl,-hd],[hl,-hd],[hl,hd],[-hl,hd]].map(([x,y])=>({x:c.x+x*cs-y*sn, y:c.y+x*sn+y*cs}));
+}
+// THE SOLVER.  spec: {anchor, offsetFt, align, centreOn, lenFt, depFt, item}
+function ptSolvePlace(spec){
+  spec=spec||{};
+  const F=ptSiteFrame();
+  const notes=[], missed=[];
+  const lenFt=Math.max(0.5,+spec.lenFt||10), depFt=Math.max(0.5,+spec.depFt||10);
+  if(!F.ok){
+    const st=document.getElementById("pt-stage");
+    const c=_toPdf({x:(st?st.scrollLeft+st.clientWidth/2:300), y:(st?st.scrollTop+st.clientHeight/2:300)});
+    return {ok:true, loose:true, c, rot:0, lenFt, depFt,
+      why:F.why, notes:[F.why], missed:["where it should sit"], fits:{ok:true,bad:[]}};
+  }
+  const A=PLACE_ANCHORS[spec.anchor]||PLACE_ANCHORS.rear;
+  let edge=null, base=null, rot=0;
+  if(A.edge){ edge=F[A.edge];
+    if(!edge){ edge=F.rear||F.front; missed.push("the "+A.nm); } }
+  if(A.house){ const b=_ptBuildingPoly();
+    if(!b){ edge=F.rear; missed.push("the house — nothing traced, so it went to the rear line instead"); }
+    else {
+      // the wall of the house that faces the middle of the yard
+      const bc=_ptCentroid(b.pts), lc=F.ctr, n=b.pts.length;
+      let best=null, bs=-2;
+      for(let i=0;i<n;i++){ const a=b.pts[i], q=b.pts[(i+1)%n];
+        const mid={x:(a.x+q.x)/2,y:(a.y+q.y)/2};
+        const vx=q.x-a.x, vy=q.y-a.y, L=Math.hypot(vx,vy)||1;
+        let nx=-vy/L, ny=vx/L;
+        if((mid.x-bc.x)*nx+(mid.y-bc.y)*ny<0){ nx=-nx; ny=-ny; }
+        const tx=lc.x-bc.x, ty=lc.y-bc.y, TL=Math.hypot(tx,ty)||1;
+        const sc=(nx*tx/TL+ny*ty/TL)*L;
+        if(sc>bs){ bs=sc; best={a,b:q,mid,nx,ny,ang:Math.atan2(vy,vx)*180/Math.PI,len:L,away:1}; } }
+      edge=best;
+    } }
+  if(A.centre||!edge){ base=F.ctr; rot=0; }
+  const u=_ptUnitsPerFoot(F.ctr);
+  // the setback that governs, and the offset actually used
+  let sb=null; try{ sb=_ptSetbackFor(spec.item, (A.edge==="rear"?"rear":(A.edge==="front"?"front":"side"))); }catch(e){}
+  let offFt=(spec.offsetFt!=null&&isFinite(+spec.offsetFt))?+spec.offsetFt:(sb?sb.ft:null);
+  if(offFt==null){ offFt=5; missed.push("no setback on file — it used 5 feet"); }
+  else if(sb&&spec.offsetFt!=null&&+spec.offsetFt<sb.ft)
+    notes.push("You asked for "+(+spec.offsetFt)+"′ but the setback is "+sb.ft+"′.");
+  if(edge&&!A.centre){
+    rot=(spec.align==="none")?0:edge.ang;
+    // in from the line by the offset plus half the depth — or out from a house wall, which is
+    // the same step taken the other way
+    const sgn=edge.away?1:-1;
+    const inx=sgn*edge.nx, iny=sgn*edge.ny;
+    const d=(offFt+depFt/2)*u;
+    base={x:edge.mid.x+inx*d, y:edge.mid.y+iny*d};
+    // slide along the line to centre on something, if asked
+    if(spec.centreOn){
+      const m=_ptRoomMarker(spec.centreOn);
+      if(m){
+        const ex=(edge.b.x-edge.a.x), ey=(edge.b.y-edge.a.y), EL=Math.hypot(ex,ey)||1;
+        const ux=ex/EL, uy=ey/EL;
+        const t=((m.x-base.x)*ux+(m.y-base.y)*uy);
+        base={x:base.x+ux*t, y:base.y+uy*t};
+        notes.push("Centred on the "+spec.centreOn+".");
+      } else missed.push("the "+spec.centreOn+" — nothing marked on the plan");
+    }
+  }
+  // does it fit? if not, walk it in off the line until it does
+  let pts=_ptRectPts(base, lenFt, depFt, rot);
+  let fits=_ptFits(pts, {skip:spec.skip});
+  let moved=0;
+  if(!fits.ok && edge && !A.centre){
+    const sgn=edge.away?1:-1;
+    const inx=sgn*edge.nx, iny=sgn*edge.ny;
+    for(let step=1; step<=40 && !fits.ok; step++){
+      moved=step*2;
+      base={x:edge.mid.x+inx*(offFt+depFt/2+moved)*u, y:edge.mid.y+iny*(offFt+depFt/2+moved)*u};
+      if(spec.centreOn){ const m=_ptRoomMarker(spec.centreOn);
+        if(m){ const ex=(edge.b.x-edge.a.x), ey=(edge.b.y-edge.a.y), EL=Math.hypot(ex,ey)||1;
+          const t=((m.x-base.x)*ex/EL+(m.y-base.y)*ey/EL);
+          base={x:base.x+ex/EL*t, y:base.y+ey/EL*t}; } }
+      pts=_ptRectPts(base, lenFt, depFt, rot);
+      fits=_ptFits(pts, {skip:spec.skip});
+    }
+    if(fits.ok&&moved) notes.push("Moved "+moved+"′ further in to clear "+(fits.wasBad||"what was in the way")+".");
+  }
+  return {ok:true, c:base, rot, lenFt, depFt, pts, fits, frame:F, anchor:A, edge,
+    setback:sb, offsetFt:offFt, movedFt:moved, notes, missed,
+    why:(A.centre?"Middle of the yard.":(A.nm[0].toUpperCase()+A.nm.slice(1)+", "+offFt+"′ off"
+      +(spec.align==="none"?"":", parallel to it")+(spec.centreOn?(", centred on the "+spec.centreOn):"")+"."))};
+}
 function _ptHull(pts){
   const s=pts.slice().sort((a,b)=>a.x-b.x||a.y-b.y);
   const cr=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
