@@ -7438,7 +7438,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1474</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1475</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -56409,6 +56409,8 @@ function wbSet(f,v){
     if(v==="stepped") wbSegs();
     if(v==="constant"){ /* the zones are kept, in case you switch back */ } }
   else if(f==="colorA"||f==="colorB"){ w[f]=!!v; }
+  else if(f==="matVeneerA"||f==="matVeneerB"){ w[f]=matPick("veneer",v); }
+  else if(f==="matCap"){ w.matCap=matPick("cap",v); }
   else w[f]=v;
   // a wall that does not retain has nothing to retain
   if(!(R.types[w.type]||{}).ret && f==="type") w.retH=0;
@@ -56544,6 +56546,17 @@ function wbRender(){
     if(/stuc|plas|paint/i.test(((R.finish[w.finishB]||{}).rec)||"")) fi+=_wbRow("Integral colour, side B","",
       '<span class="wb-chips"><button class="wb-chip'+(w.colorB?" on":"")+'" onclick="wbSet(\'colorB\','+(w.colorB?"false":"true")+')">'+(w.colorB?"on":"off")+'</button></span>');
   }
+  if(!quick){
+    const vA=/vnr|brick|tile/.test(((R.finish[w.finishA]||{}).rec)||"");
+    const vB=/vnr|brick|tile/.test(((R.finish[w.finishB]||{}).rec)||"");
+    if(vA) fi+=_wbRow("Product, side A","from the Materials book — replaces the allowance",
+      matSelect("veneer", w.matVeneerA, "wbSet('matVeneerA',this.value)"));
+    if(vB) fi+=_wbRow("Product, side B","",
+      matSelect("veneer", w.matVeneerB, "wbSet('matVeneerB',this.value)"));
+    [["matVeneerA","side A"],["matVeneerB","side B"]].forEach(([k,lbl])=>{
+      const m=w[k]; if(m&&m.noPrice) fi+='<div class="wb-note" style="color:#F2C14E">'
+        +escAttr(m.nm)+' has no price in the Materials book yet, so '+lbl+' is still on the allowance.</div>'; });
+  }
   fi+='<div class="wb-note">Finish is only ever taken off exposed face. Nothing is applied to the buried side.</div>';
   h+=SEC("finish","Finish",(R.finish[w.finishA]||{}).label+(w.finishB!==w.finishA?(" / "+(R.finish[w.finishB]||{}).label):""), fi);
   // ── CAP ─────────────────────────────────────────────────────────────────
@@ -56552,6 +56565,10 @@ function wbRender(){
   if(w.cap!=="none"&&!quick){
     cp+=_wbRow("Cap width","",_wbChips("capOver",w.capOver,_wbKeys(R.capOver))+" "+_wbNum("capWIn",w.capWIn,1,"in",String((+w.thkIn||8)+((R.capOver[w.capOver]||R.capOver.flush).in))));
     cp+=_wbRow("Cap edge","fabrication premium",_wbSel("capEdge",w.capEdge,_wbKeys(R.capEdge,(k,v)=>v.label+(v.f>1?(" · +"+Math.round((v.f-1)*100)+"%"):""))));
+    if((R.cap[w.cap]||{}).mat) cp+=_wbRow("Product","from the Materials book — replaces the allowance",
+      matSelect("cap", w.matCap, "wbSet('matCap',this.value)"));
+    if(w.matCap&&w.matCap.noPrice) cp+='<div class="wb-note" style="color:#F2C14E">'
+      +escAttr(w.matCap.nm)+' has no price in the Materials book yet, so the cap is still on the allowance.</div>';
   }
   h+=SEC("cap","Cap",(R.cap[w.cap]||{}).label, cp);
   // ── DRAINAGE ────────────────────────────────────────────────────────────
@@ -57065,6 +57082,7 @@ function courtNew(o){ const R=_cRule();
     // accessories
     acc:{}, accNetLF:0,
     // soft costs
+    matSurf:null, matCap:null,
     softOn:false, eng:{}, engCustom:{},
     permitOn:false, permitCustom:null,
     retainingOn:false, retainingAllow:0,
@@ -57152,7 +57170,13 @@ function courtCost(c){
   }
   // ── 4 playing surface (§5) ─────────────────────────────────────────────
   const S1=R.surf[c.surf]||R.surf.none;
-  if(S1.rec) add("Playing Surface","Surface",S1.label+" Surface",g.areaSF,"SF",S1.rec);
+  if(S1.rec){
+    // §27 a named product from the Materials book replaces the generic allowance, with the waste
+    // that material carries. No price on file and it stays on the allowance and says so.
+    const mp=(c.matSurf&&+c.matSurf.sf>0)?c.matSurf:null;
+    const rate=mp?(cVal(S1.rec)+(+mp.sf)*1.10):null;
+    add("Playing Surface","Surface",S1.label+" Surface"+(mp?(" \u00b7 "+mp.nm):""),g.areaSF,"SF",S1.rec,rate);
+  }
   // colour and graphics (§6)
   const col=R.colors[c.color]||R.colors.standard;
   if(col.extra>0){ const sf=(c.colorSF!=null&&isFinite(+c.colorSF)&&+c.colorSF>0)?+c.colorSF:g.areaSF;
@@ -57393,6 +57417,50 @@ function courtBreakdown(p){ const c=courtOf(p); if(!c) return null;
 // it cannot map to a real field is reported rather than guessed at.
 const NLB={busy:false, last:null};
 // What a builder will accept, generated from its rules so it can never drift from the controls.
+// ── REAL PRODUCTS ON THE BUILDERS ──────────────────────────────────────────
+// §55/§56 on the wall, §27 on the court. A veneer, a cap or a court surface can be a named
+// product out of the Materials book rather than a generic allowance — and when it is, the
+// product's own $/SF at the project's price point replaces the allowance, with the waste the
+// material actually carries. It never invents a price: a material with no retail figure entered
+// is offered and says so.
+function matsFor(kind){
+  const out=[];
+  try{
+    (ASM_MATS||[]).forEach(m=>{
+      if(!m||!m.n) return;
+      const nm=String(m.n).toLowerCase();
+      let ok=false;
+      if(kind==="veneer") ok=/stone|limestone|bluestone|brick|travertine|porcelain|tile|slate|quartz/.test(nm);
+      else if(kind==="cap") ok=/limestone|bluestone|travertine|stone|porcelain|tile|precast|concrete/.test(nm);
+      else if(kind==="surface") ok=/porcelain|tile|concrete|pebble/.test(nm);
+      else ok=true;
+      if(!ok) return;
+      let sf=null; try{ sf=asmMatRetail(m.n, _matTierName()); }catch(e){}
+      out.push({n:m.n, sf:(sf!=null&&isFinite(+sf))?+sf:null, thick:m.thick||null, cat:m.cat||""});
+    });
+  }catch(e){}
+  return out;
+}
+function _matTierName(){
+  let pt=1; try{ pt=(typeof _tkPointOverride!=="undefined"&&_tkPointOverride!=null)?_tkPointOverride:ptPricePoint(); }catch(e){}
+  return (pt===0)?"value":((pt===2)?"premium":"standard");
+}
+// The <select> for one of them, and what picking it stores.
+function matSelect(kind, cur, onchange){
+  const list=matsFor(kind);
+  const now=(cur&&cur.nm)||"";
+  return '<select onchange="'+onchange+'">'
+    +'<option value=""'+(now?"":" selected")+'>\u2014 generic allowance</option>'
+    +list.map(m=>'<option value="'+escAttr(m.n)+'"'+((now===m.n)?" selected":"")+'>'
+      +escAttr(m.n)+(m.sf!=null?(" \u00b7 $"+(+m.sf).toFixed(2)+"/SF"):" \u00b7 no price yet")+'</option>').join("")
+    +'</select>';
+}
+function matPick(kind, name){
+  if(!name) return null;
+  const m=matsFor(kind).find(x=>x.n===name);
+  if(!m) return null;
+  return {nm:m.n, sf:m.sf, thick:m.thick, noPrice:(m.sf==null)};
+}
 // ── ONE NATURAL-LANGUAGE LAYER FOR EVERY BUILDER ───────────────────────────
 // A builder registers what it will accept and how to set it. Nothing else changes: the model is
 // handed the schema, returns a patch, and every value goes in through the builder's OWN setter, so
@@ -57903,6 +57971,8 @@ function cbSet(f,v){
     if(isFinite(n)&&n>0) c[f]=n; if(f==="padW"||f==="padL") c._dimSet=1; }
   else if(f==="extraSports"){ const a=c.extraSports||[]; const i=a.indexOf(v);
     if(i>=0) a.splice(i,1); else a.push(v); c.extraSports=a; }
+  else if(f==="matSurf"){ c.matSurf=matPick("surface",v); }
+  else if(f==="matCap"){ c.matCap=matPick("cap",v); }
   else if(f.indexOf("equip.")===0){ c.equip=c.equip||{}; const n=+v; c.equip[f.slice(6)]=isFinite(n)?Math.max(0,n):0; }
   else if(f.indexOf("acc.")===0){ c.acc=c.acc||{}; const n=+v; c.acc[f.slice(4)]=isFinite(n)?Math.max(0,n):0; }
   else if(f.indexOf("eng.")===0){ c.eng=c.eng||{}; c.eng[f.slice(4)]=!!v; }
@@ -58048,6 +58118,10 @@ function cbRender(){
     sf+=_cbRow("Colour","standard colours do not change the price",_cbSel("color",c.color,_cbKeys(R.colors)));
     if((R.colors[c.color]||{}).extra>0) sf+=_cbRow("Area taking extra colour","",_cbNum("colorSF",c.colorSF,50,"SF",String(Math.round(g.areaSF))));
     sf+=_cbRow("Custom logos / graphics","",_cbNum("logos",c.logos,1,"ea"));
+    if((R.surf[c.surf]||{}).rec) sf+=_cbRow("Product","from the Materials book — replaces the allowance",
+      matSelect("surface", c.matSurf, "cbSet('matSurf',this.value)"));
+    if(c.matSurf&&c.matSurf.noPrice) sf+='<div class="wb-note" style="color:#F2C14E">'
+      +escAttr(c.matSurf.nm)+' has no price in the Materials book yet, so this stays on the allowance.</div>';
   }
   h+=SEC("surface","Playing surface",(R.surf[c.surf]||{}).label, sf);
   // ── 5 SPORTS & STRIPING (§7) ────────────────────────────────────────────

@@ -43,12 +43,13 @@ Ordered roughly by how much it costs us to keep not doing it.
   pit, a pool heater and a patio cover carry their own numbers where the code gives them one.
 - Nothing reads setbacks for pricing or placement yet — that lands with AI placement (item 1).
 
-### 2 · Materials Library on the builders — §55/§56 (Wall) and §27 (Court)
-Both engines already accept a real product with waste (`matVeneerA/B`, `matCap`, court surface and
-cap product records). Neither has a picker wired to the library.
-Product fields the specs ask for: manufacturer, model, finish/colour, dimensions, image,
-specification PDF, CAD/detail reference, unit price, vendor, purchase link.
-**One job covering both builders — do it once.**
+### 2 · Product records — the fields beyond a price
+v1475 wired the Materials book to the wall's veneer and cap and the court's surface: a named
+product replaces the generic allowance at its own $/SF with the right waste, and one with no
+price on file says so and stays on the allowance.
+What the specs ask for and the book does not hold yet: manufacturer, model, finish/colour,
+dimensions, image, specification PDF, CAD/detail reference, vendor, purchase link. Those are a
+Materials-book schema job, not a builder job — and they are what §27's specification output needs.
 
 ### 3 · Fence & Gates hand-off
 When the Fence & Gates builder is built, the Sport Court Builder's own fencing, gate and windscreen
