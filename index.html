@@ -7438,7 +7438,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1476</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1477</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27918,7 +27918,7 @@ setTimeout(()=>{ try{ refreshTraceButtons(); }catch(e){} }, 300);
 // ── Shared pricing/config on the server (price book, nurseries, labor, markup, settings) ──
 // Materials and Furnishings moved OUT of this bundle into studioh-goods — see
 // goodsPush/goodsPull. They grow without limit; everything left here is small.
-const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1","studioh_bookstamps_v1","studioh_concrete_v1","studioh_wall_v2","studioh_court_v1","studioh_setbacks_v1"];
+const SHARED_CFG_KEYS=["studioh_prefs_v1","studioh_pricebook_v5","studioh_labor_v1","studioh_assemblies_v1","studioh_oap_v1","studioh_valov_v1","studioh_mods_v1","studioh_assume_v1","studioh_matmarkup_v1","studioh_louverkits_v1","studioh_nurseries_v1","studioh_settings_v1","studioh_reprice_v1","studioh_lightprice_v2","studioh_tree_reprice_v1","studioh_floorpurge_v1","studioh_poolprices_v1","studioh_poolenergy_v1","studioh_citytemps_v1","studioh_water_v1","studioh_favs_v1","studioh_imgmodel_v1","studioh_imgstyle_v1","studioh_mfgframe_v1","studioh_mfgedit_v1","studioh_brandblock_v1","studioh_brandperms_v1","studioh_productmedia_v1","studioh_shvizcfg_v1","studioh_bookstamps_v1","studioh_concrete_v1","studioh_wall_v2","studioh_court_v1","studioh_setbacks_v1","studioh_bidlog_v1"];
 // ── Settings save themselves ─────────────────────────────────────────────────
 // "We have so many publish to serve, publish to this. Export this, and that. And 'pick
 // server or pick local'. I've never seen an app with all this shit." Correct — and the
@@ -56646,7 +56646,9 @@ function wbRender(){
   host.innerHTML='<div class="lbx wbx" role="dialog" aria-modal="true" aria-label="Wall Builder">'
     +'<div class="lb-h"><span style="font-weight:800;font-size:15px;letter-spacing:-.01em">Wall Builder</span>'
     +'<span class="lb-pos">'+escAttr((R.types[w.type]||{}).label)+' · '+_tkFmt(Math.round(w.lf))+' LF · '+ftxt(g.H)+'</span>'
-    +'<span class="lb-sp">'+_stSeg(WB.mode,[{v:"quick",nm:"Quick"},{v:"detailed",nm:"Detailed"}],"wbMode")
+    +'<span class="lb-sp">'
+    +'<button class="lb-ico" onclick="wbLogBid()" title="Log what a contractor bid for this">$</button>'
+    +_stSeg(WB.mode,[{v:"quick",nm:"Quick"},{v:"detailed",nm:"Detailed"}],"wbMode")
     +'<button class="lb-ico" onclick="wbClose()" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>'
     +'<div class="wb-b"><div class="wb-l">'+h+'</div><aside class="wb-r">'+right+'</aside></div></div>';
   host.onmousedown=e=>{ if(e.target===host) wbClose(); };
@@ -57417,6 +57419,78 @@ function courtBreakdown(p){ const c=courtOf(p); if(!c) return null;
 // it cannot map to a real field is reported rather than guessed at.
 const NLB={busy:false, last:null};
 // What a builder will accept, generated from its rules so it can never drift from the controls.
+// ── WHAT IT ACTUALLY CAME IN AT ────────────────────────────────────────────
+// §77 on both specs. An estimate is a guess until a contractor prices the same scope; the gap
+// between the two is the only real calibration this Price Book will ever get, and it is worth
+// more than any national cost data. Every record keeps what was estimated, what was bid, and
+// enough of the job to know why they differed — geometry, system, finish, access, region and the
+// price point it was quoted at. Nothing here changes a price on its own: it reports, and Warwick
+// decides what to move.
+const BID_KEY="studioh_bidlog_v1";
+let BIDLOG=(function(){ try{ const s=localStorage.getItem(BID_KEY); if(s){ const j=JSON.parse(s); if(Array.isArray(j)) return j; } }catch(e){} return []; })();
+function bidLogSave(){ try{ localStorage.setItem(BID_KEY, JSON.stringify(BIDLOG)); }catch(e){}
+  try{ cfgStampKey(BID_KEY); _cfgSchedulePush(); }catch(e){} }
+// What kind of thing this was, and the facts that would explain a gap.
+function _bidFacts(kind, obj){
+  const f={kind:kind};
+  try{
+    if(kind==="wall"&&obj){ const r=wallCost(obj), g=r.geom;
+      Object.assign(f,{lf:r.lf, h:g.H, retH:g.retH, sys:obj.sys, thkIn:obj.thkIn,
+        finishA:obj.finishA, finishB:obj.finishB, cap:obj.cap, access:obj.access,
+        surcharge:obj.surcharge, faceSF:Math.round(r.faceSF), estimate:Math.round(r.total),
+        perLF:Math.round(r.perLF*100)/100, conf:r.conf}); }
+    else if(kind==="court"&&obj){ const r=courtCost(obj), g=r.geom;
+      Object.assign(f,{type:obj.type, padW:g.padW, padL:g.padL, areaSF:Math.round(g.areaSF),
+        base:obj.base, surf:obj.surf, fence:!!obj.fenceOn, fenceH:obj.fenceH, light:!!obj.lightOn,
+        access:obj.access, topo:obj.topo, estimate:Math.round(r.total),
+        perSF:Math.round(r.perSF*100)/100, conf:r.conf}); }
+    else if(kind==="section"&&obj){
+      Object.assign(f,{section:obj, estimate:Math.round(catSubtotal(obj)||0)}); }
+  }catch(e){}
+  try{ f.point=["Budget","Standard","Premium"][(function(){ try{ return ptPricePoint(); }catch(e){ return 1; } })()]||"Standard"; }catch(e){}
+  try{ f.region=(CRT.meta||CRT_META).region; f.city=(S.pi&&S.pi.city)||""; }catch(e){}
+  return f;
+}
+// Record a real bid against something this app estimated.
+function bidLogAdd(kind, obj, o){
+  o=o||{};
+  const bid=+o.bid||0; if(!(bid>0)) return null;
+  const f=_bidFacts(kind, obj);
+  const rec=Object.assign({
+    id:"b"+Math.random().toString(36).slice(2,9),
+    at:new Date().toISOString().slice(0,10),
+    project:(CLOUD_BID_NAME||(S.pi&&S.pi.project)||""),
+    contractor:String(o.contractor||"").trim(),
+    scope:String(o.scope||"").trim(),
+    bid:Math.round(bid), note:String(o.note||"").trim()
+  }, f);
+  rec.gap=(rec.estimate>0)?Math.round((rec.bid-rec.estimate)/rec.estimate*1000)/10:null;
+  BIDLOG.push(rec); bidLogSave();
+  return rec;
+}
+function bidLogDrop(id){ const i=BIDLOG.findIndex(b=>b.id===id); if(i>=0){ BIDLOG.splice(i,1); bidLogSave(); } }
+// What the log is telling us. Grouped by what it was, because a wall bidding 20% over says
+// nothing about a court.
+function bidLogReview(){
+  const by={};
+  BIDLOG.forEach(b=>{ if(b.gap==null) return;
+    const k=b.kind+(b.kind==="section"?(":"+b.section):(b.kind==="wall"?(":"+(b.sys||"")):(b.kind==="court"?(":"+(b.type||"")):"")));
+    (by[k]=by[k]||[]).push(b); });
+  const out=Object.keys(by).map(k=>{
+    const rows=by[k], gaps=rows.map(r=>r.gap).sort((a,b)=>a-b);
+    const mid=gaps.length%2?gaps[(gaps.length-1)/2]:(gaps[gaps.length/2-1]+gaps[gaps.length/2])/2;
+    const mean=gaps.reduce((a,b)=>a+b,0)/gaps.length;
+    const lo=gaps[0], hi=gaps[gaps.length-1];
+    // one bid says nothing; three that agree is worth acting on
+    const agree=(gaps.length>=3)&&(hi-lo<=25);
+    return {key:k, n:gaps.length, median:Math.round(mid*10)/10, mean:Math.round(mean*10)/10,
+      lo, hi, agree,
+      says: (gaps.length<3) ? (gaps.length+" bid"+(gaps.length===1?"":"s")+" — not enough to move a price on")
+        : (agree ? ("bids run "+(mid>0?"+":"")+Math.round(mid)+"% against the book, consistently — worth adjusting")
+                 : ("bids scatter from "+Math.round(lo)+"% to "+Math.round(hi)+"% — the spread is the story, not the average"))};
+  }).sort((a,b)=>b.n-a.n);
+  return {n:BIDLOG.length, groups:out};
+}
 // ── REAL PRODUCTS ON THE BUILDERS ──────────────────────────────────────────
 // §55/§56 on the wall, §27 on the court. A veneer, a cap or a court surface can be a named
 // product out of the Materials book rather than a generic allowance — and when it is, the
@@ -58037,6 +58111,23 @@ function cbToWall(){
   try{ wbRender(); }catch(e){}
   try{ _toast("Started a retaining wall at "+w.lf+" LF and "+w.h+"\u2032 \u2014 the court's allowance is dropped.","#2F5B23"); }catch(e){}
 }
+// §77 Log what a contractor actually bid for this, against what the app said.
+function cbLogBid(){ _bidPrompt("court", CB.c, (CB.c&&CB.c.name)||"Sport court"); }
+function wbLogBid(){ _bidPrompt("wall", WB.w, (WB.w&&WB.w.name)||"Wall"); }
+function _bidPrompt(kind, obj, label){
+  if(!obj) return;
+  let est=0; try{ est=Math.round(kind==="wall"?wallCost(obj).total:courtCost(obj).total); }catch(e){}
+  const who=prompt("Which contractor bid this?\n\n"+label+" \u2014 the app says "+fmtN(est));
+  if(who===null) return;
+  const amt=prompt("What did they bid, in dollars?\n\nLeave it blank to cancel.");
+  if(!amt) return;
+  const n=+String(amt).replace(/[^0-9.]/g,"");
+  if(!(n>0)){ try{ _toast("That is not a figure.","#B23F3C"); }catch(e){} return; }
+  const rec=bidLogAdd(kind, obj, {bid:n, contractor:who, scope:label});
+  if(!rec) return;
+  try{ _toast("Logged. "+(rec.gap>0?"+":"")+rec.gap+"% against the book.",
+    Math.abs(rec.gap)>20?"#8A6D1F":"#2F5B23"); }catch(e){}
+}
 function cbName(v){ if(CB.c){ CB.c.name=String(v||""); try{ _bidSchedule(); }catch(e){} cbRender(); } }
 function cbDup(){ if(CB.id){ const d=courtDuplicate(CB.id); if(d){ CB.id=d.courtId; CB.c=d; cbRender(); } } }
 function cbDel(){ if(!CB.id) return; courtDelete(CB.id); cbClose(); }
@@ -58261,6 +58352,7 @@ function cbRender(){
     +'<span class="lb-sp">'
     +(CB.poly==null?'<button class="lb-ico" onclick="cbToTrace()" title="Place this court on the plan">\u2197</button>':'')
     +_stSeg(CB.mode,[{v:"simple",nm:"Simple"},{v:"advanced",nm:"Advanced"}],"cbMode")
+    +'<button class="lb-ico" onclick="cbLogBid()" title="Log what a contractor bid for this">$</button>'
     +(CB.id?'<button class="lb-ico" onclick="cbDup()" title="Duplicate this court">⧉</button>'
            +'<button class="lb-ico" onclick="cbDel()" title="Delete this court">🗑</button>':'')
     +'<button class="lb-ico" onclick="cbClose()" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></span></div>'

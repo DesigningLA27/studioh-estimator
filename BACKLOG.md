@@ -77,10 +77,16 @@ height zones by vertex is the remaining piece.
 $149,940 against a published $55–120k. Flagged, not overwritten, which is correct — but the band may
 simply be too narrow for a court with fencing and lighting. **Warwick to confirm.**
 
-### 11 · §77 — bid vs estimate learning store
-Both the Wall and Court specs ask for it: store estimated cost, actual bid, contractor, geometry,
-system, finish, access and region, then analyse variance and recalibrate the Price Book.
-Eventually worth more than any national cost data.
+### 11 · §77 — what to do with the bid log
+v1477 built the store: every bid keeps what was estimated, what was bid, and the geometry, system,
+finish, access, price point and city that would explain the gap. bidLogReview() groups them and
+refuses to draw a conclusion from fewer than three, or from three that disagree.
+Still open:
+- **No screen shows it.** The log is written from the builders and read only from the console.
+  It wants a page in the Price Book — a row per group, the gap, and a button that moves the
+  record it is talking about.
+- **Nothing moves a price yet, by design.** When a group agrees, applying it should be one
+  deliberate click with the before and after shown, never automatic.
 
 ### 13 · Older open items
 - Decide whether to repair "Project Sample 1" (`bid_mt9her0rfie5`).
