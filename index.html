@@ -7441,7 +7441,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1493</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1494</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -59480,6 +59480,10 @@ function fenceSegNew(o){ const R=_fRule();
     wallTop:false, wallRef:"",
     hoaMaxH:null, codeMaxH:null,
     notes:"", decompose:false,
+    // §3 Level 3 / §33. What a real product is, once it is chosen. Nothing here is ever invented —
+    // a blank field means nobody has told the app yet, and it stays blank in the specification.
+    mfr:"", product:"", model:"", vendor:"", purchaseUrl:"", specUrl:"", cadRef:"", warranty:"",
+    matRate:null, matRateSrc:"",
     qtyOv:null, rateOv:null, lumpSum:null, exclude:false, specOnly:false
   }, o||{});
 }
@@ -59601,6 +59605,12 @@ function fenceCost(fin){
       // §39/Test G: a quote replaces THIS SEGMENT'S assembly allowance and nothing else — the
       // finish, the demolition, the gates and the geometry all stand, and so does the history.
       const quoted=(sg.lumpSum!=null&&+sg.lumpSum>0);
+      // §3 Level 3. A real material price replaces the material inside the assembly and leaves the
+      // labour the book has — not the whole rate, which would throw the installation away with it.
+      // The record's labour share is the only thing that says which part is which.
+      const bookRate=fVal(T.rec,pt)*q.heightF;
+      const labShare=fLab(T.rec);
+      const matKnown=!quoted&&(sg.matRate!=null&&+sg.matRate>0);
       // The record's own name may carry a height that is not this segment's (§14 writes chain link
       // and ornamental metal at their own heights), so say which is which rather than both.
       const tLbl=(T.atH&&Math.abs(q.h-T.atH)>0.01)
@@ -59611,16 +59621,20 @@ function fenceCost(fin){
           {rate:+sg.lumpSum, lab:0, seg:seg, size:false, prov:"user", override:true,
            status:"quoted", note:"A quote replaces the assembly allowance for this segment. Everything else on it still prices normally (§39)."});
       } else {
-      const base=(sg.rateOv!=null&&+sg.rateOv>0)?+sg.rateOv:(fVal(T.rec,pt)*q.heightF);
+      const base=(sg.rateOv!=null&&+sg.rateOv>0)?+sg.rateOv
+        :(matKnown?((+sg.matRate)+bookRate*labShare):bookRate);
       add(grp,"Assembly",nm+" — "+tLbl,q.netLF,"LF",T.rec,
-        {rate:base, seg:seg, slope:true, override:(sg.rateOv!=null&&+sg.rateOv>0),
-         prov:(sg.rateOv!=null&&+sg.rateOv>0)?"user":"assumed",
+        {rate:base, seg:seg, slope:true, override:(sg.rateOv!=null&&+sg.rateOv>0)||matKnown,
+         prov:((sg.rateOv!=null&&+sg.rateOv>0)||matKnown)?"user":"assumed",
          note:(q.heightF!==1?("Record written at "+((T.atH)||R.refH)+"′; "+q.h+"′ is ×"+q.heightF.toFixed(2)+" (§13)."):"")
+             +(matKnown?(" Material at $"+(+sg.matRate).toFixed(2)+"/LF"+(sg.matRateSrc?(" ("+sg.matRateSrc+")"):"")
+                        +" plus the book's $"+(bookRate*labShare).toFixed(2)+"/LF of labour, in place of the $"
+                        +bookRate.toFixed(2)+" allowance."):"")
              +(q.gateLF>0?(" Gate openings of "+q.gateLF+" LF taken out of the infill (§37)."):"")});
       }
       // §15 construction adders — percentage on the assembly only, until components replace them.
       // A quoted segment gets none of them: the quote is the whole assembly (§37).
-      const asmCostSeg=quoted?0:(fVal(T.rec,pt)*q.heightF*q.netLF);
+      const asmCostSeg=quoted?0:(bookRate*q.netLF);
       if(!quoted&&f.goodNeighbour&&T.mat==="wood")
         add("Construction","Adder",nm+" — finished both sides",1,"LS","aGoodNeigh",
           {rate:asmCostSeg*fVal("aGoodNeigh",pt)/100, seg:seg, slope:true,
@@ -59781,8 +59795,11 @@ function fenceConfidence(f,segs,R){
       else assumed.push(nm+" length is an allowance — "+Math.round(q.grossLF)+" LF");
     } else unresolved.push(nm+" has no length yet");
     if(sg.h!=null||f.h!=null) known.push(nm+" height "+q.h+"′");
-    if(sg.productId) known.push(nm+" product selected");
+    if(sg.product||sg.productId) known.push(nm+" product specified — "+[sg.mfr,sg.product||sg.productId].filter(Boolean).join(" "));
     else assumed.push(nm+" is a generic "+(fTypeOf(sg.type||f.type).label.toLowerCase())+" assembly, not a named product");
+    if(sg.lumpSum!=null&&+sg.lumpSum>0) known.push(nm+" priced from a contractor quote");
+    else if(sg.matRate!=null&&+sg.matRate>0) known.push(nm+" material priced from "+(sg.matRateSrc||"a real figure")+", not an allowance");
+    else if(sg.rateOv!=null&&+sg.rateOv>0) known.push(nm+" rate set by hand");
     if(!sg.spacing) assumed.push(nm+" posts at "+q.spacing+"′ on centre");
     if(!sg.footing) assumed.push(nm+" footings about "+q.footingDia+"″ × "+q.footingDepth+"″, normal soil");
   });
@@ -59920,8 +59937,14 @@ function fenceSpec(f){
       rail:sg.rail||"", finish:(R=>{ const k=sg.finish||f.finish;
         return ((_fRule().finishes||{})[k]||{}).label||""; })(), color:sg.color||"",
       finishedSide:sg.finishedSide||f.finishedSide,
-      mfr:sg.productId?((fRec(sg.productId)||{}).mfr||""):"",
-      model:sg.productId?((fRec(sg.productId)||{}).model||""):"",
+      mfr:sg.mfr||(sg.productId?((fRec(sg.productId)||{}).mfr||""):""),
+      product:sg.product||"",
+      model:sg.model||(sg.productId?((fRec(sg.productId)||{}).model||""):""),
+      vendor:sg.vendor||"",
+      materialPricePerLF:(sg.matRate!=null&&+sg.matRate>0)?+sg.matRate:undefined,
+      priceSource:sg.matRateSrc||"",
+      purchaseUrl:sg.purchaseUrl||"", specUrl:sg.specUrl||"", cadRef:sg.cadRef||"",
+      warranty:sg.warranty||"",
       url:sg.productId?((fRec(sg.productId)||{}).url||""):"",
       gates:(q.gates||[]).map(g=>({width:g.w, material:g.mat||T.mat, selfClose:!!g.selfClose})),
       notes:sg.notes||""};
@@ -60067,7 +60090,7 @@ function _renderCourt3(_mount){
 // §2C manual, §9 quick conceptual inputs, §29 the expanded calculation view. One record underneath
 // all of it: the simple view and the detail are the same fence, never two estimators.
 const FB={open:false, id:null, poly:null, f:null, mode:"simple", seg:0,
-  secs:{basic:1, segs:0, site:0, detail:0, gates:0, veh:0, pilaster:0, soft:0, calc:0, assume:0, comply:0, spec:0}};
+  secs:{basic:1, segs:0, site:0, detail:0, gates:0, veh:0, pilaster:0, soft:0, calc:0, assume:0, comply:0, spec:0, history:0}};
 function fbOpen(idOrPoly){
   if(typeof idOrPoly==="number"){ FB.poly=idOrPoly; FB.id=null;
     FB.f=fenceAttach(PT.polys[idOrPoly]); }
@@ -60123,7 +60146,10 @@ function fbSet(field,v){
       if(k==="lumpSum"&&sg[k]!=null&&sg[k]!==was) fenceHistory(f,(sg.name||"a run")+": contractor quote of "+fmtN(sg[k])+" replaced the assembly allowance.");
       if(k==="rateOv"&&sg[k]!=null&&sg[k]!==was) fenceHistory(f,(sg.name||"a run")+": rate set by hand to $"+(+sg[k]).toFixed(2)+"/LF."); }
     else if(/^(wallTop|decompose|exclude|specOnly)$/.test(k)) sg[k]=!!v;
-    else sg[k]=v;
+    else if(k==="matRate"){ const was=sg.matRate; sg.matRate=num(v);
+      if(sg.matRate!=null&&sg.matRate!==was) fenceHistory(f,(sg.name||"a run")+": material priced at $"+(+sg.matRate).toFixed(2)+"/LF"+(sg.vendor?(" from "+sg.vendor):"")+"."); }
+    else { const was=sg[k]; sg[k]=v;
+      if(k==="product"&&v&&v!==was) fenceHistory(f,(sg.name||"a run")+": specified "+[sg.mfr,v].filter(Boolean).join(" ")+"."); }
   }
   else if(/^(h|pilasters|demoFootings|hoaMaxH|codeMaxH)$/.test(F)) f[F]=num(v);
   else if(/^(decorTop|capRail|hiddenFast|framedPanel|goodNeighbour|clearVeg|protect|poolBarrier|survey|sitePlan|engGate|permitOn|hoaPkg|frontYard|cornerLot|rightOfWay)$/.test(F)) f[F]=!!v;
@@ -60284,6 +60310,19 @@ function fbRender(){
     sb+=_fbRow("Contractor quote","replaces the assembly only",_fbNum("seg.lumpSum",seg.lumpSum,100,"$"));
     sb+=_fbRow("Leave it out","",_fbTog("seg.exclude",seg.exclude,seg.exclude?"excluded":"in the estimate")
       +_fbTog("seg.specOnly",seg.specOnly,seg.specOnly?"specification only":"priced"));
+    // §3 Level 3. A real product replaces an allowance without disturbing the geometry.
+    const TXT=(f2,cur,ph)=>'<input value="'+esc(cur||"")+'" placeholder="'+esc(ph||"")+'" onchange="fbSet(\''+f2+'\',this.value)" style="min-width:0;flex:1;border:1px solid var(--br);border-radius:8px;background:var(--card);color:var(--tx);font:inherit;font-size:12px;padding:5px 8px">';
+    sb+='<div class="wb-note" style="margin-top:6px"><b style="color:var(--tx)">Specification</b> — everything here is optional and nothing is filled in for you. What is here goes to the specification; what is not stays blank.</div>';
+    sb+=_fbRow("Manufacturer","",TXT("seg.mfr",seg.mfr,"—"));
+    sb+=_fbRow("Product","",TXT("seg.product",seg.product,"—"));
+    sb+=_fbRow("Model / profile","",TXT("seg.model",seg.model,"—"));
+    sb+=_fbRow("Vendor","",TXT("seg.vendor",seg.vendor,"—"));
+    sb+=_fbRow("Material price","$/LF, from a real quote",_fbNum("seg.matRate",seg.matRate,1,"$/LF"));
+    sb+=_fbRow("Where it came from","",TXT("seg.matRateSrc",seg.matRateSrc,"a quote, a price list, a webstore"));
+    sb+=_fbRow("Purchase link","",TXT("seg.purchaseUrl",seg.purchaseUrl,"https://"));
+    sb+=_fbRow("Specification PDF","",TXT("seg.specUrl",seg.specUrl,"https://"));
+    sb+=_fbRow("CAD detail","",TXT("seg.cadRef",seg.cadRef,"a detail reference"));
+    sb+=_fbRow("Warranty","",TXT("seg.warranty",seg.warranty,"—"));
   }
   sb+=NOTE('<b style="color:var(--tx)">'+Math.round(sq.netLF)+' LF</b> of fence after '+Math.round(sq.gateLF)+' LF of gate opening · '
     +'<b style="color:var(--tx)">'+sq.posts+'</b> posts at '+sq.spacing+'′ on centre · '
@@ -60425,6 +60464,14 @@ function fbRender(){
       .map(k=>'<span style="margin-right:8px"><span style="color:var(--tl)">'+esc(k)+'</span> '+esc(typeof row[k]==="object"?JSON.stringify(row[k]):row[k])+'</span>').join("")
     +'</div></div>'; });
   h+=SEC("spec","Specification",fenceSpec(f).length+" record"+(fenceSpec(f).length===1?"":"s"), spb);
+  // §39 what has happened to this fence, so replacing an allowance is a thing that happened
+  let hb='';
+  const HIS=(f.history||[]).slice().reverse();
+  if(!HIS.length) hb=NOTE('Nothing yet. Running it along the property lines, replacing an allowance with a quote, or pricing a real product all leave a line here.');
+  HIS.forEach(x=>{ hb+='<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0;border-top:1px solid var(--br,#EFEDE6)">'
+    +'<span style="font:700 9.5px var(--tkf);color:var(--tl);white-space:nowrap;min-width:96px">'+esc(x.at)+'</span>'
+    +'<span style="font-size:11.5px;line-height:1.5;color:var(--tm)">'+esc(x.what)+'</span></div>'; });
+  h+=SEC("history","History",HIS.length+" entr"+(HIS.length===1?"y":"ies"), hb);
 
   // ── the cost column ────────────────────────────────────────────────────────────────
   let right='<div class="wb-cost">'
