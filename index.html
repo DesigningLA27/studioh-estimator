@@ -7457,7 +7457,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1507</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1508</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10492,7 +10492,31 @@ function renderTotal(){
 
 // ── PRO: BUILD CAT ACCORDIONS ────────────────────────────────
 function buildProCats(){
-  const cont=document.getElementById("pro-cats");cont.innerHTML="";
+  const cont=document.getElementById("pro-cats"); if(!cont) return;
+  // Built off-screen and swapped in whole. It used to clear the list first and append group by
+  // group, so anything throwing part way through left the sections that had already rendered and
+  // silently dropped every one after them — which on screen looks exactly like losing your work.
+  // A fragment cannot be half-shown: either the new list is complete or the old one stays put.
+  const frag=document.createDocumentFragment();
+  const _broke=[];
+  // A section that cannot render says so, in place, and the rest of the estimate carries on.
+  // Swallowing it made a broken section indistinguishable from one that was never there.
+  const _renderProCatSafe=(cat,ci,host)=>{
+    try{ _renderProCat(cat,ci,host); }
+    catch(e){
+      _broke.push((cat&&cat.name)||(cat&&cat.id)||"a section");
+      try{
+        const d2=document.createElement("div");
+        d2.className="section-wrap";
+        d2.innerHTML='<div class="shdr" style="cursor:default"><span class="sec-nb">'
+          +'<b class="pro-cat-name">'+escAttr((cat&&cat.name)||"Section")+'</b>'
+          +'<small class="sec-sub" style="color:#B23F3C">could not be drawn \u2014 '+escAttr(String(e&&e.message||e)).slice(0,90)+'</small>'
+          +'</span><span style="flex:1"></span></div>';
+        host.appendChild(d2);
+      }catch(_e){}
+      try{ console.error("buildProCats: "+((cat&&cat.id)||"?")+" \u2014 ", e); }catch(_e){}
+    }
+  };
   const _renderProCat=(cat,ci,cont)=>{
     const cs=S.cats[cat.id];const color=catColor(cat.id);
     const bodyId="pro-body-"+cat.id;
@@ -10588,7 +10612,7 @@ function buildProCats(){
         <span class="gchev">${gcol?'▸':'▾'}</span>
       </div>
       <div class="pro-grp-b" id="pro-grp-b-${g.id}"${gcol?' style="display:none"':''}></div>`;
-    cont.appendChild(wrap);
+    frag.appendChild(wrap);
     const body=wrap.querySelector(".pro-grp-b");
     if(g.subs){
       const inSub={};
@@ -10598,15 +10622,27 @@ function buildProCats(){
         if(!sIdx.length) return;
         const lbl=document.createElement("div"); lbl.className="pro-sublbl"; lbl.textContent=sub.nm;
         body.appendChild(lbl);
-        sIdx.forEach(ci=>_renderProCat(PB[ci],ci,body));
+        sIdx.forEach(ci=>_renderProCatSafe(PB[ci],ci,body));
       });
-      idxs.filter(ci=>!inSub[PB[ci].id]).forEach(ci=>_renderProCat(PB[ci],ci,body));
+      idxs.filter(ci=>!inSub[PB[ci].id]).forEach(ci=>_renderProCatSafe(PB[ci],ci,body));
     } else {
-      idxs.forEach(ci=>_renderProCat(PB[ci],ci,body));
+      idxs.forEach(ci=>_renderProCatSafe(PB[ci],ci,body));
     }
   });
-  PB.forEach(c=>refreshCatTotals(c.id));
-  refreshProGroupTotals();
+  // Refuse to paint a book that has not finished loading. A partial PB used to render as a
+  // partial estimate — the groups whose sections were not there yet simply did not appear, and
+  // nothing said why.
+  if(!frag.childNodes.length && (PB||[]).length){
+    try{ console.error("buildProCats: nothing to draw from "+(PB||[]).length+" sections"); }catch(_e){}
+    return;
+  }
+  cont.innerHTML="";
+  cont.appendChild(frag);
+  if(_broke.length){
+    try{ _toast(_broke.length+" section"+(_broke.length===1?"":"s")+" could not be drawn: "+_broke.join(", ")+". The figures are still in the total.","#B23F3C"); }catch(_e){}
+  }
+  PB.forEach(c=>{ try{ refreshCatTotals(c.id); }catch(_e){} });
+  try{ refreshProGroupTotals(); }catch(_e){}
 }
 // Group collapse state for the Pro estimator (persisted alongside the price book's).
 let PRO_GRP_COLLAPSED=(function(){ try{ const s=localStorage.getItem("studioh_pro_grp_v1"); if(s) return JSON.parse(s); }catch(e){} return {}; })();
@@ -67289,9 +67325,15 @@ function restoreBid(bid){
   try{ _piRenderBudget(); }catch(e){}
   try{ if(S.pi&&S.pi.address) resolveAddress(S.pi.address); }catch(e){}   // reopened project — bring its map back
   try{ updateProSiteDims(); }catch(e){}
-  try{ buildProCats(); }catch(e){}
-  try{ renderProSummary(); }catch(e){}
-  try{ renderAreaBudget(); }catch(e){}
+  // Opening a project must not fail quietly. These three paint the estimate, the summary rail and
+  // the budget; a swallowed failure here shows as missing work, which is the most alarming way it
+  // could possibly fail and the hardest to tell from real data loss.
+  (function(){ const bad=[];
+    try{ buildProCats(); }catch(e){ bad.push("the section list"); try{ console.error("restoreBid buildProCats:",e); }catch(_){} }
+    try{ renderProSummary(); }catch(e){ bad.push("the summary"); try{ console.error("restoreBid renderProSummary:",e); }catch(_){} }
+    try{ renderAreaBudget(); }catch(e){ bad.push("the area budget"); try{ console.error("restoreBid renderAreaBudget:",e); }catch(_){} }
+    if(bad.length) try{ _toast("The project opened but "+bad.join(" and ")+" could not be drawn. Nothing is lost \u2014 reload and it will try again.","#B23F3C"); }catch(_){}
+  })();
   try{ if(typeof plantRefresh==="function") plantRefresh(); }catch(e){}
   // loaded silently — no confirmation box; the project just opens
 }
