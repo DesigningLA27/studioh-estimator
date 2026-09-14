@@ -7457,7 +7457,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1509</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1510</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -10499,12 +10499,13 @@ function buildProCats(){
   // A fragment cannot be half-shown: either the new list is complete or the old one stays put.
   const frag=document.createDocumentFragment();
   const _broke=[];
+  const _fill=[];
   // A section that cannot render says so, in place, and the rest of the estimate carries on.
   // Swallowing it made a broken section indistinguishable from one that was never there.
   const _renderProCatSafe=(cat,ci,host)=>{
     try{ _renderProCat(cat,ci,host); }
     catch(e){
-      _broke.push((cat&&cat.name)||(cat&&cat.id)||"a section");
+      _broke.push(((cat&&cat.name)||(cat&&cat.id)||"a section"));
       try{
         const d2=document.createElement("div");
         d2.className="section-wrap";
@@ -10579,6 +10580,14 @@ function buildProCats(){
       </div>
     `;
     cont.appendChild(wrap);
+    // The builders find their own container with getElementById, and an element inside a
+    // DocumentFragment is NOT in the document — so they must not run until the fragment has been
+    // swapped in. Building off-screen without deferring them is what emptied the planting builder:
+    // the section skeleton was there, its zones were not.
+    _fill.push(cat);
+  };
+  // Fill a section's body once it is actually in the document.
+  const _fillBody=(cat)=>{
     if(cat.builder==="wall"){ renderWallBuilder(); }
     else if(cat.builder==="kitchen"){ renderKitchenBuilder(); }
     else if(cat.builder==="pergola"){ renderPergolaBuilder(); }
@@ -10638,6 +10647,19 @@ function buildProCats(){
   }
   cont.innerHTML="";
   cont.appendChild(frag);
+  // Now the sections are in the document, so the builders can find their containers.
+  _fill.forEach(cat=>{
+    try{ _fillBody(cat); }
+    catch(e){
+      _broke.push((cat&&cat.name)||(cat&&cat.id)||"a section");
+      try{ const b=document.getElementById("pro-body-"+cat.id);
+        if(b){ const d2=document.createElement("div");
+          d2.style.cssText="padding:.6rem 1rem;font-size:.78rem;color:#B23F3C";
+          d2.textContent=(cat.name||"This section")+" could not be drawn \u2014 "+String((e&&e.message)||e).slice(0,110);
+          b.appendChild(d2); } }catch(_e){}
+      try{ console.error("buildProCats fill: "+((cat&&cat.id)||"?")+" \u2014 ", e); }catch(_e){}
+    }
+  });
   if(_broke.length){
     try{ _toast(_broke.length+" section"+(_broke.length===1?"":"s")+" could not be drawn: "+_broke.join(", ")+". The figures are still in the total.","#B23F3C"); }catch(_e){}
   }
@@ -67341,6 +67363,11 @@ function restoreBid(bid){
     if(bad.length) try{ _toast("The project opened but "+bad.join(" and ")+" could not be drawn. Nothing is lost \u2014 reload and it will try again.","#B23F3C"); }catch(_){}
   })();
   try{ if(typeof plantRefresh==="function") plantRefresh(); }catch(e){}
+  // The header's lot and landscape line is written from S, and cloudLoadBid writes it BEFORE the
+  // state is restored — so it kept showing the previous project's site until something else
+  // happened to redraw it. Written again here, against the project that is now actually open.
+  try{ _refreshProjectName(); }catch(e){}
+  try{ renderPhaseBar(); }catch(e){}
   // loaded silently — no confirmation box; the project just opens
 }
 function _uniformTag(sources){ let L=null,P=null,T=null,okL=true,okP=true,okT=true; (sources||[]).forEach(s=>{ const l=((s.zone||s.loc)||"")+"",p=(s.phase||"")+"",t=(s.tags||"")+""; if(L===null)L=l;else if(L!==l)okL=false; if(P===null)P=p;else if(P!==p)okP=false; if(T===null)T=t;else if(T!==t)okT=false; }); return {loc:okL&&L?L:"",phase:okP&&P?P:"",tags:okT&&T?T:""}; }
