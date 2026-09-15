@@ -7457,7 +7457,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1510</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1511</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -39866,7 +39866,8 @@ function setPlantInstallRatio(name,ratioVal){
 }
 
 // ── mutators ─────────────────────────────────────────────────────
-function plantRefresh(){ ensurePlanting(); renderPlantingBuilder(); refreshCatTotals("planting"); renderProSummary&&renderProSummary(); }
+function plantRefresh(){ try{ _zhPark(); }catch(e){}   // the float belongs to a card about to be rebuilt
+  ensurePlanting(); renderPlantingBuilder(); refreshCatTotals("planting"); renderProSummary&&renderProSummary(); }
 // percentage step: 5% while ≥10%, 1% below 10% (lands cleanly on 10)
 function _pctStep(cur,dir){ cur=+cur||0; if(dir>0){ return cur>=10? cur+5 : Math.min(10,cur+1); } return cur>10? Math.max(10,cur-5) : cur-1; }
 function _pctStep5(cur,dir){ return Math.max(0,(Math.round((+cur||0)/5)+dir)*5); }
@@ -40037,18 +40038,55 @@ function zhRename(zi,ev){
     if(e.key==="Enter"){ e.preventDefault(); inp.blur(); }
     else if(e.key==="Escape"){ done=true; el.textContent=cur; } });
 }
+// The zone menu is absolutely positioned inside its own card, so z-index only ever competed
+// against that card's siblings — every zone below it painted on top and cut the panel in half.
+// Raising the number does not help: a stacking context contains its children whatever they ask
+// for. The panel is lifted onto document.body while it is open and put back on its card when it
+// closes, which is the same fix the plant image menu needed.
+function _zhPark(){
+  const d=document.getElementById("zh-float"); if(!d) return;
+  const home=document.getElementById(d.dataset.home||"");
+  d.removeAttribute("id"); d.style.cssText=""; delete d.dataset.home;
+  if(home) home.appendChild(d); else d.remove();
+}
 function zhMenu(ev,zi){
   if(ev&&ev.stopPropagation) ev.stopPropagation();
   const open=document.querySelector(".zh-menu.on");
   const me=(zi>=0)?document.getElementById("zhm-"+zi):null;
   const was=(open&&me&&open===me);
+  _zhPark();
   document.querySelectorAll(".zh-menu.on").forEach(x=>x.classList.remove("on"));
-  if(me&&!was) me.classList.add("on");
+  if(!me||was) return;
+  me.classList.add("on");
+  const panel=me.querySelector(":scope > div"); const kebab=me.querySelector(".zh-kebab");
+  if(!panel||!kebab) return;
+  const r=kebab.getBoundingClientRect();
+  panel.dataset.home=me.id;
+  panel.id="zh-float";
+  document.body.appendChild(panel);
+  // Style it BEFORE measuring. Once it leaves .zh-menu the class rules that gave it its width no
+  // longer apply, so measuring first read the width of the body and threw the panel off-screen.
+  const SKIN="position:fixed;right:auto;z-index:100000;background:#fff;border-radius:12px;"
+    +"box-shadow:0 14px 38px rgba(20,28,18,.20);padding:7px;width:250px;text-align:left;cursor:default;";
+  panel.style.cssText=SKIN+"display:block;visibility:hidden;left:0;top:0";
+  const w=panel.offsetWidth||250, h=panel.offsetHeight||0;
+  // right-aligned under the kebab, nudged back on screen at either edge, flipped above if it
+  // would run off the bottom
+  let left=Math.max(8, Math.min(r.right-w, window.innerWidth-w-8));
+  let top=r.bottom+6;
+  if(top+h>window.innerHeight-8) top=Math.max(8, r.top-h-6);
+  panel.style.cssText=SKIN+"display:block;left:"+Math.round(left)+"px;top:"+Math.round(top)+"px";
 }
 document.addEventListener("click",function(e){
-  if(e.target&&e.target.closest&&e.target.closest(".zh-menu")) return;
+  if(e.target&&e.target.closest&&(e.target.closest(".zh-menu")||e.target.closest("#zh-float"))) return;
+  _zhPark();
   document.querySelectorAll(".zh-menu.on").forEach(x=>x.classList.remove("on"));
 });
+// A float cannot be left behind by a scroll, a resize or a re-render of the list underneath it.
+window.addEventListener("scroll",function(){ if(document.getElementById("zh-float")){ _zhPark();
+  document.querySelectorAll(".zh-menu.on").forEach(x=>x.classList.remove("on")); } },true);
+window.addEventListener("resize",function(){ if(document.getElementById("zh-float")){ _zhPark();
+  document.querySelectorAll(".zh-menu.on").forEach(x=>x.classList.remove("on")); } });
 function shvRailHTML(){
   // The panel's entire look lives in .lib-scoped CSS — .lib .pbk-f{background:var(--pbpill)}
   // is what makes each row a white pill, .lib .pbk-sec sizes the section headings, and
@@ -67539,10 +67577,36 @@ function ptApply(){ const any=PT.polys.length||PT.trees.length; if(!any){ alert(
         if(S.cats.water){ S.cats.water.on=true; S.cats.water.lumpOn=false; }
         _seeded.push(`Water feature — ${wf.length} built from your trace`); } } }catch(e){}
   // PLANTING — one estimator zone per distinct traced planting label (carry location + phase)
-  try{ const pp=PT.polys.filter(p=>p.mode==="planting");
-    if(pp.length){ const groups={}, order=[]; pp.forEach((p,i)=>{ const key=(p.name&&p.name.trim())||(p.zone&&p.zone.trim())||("Planting "+(i+1)); if(!(key in groups)){ groups[key]={sf:0,loc:(p.zone||"").trim(),phase:(p.phase||"").trim()}; order.push(key); } groups[key].sf+=(p.sf||0); if(!groups[key].loc&&p.zone) groups[key].loc=p.zone.trim(); if(!groups[key].phase&&p.phase) groups[key].phase=p.phase.trim(); });
+  // A cut-out is a hole in the shape it was drawn inside — it SUBTRACTS from that zone and is not
+  // a zone of its own. It used to become one: an unnamed 359 SF hole inside Driveway Entrance came
+  // through as a zone called "Planting 3" carrying +359 SF while its host still carried its gross
+  // 1,226, so the hole was counted twice in the wrong direction and planting was 718 SF over.
+  // The take-off panel had it right all along — it reads holes through _ptTraceNet; only this
+  // apply did not.
+  try{ const _hset=(function(){ try{ return _ptHoles(); }catch(e){ return new Set(); } })();
+    const _all=PT.polys.map((p,i)=>({p,i})).filter(x=>x.p.mode==="planting");
+    const _solid=_all.filter(x=>!_hset.has(x.i));
+    const _holes=_all.filter(x=>_hset.has(x.i));
+    const pp=_solid.map(x=>x.p);
+    // The generated name still counts from the solid shapes only, so numbering does not shift
+    // about as holes are added or removed.
+    const _keyOf=(p,n)=>(p.name&&p.name.trim())||(p.zone&&p.zone.trim())||("Planting "+(n+1));
+    if(pp.length){ const groups={}, order=[]; _solid.forEach((x,i)=>{ const p=x.p; const key=_keyOf(p,i); if(!(key in groups)){ groups[key]={sf:0,loc:(p.zone||"").trim(),phase:(p.phase||"").trim()}; order.push(key); } groups[key].sf+=(p.sf||0); if(!groups[key].loc&&p.zone) groups[key].loc=p.zone.trim(); if(!groups[key].phase&&p.phase) groups[key].phase=p.phase.trim(); });
+      // each hole comes off the zone of the shape it was cut from
+      const _holeKeys={};
+      _holes.forEach((x,hn)=>{
+        const host=(function(){ try{ return _ptEnclosing(x.p, PT.polys); }catch(e){ return null; } })();
+        const hi=host?_solid.findIndex(y=>y.p===host):-1;
+        if(hi>=0){ const key=_keyOf(host,hi);
+          if(key in groups) groups[key].sf=Math.max(0, groups[key].sf-(Math.abs(+x.p.sf||0))); }
+        // the name this hole WOULD have produced, so a zone left over from before the fix goes
+        _holeKeys[_keyOf(x.p, _solid.length+hn).toLowerCase()]=1;
+        if(x.p.name&&x.p.name.trim()) _holeKeys[x.p.name.trim().toLowerCase()]=0;   // named: leave it alone
+        _holeKeys["planting "+(x.i+1)]=1;
+      });
       const pl=ensurePlanting();
-      const kept=pl.zones.filter(z=>(z.shrubRows&&z.shrubRows.length)||(z.gcRows&&z.gcRows.length)||(z.treeRows&&z.treeRows.length)||(z.palmRows&&z.palmRows.length));
+      const kept=pl.zones.filter(z=>((z.shrubRows&&z.shrubRows.length)||(z.gcRows&&z.gcRows.length)||(z.treeRows&&z.treeRows.length)||(z.palmRows&&z.palmRows.length))
+        && !_holeKeys[(z.name||"").trim().toLowerCase()]);
       const out=[]; order.forEach(k=>{ let z=kept.find(z=>(z.name||"").toLowerCase()===k.toLowerCase()); if(!z) z=newZone(k); z.name=k; z.areaSF=Math.round(groups[k].sf); z._touched=true; if(groups[k].loc) z.location=groups[k].loc; if(groups[k].phase) z.phase=groups[k].phase; out.push(z); });
       // A zone you have planted but not traced is still your design — carry it through rather
       // than dropping it because no polygon happened to carry its name.
