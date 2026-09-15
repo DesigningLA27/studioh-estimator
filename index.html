@@ -6702,6 +6702,17 @@ i.sb-bas-pattern{background:#FBE9E8;color:#B23F3C}
   border-radius:7px;padding:4px 8px}
 /* Surfaces & soil rows: include/leave out, and a quantity of this zone's own. */
 /* How a zone is allocated, readable with the zone shut. */
+.zhand{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#8a5a1f;
+  background:#FBF3E4;border:1px solid #E8D5AE;border-radius:6px;padding:1px 6px;flex:none;white-space:nowrap}
+.zlump{background:#FBF3E4;border:1px solid #E8D5AE;border-radius:11px;padding:.6rem .75rem;margin:0 0 .7rem}
+.zl-h{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.zl-h b{font-size:.88rem;font-weight:800;color:#8a5a1f}
+.zl-h button{margin-left:auto;font:inherit;font-size:.68rem;font-weight:700;color:#8a5a1f;background:#fff;
+  border:1px solid #E8D5AE;border-radius:7px;padding:.2rem .6rem;cursor:pointer}
+.zl-b{font-size:.72rem;color:var(--tm);line-height:1.55;margin-top:.25rem}
+.zl-b b{color:var(--tx);font-weight:700}
+.zl-n{width:100%;box-sizing:border-box;margin-top:.45rem;font:inherit;font-size:.74rem;color:var(--tx);
+  background:#fff;border:1px solid #E8D5AE;border-radius:8px;padding:.35rem .55rem;outline:none}
 .zcov{display:inline-flex;align-items:center;gap:9px;flex:none;white-space:nowrap}
 .zcov i{display:inline-flex;align-items:center;gap:4px;font-style:normal;font-size:.68rem;
   font-weight:700;color:var(--tm);font-variant-numeric:tabular-nums}
@@ -7475,7 +7486,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1516</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1517</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -40633,14 +40644,44 @@ function setCoverSF(zi,k,sf){
 // Soil prep keeps layers.prep as its on/off, because the allocation bar already writes that; this
 // routes to it rather than keeping a second flag that could drift from it.
 function zoneSurfOv(z){ if(!z) return {}; if(!z.surfOv||typeof z.surfOv!=="object") z.surfOv={}; return z.surfOv; }
-function zoneSurfOff(z,name){
+// ── A zone priced by hand ────────────────────────────────────────────────────────────
+// Some zones are not built up from a plant list at all — a vineyard, an orchard, a
+// specialty install a grower quotes as one number. The hand price REPLACES everything the
+// zone would otherwise cost: its plants, and its share of the soil-prep / lawn / turf /
+// hydroseed lines too. Nothing about the zone is thrown away — the build-up is still
+// calculated and shown beside the hand price, so you can see what you are overriding and
+// put it back with one tap.
+function zoneLump(z){ const v=(z&&z.lump!=null&&z.lump!=="")?+z.lump:NaN;
+  return (isFinite(v)&&v>=0)?v:null; }
+function zoneLumpOn(z){ return zoneLump(z)!=null; }
+function setZoneLump(zi,v){ const p=ensurePlanting(); const z=p.zones[zi]; if(!z) return;
+  const t=String(v==null?"":v).replace(/[$,\s]/g,"");
+  if(t===""){ delete z.lump; delete z.lumpNote; }
+  else { const n=+t; if(!isFinite(n)||n<0) return; z.lump=Math.round(n); }
+  z._touched=true; try{ S.cats.planting.on=true; }catch(e){}
+  plantRefresh(); }
+function clearZoneLump(zi){ setZoneLump(zi,""); }
+function setZoneLumpNote(zi,v){ const p=ensurePlanting(); const z=p.zones[zi]; if(!z) return;
+  const t=String(v||"").trim().slice(0,90); if(t) z.lumpNote=t; else delete z.lumpNote;
+  try{ refreshCatTotals("planting"); }catch(e){} }
+// What the surface would do on its own, with no hand price in the way — the zone still has
+// to be able to say what it WOULD have cost while it is being overridden.
+function zoneSurfOffRaw(z,name){
   if(name==="Soil prep") return !((z&&z.layers)?z.layers.prep:true);
   const o=(z&&z.surfOv)?z.surfOv[name]:null; return !!(o&&o.off);
+}
+function zoneSurfOff(z,name){
+  if(zoneLumpOn(z)) return true;      // a hand price already covers the whole zone
+  return zoneSurfOffRaw(z,name);
 }
 // The square feet this surface prices at: the zone's own figure when it has one, otherwise what
 // the allocation bar implies.
 function zoneSurfSF(z,name,derived){
   if(zoneSurfOff(z,name)) return 0;
+  return zoneSurfSFRaw(z,name,derived);
+}
+function zoneSurfSFRaw(z,name,derived){
+  if(zoneSurfOffRaw(z,name)) return 0;
   const o=(z&&z.surfOv)?z.surfOv[name]:null;
   if(o&&o.sf!=null&&o.sf!==""&&isFinite(+o.sf)) return Math.max(0,+o.sf);
   return Math.max(0,+derived||0);
@@ -42215,12 +42256,16 @@ function plantingCalc(){
   const cpg=waterCostPerGal();
   const flatUC=ucv(c.gcFlat), instUC=ucv(c.gcInstall);
   const mulchIt=(c.sundry||[]).find(it=>/mulch/i.test(it.n)); const mulchRate=mulchIt?(mulchIt.uc||0):0;
-  const parts={shrubs:0,trees:0,palms:0,gc:0,openMulch:0,sundry:0,crane:0};
+  const parts={shrubs:0,trees:0,palms:0,gc:0,openMulch:0,sundry:0,crane:0,manual:0};
   let craneUnits=0;
   const detail={zones:[],totals:{shrubGal:0,shrubGalCost:0,gcGal:0,gcGalCost:0}};
 
   p.zones.forEach(z=>{
     const area=+z.areaSF||0;
+    // Where the running totals stood before this zone, so a hand-priced one can be taken
+    // straight back out again once its build-up has been calculated for display.
+    const _p0={shrubs:parts.shrubs,trees:parts.trees,palms:parts.palms,gc:parts.gc,
+               openMulch:parts.openMulch,crane:craneUnits};
     // Shrub canopy and groundcover are surface BANDS in SF now, authored on the zone's
     // allocation bar, not derived from a density %. Seeded from the old density model on
     // upgrade so no saved project's price moved.
@@ -42315,7 +42360,22 @@ function plantingCalc(){
                   ov:(ovv.sf!=null&&ovv.sf!=="")}; })};
       zd.surf.rows=zd.surf.all.filter(x=>!x.off&&x.sf>0);
       zd.surf.cost=zd.surf.rows.reduce((a,x)=>a+x.cost,0);
+      // the same figure with a hand price disregarded, so the override can be shown against it
+      zd.surf.costRaw=_sl.reduce((a,x)=>a+(zoneSurfSFRaw(z,x[0],x[1])*x[2]),0);
       zd.costAll=zd.cost+zd.surf.cost;
+    }
+    // The hand price, if there is one. The build-up above is kept on `derivedAll` so the
+    // zone can show what it would have cost, and every part of it is rolled back out of
+    // the category totals — the surfaces are already gone, zoneSurfOff switched them off.
+    {
+      const _lump=zoneLump(z);
+      if(_lump!=null){
+        zd.derivedAll=zd.cost+((zd.surf&&zd.surf.costRaw)||0);
+        parts.shrubs=_p0.shrubs; parts.trees=_p0.trees; parts.palms=_p0.palms;
+        parts.gc=_p0.gc; parts.openMulch=_p0.openMulch; craneUnits=_p0.crane;
+        parts.manual+=_lump;
+        zd.lump=_lump; zd.lumpNote=z.lumpNote||""; zd.costAll=_lump;
+      }
     }
     detail.totals.shrubGal+=zd.shrubGal; detail.totals.shrubGalCost+=zd.shrubGalCost;
     detail.totals.gcGal+=zd.gcGal; detail.totals.gcGalCost+=zd.gcGalCost;
@@ -42326,7 +42386,7 @@ function plantingCalc(){
   const craneAllow=c.craneAllow?installedUC(c.craneAllow):0, craneAdd=c.craneAdd?installedUC(c.craneAdd):0;
   parts.crane = craneUnits>0 ? craneAllow + Math.max(0,craneUnits-1)*craneAdd : 0;
   detail.craneUnits=craneUnits; detail.craneAllow=craneAllow; detail.craneAdd=craneAdd;
-  const total=parts.shrubs+parts.trees+parts.palms+parts.gc+parts.openMulch+parts.sundry+parts.crane;
+  const total=parts.shrubs+parts.trees+parts.palms+parts.gc+parts.openMulch+parts.sundry+parts.crane+parts.manual;
   return {parts,detail,total};
 }
 function plantingSubtotal(){ return plantingCalc().total; }
@@ -42924,6 +42984,8 @@ function renderPlantingBuilder(){
         <label>Phase${phaseSel}</label>
         <label>Zone area<span class="zh-af"><input type="number" class="no-spin" value="${Math.round(z.areaSF||0)}"
           step="50" onchange="setZoneArea(${zi},this.value)"><u>SF</u></span></label>
+        <label title="Price this whole zone at one figure instead of building it up from plants — a vineyard, an orchard, anything a grower quotes as one number. It replaces the zone's plants AND its soil prep, lawn, turf and hydroseed. Clear the box to go back to the calculated price.">Price by hand<span class="zh-af"><u>$</u><input type="number" class="no-spin" placeholder="—"
+          value="${zoneLumpOn(z)?zoneLump(z):''}" step="500" min="0" onchange="setZoneLump(${zi},this.value)"></span></label>
         <hr>
         <button onclick="zhMenu(0,-1);openAiSuggest(${zi})">✨ AI suggestions</button>
         <button onclick="zhMenu(0,-1);paletteSave(${zi})">⬚ Save as palette</button>
@@ -42979,12 +43041,19 @@ function renderPlantingBuilder(){
         return '<span class="zcov">'+_seg.map(x=>'<i title="'+escAttr(x.nm+" \u00b7 "+Math.round(x.sf).toLocaleString()+" SF")
           +'"><u style="background:'+x.col+'"></u>'+x.pct+'%</i>').join("")+'</span>';
       })()}
+      ${zd.lump!=null?`<span class="zhand" title="Priced by hand — the plant and surface build-up (${money(zd.derivedAll||0)}) is not being charged">by hand</span>`:''}
       <span class="ztot">${money(zd.costAll!=null?zd.costAll:(zd.cost||0))}</span>
       ${menu}
     </div>`;
     return `<div style="border-radius:16px;padding:.7rem .95rem;margin-bottom:.7rem;background:#fff;box-shadow:0 1px 2px rgba(28,43,22,.05)">
       ${bar}
       <div style="display:${open?'block':'none'}">
+      ${zd.lump!=null?`<div class="zlump">
+        <div class="zl-h"><b>Priced by hand — ${money(zd.lump)}</b>
+          <button onclick="event.stopPropagation();clearZoneLump(${zi})" title="Go back to pricing this zone from its plants and surfaces">Use the calculated price</button></div>
+        <div class="zl-b">Nothing below is being charged. Built up from its plants and surfaces this zone would come to <b>${money(zd.derivedAll||0)}</b>${(zd.derivedAll||0)>0?` — a difference of <b>${money(Math.abs(zd.lump-(zd.derivedAll||0)))}</b> ${zd.lump>=(zd.derivedAll||0)?"more":"less"}`:""}. Soil prep, lawn, turf and hydroseed for this zone are off too, so the hand price is the whole of it. Edit or clear the figure in the ⋯ menu.</div>
+        <input class="zl-n" value="${escAttr(z.lumpNote||"")}" placeholder="What this price covers — e.g. 420 vines, trellis, drip, first-year training" onclick="event.stopPropagation()" onchange="setZoneLumpNote(${zi},this.value)">
+      </div>`:''}
       ${header}
       ${secLine("shrub",zi,z.shrubRows,"Shrubs",false,"shrub",secCost(zd.shrubRows),"species")}
       ${shShut("shrub")?"":searchBox("shrub",zi,"🔍 Add shrub — common or botanical name")}
