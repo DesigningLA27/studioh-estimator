@@ -6698,6 +6698,12 @@ i.sb-bas-pattern{background:#FBE9E8;color:#B23F3C}
 .zh-af{margin-left:auto;display:inline-flex;align-items:baseline;gap:3px;background:var(--brl);
   border-radius:7px;padding:4px 8px}
 /* Surfaces & soil rows: include/leave out, and a quantity of this zone's own. */
+/* How a zone is allocated, readable with the zone shut. */
+.zcov{display:inline-flex;align-items:center;gap:9px;flex:none;white-space:nowrap}
+.zcov i{display:inline-flex;align-items:center;gap:4px;font-style:normal;font-size:.68rem;
+  font-weight:700;color:var(--tm);font-variant-numeric:tabular-nums}
+.zcov i u{width:9px;height:9px;border-radius:3px;text-decoration:none;display:inline-block}
+@media(max-width:820px){ .zcov{display:none} }
 .zsurf-ck{width:19px;height:19px;flex:none;border-radius:6px;cursor:pointer;padding:0;line-height:1;
   border:1.5px solid var(--br);background:#fff;color:#fff;font:800 11px var(--tkf);display:grid;place-items:center}
 .zsurf-ck.on{background:var(--gm);border-color:var(--gm)}
@@ -7462,7 +7468,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1512</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1513</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29103,6 +29109,80 @@ const R2_DOWN_MSG="Image storage isn't working, so a new image can't be saved an
 function _imgLoads(url){ return new Promise(res=>{ if(!url){ res(false); return; } const im=new Image(); let done=false; const fin=v=>{ if(done) return; done=true; res(v); }; im.onload=()=>fin(im.naturalWidth>0); im.onerror=()=>fin(false); try{ im.src=url; }catch(e){ fin(false); } setTimeout(()=>fin(false),8000); }); }
 // One-click check: does R2 image storage actually work end-to-end (upload + serve)?
 // Scan every image link, find the broken ones, and (optionally) clear them so the plant can be re-imaged
+// ── COPY EVERY IMAGE ONTO OUR OWN STORAGE ──────────────────────────────────────────────
+// An AI-generated image is already ours: it is uploaded to R2 the moment it is made and the plant
+// keeps a link to it, so it is safe. A FETCHED photo is not — it points at Wikimedia, iNaturalist
+// or a nursery, and the day they move or delete it the plant loses its picture with no warning.
+// An embedded data: URI is safe but rides inside the book, and a few megabytes of them make every
+// save and every open slower for everybody.
+// This copies both kinds onto our own storage and repoints the plant at it. The original address
+// is kept on the record, so where a photo came from is never lost — it is a credit, not a
+// dependency. Nothing is touched until the copy is confirmed to load.
+async function mirrorImagesToR2(){
+  const st=document.getElementById("aiimg-progress");
+  const setSt=(t,c)=>{ if(st){ st.innerHTML=t; st.style.color=c||"var(--tm)"; } };
+  const ep=(typeof SCRAPE_URL==="string"&&SCRAPE_URL)?SCRAPE_URL:null;
+  if(!ep){ setSt("The page reader worker is not connected, so images cannot be copied.","#B23F3C"); return; }
+  if(!(await _ensureR2())){ setSt(R2_DOWN_MSG,"#B23F3C"); return; }
+  const mine=(typeof AI_PROXY_URL==="string"&&AI_PROXY_URL)?AI_PROXY_URL:"";
+  const todo=_allPlantsFlat().filter(x=>{
+    const u=(x.p&&x.p.img||"").trim();
+    if(!u) return false;
+    if(mine && u.indexOf(mine)===0) return false;          // already ours
+    return true;                                            // external link or embedded data:
+  });
+  if(!todo.length){ setSt("✓ Every image is already on Studio H storage.","var(--gm)"); return; }
+  const ext=todo.filter(x=>!/^data:/.test(x.p.img)).length, emb=todo.length-ext;
+  const go=await askDlg({title:"Copy "+todo.length+" image"+(todo.length===1?"":"s")+" onto Studio H storage?",
+    body:'<div style="font-size:12.5px;line-height:1.6">'
+      +(ext?('<b>'+ext+'</b> point at somebody else’s server — Wikimedia, iNaturalist, a nursery. '
+            +'The day they move or delete one, that plant loses its picture. '):'')
+      +(emb?('<b>'+emb+'</b> '+(ext?'are':'is')+' carried inside the plant book itself, which makes every save and every open slower for everybody. '):'')
+      +'Each is copied to our own storage and the plant repointed at the copy. Where it came from is kept on the record as a credit. '
+      +'Nothing is changed until the copy is confirmed to load, and an image that cannot be fetched is left exactly as it is.</div>',
+    actions:["Copy them","Not now"]});
+  if(go!=="Copy them") return;
+  let done=0, ok=0, failed=[], saved=0;
+  for(const x of todo){
+    done++;
+    setSt("Copying "+done+" of "+todo.length+"… "+ok+" done"+(failed.length?(" · "+failed.length+" could not be fetched"):""),"#2c5f82");
+    const src=x.p.img, isData=/^data:/.test(src);
+    let dataUrl=null;
+    if(isData) dataUrl=src;
+    else {
+      try{ const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+             body:JSON.stringify({type:"fetchimage",url:src})});
+        const d=await r.json();
+        if(d&&d.ok&&d.dataUrl) dataUrl=d.dataUrl; else failed.push((x.p.c||x.p.id)+" — "+((d&&d.error)||"no answer"));
+      }catch(e){ failed.push((x.p.c||x.p.id)+" — "+((e&&e.message)||"failed")); }
+    }
+    if(!dataUrl) continue;
+    if(isData) saved+=Math.round(src.length*0.75);
+    const up=await _uploadImageR2("plant_"+String(x.p.id||"x").replace(/[^a-zA-Z0-9_\-]/g,"")+"_"+Date.now().toString(36), dataUrl);
+    if(!(up&&up.ok&&up.url)){ failed.push((x.p.c||x.p.id)+" — "+((up&&up.err)||"could not be saved")); continue; }
+    // never swap a working picture for one that does not load
+    if(!(await _imgLoads(up.url))){ failed.push((x.p.c||x.p.id)+" — the copy would not load"); continue; }
+    if(!x.p.imgOrigin) x.p.imgOrigin=src.slice(0,400);      // the credit, kept
+    x.p.img=up.url; x.p.imgMirrored=new Date().toISOString().slice(0,10);
+    ok++;
+  }
+  try{ plantBookSave(); }catch(e){}
+  const bits=[ok+" copied onto Studio H storage"];
+  if(saved>0) bits.push(Math.round(saved/1024)+" KB taken out of the plant book");
+  if(failed.length) bits.push(failed.length+" left as they were");
+  setSt("✓ "+bits.join(" · "), failed.length?"#8a5a1f":"var(--gm)");
+  if(failed.length) await askTell("Left alone", failed.length+" image"+(failed.length===1?"":"s")+" could not be fetched, so "
+    +(failed.length===1?"it is":"they are")+" still pointing where "+(failed.length===1?"it":"they")+" did:\n\n"+failed.slice(0,12).join("\n")
+    +(failed.length>12?("\n…and "+(failed.length-12)+" more"):""));
+  try{ if(typeof renderPlantBook==="function") renderPlantBook(); }catch(e){}
+}
+// How many images are not yet ours — so the button can say what it would do before you press it.
+function mirrorImagesPending(){
+  try{ const mine=(typeof AI_PROXY_URL==="string"&&AI_PROXY_URL)?AI_PROXY_URL:"";
+    return _allPlantsFlat().filter(x=>{ const u=(x.p&&x.p.img||"").trim();
+      return u && !(mine && u.indexOf(mine)===0); }).length;
+  }catch(e){ return 0; }
+}
 async function repairBrokenImages(){
   const st=document.getElementById("aiimg-progress"); const setSt=(t,c)=>{ if(st){ st.innerHTML=t; st.style.color=c||"var(--tm)"; } };
   const all=_allPlantsFlat().filter(x=>x.p.img && !/^data:/.test(x.p.img));   // embedded data: images always load — only test real links
@@ -29441,6 +29521,7 @@ function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.r
       <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap">
         <button class="btn" onclick="testR2Storage()" style="flex:1;padding:.4rem;font-size:.74rem;background:#fff;color:#2c5f82;border:1px solid #2c5f82">🔧 Test image storage (R2)</button>
         <button class="btn" onclick="repairBrokenImages()" style="flex:1;padding:.4rem;font-size:.74rem;background:#fff;color:#8a5a1f;border:1px solid #8a5a1f">🩺 Check / repair broken image links</button>
+        <button class="btn" onclick="mirrorImagesToR2()" style="flex:1;padding:.4rem;font-size:.74rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" title="Copy every photo that lives on somebody else's server onto Studio H storage, so it cannot disappear">☁ Put every image on Studio H storage${(function(){ try{ const n=mirrorImagesPending(); return n?(" · "+n):""; }catch(e){ return ""; } })()}</button>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-top:.7rem"><button class="btn" onclick="_aiImgStop=true;document.getElementById('aiimg-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
     </div>`;
@@ -42632,6 +42713,21 @@ function renderPlantingBuilder(){
       ${z.location?`<span class="zloc">${escAttr(z.location)}</span>`:''}
       ${z.phase?`<span class="zph">${escAttr(z.phase)}</span>`:''}
       <span class="zmeta">${Math.round(z.areaSF||0).toLocaleString()} SF · ${nR} plant${nR===1?'':'s'}</span>
+      ${(function(){
+        // How the zone is allocated, readable with it shut. The allocation bar says it while the
+        // zone is open and then disappeared the moment you closed it, so a list of closed zones
+        // told you nothing about what was actually in them.
+        const _c=shvCov(z), _a=Math.max(1,+z.areaSF||0);
+        const _un=Math.max(0,(typeof shvExisting==="function"?(+shvExisting(z)||0):0));
+        const _seg=[["shrub","Shrub area","#3E7D3A"],["gc","Groundcover","#6FA84F"],
+                    ["lawn","Lawn","#7CB342"],["turf","Turf","#8FBF6A"],["seed","Hydroseed","#A8C97F"]]
+          .map(([k,nm,col])=>({nm:nm,col:col,sf:+_c[k]||0,pct:Math.round((+_c[k]||0)/_a*100)}))
+          .filter(x=>x.sf>0);
+        if(_un>0) _seg.push({nm:"unchanged",col:"#C9C0A8",sf:_un,pct:Math.round(_un/_a*100)});
+        if(!_seg.length) return '';
+        return '<span class="zcov">'+_seg.map(x=>'<i title="'+escAttr(x.nm+" \u00b7 "+Math.round(x.sf).toLocaleString()+" SF")
+          +'"><u style="background:'+x.col+'"></u>'+x.pct+'%</i>').join("")+'</span>';
+      })()}
       <span class="ztot">${money(zd.costAll!=null?zd.costAll:(zd.cost||0))}</span>
       ${menu}
     </div>`;

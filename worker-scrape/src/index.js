@@ -61,6 +61,7 @@ export default {
       // instead of read is exactly the kind of quiet wrong answer that shows up at
       // plan check.
       if (body.type === "readpage") return json(await readPage(body.url, body.max));
+      if (body.type === "fetchimage") return json(await fetchImage(body.url));
       // Same as "scrape" but for a page you actually want EVERY photo from — a
       // portfolio project page, not a single-product listing. "scrape" caps at 10
       // deliberately (one hero photo is the point there); this raises that cap without
@@ -211,6 +212,31 @@ async function getHtml(url) {
   const ct = r.headers.get("content-type") || "";
   if (!/html|xml/i.test(ct)) throw new Error("not a web page (" + ct + ")");
   return { html: (await r.text()).slice(0, 1500000), finalUrl: r.url || url };
+}
+
+// Fetch an image and hand back its bytes, so a photo living on somebody else's server can be
+// copied onto ours. The browser cannot do this itself — most image hosts send no CORS header, so
+// the canvas and fetch() both refuse to read the pixels. A worker has no such restriction.
+const IMG_MAX = 12 * 1024 * 1024;
+async function fetchImage(url) {
+  url = String(url || "").trim();
+  let u; try { u = new URL(url); } catch (e) { return { ok:false, error:"bad url" }; }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return { ok:false, error:"only http(s)" };
+  let r;
+  try {
+    r = await fetch(u.href, { headers: BROWSER_HEADERS, redirect:"follow",
+      signal: (typeof AbortSignal!=="undefined" && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined });
+  } catch (e) { return { ok:false, error:"could not fetch \u2014 "+((e&&e.message)||e) }; }
+  if (!r.ok) return { ok:false, error:"http "+r.status };
+  const ct = (r.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+  if (!/^image\//.test(ct)) return { ok:false, error:"not an image ("+(ct||"unknown")+")" };
+  const buf = await r.arrayBuffer();
+  if (!buf.byteLength) return { ok:false, error:"empty" };
+  if (buf.byteLength > IMG_MAX) return { ok:false, error:Math.round(buf.byteLength/1048576)+"MB \u2014 too large" };
+  const b = new Uint8Array(buf); let bin = "";
+  for (let i=0; i<b.length; i+=0x8000) bin += String.fromCharCode.apply(null, b.subarray(i, i+0x8000));
+  return { ok:true, mime:ct, bytes:buf.byteLength, url:r.url||u.href,
+           dataUrl:"data:"+ct+";base64,"+btoa(bin) };
 }
 
 async function readPage(url, max) {
