@@ -7486,7 +7486,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1519</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1520</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29648,7 +29648,7 @@ function restorePlantPhoto(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retu
 // Mark/unmark any plant image as AI-generated (for images added manually, not by the app)
 function togglePlantAI(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; if(p.imgAI) delete p.imgAI; else p.imgAI=true; plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender(); }
 // AI markers shown on plant images in exports/reports
-function _aiBadgeCorner(){ return `<span title="AI-generated illustration, not a photograph" style="position:absolute;top:4px;right:4px;background:rgba(106,79,163,.94);color:#fff;border-radius:5px;padding:1px 5px;font-size:8px;font-weight:800;letter-spacing:.02em;line-height:1.3">✨ AI</span>`; }
+function _aiBadgeCorner(){ return `<span title="AI-generated illustration, not a photograph" style="position:absolute;top:4px;right:4px;background:rgba(76,123,61,.94);color:#fff;border-radius:5px;padding:1px 5px;font-size:8px;font-weight:800;letter-spacing:.02em;line-height:1.3">✨ AI</span>`; }
 function _aiDot(){ return `<span title="AI-generated illustration, not a photograph" style="position:absolute;top:-4px;right:-4px;background:var(--gm);color:#fff;border-radius:50%;width:12px;height:12px;font-size:8px;line-height:12px;text-align:center;font-weight:800">✦</span>`; }
 function cyclePlantImage(kind,pid,dir){ const p=plantDbFind(kind,pid); if(!p||!p.imgAlts||p.imgAlts.length<2) return; p._imgIdx=(((p._imgIdx||0)+dir)%p.imgAlts.length+p.imgAlts.length)%p.imgAlts.length; const a=p.imgAlts[p._imgIdx]; p.img=a.image; p.imgLic=a.license||""; p.imgAttr=a.attribution||""; p.imgFlag=!!a.flag; p.imgConf=a.confidence||""; p.imgSrc=a.source||""; delete p.imgAI; plantBookSave(); _afterColorChange(kind,pid); }
 function _allPlantsFlat(){ const out=[]; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>out.push({kind:k,p})); }); return out; }
@@ -30363,13 +30363,200 @@ function _plAttachImgAdjust(){ const body=document.getElementById("pl-body"); if
     wrap.addEventListener("pointerup",end); wrap.addEventListener("pointercancel",end);
   });
 }
-function printPlantList(){ const images=(document.getElementById("pl-img")||{}).checked!==false;
+// ── The printed document ─────────────────────────────────────────────────────────────
+// The screen report is one long column; paper is a stack of fixed rectangles. Printing the
+// column and letting the browser slice it wherever it lands is what put a zones plan across
+// the full sheet with its labels colliding and its bottom cut off. So the document is laid
+// out as real pages here: a cover, a plan page sized to the sheet, then content flowed block
+// by block into page bodies that are measured as they fill, with a frame, a running head and
+// a numbered foot on every one.
+const PL_PG={ w:"8.5in", h:"11in" };
+function _plPdfStyle(){ return `
+  @page{ size:letter portrait; margin:0 }
+  html,body{margin:0;padding:0;background:#8E8E88;-webkit-print-color-adjust:exact;print-color-adjust:exact;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#23231f}
+  .pg{width:${PL_PG.w};height:${PL_PG.h};box-sizing:border-box;position:relative;overflow:hidden;
+    background:#fff;margin:0 auto 16px;box-shadow:0 6px 26px rgba(0,0,0,.34)}
+  .pg-frame{position:absolute;inset:9mm;border:1px solid #DCD6C5;border-radius:2.5mm;pointer-events:none}
+  .pg-hd{position:absolute;top:13mm;left:15mm;right:15mm;height:7mm;display:flex;justify-content:space-between;
+    align-items:flex-start;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#A8A294;font-weight:800;
+    border-bottom:1px solid #E8E3D4}
+  .pg-hd b{color:#4C7B3D;font-weight:800}
+  .pg-ft{position:absolute;bottom:12mm;left:15mm;right:15mm;height:6mm;display:flex;justify-content:space-between;
+    align-items:flex-end;font-size:8px;color:#A8A294;font-weight:600;border-top:1px solid #E8E3D4;padding-top:2mm}
+  .pg-bd{position:absolute;top:22mm;left:15mm;right:15mm;bottom:20mm;overflow:hidden}
+  /* the cover carries its own furniture */
+  .pg.cover .pg-hd,.pg.cover .pg-ft{display:none}
+  .pg.cover .pg-bd{top:15mm;bottom:15mm}
+  .cv{height:100%;display:flex;flex-direction:column}
+  .cv-top{border-bottom:2.5px solid #4C7B3D;padding-bottom:7mm;margin-bottom:8mm}
+  .cv-firm{font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#4C7B3D}
+  .cv-t{font-size:37px;font-weight:800;letter-spacing:-.025em;color:#23231f;line-height:1.02;margin:6mm 0 3mm}
+  .cv-proj{font-size:15px;font-weight:700;color:#4C7B3D}
+  .cv-sub{font-size:11.5px;color:#6f6f66;margin-top:1.5mm;line-height:1.6}
+  .cv-fig{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+    border:1px solid #E2DED2;border-radius:3mm;overflow:hidden;background:#FBFAF7}
+  .cv-fig img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+  .cv-legend{margin-top:4mm;line-height:1.9}
+  .cv-kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:4mm;margin-top:7mm}
+  .cv-kpi div{border-top:2px solid #4C7B3D;padding-top:2.5mm}
+  .cv-kpi b{display:block;font-size:19px;font-weight:800;color:#23231f;letter-spacing:-.02em}
+  .cv-kpi span{font-size:8px;text-transform:uppercase;letter-spacing:.09em;color:#8a8a80;font-weight:800}
+  .cv-foot{font-size:8.5px;color:#a5a59b;margin-top:6mm;border-top:1px solid #E8E3D4;padding-top:3mm}
+  /* a plan gets a whole sheet and is fitted to it, never cropped */
+  .planpg .pg-bd{display:flex;flex-direction:column}
+  .planpg .pp-t{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#4C7B3D;margin-bottom:3mm}
+  .planpg .pp-i{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
+    border:1px solid #E2DED2;border-radius:2.5mm;overflow:hidden;background:#FBFAF7}
+  .planpg .pp-i img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+  .planpg .pp-l{margin-top:3mm;line-height:1.9;flex:none}
+  .cont{font-size:9px;font-weight:700;color:#a5a59b;font-style:italic;margin:0 0 3mm}
+  /* three cards across reads far better at 7.5in than the screen's auto-fill */
+  .plr-grid{grid-template-columns:repeat(3,1fr)!important;gap:3.4mm!important}
+  .plr-zone{margin-bottom:0}
+  .plr-wrap{line-height:1.4}
+  .blk{margin-bottom:4mm}
+  .blk:last-child{margin-bottom:0}
+  @media print{ html,body{background:#fff}
+    .pg{margin:0;box-shadow:none;break-after:page;page-break-after:always}
+    .pg:last-child{break-after:auto;page-break-after:auto} }
+`; }
+// Flatten the report into blocks that may be moved between pages independently. A zone's
+// heading, each rendering and each ROW of plant cards are separate blocks; a grid that would
+// be split down the middle is chopped into rows first.
+function _plPdfBlocks(wrap){
+  const out=[]; const COLS=3;
+  const push=(node,opt)=>{ if(node) out.push(Object.assign({node},opt||{})); };
+  const zoneTitle=z=>{ const t=z.querySelector(".plr-ztitle"); return t?t.textContent.trim():""; };
+  const eatZone=(zone,phase)=>{
+    const title=zoneTitle(zone);
+    [...zone.children].forEach(ch=>{
+      if(ch.classList.contains("plr-zact")) return;                 // screen-only button
+      if(ch.classList.contains("plr-grid")){
+        const cards=[...ch.children];
+        for(let i=0;i<cards.length;i+=COLS){
+          const row=ch.cloneNode(false); cards.slice(i,i+COLS).forEach(c=>row.appendChild(c.cloneNode(true)));
+          push(row,{zone:title,phase});
+        }
+        return;
+      }
+      // a group label must never be the last thing on a sheet
+      push(ch.cloneNode(true),{zone:title,phase,keep:ch.classList.contains("plr-grp")||ch.classList.contains("plr-zhead")});
+    });
+  };
+  [...wrap.children].forEach(ch=>{
+    if(ch.classList.contains("plr-hd")||ch.classList.contains("plr-sum")) return;   // on the cover
+    if(ch.classList.contains("plr-plan")) return;                                    // its own sheet
+    if(ch.classList.contains("plr-phase")){
+      const ph=(ch.querySelector(".plr-phead h2")||{}).textContent||"";
+      [...ch.children].forEach(c=>{
+        if(c.classList.contains("plr-plan")) return;                                 // handled as a sheet
+        if(c.classList.contains("plr-zone")) eatZone(c,ph);
+        else push(c.cloneNode(true),{phase:ph,keep:c.classList.contains("plr-phead"),newPage:c.classList.contains("plr-phead")});
+      });
+      return;
+    }
+    if(ch.classList.contains("plr-zone")){ eatZone(ch,""); return; }
+    push(ch.cloneNode(true),{});
+  });
+  return out;
+}
+function printPlantList(){
+  const images=(document.getElementById("pl-img")||{}).checked!==false;
   const qty=(document.getElementById("pl-qty")||{}).checked!==false;
   const water=(document.getElementById("pl-wtr")||{}).checked!==false;
   const safety=(document.getElementById("pl-safe")||{}).checked!==false;
   const w=window.open("","_blank"); if(!w){ alert("Allow pop-ups to print."); return; }
-  w.document.write(`<html><head><title>Planting Palette</title><style>@page{margin:13mm}body{margin:0;padding:0}${_plStyle()}</style></head><body>${_plantListHTML({images,qty,water,safety})}</body></html>`);
-  w.document.close(); setTimeout(()=>{ try{ w.print(); }catch(e){} }, 800);
+  const meta={ firm:firmName(), client:(S.pi&&S.pi.client)||"", addr:(S.pi&&S.pi.address)||"",
+    proj:((typeof CLOUD_BID_NAME!=="undefined"&&CLOUD_BID_NAME)||(S&&S.pi&&S.pi.project)||(S.pi&&S.pi.client)||"Untitled project"),
+    date:new Date().toLocaleDateString(undefined,{day:"numeric",month:"long",year:"numeric"}) };
+  const d=w.document;
+  d.write(`<html><head><meta charset="utf-8"><title>Planting Palette${meta.client?" — "+escAttr(meta.client):""}</title>
+    <style>${_plStyle()}${_plPdfStyle()}</style></head><body><div id="src" style="position:absolute;left:-10000px;top:0;width:7.5in"></div></body></html>`);
+  d.close();
+  setTimeout(()=>{ _plPdfRender(d,{images,qty,water,safety},meta);
+    const imgs=[...d.images]; let left=imgs.filter(im=>!im.complete).length;
+    const go=()=>{ try{ w.focus(); w.print(); }catch(e){} };
+    if(!left){ setTimeout(go,300); return; }
+    let done=false; const tick=()=>{ if(done) return; if(--left<=0){ done=true; setTimeout(go,250); } };
+    imgs.forEach(im=>{ if(im.complete) return; im.addEventListener("load",tick); im.addEventListener("error",tick); });
+    setTimeout(()=>{ if(!done){ done=true; go(); } },6000);
+  },120);
+}
+// Lay the whole document out inside `d`. Split from the print call so it can be built into any
+// document — a popup on the way to the printer, or a frame that can be looked at and measured.
+function _plPdfRender(d,opts,meta){
+  const P=S.planting||{};
+  {
+    const src=d.getElementById("src");
+    src.innerHTML=_plantListHTML(opts);
+    const wrap=src.querySelector(".plr-wrap"); if(!wrap) return 0;
+    src.querySelectorAll(".plr-rm,.plr-rm-hideprint,.plr-adjbtn,.plr-zact").forEach(x=>x.remove());
+    const pages=[];
+    const mkPage=cls=>{ const pg=d.createElement("div"); pg.className="pg"+(cls?" "+cls:"");
+      pg.innerHTML=`<div class="pg-frame"></div>
+        <div class="pg-hd"><span><b>${escAttr(meta.firm)}</b> · Planting Palette</span><span>${escAttr(meta.proj)}</span></div>
+        <div class="pg-bd"></div>
+        <div class="pg-ft"><span>${escAttr(meta.date)}</span><span class="pnum"></span></div>`;
+      d.body.appendChild(pg); pages.push(pg); return pg.querySelector(".pg-bd"); };
+    // ── cover ──
+    {
+      const bd=mkPage("cover");
+      const zp=P._zonePlan;
+      const kpi=wrap.querySelector(".plr-sum");
+      const legend=zp&&zp.legend?zp.legend.map(l=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#444;margin-right:11px;white-space:nowrap"><span style="width:10px;height:10px;border-radius:2px;background:${l.c};display:inline-block"></span>${escAttr(l.name)}${l.sf?` · ${(+l.sf).toLocaleString()} SF`:""}</span>`).join(""):"";
+      bd.innerHTML=`<div class="cv">
+        <div class="cv-top">
+          <div class="cv-firm">${escAttr(meta.firm)}</div>
+          <div class="cv-t">Planting<br>Palette</div>
+          <div class="cv-proj">${escAttr(meta.client||meta.proj)}</div>
+          ${meta.addr?`<div class="cv-sub">${escAttr(meta.addr)}</div>`:""}
+        </div>
+        ${zp&&zp.url?`<div class="cv-fig"><img src="${escAttr(zp.url)}"></div>${legend?`<div class="cv-legend">${legend}</div>`:""}`:`<div class="cv-fig" style="color:#b9c9b1;font-size:11px">No zones plan yet</div>`}
+        <div class="cv-kpi">${kpi?[...kpi.children].map(k=>k.outerHTML.replace(/class="plr-kpi"/,"")).join(""):""}</div>
+        <div class="cv-foot">${escAttr(meta.date)} · Prepared by ${escAttr(meta.firm)}. Plant sizes are mature estimates; water use is calculated by the WUCOLS/MWELO method and is an estimate.</div>
+      </div>`;
+    }
+    // ── the plan, one sheet each, fitted ──
+    const planOf=(el,title)=>{ const img=el.querySelector("img"); if(!img) return;
+      const bd=mkPage("planpg");
+      const leg=el.querySelector('div[style*="line-height"]');
+      bd.innerHTML=`<div class="pp-t">${escAttr(title)}</div><div class="pp-i"><img src="${escAttr(img.getAttribute("src"))}"></div>${leg?`<div class="pp-l">${leg.innerHTML}</div>`:""}`; };
+    const topPlan=wrap.querySelector(":scope > .plr-plan");
+    if(topPlan) planOf(topPlan, P._zonePlan&&P._zonePlan.sat?"Site takeoff — satellite":"Planting zones plan — whole site");
+    wrap.querySelectorAll(".plr-phase").forEach(sec=>{ const pp=sec.querySelector(":scope > .plr-plan");
+      const nm=(sec.querySelector(".plr-phead h2")||{}).textContent||"";
+      if(pp) planOf(pp,"Planting zones plan — "+nm); });
+    // ── flow the rest ──
+    let bd=mkPage(); let curZone="", curPhase="";
+    const fits=()=>bd.scrollHeight<=bd.clientHeight+1;
+    const blocks=_plPdfBlocks(wrap);
+    blocks.forEach(b=>{
+      if(b.newPage && bd.childElementCount){ bd=mkPage(); curZone=""; curPhase=b.phase||""; }
+      const holder=d.createElement("div"); holder.className="blk"; holder.appendChild(b.node);
+      bd.appendChild(holder);
+      if(!fits()){
+        if(bd.childElementCount>1){
+          bd.removeChild(holder);
+          // never strand a heading at the foot of a sheet
+          const last=bd.lastElementChild;
+          let carried=null;
+          if(last&&last.dataset.keep==="1"&&bd.childElementCount>1){ carried=last; bd.removeChild(last); }
+          bd=mkPage();
+          if(b.zone&&b.zone===curZone){ const c=d.createElement("div"); c.className="cont"; c.textContent=b.zone+" — continued"; bd.appendChild(c); }
+          if(carried) bd.appendChild(carried);
+          bd.appendChild(holder);
+        }
+        // a block taller than a whole sheet stays where it is — only a plan can be, and plans have their own pages
+      }
+      if(b.keep) holder.dataset.keep="1";
+      curZone=b.zone||curZone; curPhase=b.phase||curPhase;
+    });
+    // ── numbering, once the count is known ──
+    pages.forEach((pg,i)=>{ const n=pg.querySelector(".pnum"); if(n) n.textContent="Page "+(i+1)+" of "+pages.length; });
+    src.remove();
+    return pages.length;
+  }
 }
 // ── Planting-zones plan figure for the report: the traced plan at reduced opacity with each zone
 // hatched, smoothed, outlined and labelled (zone · phase · area). PDF base if a plan PDF was traced;
