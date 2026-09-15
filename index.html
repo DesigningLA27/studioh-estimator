@@ -6697,6 +6697,11 @@ i.sb-bas-pattern{background:#FBE9E8;color:#B23F3C}
   -webkit-appearance:none;appearance:none}
 .zh-af{margin-left:auto;display:inline-flex;align-items:baseline;gap:3px;background:var(--brl);
   border-radius:7px;padding:4px 8px}
+/* Surfaces & soil rows: include/leave out, and a quantity of this zone's own. */
+.zsurf-ck{width:19px;height:19px;flex:none;border-radius:6px;cursor:pointer;padding:0;line-height:1;
+  border:1.5px solid var(--br);background:#fff;color:#fff;font:800 11px var(--tkf);display:grid;place-items:center}
+.zsurf-ck.on{background:var(--gm);border-color:var(--gm)}
+.zsurf-rv{border:0;background:none;color:var(--gold,#8A6D1F);cursor:pointer;font-size:13px;line-height:1;padding:0 2px}
 .zh-af input{font:inherit;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;
   color:var(--tx);border:0;background:none;width:52px;padding:0;text-align:right}
 .zh-af input:focus{outline:none}
@@ -7457,7 +7462,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1511</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1512</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -40291,14 +40296,53 @@ function setCoverSF(zi,k,sf){
 // Lawn / turf / hydroseed and soil prep are priced by the existing Price Book
 // sundry lines. The bar is now the only place their area is authored, so push the
 // summed band areas into those quantities instead of asking for them twice.
+// ── PER-ZONE SURFACE OVERRIDES ─────────────────────────────────────────────────────────
+// Lawn, turf, hydroseed and soil prep are normally authored on the zone's allocation bar, and the
+// quantity follows from it. Sometimes it should not: a slope that is already stripped needs no soil
+// prep, and a zone may want a figure of its own rather than the one the bar implies. Both are
+// stated on the zone and applied in ONE place — the function that turns cover into the sundry
+// quantities that actually price — so the row you read, the sundry line and the total can never
+// disagree.
+// Soil prep keeps layers.prep as its on/off, because the allocation bar already writes that; this
+// routes to it rather than keeping a second flag that could drift from it.
+function zoneSurfOv(z){ if(!z) return {}; if(!z.surfOv||typeof z.surfOv!=="object") z.surfOv={}; return z.surfOv; }
+function zoneSurfOff(z,name){
+  if(name==="Soil prep") return !((z&&z.layers)?z.layers.prep:true);
+  const o=(z&&z.surfOv)?z.surfOv[name]:null; return !!(o&&o.off);
+}
+// The square feet this surface prices at: the zone's own figure when it has one, otherwise what
+// the allocation bar implies.
+function zoneSurfSF(z,name,derived){
+  if(zoneSurfOff(z,name)) return 0;
+  const o=(z&&z.surfOv)?z.surfOv[name]:null;
+  if(o&&o.sf!=null&&o.sf!==""&&isFinite(+o.sf)) return Math.max(0,+o.sf);
+  return Math.max(0,+derived||0);
+}
+function setZoneSurfOff(zi,name,off){
+  const p=ensurePlanting(), z=p.zones[zi]; if(!z) return;
+  if(name==="Soil prep"){ z.layers=z.layers||{}; z.layers.prep=!off; }
+  else { const ov=zoneSurfOv(z); ov[name]=Object.assign({},ov[name],{off:!!off}); }
+  _covSyncSundry(); plantRefresh(); try{ _bidSchedule(); }catch(e){}
+}
+function setZoneSurfSF(zi,name,v){
+  const p=ensurePlanting(), z=p.zones[zi]; if(!z) return;
+  const ov=zoneSurfOv(z);
+  const n=(v===""||v==null)?null:Math.max(0,+v||0);
+  ov[name]=Object.assign({},ov[name],{sf:n});
+  if(n===null) delete ov[name].sf;
+  _covSyncSundry(); plantRefresh(); try{ _bidSchedule(); }catch(e){}
+}
+function clearZoneSurfSF(zi,name){ setZoneSurfSF(zi,name,""); }
 function _covSyncSundry(){
   if(typeof S==="undefined"||!S.planting||!Array.isArray(S.planting.zones)) return;
   const c=(typeof plantingComponents==="function")?plantingComponents():null;
   if(!c||!c.sundry) return;
   let lawn=0,turf=0,seed=0,prep=0;
-  S.planting.zones.forEach(z=>{ const cv=shvCov(z), L=z.layers||{};
-    lawn+=+cv.lawn||0; turf+=+cv.turf||0; seed+=+cv.seed||0;
-    if(L.prep) prep+=(+cv.shrub||0)+(+cv.gc||0)+(+cv.lawn||0)+(+cv.seed||0); });
+  S.planting.zones.forEach(z=>{ const cv=shvCov(z);
+    lawn+=zoneSurfSF(z,"Lawn / Sod",+cv.lawn||0);
+    turf+=zoneSurfSF(z,"Artificial Turf",+cv.turf||0);
+    seed+=zoneSurfSF(z,"Hydroseed",+cv.seed||0);
+    prep+=zoneSurfSF(z,"Soil prep",(+cv.shrub||0)+(+cv.gc||0)+(+cv.lawn||0)+(+cv.seed||0)); });
   const put=(re,q)=>{ const it=c.sundry.find(x=>re.test(x.n)); if(!it) return;
     it.q=Math.round(q); it.checked=q>0; };
   put(/^Lawn \/ Sod/i,lawn); put(/^Artificial Turf/i,turf);
@@ -41930,11 +41974,19 @@ function plantingCalc(){
     {
       const _sun=re=>{ const it=(c.sundry||[]).find(x=>re.test(x.n)); return it?(+it.uc||0):0; };
       const _L=z.layers||{};
+      // The same figures _covSyncSundry prices, read through the same override, so the row on the
+      // zone and the sundry line it belongs to cannot say different things.
       const _sl=[["Lawn / Sod",+_cv.lawn||0,_sun(/^Lawn \/ Sod/i)],
                  ["Artificial Turf",+_cv.turf||0,_sun(/^Artificial Turf/i)],
                  ["Hydroseed",+_cv.seed||0,_sun(/^Hydroseed/i)],
-                 ["Soil prep",(_L.prep?((+_cv.shrub||0)+(+_cv.gc||0)+(+_cv.lawn||0)+(+_cv.seed||0)):0),_sun(/^Soil Prep/i)]];
-      zd.surf={rows:_sl.filter(x=>x[1]>0).map(x=>({n:x[0],sf:x[1],uc:x[2],cost:x[1]*x[2]}))};
+                 ["Soil prep",((+_cv.shrub||0)+(+_cv.gc||0)+(+_cv.lawn||0)+(+_cv.seed||0)),_sun(/^Soil Prep/i)]];
+      // `all` carries every candidate with its state so a surface switched off still has a row to
+      // switch back on; `rows` is only what is being charged, so the sums are untouched.
+      zd.surf={all:_sl.map(x=>{ const off=zoneSurfOff(z,x[0]), sf=zoneSurfSF(z,x[0],x[1]);
+          const ovv=((z.surfOv||{})[x[0]]||{});
+          return {n:x[0], derived:x[1], sf:sf, uc:x[2], cost:off?0:sf*x[2], off:off,
+                  ov:(ovv.sf!=null&&ovv.sf!=="")}; })};
+      zd.surf.rows=zd.surf.all.filter(x=>!x.off&&x.sf>0);
       zd.surf.cost=zd.surf.rows.reduce((a,x)=>a+x.cost,0);
       zd.costAll=zd.cost+zd.surf.cost;
     }
@@ -42613,10 +42665,26 @@ function renderPlantingBuilder(){
           ? `<div class="zsec zsec-h shut" onclick="toggleSecShut(${zi},'surf')"><span class="zcar2">\u25b8</span><b>Surfaces &amp; soil</b>
               ${sr.length?`<span class="zsum">${sr.map(x=>escAttr(x.n.toLowerCase())).join(' \u00b7 ')}</span><span class="zamt">${money(sCost)}</span>`:`<span class="zsum">nothing on the bar yet</span><span class="zamt"></span>`}</div>`
           : `<div class="zsec zsec-h" onclick="toggleSecShut(${zi},'surf')"><span class="zcar2">\u25be</span><b>Surfaces &amp; soil</b><span style="flex:1"></span></div>`;
-        const rowsH=shut?"":(sr.length?sr.map(x=>`<div style="display:flex;align-items:center;gap:10px;background:var(--pbcard,#FBFAF6);border-radius:10px;padding:8px 12px;margin:4px 0">
+        // Every candidate gets a row, whether it is being charged or not — a surface switched off
+        // with no row left to switch it back on is a dead end, and a quantity you cannot change is
+        // just a number being asserted at you.
+        const sAll=(zd.surf&&zd.surf.all)||[];
+        const rowsH=shut?"":(sAll.length?sAll.map(x=>{
+              const dim=x.off||!(x.sf>0);
+              return `<div style="display:flex;align-items:center;gap:9px;background:var(--pbcard,#FBFAF6);border-radius:10px;padding:7px 10px;margin:4px 0${dim?';opacity:.62':''}">
+              <button class="zsurf-ck${x.off?'':' on'}" title="${x.off?'Not in the price \u2014 tap to include':'In the price \u2014 tap to leave out'}"
+                onclick="event.stopPropagation();setZoneSurfOff(${zi},'${escAttr(x.n)}',${x.off?'false':'true'})">${x.off?'':'\u2713'}</button>
               <b style="font-size:.8rem">${escAttr(x.n)}</b>
-              <span style="margin-left:auto;font-size:.74rem;color:var(--tm);font-variant-numeric:tabular-nums">${Math.round(x.sf).toLocaleString()} SF \u00b7 $${(+x.uc||0).toFixed(2)}/SF</span>
-              <b style="font-size:.8rem;min-width:76px;text-align:right;font-variant-numeric:tabular-nums">${money(x.cost)}</b></div>`).join("")
+              <span style="margin-left:auto;display:inline-flex;align-items:baseline;gap:3px;background:${x.ov?'#FBF3E3':'var(--brl)'};border-radius:7px;padding:3px 7px">
+                <input type="number" class="no-spin" value="${x.off?'':Math.round(x.sf)}" step="50" min="0"
+                  placeholder="${Math.round(x.derived).toLocaleString()}"
+                  title="${x.ov?'Set by hand for this zone \u2014 empty the box to follow the allocation bar again':'Follows the allocation bar. Type a figure to set it for this zone only.'}"
+                  style="font:inherit;font-size:.74rem;font-weight:700;font-variant-numeric:tabular-nums;color:${x.ov?'#8A6D1F':'var(--tx)'};border:0;background:none;width:58px;padding:0;text-align:right"
+                  onclick="event.stopPropagation()" onchange="setZoneSurfSF(${zi},'${escAttr(x.n)}',this.value)"
+                  onkeydown="if(event.key==='Enter')this.blur()"><u style="font-size:.64rem;color:var(--tl);text-decoration:none">SF</u></span>
+              ${x.ov?`<button class="zsurf-rv" title="Back to the allocation bar figure" onclick="event.stopPropagation();clearZoneSurfSF(${zi},'${escAttr(x.n)}')">\u21ba</button>`:''}
+              <span style="font-size:.72rem;color:var(--tm);font-variant-numeric:tabular-nums;min-width:58px;text-align:right">$${(+x.uc||0).toFixed(2)}/SF</span>
+              <b style="font-size:.8rem;min-width:76px;text-align:right;font-variant-numeric:tabular-nums">${x.off?'\u2014':money(x.cost)}</b></div>`; }).join("")
             :`<div style="font-size:.72rem;color:var(--tl);padding:.2rem 0">Nothing on this zone's allocation bar yet \u2014 lawn, turf, hydroseed and soil prep are authored there.</div>`);
         return head+rowsH; })()}
       <div style="display:flex;justify-content:flex-end;align-items:baseline;gap:.5rem;margin-top:.4rem">
