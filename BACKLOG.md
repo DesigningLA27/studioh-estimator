@@ -209,6 +209,42 @@ All three were checked against a real DEMO build driven headlessly, not read.
 - **v1459–60** Sport Court Builder: 96 price records, engine, Price Book section, builder UI.
 - **v1449–54** Wall Builder: records, engine, Price Book section, builder UI, height zones.
 
+### 15 · Data questions raised and not yet answered
+Three live questions from the session of 2026-09-15. None are code bugs — each needs Warwick's
+number or Warwick's call, and each moves real money.
+- **Groundcover plugs per flat.** All four species in his zone are **36 plugs per flat**. The field
+  tooltip still says "often 50 or 72". If a real Asiatic jasmine flat is 64, the app buys nearly
+  twice the flats it needs. Needs the true per-species figure, then the tooltip and the default.
+- **Duplicate plant records.** 26 groups, 32 surplus rows, Spanish Lavender appears six times.
+  Merging is safe, but it moves the Garibay estimate **+$11,577** — so it is a pricing decision,
+  not a cleanup.
+- **`mirrorImagesToR2()` has never been run.** 68 of 104 images would be copied to R2. Deliberately
+  not run by Claude: it writes to the shared plant book, so it is Warwick's call.
+
+### 16 · UI direction — mockups published, none chosen
+No code goes into `index.html` until a direction is picked. Three artifact sets, all built from the
+live file (real `MB_STYLES`, real Project Info labels, real phase names), all verified for zero
+overflow and zero clipped content in both themes:
+- **Layout directions** — A · Guided Spine, B · Ask First, C · Workbench.
+  https://claude.ai/code/artifact/7b0348bf-6849-4996-ae02-a66c43b28cd2
+- **Visual looks** — D · Drawing Set, E · Night Studio, F · Big & Plain, all on one layout so the
+  look is the only variable. https://claude.ai/code/artifact/9d8083cb-b9ee-42bf-a0e0-daae52a79109
+- **Product look** — the GPT "Ordo" reference rebuilt: Project Setup, Concept, Budget, and the same
+  Concept screen after dark as an eleven-token swap.
+  https://claude.ai/code/artifact/d3d184ed-424a-41bc-9859-f043f0496815
+  Warwick liked E · Night Studio and then sent the Ordo reference as "a completely different look".
+
+**Open decisions inside that mockup, neither of them visual:**
+- **A PRO subscription tier.** The reference gates Nurseries, Color Library, CAD Details and
+  HOA & Codes behind PRO. CLAUDE.md defers accounts to the backend phase, so drawing the tier now
+  commits to it early. **Price Book is deliberately left ungated** — every number in the app comes
+  out of it. CAD Details is drawn greyed because it does not exist (0 grep hits).
+- **The product name.** The reference is called "Ordo". The mockups keep **Studio H**.
+- **Steps vs phases — treated as answered.** Warwick has now drawn the numbered-workflow-steps axis
+  twice, so the mockup builds it. The cost: rail steps must map onto `PHASES_ALL` snapshots
+  underneath — Concept writes the Schematic Design snapshot, Budget the Bid Estimate snapshot.
+  That mapping is the only part of this that touches the data model.
+
 ### 14 · Fence, Gate & Screening Builder — what the spec asks for and is not built
 Built v1486–94 against Warwick's 40-section GPT spec. The seven QA tests (A–G) all pass and Test A
 lands on the spec's own worked figure to the dollar ($13,900). What is **not** done:
