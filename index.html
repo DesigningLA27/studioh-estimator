@@ -7486,7 +7486,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1518</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1519</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -29654,35 +29654,141 @@ function cyclePlantImage(kind,pid,dir){ const p=plantDbFind(kind,pid); if(!p||!p
 function _allPlantsFlat(){ const out=[]; ["shrub","gc","tree","palm"].forEach(k=>{ (PLANT_DB[k]||[]).forEach(p=>out.push({kind:k,p})); }); return out; }
 // ── Find duplicates (same common + botanical name) ──
 function _dupKey(p){ const c=(p.c||"").trim().toLowerCase().replace(/\s+/g," "); const b=(p.b||"").trim().toLowerCase().replace(/\s+/g," "); if(!c&&!b) return ""; return c+"|"+b; }
-function findDuplicateGroups(){ const g={}; _allPlantsFlat().forEach(x=>{ const k=_dupKey(x.p); if(!k) return; (g[k]=g[k]||[]).push(x); }); return Object.keys(g).filter(k=>g[k].length>1).map(k=>g[k]); }
-function _dupScore(p){ return (p.img?4:0)+(p.sv?2:0)+(hasDetails(p)?1:0)+((p.price||0)>0?1:0); } // higher = more complete, keep this one
+// Grouped by KIND as well as name. Toyon exists as a tree and as a shrub, and those are two
+// different products — a tree row is priced by box size, a shrub row by container. Folding one
+// into the other left 13 tree rows pointing at a shrub record, which plantDbFind cannot see
+// (it only bridges shrub↔gc), so they fell back to a generic plant and re-priced themselves.
+// Shrub and groundcover are the one real pair, and plantDbFind resolves across those two.
+function _dupKindBucket(kind){ return (kind==="shrub"||kind==="gc")?"shrub/gc":kind; }
+function findDuplicateGroups(){ const g={}; _allPlantsFlat().forEach(x=>{ const k=_dupKey(x.p); if(!k) return;
+  const key=_dupKindBucket(x.kind)+"|"+k; (g[key]=g[key]||[]).push(x); });
+  return Object.keys(g).filter(k=>g[k].length>1).map(k=>g[k]); }
+// Higher = more complete, keep this one. The photo is worth more than everything else put
+// together on purpose: at 4 it tied with size+details+price, and on a tie the winner was
+// whichever record happened to come first in the book — which could have thrown a photo away.
+function _dupScore(p){ return (p.img?8:0)+(p.sv?2:0)+(hasDetails(p)?1:0)+((p.price||0)>0?1:0); }
+// Everywhere a plant id is referenced: this project's zones, every phase snapshot's zones
+// (a phase switch restores its own copy), and saved palettes.
+function _dupRefs(id){ let zones=0, snaps=0, pals=0;
+  const walk=(zs,add)=>{ (zs||[]).forEach(z=>["shrubRows","gcRows","treeRows","palmRows"].forEach(k=>
+    (z&&z[k]||[]).forEach(r=>{ if(r&&r.pid===id) add(); }))); };
+  try{ walk(((S.planting)||{}).zones, ()=>zones++); }catch(e){}
+  try{ Object.keys(S.snaps||{}).forEach(ph=>{ const d=(S.snaps[ph]||{}).data;
+    walk(((d&&d.planting)||{}).zones, ()=>snaps++); }); }catch(e){}
+  try{ (PREFS.palettes||[]).forEach(pl=>(pl.items||[]).forEach(it=>{ if(it&&it.pid===id) pals++; })); }catch(e){}
+  return {zones,snaps,pals,total:zones+snaps+pals}; }
+// Swap every one of those references onto the record being kept, so nothing is left pointing
+// at an id that no longer exists — an orphaned row falls back to a generic plant and re-prices
+// itself without saying so.
+function _dupRepoint(oldId,newId){ let n=0;
+  const walk=zs=>{ (zs||[]).forEach(z=>["shrubRows","gcRows","treeRows","palmRows"].forEach(k=>
+    (z&&z[k]||[]).forEach(r=>{ if(r&&r.pid===oldId){ r.pid=newId; n++; } }))); };
+  try{ walk(((S.planting)||{}).zones); }catch(e){}
+  try{ Object.keys(S.snaps||{}).forEach(ph=>{ const d=(S.snaps[ph]||{}).data; walk(((d&&d.planting)||{}).zones); }); }catch(e){}
+  try{ (PREFS.palettes||[]).forEach(pl=>(pl.items||[]).forEach(it=>{ if(it&&it.pid===oldId){ it.pid=newId; n++; } })); prefsSave(); }catch(e){}
+  return n; }
+// Lift anything the keeper is missing off the copy on its way out. Only ever fills a blank —
+// nothing the keeper already has is touched, so merging can never change a price it holds.
+const _DUP_CARRY=["img","imgAI","imgAlts","imgLic","imgAttr","imgSrc","imgFlag","imgConf","imgOrigin",
+  "imgMirrored","_imgIdx","imgZoom","imgPanX","imgPanY","b","habit","oc","pf","w","h","wu","light",
+  "basal","cls","fire","tox","bloom","bloomColor","evergreen","growth","notes","sv","detFlag"];
+function _dupMerge(keep,other){ const took=[];
+  if(!keep.img && other.img) _DUP_CARRY.filter(k=>/^(img|_img)/.test(k)).forEach(k=>{ if(other[k]!==undefined) keep[k]=other[k]; });
+  _DUP_CARRY.filter(k=>!/^(img|_img)/.test(k)).forEach(k=>{
+    const cur=keep[k]; const blank=(cur===undefined||cur===null||cur===""||(Array.isArray(cur)&&!cur.length));
+    if(blank && other[k]!==undefined && other[k]!==null && other[k]!=="") { keep[k]=other[k]; took.push(k); } });
+  // price is per size — fill only the sizes the keeper has no figure for
+  if(other.price&&typeof other.price==="object"){ keep.price=keep.price||{};
+    if(typeof keep.price==="object") Object.keys(other.price).forEach(sz=>{
+      if(!(+keep.price[sz]>0) && +other.price[sz]>0){ keep.price[sz]=other.price[sz]; took.push("price."+sz); } }); }
+  // tags are additive
+  if(Array.isArray(other.tags)&&other.tags.length){ keep.tags=Array.isArray(keep.tags)?keep.tags:[];
+    other.tags.forEach(t=>{ if(keep.tags.indexOf(t)<0) keep.tags.push(t); }); }
+  return took; }
+// Does re-pointing move money? Compare the two records size by size.
+function _dupPriceDiff(keep,other){ const a=keep.price, b=other.price; const out=[];
+  if(!a||!b||typeof a!=="object"||typeof b!=="object") return out;
+  Object.keys(b).forEach(sz=>{ const x=+a[sz]||0, y=+b[sz]||0;
+    if(y>0 && x>0 && x!==y) out.push({size:sz, from:y, to:x});
+    else if(y>0 && !(x>0)) out.push({size:sz, from:y, to:null}); });
+  return out; }
 function openDuplicates(){ let d=document.getElementById("dup-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="dup-modal";
   const groups=findDuplicateGroups(); groups.forEach(g=>g.sort((a,b)=>_dupScore(b.p)-_dupScore(a.p)));
   const total=groups.reduce((s,g)=>s+g.length-1,0);
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
   const rows=groups.map(g=>{ const kn=PLANT_KIND_LABEL[g[0].kind]||g[0].kind; return `<div style="border:1px solid var(--br);border-radius:8px;padding:.5rem .6rem;margin-bottom:.5rem">
       <div style="font-size:.82rem;font-weight:600">${g[0].p.c||''} <span style="font-style:italic;color:var(--tm);font-size:.74rem">${g[0].p.b||''}</span> <span style="font-size:.62rem;color:var(--tl)">· ${g.length} copies</span></div>
-      ${g.map((x,i)=>`<div style="display:flex;align-items:center;gap:.5rem;margin-top:.3rem;font-size:.72rem">
-          <img src="${escAttr(x.p.img||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:28px;height:28px;object-fit:cover;border-radius:5px;border:1px solid var(--br);background:#EEF3EA">
-          <span style="flex:1;color:var(--tm)">${x.p.img?'🖼':'▫'} ${hasDetails(x.p)?'📋':''} ${x.p.sv?'✓size':''} ${(x.p.price||0)>0?'$'+x.p.price:'no price'} <span style="color:var(--tl)">(${x.kind})</span></span>
-          ${i===0?'<span style="font-size:.62rem;font-weight:700;color:var(--gm);background:#EAF3EA;border-radius:6px;padding:.05rem .4rem">keep (most complete)</span>':`<button class="btn" onclick="deleteDupPlant('${x.kind}','${x.p.id}')" style="padding:.15rem .6rem;font-size:.68rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C;border-radius:7px;cursor:pointer">Delete</button>`}
-        </div>`).join('')}
+      ${g.map((x,i)=>{ const rf=_dupRefs(x.p.id); const pd=(i===0)?[]:_dupPriceDiff(g[0].p,x.p);
+        return `<div style="display:flex;align-items:center;gap:.5rem;margin-top:.3rem;font-size:.72rem">
+          <img src="${escAttr(plantImgOf(x.p)||PLANT_IMG_PH)}" onerror="pbImgErr(this)" style="width:28px;height:28px;object-fit:cover;border-radius:5px;border:1px solid var(--br);background:#EEF3EA">
+          <span style="flex:1;color:var(--tm);min-width:0">${x.p.img?'🖼':'▫'} ${hasDetails(x.p)?'📋':''} ${x.p.sv?'✓size':''} <span style="color:var(--tl)">(${x.kind} · ${escAttr(x.p.id)})</span>
+            ${rf.total?`<b style="color:#8a5a1f;font-weight:700">· used by ${rf.zones?rf.zones+" row"+(rf.zones===1?"":"s"):""}${rf.zones&&(rf.snaps||rf.pals)?", ":""}${rf.snaps?rf.snaps+" in saved phases":""}${rf.pals?(rf.snaps?", ":"")+rf.pals+" in palettes":""}</b>`:'<span style="color:var(--tl)">· not used</span>'}
+            ${pd.length?`<div style="color:#B23F3C;font-size:.66rem;margin-top:.1rem">merging re-prices: ${pd.map(q=>q.size+" "+money(q.from)+"→"+(q.to==null?"no price":money(q.to))).join(" · ")}</div>`:''}</span>
+          ${i===0?'<span style="font-size:.62rem;font-weight:700;color:var(--gm);background:#EAF3EA;border-radius:6px;padding:.05rem .4rem;white-space:nowrap">keep (most complete)</span>':`<button class="btn" onclick="mergeDupPlant('${x.kind}','${escAttr(x.p.id)}')" style="padding:.15rem .6rem;font-size:.68rem;background:#fff;color:#8a5a1f;border:1px solid #8a5a1f;border-radius:7px;cursor:pointer;white-space:nowrap">Merge in</button>`}
+        </div>`; }).join('')}
     </div>`; }).join('');
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:85vh;display:flex;flex-direction:column;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
       <div style="font-size:1.05rem;font-weight:700;color:var(--gm);margin-bottom:.3rem">Find duplicates</div>
-      <div style="font-size:.78rem;color:var(--tm);margin-bottom:.6rem">${groups.length?`${groups.length} duplicate groups · ${total} extra copies. The most complete copy (image, size, details, price) is kept; delete the others.`:'No duplicates found. 🎉'}</div>
+      <div style="font-size:.78rem;color:var(--tm);margin-bottom:.6rem">${groups.length?`${groups.length} duplicate groups · ${total} extra copies. The most complete copy is kept — a photo outranks everything, so one is never thrown away. Merging lifts anything the keeper is missing off the copy, re-points every zone row, saved phase and palette that pointed at it, and only then removes it. Where the two records disagree on price, the change is shown in red first.`:'No duplicates found. 🎉'}</div>
       <div style="overflow:auto;flex:1">${rows}</div>
       <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.7rem">
         <button class="btn" onclick="document.getElementById('dup-modal').remove()" style="padding:.45rem .9rem;font-size:.82rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
-        ${groups.length?`<button class="btn" onclick="deleteAllDupExtras()" style="padding:.45rem 1.1rem;font-size:.85rem;background:#B23F3C;color:#fff;border:none;font-weight:600">Delete all ${total} extras</button>`:''}
+        ${groups.length?`<button class="btn" onclick="mergeAllDupExtras()" style="padding:.45rem 1.1rem;font-size:.85rem;background:#8a5a1f;color:#fff;border:none;font-weight:600">Merge all ${total}</button>`:''}
       </div>
     </div>`;
   document.body.appendChild(d);
 }
-function deleteDupPlant(kind,id){ PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(p=>p.id!==id); plantBookSave(); openDuplicates(); if(typeof renderPlantBook==="function") renderPlantBook(); }
-function deleteAllDupExtras(){ const groups=findDuplicateGroups(); groups.forEach(g=>g.sort((a,b)=>_dupScore(b.p)-_dupScore(a.p))); let n=0;
-  groups.forEach(g=>{ g.slice(1).forEach(x=>{ PLANT_DB[x.kind]=(PLANT_DB[x.kind]||[]).filter(p=>p.id!==x.p.id); n++; }); });
-  plantBookSave(); if(typeof renderPlantBook==="function") renderPlantBook(); openDuplicates(); alert("Deleted "+n+" duplicate copies. Saving to the server…"+"aster to save to the server.");
+// Fold one copy into the record being kept: carry over what the keeper lacks, move every
+// reference onto it, and only then remove the copy. Never a bare delete — a row left pointing
+// at an id that has gone silently re-prices itself off a generic plant.
+function _dupFold(keepRec,kind,id){
+  const other=(PLANT_DB[kind]||[]).find(p=>p.id===id); if(!other||!keepRec||keepRec===other) return 0;
+  _dupMerge(keepRec,other);
+  const moved=_dupRepoint(id,keepRec.id);
+  PLANT_DB[kind]=(PLANT_DB[kind]||[]).filter(p=>p.id!==id);
+  return moved;
+}
+async function mergeDupPlant(kind,id){
+  const groups=findDuplicateGroups(); groups.forEach(g=>g.sort((a,b)=>_dupScore(b.p)-_dupScore(a.p)));
+  const g=groups.find(gr=>gr.some(x=>x.p.id===id)); if(!g) return;
+  const keep=g[0], me=g.find(x=>x.p.id===id); if(!me||keep.p.id===id) return;
+  const rf=_dupRefs(id), pd=_dupPriceDiff(keep.p,me.p);
+  if(rf.total||pd.length){
+    const go=await askDlg({title:"Merge “"+(me.p.c||id)+"” into the copy being kept?",
+      body:'<div style="font-size:12.5px;line-height:1.6">'
+        +(rf.total?('<b>'+rf.total+'</b> reference'+(rf.total===1?'':'s')+' will move onto the kept record'
+           +(rf.zones?(' — '+rf.zones+' row'+(rf.zones===1?'':'s')+' in this project'):'')+'. '):'')
+        +(pd.length?('<b style="color:#B23F3C">The two records price differently, so this changes the estimate:</b> '
+           +pd.map(q=>q.size+" "+money(q.from)+" → "+(q.to==null?"no price":money(q.to))).join(", ")+'. '):'')
+        +'Anything the kept record is missing is taken from this one first — its photo included.</div>',
+      actions:["Merge","Cancel"], danger:pd.length>0});
+    if(go!=="Merge") return;
+  }
+  const moved=_dupFold(keep.p,kind,id);
+  plantBookSave(); try{ plantRefresh(); }catch(e){}
+  if(typeof renderPlantBook==="function") renderPlantBook();
+  openDuplicates();
+  _toast("Merged"+(moved?(" · "+moved+" reference"+(moved===1?"":"s")+" moved"):""),"#4C7B3D");
+}
+async function mergeAllDupExtras(){
+  const groups=findDuplicateGroups(); groups.forEach(g=>g.sort((a,b)=>_dupScore(b.p)-_dupScore(a.p)));
+  let refs=0; const repriced=[];
+  groups.forEach(g=>g.slice(1).forEach(x=>{ refs+=_dupRefs(x.p.id).total;
+    const pd=_dupPriceDiff(g[0].p,x.p); if(pd.length&&_dupRefs(x.p.id).total) repriced.push((x.p.c||x.p.id)); }));
+  const total=groups.reduce((a,g)=>a+g.length-1,0);
+  const go=await askDlg({title:"Merge "+total+" duplicate copies?",
+    body:'<div style="font-size:12.5px;line-height:1.6">Each copy hands anything the kept record is missing — photo first — then every reference to it moves across and the copy goes. '
+      +(refs?('<b>'+refs+'</b> reference'+(refs===1?'':'s')+' will be re-pointed. '):'')
+      +(repriced.length?('<b style="color:#B23F3C">'+repriced.length+' of them price differently from the record being kept, so the estimate will move:</b> '
+        +repriced.slice(0,8).join(", ")+(repriced.length>8?(" and "+(repriced.length-8)+" more"):"")+'. '):'No plant in use prices differently, so nothing in the estimate moves. ')
+      +'</div>',
+    actions:["Merge them","Cancel"], danger:repriced.length>0});
+  if(go!=="Merge them") return;
+  let n=0, moved=0;
+  groups.forEach(g=>{ g.slice(1).forEach(x=>{ moved+=_dupFold(g[0].p,x.kind,x.p.id); n++; }); });
+  plantBookSave(); try{ plantRefresh(); }catch(e){}
+  if(typeof renderPlantBook==="function") renderPlantBook(); openDuplicates();
+  await askTell("Merged", n+" duplicate copies folded in and "+moved+" reference"+(moved===1?"":"s")+" re-pointed. The book saves to the server on its own.");
 }
 function openFillImages(){ let d=document.getElementById("fillimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fillimg-modal";
   const blanks=_allPlantsFlat().filter(x=>!x.p.img).length;
