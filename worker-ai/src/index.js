@@ -55,7 +55,14 @@ export default {
 
     // default: AI proxy
     if(!env.ANTHROPIC_API_KEY) return json({error:"Server not configured: missing ANTHROPIC_API_KEY secret."},500,origin);
-    if(typeof body.max_tokens!=="number" || body.max_tokens>8000) body.max_tokens=1000;
+    // Clamp to the ceiling; never punish a caller for asking high. The old guard read
+    // `>8000 → 1000`, so a caller raising its limit to fix a truncated reply got FEWER
+    // tokens than before and no error — which is how two of three real contractor bids
+    // came back as unparseable JSON. A ceiling is a ceiling, not a trap.
+    const MAX_OUT = 32000;
+    body.max_tokens = (typeof body.max_tokens === "number" && body.max_tokens > 0)
+      ? Math.min(Math.floor(body.max_tokens), MAX_OUT)
+      : 1000;
     try{
       const upstream=await fetch(ANTHROPIC_URL,{ method:"POST", headers:{"Content-Type":"application/json","x-api-key":env.ANTHROPIC_API_KEY,"anthropic-version":ANTHROPIC_VERSION}, body:JSON.stringify(body) });
       const text=await upstream.text();

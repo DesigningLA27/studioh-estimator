@@ -7724,7 +7724,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1522</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1523</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -27483,6 +27483,11 @@ function _stRender(){
                  <button class="btn btn-o" onclick="removeSampleProject()">Remove sample</button>`
               : `<button class="btn btn-o" onclick="loadSampleProject()">Load sample project</button>`}
             ${ihint("Fills a demo estimate that turns on every section and one of every builder — pool, spa, kitchen, pergola, water feature, walls, planting — so you can review the whole app. It replaces whatever project is open, and the total is not a realistic bid.")}
+          </span></div>
+        <div class="st-row"><span class="l">Bid Compare sample<small>${S._bidSample?"Loaded · three 2018 bids":"Three real contractor bids on one 2018 job, with the estimate they were bid against"}</small></span>
+          <span style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+            <button class="btn btn-o" onclick="loadBidSample()">${S._bidSample?"Reload it":"Load Bid Compare sample"}</button>
+            ${ihint("Real bids from 2018 — one itemised to seventy lines, one priced in four, one that carries the permits the others exclude. Contractor names and licence numbers are stand-ins; the figures, allowances and exclusions are the real ones. It replaces whatever project is open.")}
           </span></div>
         <div class="st-row"><span class="l">DEMO project<small>${S._demo?"Loaded · San Marino estate":"A full estate — traced site, planting, products, mood board, four phases"}</small></span>
           <span style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
@@ -52146,19 +52151,42 @@ async function bcRead(b,b64){
     +"- total is the bid's own bottom line. 0 if it does not state one.\n"
     +"- exclusions: things the bid says are NOT included, in its own words, one per entry.\n"
     +"- license is the CSLB number if printed, digits only. Empty string if it is not on the document.\n"
-    +"- note: one sentence on anything that would change how the price is read (tax, O&P, validity period).";
+    +"- note: one sentence on anything that would change how the price is read (tax, O&P, validity period).\n"
+    // A seventy-line bid pretty-printed at eleven fields a line ran to 825 lines of
+    // JSON and blew the output budget before the array closed. The whitespace was
+    // most of the reply. Minified, the same bid fits several times over.
+    +"- OUTPUT MINIFIED JSON ONLY: no line breaks, no indentation, no spaces between tokens. "
+    +"Do not wrap it in a code fence. Keep desc under 90 characters — quantities and rates carry the detail, not prose.";
   var content=[{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},
                {type:"text",text:"Read this contractor bid and report exactly what it states."}];
-  var out=null;
+  // 8,000, not 4,000. A real itemised bid runs to seventy lines: two of the three
+  // 2018 bids tested against this ran the model out of output tokens mid-array, the
+  // JSON came back truncated, and the parse threw INSIDE the network catch — so a
+  // perfectly good document reported "Could not reach the AI". Read failures are now
+  // told apart: no worker, no reply, ran out of room, or unreadable.
+  //
+  // 8,000 is the live worker's ceiling, and the ceiling used to be a TRAP: its guard
+  // read `max_tokens>8000 → 1000`, so asking for more returned far less, silently.
+  // worker-ai/src/index.js now clamps instead; raise this once that is deployed.
+  var out=null, raw="", stop="";
   try{
     var r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,temperature:0,system:sys,
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:8000,temperature:0,system:sys,
         messages:[{role:"user",content:content}]})});
     var d=await r.json();
-    var t=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
-    var m=t.match(/\{[\s\S]*\}/); out=m?JSON.parse(m[0]):null;
+    raw=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
+    stop=(d&&d.stop_reason)||"";
   }catch(e){ b.err="Could not reach the AI: "+(e&&e.message||e); return; }
-  if(!out){ b.err="Nothing usable came back from that document."; return; }
+  if(!raw){ b.err="The worker answered but sent nothing back."; return; }
+  var m=raw.match(/\{[\s\S]*\}/);
+  if(m){ try{ out=JSON.parse(m[0]); }catch(e2){ out=null; } }
+  if(!out){
+    b.err=(stop==="max_tokens")
+      ? "That bid is longer than one read can return — it was cut off partway through. "
+        +"Tell me and the reader can be split across pages."
+      : "That document came back in a shape this could not read.";
+    return;
+  }
   b.contractor=String(out.contractor||"").slice(0,120);
   b.lic=String(out.license||"").replace(/[^0-9]/g,"").slice(0,12);
   b.date=String(out.date||"").slice(0,40);
@@ -52595,6 +52623,179 @@ function bcRecommend(){
   var cheapest=scored.slice().sort(function(x,y){ return x.a.actual-y.a.actual; })[0];
   return {pick:top, all:scored, cheapest:cheapest,
     cheaperButNot:(cheapest.b.id!==top.b.id)?cheapest:null};
+}
+
+// ── BID COMPARE SAMPLE ───────────────────────────────────────────────────────
+// Three real contractor bids on one real 2017–18 job, with the estimate they were
+// bid against. The figures, the line items, the allowances and the wording are the
+// real ones, because a demo built on invented numbers proves nothing.
+//
+// PRIVACY: the source documents carry a client's name, home address, phone and
+// email, and three contractors' competitive pricing under their own licence
+// numbers. None of that is here. The contractor names below are stand-ins and the
+// licence numbers are not real ones; the originals stay in Dropbox. What is kept
+// is the arithmetic, which is the part worth demonstrating.
+//
+// The estimate is Studio H's own prelim for the job. Note its own documented grand
+// total was $129,590 against $126,590 of line items — a $3,000 difference, exactly
+// its mobilisation figure. The itemised figures are used here and the discrepancy
+// is left alone rather than quietly corrected; it is flagged in the roadmap.
+const BIDSAMPLE_EST={
+  genconds:3000,    // portable toilet, soils/structural engineering, permits & HOA fees
+  drainage:4315,    // 310 lf SDR35, brass inlets, atrium drains, catch basins
+  firepit:800,      // stub-out for a future fire table
+  paving:13400,     // entry walk, steps, pedestrian paving, precast pavers, pebble, steppers
+  woodMetal:8000,   // two access gates, portico entry gate
+  pool:60000,       // plunge pool and spa with water effect, carried as an allowance
+  irrigation:5125,  // mainline, 4 valves, controller with rain sensor
+  lighting:5250,    // 25 low-voltage fixtures, one transformer
+  planting:26700    // turf, header, weed barrier, trees, 1,450 sf of shrub
+};
+const BIDSAMPLE_BUDGET=125000;   // the client's approved construction budget
+
+function _bidSampleBids(){
+  var L=function(desc,cat,amount,o){
+    return Object.assign({desc:desc,cat:cat,amount:amount,qty:0,unit:"LS",rate:0,
+      kind:"line",matBasis:"named",matName:"",matRate:0,allowIncl:"",installRate:0},o||{}); };
+  return [
+    // ── Bid 1 · itemised to ~70 lines, allowances declared with their basis ──
+    { id:"bs_alta", name:"Alta Landscape Inc.", contractor:"Alta Landscape Inc.",
+      lic:"1021012", total:145200, date:"22 Feb 2018", file:"", readAt:"2018-02-22",
+      note:"Base bid, valid 45 days. Permits, engineering, soil reports and HOA fees excluded — "
+          +"the bid estimates a further $4,500 for them. Material allowances include up to 30% for "
+          +"selection, delivery, staging and mark-up, and 5–10% for waste.",
+      exclusions:["City permits, engineering, soil reports and HOA fees (est. $4,500)",
+                  "Soil exportation, charged separately if required",
+                  "Fire pit unit — provided by the customer",
+                  "Pottery — provided by the customer",
+                  "Gate hardware — selected by owner"],
+      lines:[
+        L("Demolition, site preparation, grading and portable toilet","sitework",2690),
+        L("Gas lines for pool, BBQ and fire element","electrical",2900),
+        L("Pool subpanel, conduit, outlets, low-voltage and irrigation timers","electrical",2745),
+        L("300 lf of 4\" drain system with 22 inlets","drainage",4684,
+          {qty:300,unit:"LF",rate:14,matName:"4\" SDR perforated"}),
+        L("Fire pit installation — unit provided by customer","firepit",750,{matBasis:"unstated"}),
+        L("CMU walls to match existing wall at entrance","walls",2100,{qty:14,unit:"SF",rate:150}),
+        L("Pedestrian concrete field at trash area","paving",3060,{qty:170,unit:"SF",rate:18}),
+        L("Linear concrete pavers — Stepstone allowance plus 10% waste, set on concrete","paving",5960,
+          {qty:220,unit:"SF",rate:27.09,matBasis:"allowance",matRate:12,
+           allowIncl:"10% waste, and up to 30% for selection, delivery, staging and mark-up"}),
+        L("Steppers per plan — Stepstone allowance, with reinforced CMU bench","paving",2330,
+          {qty:75,unit:"SF",matBasis:"allowance",matRate:12,
+           allowIncl:"selection, delivery, staging and mark-up"}),
+        L("New concrete steppers at entrance","paving",900,{matBasis:"unstated"}),
+        L("Pool and spa — excavation, plumbing, steel, shotcrete, Pebble Sheen, Hayward equipment, "
+          +"Stepstone coping, waterline tile allowance","pool",67675,
+          {matBasis:"allowance",matRate:25,allowIncl:"glass waterline tile at $25/sf, 140 sf"}),
+        L("Pebble mulch — material allowance, laid on weed barrier","planting",1925,
+          {matBasis:"allowance",matRate:450,allowIncl:"delivery; $450 per yard, 3 yards"}),
+        L("Artificial turf — TigerTurf, pet grade","planting",4200,{qty:300,unit:"SF",rate:14,
+          matName:"TigerTurf, lead-free with antibacterial infill"}),
+        L("Steel headers per plan","planting",720,{qty:60,unit:"LF",rate:12}),
+        L("Boulders — material allowance and installation","planting",1200,
+          {matBasis:"allowance",matRate:600,allowIncl:""}),
+        L("Trees — 2 no. 36\" Swan Hill olive, citrus and bay in pottery, with soil prep and crane",
+          "planting",4090,{matName:"Olea europaea Swan Hill, Citrus, Laurus nobilis"}),
+        L("Shrubs and groundcover — 20 species, 1–15 gallon, with amendment and top dressing",
+          "planting",12871,{matName:"per planting plan"}),
+        L("Wood bench — open lattice per plan","woodMetal",5000,{qty:20,unit:"SF",rate:250}),
+        L("Two gates at 5–6' and 3' — allowance, construction and installation","woodMetal",3700,
+          {matBasis:"allowance",matRate:0,allowIncl:"construction and installation; hardware excluded"}),
+        L("Portico gate — allowance, construction and installation","woodMetal",3000,
+          {matBasis:"allowance",matRate:0,allowIncl:"construction and installation; hardware excluded"}),
+        L("Pilaster pots — installation with dedicated irrigation, drainage and soil","furnish",1800,
+          {qty:10,unit:"EA",rate:180,matBasis:"unstated"}),
+        L("Irrigation — new mainline, 5 drip zones, smart controller","irrigation",6950),
+        L("Lighting — 22 bronze fixtures and a 300W stainless transformer","lighting",3950,
+          {qty:22,unit:"EA",rate:150,matName:"DSE matte bronze"})
+      ]},
+
+    // ── Bid 2 · four lump lines. Detailed in prose, itemised nowhere. ──
+    { id:"bs_verde", name:"Verde Outdoors", contractor:"Verde Outdoors",
+      lic:"656128", total:148541, date:"4 Mar 2018", file:"", readAt:"2018-03-04",
+      note:"Priced against the drawings dated 25 Jan 2018. The proposal describes materials at length "
+          +"in prose — coping, tile, pool equipment, interior finish — but prices the whole job in "
+          +"four lines, so no quantity or rate can be checked against anything.",
+      exclusions:["Soil reports, addenda and considerations if required","Pottery"],
+      lines:[
+        L("Swimming pool with water feature — engineering, form, excavation, steel, shotcrete, "
+          +"plumbing, automation and equipment, LED lights, waterline tile allowance, "
+          +"pebble interior finish, start-up","pool",69850,
+          {matBasis:"allowance",matRate:7,
+           allowIncl:"$7 per 6\" lineal foot of waterline tile; $7/sf on the raised feature wall; "
+                    +"$900 for scupper fixtures"}),
+        L("Hardscape — per plan","paving",30853,{matBasis:"unstated"}),
+        L("Landscape — per plan","planting",35238,{matBasis:"unstated"}),
+        L("Carpentry — gates and bench, with a gate allowance","woodMetal",12599,
+          {matBasis:"allowance",matRate:2500,allowIncl:"$2,500 on the new front entry gate; "
+            +"final design selected by owner and landscape architect"})
+      ]},
+
+    // ── Bid 3 · itemised, and the only one that prices permits and engineering ──
+    { id:"bs_coast", name:"Coastline Pools & Landscape", contractor:"Coastline Pools & Landscape",
+      lic:"869134", total:176842, date:"14 Feb 2018", file:"", readAt:"2018-02-14",
+      note:"Prices permits, soils engineering and structural engineering inside the bid rather than "
+          +"excluding them — $8,725 the other two leave to the owner. Pool structural pending soils.",
+      exclusions:["No demolition is bid into this project"],
+      lines:[
+        L("Mobilisation — portable toilet, soils engineering, permits and city fees, "
+          +"structural engineering for pool, spa and patio cover","genconds",8725),
+        L("Rough grading preparation","sitework",3200,{qty:1600,unit:"SF",rate:2}),
+        L("500 lf of 4\" SDR 35 drain line, 15 pour-lid drains, 30 atrium drains","drainage",7780,
+          {qty:500,unit:"LF",rate:14,matName:"4\" SDR 35 PVC"}),
+        L("CMU privacy wall to match existing lot line wall","walls",750,{qty:3,unit:"LF",rate:250}),
+        L("Pedestrian concrete, linear paver field, steppers, cantilevered steps, pebble mulch, "
+          +"steel header","paving",17128,{matName:"concrete pavers"}),
+        L("Synthetic turf and boulders","planting",6800,{qty:325,unit:"SF",rate:14,
+          matName:"synthetic turf, 9 boulders"}),
+        L("Built-in wood bench with water effect, two self-locking latches, side gate, "
+          +"new wood portico gate","woodMetal",16660,{qty:40,unit:"LF",rate:277.5}),
+        L("Pool and spa — excavation, steel, mechanicals, shotcrete, precast coping, pebble "
+          +"plaster, variable-speed equipment, waterline tile at a $20/sf allowance","pool",80073,
+          {matBasis:"allowance",matRate:20,allowIncl:"setting material and grout included"}),
+        L("Irrigation — mainline, 7 remote control valves, timer and controller","irrigation",9900,
+          {qty:7,unit:"EA",rate:1250}),
+        L("Lighting — 20 fixtures on an $85 allowance, tape lights, pool-rated transformer",
+          "lighting",5950,{qty:20,unit:"EA",rate:200,matBasis:"allowance",matRate:85,
+          allowIncl:"fixture only; installation priced separately at $115 each"}),
+        L("Trees — 2 no. 36\" Swan Hill olive, 3 citrus, 3 bay, with crane and root guards",
+          "planting",4545,{matName:"Olive Multi Swan Hill 36\" box"}),
+        L("Shrubs and groundcover — 20 species matching the planting plan","planting",15331,
+          {matName:"per planting plan"})
+      ]}
+  ];
+}
+// Build it as a project. The estimate goes in as per-section lump sums, which is the
+// same path a hand-priced section already uses, so every figure here prices through
+// catSubtotal exactly as a typed one would.
+async function loadBidSample(){
+  var a=await askDlg({title:"Load the Bid Compare sample?",
+    body:"Three real contractor bids on one 2018 job, with the estimate they were bid against. "
+        +"It replaces whatever project is open — save yours first if you need it.",
+    actions:["Cancel","Load it"]});
+  if(a!==1) return;
+  try{ closeSettings(); }catch(e){}
+  S._sample=true; S._demo=false; S._bidSample=true;
+  S.projName="Bid Compare sample — three bids, 2018";
+  try{ S.budget=BIDSAMPLE_BUDGET; }catch(e){}
+  (PB||[]).forEach(function(c){
+    var cs=S.cats[c.id]; if(!cs) return;
+    var v=BIDSAMPLE_EST[c.id];
+    if(v>0){ cs.on=true; cs.lumpOn=true; cs.lumpSum=v; }
+    else { cs.on=false; cs.lumpOn=false; cs.lumpSum=0; }
+  });
+  var st=bcState(); st.bids=_bidSampleBids(); st.cons={};
+  _bcPick=st.bids[0].id; _bcTab="score";
+  try{ buildProCats(); }catch(e){}
+  try{ renderProSummary(); }catch(e){}
+  try{ renderTotal(); }catch(e){}
+  try{ updateProBar(); }catch(e){}
+  var t=document.querySelector('.tab[data-view="bidcompare"]');
+  if(t) t.click(); else renderBidCompare();
+  try{ _bidSchedule(); }catch(e){}
+  var tot=0; Object.keys(BIDSAMPLE_EST).forEach(function(k){ tot+=BIDSAMPLE_EST[k]; });
+  _toast("Three 2018 bids loaded against a "+fmtN(tot)+" estimate.","#3E6B4F");
 }
 
 // ── The view ─────────────────────────────────────────────────────────────────
