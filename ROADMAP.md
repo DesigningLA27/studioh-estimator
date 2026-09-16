@@ -82,9 +82,26 @@ fetch it. It works the way v1485 solved the same wall for setbacks: a button tha
 record with the number copied, a paste box that reads what comes back and cites it, and `bcProvider`
 left inert as the seam for a paid lookup service.
 
-**Still open on it:** the allowance-heavy threshold is set at 10% of the bid — Warwick's number to
-set. Line-to-section matching is keyword-based and editable per line; a bid that words things oddly
-will need a correction. Nothing exports yet.
+**Round 2, specified 16 Sep 2026 — the part that makes it valuable, none of it built:**
+- **Material allowance model.** A line is installed $/SF *of which* material $/SF, and the material is
+  either a product they named or an allowance (*"$12/SF material allowance, incl. tax, overage and
+  shipping"*). When we drew limestone, the question is whether their allowance buys it.
+- **Questions, not only flags.** *"$32,000, per plan"* against a plan saying limestone is an
+  unanswered question — hover an icon for it, and/or an allowances chart comparing all bids.
+- **A sparse bid is itself the red flag** — few big line items means room to change-order. Listed for
+  the client in words a client understands.
+- **A contractor recommendation report** — why to use them.
+- **A risk / confidence score**, big and obvious (68/100, or D+): distance under the realistic number,
+  count of lines below minimum industry cost, allowance exposure, and contractor standing (licence
+  history, bond, years licensed).
+- **Consistency against our in-house pricing** — % +/- from standard, per line and per section.
+- **Second audience:** contractors themselves, to show why their bid beats an unethically low one.
+
+**Data it needs and does not have:** a **minimum credible install cost** per assembly — a floor, not
+the Price Book's `lo` band — plus the score's weights. Warwick's numbers, not to be guessed.
+
+**Also open:** the allowance-heavy threshold sits at 10% of the bid. Line-to-section matching is
+keyword-based and editable per line. Nothing exports yet.
 
 Note: this is separate from the **bid log** (§77, Price Book › Bids vs estimates), which compares
 *our* estimate against the bid that came back. This compares *contractors* against each other.
