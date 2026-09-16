@@ -82,7 +82,7 @@ fetch it. It works the way v1485 solved the same wall for setbacks: a button tha
 record with the number copied, a paste box that reads what comes back and cites it, and `bcProvider`
 left inert as the seam for a paid lookup service.
 
-**Round 2, specified 16 Sep 2026 — the part that makes it valuable, none of it built:**
+**Round 2 — BUILT v1522.** All of it, except the numbers that are Warwick's:
 - **Material allowance model.** A line is installed $/SF *of which* material $/SF, and the material is
   either a product they named or an allowance (*"$12/SF material allowance, incl. tax, overage and
   shipping"*). When we drew limestone, the question is whether their allowance buys it.
@@ -97,8 +97,14 @@ left inert as the seam for a paid lookup service.
 - **Consistency against our in-house pricing** — % +/- from standard, per line and per section.
 - **Second audience:** contractors themselves, to show why their bid beats an unethically low one.
 
-**Data it needs and does not have:** a **minimum credible install cost** per assembly — a floor, not
-the Price Book's `lo` band — plus the score's weights. Warwick's numbers, not to be guessed.
+**The floors are now a real field**, editable per section on the Confidence tab, synced as
+`studioh_bcfloors_v1`. **One figure is seeded — paving $35/SF, Warwick's, 16 Sep 2026.** Every other
+section is empty on purpose: a section with no floor is **left out of the score** and the total
+renormalises, rather than a threshold being invented. Derived floors stay inert until PB sections
+name a default assembly (§2.1).
+
+**Still Warwick's to set:** the remaining floors, the six weights (25/20/20/15/10/10) and the grade
+boundaries (90/80/70/60).
 
 **Also open:** the allowance-heavy threshold sits at 10% of the bid. Line-to-section matching is
 keyword-based and editable per line. Nothing exports yet.
