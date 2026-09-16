@@ -193,6 +193,47 @@ All three were checked against a real DEMO build driven headlessly, not read.
 - ~~`builderTotalFor` referenced and never defined~~ — fixed v1476.
 - ~~`projDigest()` stamped `totalIsExact` on a subtotal~~ — fixed v1476.
 
+### 17 · Sun & shade study — shade and shadow by date and time
+Nothing in the app computes sun position. Every "solar" hit in `index.html` is something else —
+motorized solar shade screens, pool solar-heating payback, an access-control solar package. Sun
+exposure today is a **hand-typed tag** on each plant (`lightSetOf`, `toggleLight`, `LIGHT_ORDER`,
+intersection-matched), so the app knows a plant wants part shade and has no idea whether the bed
+it is going in gets any.
+
+**What it would be.** A solar-position model (declination + equation of time → altitude/azimuth for
+a given lat/long, date and clock time), casting shadows from the traced footprints and from plant
+canopies onto the plan, with a date/time scrub and the three dates that decide a garden — summer
+solstice, winter solstice, equinox — plus an accumulated hours-of-sun map per bed.
+
+**What it can already read.**
+- **Lat/long** — `S.pi.lat` / `S.pi.lng`, set by the address geocode and by the GPS button.
+- **True north for free** — traces are stored as lat/long, not screen pixels, so the bearing is
+  derivable. No orientation input to build. (Note `_demoFrame()` deliberately runs the *local* frame
+  along the parcel boundary rather than north — the shadow model must use geographic north, not
+  that frame.)
+- **Footprints** — `lot`, `building`, `driveway`, `exclusion`, `limit`, `demo`, `planting` are all
+  traced polygons already.
+- **Plant size** — every record carries `w` (mature spread) and `h` (mature height) in feet, and
+  the eight trees in `USFS_GROWTH` carry measured annual height/canopy rates and mature ranges, so
+  a tree's shadow can be drawn at year 1, year 10 and mature rather than only at maturity.
+- **Some vertical** — `S.stories` (1/2/3, used for the footprint calc), the `bldg-overhang` eave
+  figure, Wall Builder height zones, fence heights per segment.
+
+**What is missing.** A real **house height** — `S.stories` is a floor-count for dividing square
+footage, not an eave or ridge elevation, and the shadow a two-storey house throws is the whole
+point. Also nothing for **off-site shade**: the neighbour's house and the neighbour's mature trees
+are usually what actually shades a side yard, and neither is traced. Terrain slope is absent too,
+which matters on the hillside jobs.
+
+**Where it belongs.** The Project Info site-intelligence hub, next to setbacks, fire and water —
+it is site analysis, not a cost line. It earns its keep twice: as a drawing the client understands,
+and as an input that could set a bed's sun exposure automatically instead of the designer tagging
+it, which is the only place in the app where plant suitability is currently guessed rather than
+computed. **Read-only, like Trace and Estimate** — it produces no prices and authors no data.
+
+**Not scoped.** Warwick has not set the model, the dates shown, or whether this draws on the plan,
+in the Mood Board renders, or both.
+
 ---
 
 ## Done
