@@ -63,7 +63,7 @@ Guessed rates have been wrong every time: pot $1,425 → $750, pergola $3.1k →
 
 ---
 
-## 4 · Bid Compare — building now
+## 4 · Bid Compare — built v1521
 
 A new tab. Four parts:
 
@@ -72,8 +72,19 @@ A new tab. Four parts:
 3. **An "actual" bid price** — what the real cost is once every bid is on the same footing: like-for-like line items, allowances equalised, omissions added back in. *The number the tool exists to produce.*
 4. **Contractor lookup** — CSLB licence status, violations, workers' comp, bond amount; a full report on the contractor.
 
-Constraint: "standard industry pricing" comes from the Price Book, never invented. CSLB access is a
-data question first — expect the same 403 wall the setbacks reader hit on code hosts.
+**Shipped v1521** as its own tab, replacing the "not built yet" lightbox. All four parts are in.
+Standard industry pricing comes from the Price Book, never invented — every dollar the tool adds to
+a bid is this project's own estimate for that section, and the working is on show.
+
+**CSLB, checked rather than assumed (16 Sep 2026):** there is no public API, and the licence-detail
+page ignores a licence number in the address — `LicNum=` redirects to the search form, so nothing can
+fetch it. It works the way v1485 solved the same wall for setbacks: a button that opens the real
+record with the number copied, a paste box that reads what comes back and cites it, and `bcProvider`
+left inert as the seam for a paid lookup service.
+
+**Still open on it:** the allowance-heavy threshold is set at 10% of the bid — Warwick's number to
+set. Line-to-section matching is keyword-based and editable per line; a bid that words things oddly
+will need a correction. Nothing exports yet.
 
 Note: this is separate from the **bid log** (§77, Price Book › Bids vs estimates), which compares
 *our* estimate against the bid that came back. This compares *contractors* against each other.
