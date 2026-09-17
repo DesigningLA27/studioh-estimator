@@ -7585,6 +7585,36 @@ i.sb-bas-pattern{background:#FBE9E8;color:#B23F3C}
 .bc-fl .s.none{color:var(--v-high)}
 
 /* a sparse bid, called out */
+/* the plain-English verdict — the one block a client reads and stops */
+.bc-verd{border:1px solid var(--br);border-left:4px solid var(--tm);border-radius:11px;
+  padding:13px 15px;background:var(--card);margin:0 0 12px}
+.bc-verd.ok{border-left-color:var(--v-ok)}
+.bc-verd.mid{border-left-color:var(--v-high)}
+.bc-verd.bad{border-left-color:var(--v-warn)}
+.bc-verd.ask,.bc-verd.busy{border-left-color:var(--br);background:var(--surface2)}
+.bc-verd .bc-vk{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--tm);margin-bottom:5px}
+.bc-verd .bc-vh{font-size:17px;font-weight:800;line-height:1.3;letter-spacing:-.2px;
+  color:var(--tx);text-wrap:balance}
+.bc-verd.ask .bc-vh,.bc-verd.busy .bc-vh{font-size:14px;font-weight:700;color:var(--tm)}
+.bc-verd p{font-size:13px;line-height:1.65;color:var(--tx);margin:7px 0 0;max-width:74ch}
+.bc-verd.ask p,.bc-verd.busy p{font-size:12px;color:var(--tm);max-width:78ch}
+.bc-verd.ask .btn{margin-top:10px}
+.bc-vf{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  margin-top:10px;padding-top:8px;border-top:1px solid var(--br);font-size:11px;color:var(--tm)}
+.bc-vf .warn{color:var(--v-warn);font-weight:600}
+.bc-vf button{border:1px solid var(--br);background:transparent;color:var(--tm);border-radius:7px;
+  padding:3px 9px;font:inherit;font-size:11px;font-weight:600;cursor:pointer}
+.bc-vf button:hover{border-color:var(--gm);color:var(--gm)}
+.bc-vnums{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.bc-vnums span{flex:1 1 150px;border:1px solid var(--br);border-radius:9px;padding:7px 10px;
+  display:flex;flex-direction:column;gap:1px;font-variant-numeric:tabular-nums;font-size:14px;
+  font-weight:700;color:var(--tx)}
+.bc-vnums span.win{border-color:var(--v-ok);background:var(--brand-soft)}
+.bc-vnums span b{font-size:11px;font-weight:600;color:var(--tm)}
+.bc-vnums span em{font-size:10.5px;font-weight:700;font-style:normal;color:var(--tm);
+  letter-spacing:.03em}
+.bc-vnums span.win em{color:var(--v-ok)}
 .bc-sparse{border:1px solid var(--v-warn);border-radius:11px;padding:11px 13px;background:var(--card);
   display:flex;gap:13px;align-items:center;flex-wrap:wrap;margin-bottom:11px}
 .bc-sparse .num{font-size:29px;font-weight:800;color:var(--v-warn);line-height:1}
@@ -7726,7 +7756,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1526</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1527</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -52836,6 +52866,221 @@ async function loadBidSample(){
   _toast("Three 2018 bids loaded against a "+fmtN(tot)+" estimate.","#3E6B4F");
 }
 
+// ── The plain-English verdict ────────────────────────────────────────────────
+// Everything above this point is arithmetic. This is the one part that reads the
+// arithmetic back in a sentence a client can act on — "you save $26,598 and here
+// is what you are buying with it". It is on request, never automatic, and it is
+// handed FACTS ONLY: every figure in the brief below was computed by the engine
+// from the bid documents and this estimate. The model is told, explicitly, that
+// it may not produce a number that is not in the brief.
+function bcVerdictState(){
+  var st=bcState();
+  if(!st.verdict||typeof st.verdict!=="object") st.verdict={bids:{},overall:null,at:0,sig:""};
+  if(!st.verdict.bids||typeof st.verdict.bids!=="object") st.verdict.bids={};
+  return st.verdict;
+}
+// A fingerprint of everything the verdict was written from. When it changes — a bid
+// added or dropped, a floor typed, the estimate edited — the verdict is stale and
+// says so instead of quietly describing a comparison that no longer exists.
+function bcVerdictSig(){
+  var R=bcRecommend(); if(!R) return "";
+  return R.all.map(function(x){
+    return x.b.id+":"+x.s.pct+":"+x.a.actual+":"+x.a.stated;
+  }).join("|")+"#"+bcEstTotal();
+}
+function bcVerdictFresh(){
+  var v=bcVerdictState();
+  return !!(v.overall&&v.sig&&v.sig===bcVerdictSig());
+}
+
+// The brief. Nothing here is prose the model wrote — it is the engine's own output,
+// laid out so the model has no reason to reach for a figure of its own.
+function bcBrief(){
+  var R=bcRecommend(); if(!R) return null;
+  var secs=bcSections();
+  var best=R.all[0];
+  return {
+    // A glossary, because the wrong reading of one field is a wrong sentence to a
+    // client. "Still cheaper after adding back" is the saving that SURVIVES the
+    // omissions — it is not the value of what was left out.
+    fieldNotes:{
+      bidAsWritten:"the contractor's own bottom line, as printed",
+      addedBack:"what we add to make this bid cover the same job as the others, priced from OUR estimate",
+      likeForLike:"bidAsWritten + addedBack. What this bid really costs to build the whole job.",
+      cheaperThanRecommendedAsWritten:"gap to the recommended bid BEFORE adding anything back. Misleading on its own.",
+      stillCheaperThanRecommendedAFTERaddingBack:"the REAL saving, once both bids cover the same work. "
+        +"This money is NOT missing work — the missing work is already added back. A positive number "
+        +"means this bid genuinely costs less to build the same job. Zero means it is the recommended bid.",
+      allowanceDollars:"money set aside as a placeholder, not a price. Uncapped: if the client picks "
+        +"something dearer, the difference is billed later.",
+      score:"always shown out of 100, but checksScored says how many of the checks were in play. "
+        +"A check with no data is dropped, never counted against the bid."
+    },
+    project:{
+      estimate:Math.round(bcEstTotal()),
+      sections:secs.length,
+      note:"Our own estimate for this job. Every dollar added to a bid below came out of it."
+    },
+    bids:R.all.map(function(x){
+      var ls=bcLines(x.b);
+      var alw=ls.reduce(function(t,l){ return t+bcAllowanceOf(l); },0);
+      var miss=secs.filter(function(s){ return !bcSecOf(x.b,s.id).has; });
+      var q=bcQuestions(x.b);
+      var con=x.b.lic?bcState().cons[String(x.b.lic).trim()]:null;
+      return {
+        id:x.b.id,
+        contractor:x.b.contractor||x.b.name||"Untitled bid",
+        bidAsWritten:x.a.stated,
+        likeForLike:x.a.actual,
+        addedBack:x.a.added,
+        addedBackDetail:x.a.adds.map(function(d){
+          return {what:d.name, amount:d.amount,
+                  why:(d.kind==="omission")?"not in this bid at all":"allowance leaves it part-priced"};
+        }),
+        grade:x.s.grade,
+        score:x.s.pct,
+        checksScored:x.s.checks+" of "+x.s.ofChecks,
+        components:x.s.rows.map(function(r){
+          return {check:r.label, points:(r.max?r.pts+" of "+r.max:"not scored"), finding:r.detail};
+        }),
+        allowanceDollars:Math.round(alw),
+        allowancePctOfBid:x.a.stated?Math.round(alw/x.a.stated*100):0,
+        missingSections:miss.map(function(s){ return s.name; }),
+        openQuestions:q.length,
+        sparse:x.s.sparse.thin
+          ? Math.round(x.s.sparse.share*100)+"% of this bid's money sits in lines that do not say what they buy"
+          : "no",
+        licence:con?{status:con.status||"",expires:con.expires||"",bond:con.bond||"",
+                     workersComp:con.wc||"",disciplinary:con.violations||0}
+                   :(String(x.b.lic||"").trim()?"licence number on the bid, CSLB record not read yet"
+                                               :"no licence number printed on the bid"),
+        cheaperThanRecommendedAsWritten:Math.round(best.a.stated-x.a.stated),
+        stillCheaperThanRecommendedAFTERaddingBack:Math.round(best.a.actual-x.a.actual),
+        exclusions:(Array.isArray(x.b.exclusions)?x.b.exclusions:[]).slice(0,8)
+      };
+    }),
+    recommended:best.b.contractor||best.b.name||"",
+    cheapestLikeForLike:R.cheapest.b.contractor||R.cheapest.b.name||""
+  };
+}
+
+const BC_VSYS=
+ "You write the plain-English verdict on a set of contractor bids for a homeowner who has "
++"never read one. A brief of FACTS follows. Every figure in it was computed from the bid "
++"documents and the designer's own estimate.\n"
++"ABSOLUTE RULE: you may not state any number that is not in the brief. Do not calculate, "
++"round, average or estimate. Quote the brief's figures as written. If something is not in "
++"the brief, do not say it.\n"
++"Return ONLY minified JSON, no code fence:\n"
++'{"bids":[{"id":"","headline":"","body":""}],"overall":{"headline":"","body":""}}\n'
++"RULES:\n"
++"- headline: one bold sentence, 12 words or fewer, that a client could repeat at dinner. "
++"It must carry the verdict, not a label. Good: \"The cheapest bid, and it holds up.\" "
++"\"You save $18,490 and buy five missing sections.\" Bad: \"Summary of Bid 2.\"\n"
++"- body: 2 to 4 short sentences. Plain words — say \"placeholder\" not \"allowance exposure\", "
++"\"work they left out\" not \"scope omission\". Name the risk and what it could cost. Where a "
++"bid is cheaper, say by how much and whether it is worth it, in those terms.\n"
++"- Be direct. If a bid is a bad idea, say so. If a cheap bid is genuinely fine, say that too — "
++"do not manufacture doubt to sound balanced.\n"
++"- Read fieldNotes before writing. A saving that survives adding the omissions back is a REAL "
++"saving — never describe it as work the contractor left out.\n"
++"- Never accuse a contractor of dishonesty. A bid that leaves work out is incomplete, not a lie.\n"
++"- overall: the recommendation across all of them, and the argument for it against the "
++"cheapest. 3 to 5 sentences. Name the recommended contractor.\n"
++"- One entry per bid in the brief, same id, same order.\n"
++"- No markdown, no asterisks, no bullet characters.";
+
+async function bcWriteVerdict(){
+  var ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  var brief=bcBrief();
+  if(!brief){ _toast("Nothing read yet to write a verdict on.","#B4532A"); return; }
+  if(!ep){ _toast("No worker connected, so the verdict cannot be written.","#B4532A"); return; }
+  _bcVBusy=true; renderBidCompare();
+  var out=null, raw="", stop="";
+  try{
+    var r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:3000,temperature:0.3,
+        system:BC_VSYS,
+        messages:[{role:"user",content:"BRIEF:\n"+JSON.stringify(brief)}]})});
+    var d=await r.json();
+    raw=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
+    stop=(d&&d.stop_reason)||"";
+  }catch(e){
+    _bcVBusy=false; renderBidCompare();
+    _toast("Could not reach the AI: "+(e&&e.message||e),"#B4532A"); return;
+  }
+  _bcVBusy=false;
+  var m=raw.match(/\{[\s\S]*\}/);
+  if(m){ try{ out=JSON.parse(m[0]); }catch(e2){ out=null; } }
+  if(!out||!out.overall){
+    renderBidCompare();
+    _toast(stop==="max_tokens"?"The verdict was cut off partway through. Try again."
+                              :"That came back in a shape this could not read.","#B4532A");
+    return;
+  }
+  var v=bcVerdictState();
+  v.bids={};
+  (Array.isArray(out.bids)?out.bids:[]).forEach(function(x){
+    if(!x||!x.id) return;
+    v.bids[String(x.id)]={head:String(x.headline||"").slice(0,200),
+                          body:String(x.body||"").slice(0,900)};
+  });
+  v.overall={head:String(out.overall.headline||"").slice(0,200),
+             body:String(out.overall.body||"").slice(0,1400)};
+  v.at=Date.now();
+  v.sig=bcVerdictSig();
+  try{ _bidSchedule(); }catch(e){}
+  renderBidCompare();
+  _toast("Verdict written.","#3E6B4F");
+}
+let _bcVBusy=false;
+
+// The block itself. Bold, first thing in the panel, ahead of the arithmetic that
+// produced it — the client reads this and stops; you read on.
+function _bcVerdictBlock(b,sc){
+  var v=bcVerdictState(), got=b?v.bids[b.id]:null, stale=(v.overall&&!bcVerdictFresh());
+  var tone=sc?(sc.pct>=80?"ok":(sc.pct>=60?"mid":"bad")):"";
+  if(!got) return _bcVerdictAsk("this bid");
+  return '<div class="bc-verd '+tone+'">'
+    +'<div class="bc-vh">'+escAttr(got.head)+'</div>'
+    +'<p>'+escAttr(got.body)+'</p>'
+    +_bcVFoot(stale)
+    +'</div>';
+}
+function _bcVerdictAsk(what){
+  if(_bcVBusy) return '<div class="bc-verd busy"><div class="bc-vh">Writing the verdict…</div>'
+    +'<p>Reading the scores, the gaps and the allowances back in plain English.</p></div>';
+  return '<div class="bc-verd ask"><div class="bc-vh">No verdict written for '+escAttr(what)+' yet</div>'
+    +'<p>Turn the numbers into something a client can read — what each bid really costs, what the '
+    +'cheap one is risking, and which to take. Nothing new is calculated; it only says out loud '
+    +'what is already on this screen.</p>'
+    +'<button class="btn bc-add" onclick="bcWriteVerdict()">Write the verdict</button></div>';
+}
+function _bcVFoot(stale){
+  var v=bcVerdictState();
+  var when=v.at?new Date(v.at).toLocaleDateString(undefined,{month:"short",day:"numeric"}):"";
+  return '<div class="bc-vf">'
+    +(stale?'<span class="warn">The bids or the estimate have changed since this was written.</span>'
+           :'<span>Written from the figures on this screen'+(when?" · "+when:"")+'</span>')
+    +'<button onclick="bcWriteVerdict()">'+(stale?"Rewrite it":"Write it again")+'</button></div>';
+}
+function _bcOverallBlock(){
+  var v=bcVerdictState();
+  if(!v.overall) return _bcVerdictAsk("this comparison");
+  var R=bcRecommend();
+  return '<div class="bc-verd ok wide">'
+    +'<div class="bc-vk">The verdict</div>'
+    +'<div class="bc-vh">'+escAttr(v.overall.head)+'</div>'
+    +'<p>'+escAttr(v.overall.body)+'</p>'
+    +(R?'<div class="bc-vnums">'+R.all.map(function(x){
+        return '<span'+(x.b.id===R.pick.b.id?' class="win"':'')+'><b>'
+          +escAttr(x.b.contractor||x.b.name||"Bid")+'</b>'+fmtN(x.a.actual)
+          +'<em>'+x.s.grade+' · '+x.s.pct+'</em></span>';
+      }).join("")+'</div>':"")
+    +_bcVFoot(!bcVerdictFresh())
+    +'</div>';
+}
+
 // ── The view ─────────────────────────────────────────────────────────────────
 function bcTab(t){ _bcTab=t; renderBidCompare(); }
 function bcToggle(id){ _bcOpen=(_bcOpen===id?"":id); renderBidCompare(); }
@@ -53030,8 +53275,10 @@ function _bcScoreView(bids){
   var sc=bcScore(b);
   var h='<div class="card bc-card">';
   h+='<div class="bc-h3">'+escAttr(b.contractor||b.name||"Bid")+' — '+sc.pct+' / 100 · '+sc.grade+'</div>';
-  h+='<p class="bc-n">Six components. Each one is arithmetic you can open, not a judgement — '
-    +'the score exists so a bid that <i>looks</i> cheapest has to earn it.</p>';
+  h+=_bcVerdictBlock(b,sc);
+  h+='<p class="bc-n">Below is the arithmetic the verdict was written from. '+sc.ofChecks
+    +' components, each one openable — the score exists so a bid that <i>looks</i> cheapest '
+    +'has to earn it.</p>';
   if(sc.sparse.thin) h+='<div class="bc-sparse"><span class="num">'+sc.sparse.lines+'</span>'
     +'<span class="tx"><b>This bid describes the whole project in '+sc.sparse.lines+' lines.</b>'
     +escAttr(sc.sparse.say)+' Every detail a bid leaves out is a detail decided later, at a price '
@@ -53208,6 +53455,7 @@ function _bcRepView(bids){
     +'<button'+(_bcRep==="client"?' aria-pressed="true"':' aria-pressed="false"')+' onclick="bcRepMode(\'client\')">For the client</button>'
     +'</div>';
   if(!R){ return h+'<div class="bc-none">Nothing read yet.</div></div>'; }
+  h+=_bcOverallBlock();
   if(_bcRep==="you") h+=_bcRecBody(R);
   else h+=_bcClientBody(R,bids);
   return h+'</div>';
