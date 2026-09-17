@@ -7530,6 +7530,8 @@ i.sb-bas-pattern{background:#FBE9E8;color:#B23F3C}
 .bc-grow{display:flex;align-items:baseline;gap:9px}
 .bc-grade{font-size:38px;font-weight:800;line-height:.86;letter-spacing:-.04em}
 .bc-outof{font-size:12.5px;font-weight:600;color:var(--tm);font-variant-numeric:tabular-nums}
+.bc-scale{display:block;font-size:10px;font-weight:600;letter-spacing:.045em;text-transform:uppercase;color:var(--tm);opacity:.75;margin-top:2px}
+.bc-scale.full{opacity:.5}
 .gA .bc-grade,.gA .bc-outof{color:var(--v-ok)}
 .gC .bc-grade,.gC .bc-outof{color:var(--v-high)}
 .gF .bc-grade,.gF .bc-outof{color:var(--v-warn)}
@@ -7724,7 +7726,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1525</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1526</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -52637,7 +52639,13 @@ function bcScore(b){
   var max=rows.reduce(function(x,r){ return x+r.max; },0);
   var pct=max?Math.round(got/max*100):0;
   rows.forEach(function(r){ r.tone=(r.max&&r.pts/r.max<0.5)?"bad":((r.max&&r.pts/r.max<0.8)?"mid":""); });
+  // Two bids can both read "/ 100" off different scales. A component with no data
+  // behind it is dropped rather than guessed, so a bid that exposes nothing to the
+  // price-realism check is never marked down by it — and its grade is not measured
+  // against the same six things as a bid that is. Say how many checks are in play.
+  var nScored=rows.filter(function(r){ return r.max>0; }).length;
   return {rows:rows, got:got, max:max, pct:pct, grade:bcGrade(pct),
+    checks:nScored, ofChecks:rows.length,
     renormalised:(max!==100), sparse:bcSparse(b)};
 }
 // Who to take, and the argument for it.
@@ -52859,7 +52867,10 @@ function renderBidCompare(){
         +escAttr(b.contractor||b.name||"Untitled bid")+'</span>'
       +(busy?'<span class="bc-grow"><span class="bc-grade" style="font-size:19px">Reading…</span></span>'
         :'<span class="bc-grow"><span class="bc-grade">'+sc.grade+'</span>'
-          +'<span class="bc-outof">'+sc.pct+' / 100</span></span>')
+          +'<span class="bc-outof">'+sc.pct+' / 100'
+          +'<small class="bc-scale'+(sc.renormalised?'':' full')+'">'
+          +(sc.renormalised?sc.checks+' of '+sc.ofChecks+' checks':'all '+sc.ofChecks+' checks')
+          +'</small></span></span>')
       +'<span class="bc-bar"><i style="width:'+Math.max(2,sc.pct)+'%"></i></span>'
       +'<span class="bc-money">'+(a.added>0
           ?'<s>'+fmtN(a.stated)+'</s> &rarr; '+fmtN(a.actual)+'<em>+'+fmtN(a.added)+' like for like</em>'
@@ -53035,9 +53046,13 @@ function _bcScoreView(bids){
   });
   h+='</div>';
   h+='<div class="bc-tot"><span>Confidence</span><b>'+sc.pct+' / 100 · '+sc.grade+'</b></div>';
-  if(sc.renormalised) h+='<p class="bc-n" style="margin-top:7px">Scored out of '+sc.max
-    +', not 100 — a component with no data behind it is left out rather than guessed at. '
-    +'Set the missing minimum install costs below and it scores out of the full 100.</p>';
+  h+='<p class="bc-n" style="margin-top:7px">'+(sc.renormalised
+    ? 'Scored on '+sc.checks+' of the '+sc.ofChecks+' checks — '+sc.got+' points out of a possible '
+      +sc.max+', shown as '+sc.pct+' / 100. A check with no data behind it is left out rather '
+      +'than guessed at, so this bid is <b>not marked down</b> by the ones it is missing — but it '
+      +'is also not measured against the same '+sc.ofChecks+' things as a bid that is. Set the '
+      +'missing minimum install costs below and every bid scores on the same '+sc.ofChecks+'.'
+    : 'Scored on all '+sc.ofChecks+' checks — '+sc.got+' out of '+sc.max+'.')+'</p>';
   h+=_bcFloorEditor();
   h+='</div>';
   return h;
