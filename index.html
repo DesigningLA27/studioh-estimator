@@ -7724,7 +7724,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1523</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1524</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -51992,11 +51992,24 @@ function bcCatName(id){
 }
 function bcLines(b){ return Array.isArray(b&&b.lines)?b.lines:[]; }
 // What a bid carries for one section — its lines, and what they add up to.
+// How much OF a line is actually the allowance. This is not the line total: a pool at
+// $67,675 with a $1,500 waterline-tile allowance inside it is $66,175 of priced work
+// and $1,500 of placeholder. Counting the whole line as allowance made three real,
+// competent bids read as 50–59% placeholder and score F. Order: a stated allowance
+// amount, else rate x quantity, else — only when the bid itself calls the whole line
+// an allowance — the line total.
+function bcAllowanceOf(l){
+  if(!l) return 0;
+  if(bcMatBasis(l)!=="allowance") return 0;
+  if(+l.allowAmt>0) return Math.min(+l.allowAmt,+l.amount||0);
+  var q=+l.qty||0, r=+l.matRate||0;
+  if(q>0&&r>0) return Math.min(q*r,+l.amount||0);
+  return +l.amount||0;
+}
 function bcSecOf(b,cat){
   var ls=bcLines(b).filter(function(l){ return (l.cat||"")===cat; });
   var amt=ls.reduce(function(a,l){ return a+(+l.amount||0); },0);
-  var allow=ls.filter(function(l){ return l.kind==="allowance"; })
-              .reduce(function(a,l){ return a+(+l.amount||0); },0);
+  var allow=ls.reduce(function(a,l){ return a+bcAllowanceOf(l); },0);
   return {lines:ls, amount:Math.round(amt), allowance:Math.round(allow), has:ls.length>0};
 }
 
@@ -52549,9 +52562,16 @@ function bcScore(b){
       :"Every line names a material or states its allowance."):"Nothing read off this bid yet."});
 
   // 3 · price realism — only scored where a floor is actually on file
+  // A floor belongs to ONE assembly, not to a whole section. $35/SF is what limestone
+  // costs to install; pedestrian concrete at $18/SF is simply concrete, and testing it
+  // against the stone floor marks an ordinary price as a risk. So a line is only held
+  // to the floor when it does NOT say what it is — which is the case the floor exists
+  // for: "rear yard paving, per plan, $32,000" against a plan that says limestone.
+  // A line that names a cheaper material is a substitution question, raised as one.
   var tested=0, under=0, worst=null;
   ls.forEach(function(l){
     var cat=l.cat||""; if(!cat) return;
+    if(bcMatBasis(l)!=="unstated") return;
     var fl=bcFloor(cat); if(fl.kind==="none") return;
     var r=bcInstalledRate(b,l); if(!(r>0)) return;
     tested++;
@@ -52568,11 +52588,14 @@ function bcScore(b){
           +(worst?" Worst: "+(worst.l.desc||"a line")+" at "+fmtN(Math.round(worst.r))+"/SF against a "
             +fmtN(worst.fl.rate)+"/SF floor — "+Math.round(worst.sh*100)+"% under.":"")
         : "All "+tested+" tested lines sit at or above their floor.")
-      : "Not scored — no minimum install cost is on file for these sections. Set one and this starts counting."});
+      : (bcSections().some(function(s){ return bcFloor(s.id).kind!=="none"; })
+          ? "Not scored — every line on this bid says what it is buying, so there is nothing a floor "
+            +"can catch. A floor tests the lines that do not name a material."
+          : "Not scored — no minimum install cost is on file for these sections. Set one below and "
+            +"this starts counting.")});
 
   // 4 · allowance exposure
-  var alw=ls.filter(function(l){ return bcMatBasis(l)==="allowance"; })
-            .reduce(function(x,l){ return x+(+l.amount||0); },0);
+  var alw=ls.reduce(function(x,l){ return x+bcAllowanceOf(l); },0);
   var share=(+b.total>0)?alw/b.total:0;
   var allowPts=BC_WEIGHTS.allow*(1-Math.min(1,share/0.30));
   rows.push({k:"allow", label:"Allowance exposure", pts:Math.round(allowPts), max:BC_WEIGHTS.allow,
@@ -52679,22 +52702,22 @@ function _bidSampleBids(){
         L("CMU walls to match existing wall at entrance","walls",2100,{qty:14,unit:"SF",rate:150}),
         L("Pedestrian concrete field at trash area","paving",3060,{qty:170,unit:"SF",rate:18}),
         L("Linear concrete pavers — Stepstone allowance plus 10% waste, set on concrete","paving",5960,
-          {qty:220,unit:"SF",rate:27.09,matBasis:"allowance",matRate:12,
+          {qty:220,unit:"SF",rate:27.09,matBasis:"allowance",matRate:12,allowAmt:2880,
            allowIncl:"10% waste, and up to 30% for selection, delivery, staging and mark-up"}),
         L("Steppers per plan — Stepstone allowance, with reinforced CMU bench","paving",2330,
-          {qty:75,unit:"SF",matBasis:"allowance",matRate:12,
+          {qty:75,unit:"SF",matBasis:"allowance",matRate:12,allowAmt:900,
            allowIncl:"selection, delivery, staging and mark-up"}),
         L("New concrete steppers at entrance","paving",900,{matBasis:"unstated"}),
         L("Pool and spa — excavation, plumbing, steel, shotcrete, Pebble Sheen, Hayward equipment, "
           +"Stepstone coping, waterline tile allowance","pool",67675,
-          {matBasis:"allowance",matRate:25,allowIncl:"glass waterline tile at $25/sf, 140 sf"}),
+          {matBasis:"allowance",matRate:25,allowAmt:1500,allowIncl:"glass waterline tile at $25/sf, 60 sf of 140"}),
         L("Pebble mulch — material allowance, laid on weed barrier","planting",1925,
-          {matBasis:"allowance",matRate:450,allowIncl:"delivery; $450 per yard, 3 yards"}),
+          {matBasis:"allowance",matRate:450,allowAmt:1350,allowIncl:"delivery; $450 per yard, 3 yards"}),
         L("Artificial turf — TigerTurf, pet grade","planting",4200,{qty:300,unit:"SF",rate:14,
           matName:"TigerTurf, lead-free with antibacterial infill"}),
         L("Steel headers per plan","planting",720,{qty:60,unit:"LF",rate:12}),
         L("Boulders — material allowance and installation","planting",1200,
-          {matBasis:"allowance",matRate:600,allowIncl:""}),
+          {matBasis:"allowance",matRate:600,allowAmt:600,allowIncl:""}),
         L("Trees — 2 no. 36\" Swan Hill olive, citrus and bay in pottery, with soil prep and crane",
           "planting",4090,{matName:"Olea europaea Swan Hill, Citrus, Laurus nobilis"}),
         L("Shrubs and groundcover — 20 species, 1–15 gallon, with amendment and top dressing",
@@ -52722,13 +52745,13 @@ function _bidSampleBids(){
         L("Swimming pool with water feature — engineering, form, excavation, steel, shotcrete, "
           +"plumbing, automation and equipment, LED lights, waterline tile allowance, "
           +"pebble interior finish, start-up","pool",69850,
-          {matBasis:"allowance",matRate:7,
+          {matBasis:"allowance",matRate:7,allowAmt:900,
            allowIncl:"$7 per 6\" lineal foot of waterline tile; $7/sf on the raised feature wall; "
                     +"$900 for scupper fixtures"}),
         L("Hardscape — per plan","paving",30853,{matBasis:"unstated"}),
         L("Landscape — per plan","planting",35238,{matBasis:"unstated"}),
         L("Carpentry — gates and bench, with a gate allowance","woodMetal",12599,
-          {matBasis:"allowance",matRate:2500,allowIncl:"$2,500 on the new front entry gate; "
+          {matBasis:"allowance",matRate:2500,allowAmt:2500,allowIncl:"$2,500 on the new front entry gate; "
             +"final design selected by owner and landscape architect"})
       ]},
 
@@ -52753,11 +52776,11 @@ function _bidSampleBids(){
           +"new wood portico gate","woodMetal",16660,{qty:40,unit:"LF",rate:277.5}),
         L("Pool and spa — excavation, steel, mechanicals, shotcrete, precast coping, pebble "
           +"plaster, variable-speed equipment, waterline tile at a $20/sf allowance","pool",80073,
-          {matBasis:"allowance",matRate:20,allowIncl:"setting material and grout included"}),
+          {matBasis:"allowance",matRate:20,allowAmt:1000,allowIncl:"setting material and grout included, 50 sf"}),
         L("Irrigation — mainline, 7 remote control valves, timer and controller","irrigation",9900,
           {qty:7,unit:"EA",rate:1250}),
         L("Lighting — 20 fixtures on an $85 allowance, tape lights, pool-rated transformer",
-          "lighting",5950,{qty:20,unit:"EA",rate:200,matBasis:"allowance",matRate:85,
+          "lighting",5950,{qty:20,unit:"EA",rate:200,matBasis:"allowance",matRate:85,allowAmt:1700,
           allowIncl:"fixture only; installation priced separately at $115 each"}),
         L("Trees — 2 no. 36\" Swan Hill olive, 3 citrus, 3 bay, with crane and root guards",
           "planting",4545,{matName:"Olive Multi Swan Hill 36\" box"}),
@@ -52866,7 +52889,16 @@ function _bcEmpty(est,n){
     +(n? '<div class="bc-ready">Ready to compare against '+n+' priced section'+(n===1?"":"s")+' — '+fmtN(est)+'.</div>'
        : '<div class="bc-ready warn">This project has no priced sections yet, so omissions cannot be spotted. '
         +'Build the estimate first and the comparison gets much sharper.</div>')
-    +'<button class="btn bc-add" onclick="bcAddPick()">Add a bid (PDF)</button></div>';
+    +'<div class="bc-emrow">'
+    +'<button class="btn bc-add" onclick="bcAddPick()">Add a bid (PDF)</button>'
+    // The sample belongs HERE, not buried in Settings — this is the screen you are on
+    // when you want to see what the tool does. It loads the estimate the bids were
+    // actually bid against, because bids compared to a different job mean nothing.
+    +'<button class="btn bc-add alt" onclick="loadBidSample()">See three real 2018 bids</button>'
+    +'</div>'
+    +'<p class="bc-emn">The sample is a real job: three contractors on one garden, priced against '
+    +'the estimate they were given. One is itemised to seventy lines, one prices the whole job in '
+    +'four, and one carries the permits the others leave to the owner.</p></div>';
 }
 // Section by section. A cell the bid has nothing for is the whole point of the table,
 // so it is called out rather than left blank.
