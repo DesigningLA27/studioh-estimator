@@ -151,7 +151,7 @@ const IMG_MODELS={
   // GPT Image 2 is cheaper than nano-2 at medium quality and stronger at following
   // instructions, which is where camera direction keeps failing.
   "nano-banana-pro": { t2i:"fal-ai/nano-banana-pro", i2i:"fal-ai/nano-banana-pro/edit", note:"Nano Banana Pro (Google), ~$0.15" },
-  "gpt-image-2":     { t2i:"fal-ai/gpt-image-2",     i2i:"fal-ai/gpt-image-2/edit",     note:"GPT Image 2 (OpenAI), ~$0.053 at medium quality" }
+  "gpt-image-2":     { t2i:"openai/gpt-image-2",     i2i:"openai/gpt-image-2/edit",     note:"GPT Image 2 (OpenAI), ~$0.053 at medium quality" }
 };
 async function handleGenImage(body, env, origin){
   if(!env.FAL_KEY) return json({error:"No FAL_KEY secret set on the worker."},500,origin);
@@ -168,7 +168,7 @@ async function handleGenImage(body, env, origin){
   // Optional site photo: data URL or https URL. When present we use the model's
   // edit/image-to-image endpoint so the render keeps the real site's structure.
   const refs=[].concat(body.refs||body.ref||[]).filter(Boolean);
-  const useI2I = refs.length>0 && m.i2i;
+  const useI2I = refs.length>0 && !!m.i2i;
   const path = useI2I ? m.i2i : m.t2i;
   const payload = { prompt, num_images:1, output_format:"jpeg" };
   // CHANGED: aspect_ratio used to be set ONLY when NOT doing image-to-image. Every
@@ -183,7 +183,16 @@ async function handleGenImage(body, env, origin){
   }
   // GPT Image 2 is priced by quality tier: low $0.006, medium $0.053, high $0.211.
   // Pin it to medium rather than accepting whatever the endpoint defaults to.
-  if(path.indexOf("gpt-image-2")>=0) payload.quality = (""+(body.quality||"medium"));
+  if(want==="gpt-image-2"){
+    if(refs.length>16) return json({error:"GPT Image supports up to 16 reference photos."},400,origin);
+    const sizes={"1:1":{width:1024,height:1024},"3:2":{width:1536,height:1024},"2:3":{width:1024,height:1536},"4:3":{width:1360,height:1024},"3:4":{width:1024,height:1360},"16:9":{width:1536,height:864},"9:16":{width:864,height:1536}};
+    if(!sizes[ar]) return json({error:"Unsupported GPT image aspect ratio: "+ar},400,origin);
+    payload.image_size=sizes[ar];
+    payload.quality=["low","medium","high"].includes(body.quality)?body.quality:"medium";
+    delete payload.aspect_ratio;
+    delete payload.image_url;
+    delete payload.strength;
+  }
   try{
     const r=await fetch("https://fal.run/"+path,{
       method:"POST",

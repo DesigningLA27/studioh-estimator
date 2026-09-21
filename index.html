@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1544</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1545</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -22595,28 +22595,26 @@ const SHVIZ_SHADOW_WORD={
   none:"no cast shadow at all — the object sits on the background with no shadow"
 };
 const SHVIZ_MAXPX=1600;   // fallback; SHVIZ_CFG.maxPx is what is used
-// Pinned, not a preference. Both Flux models were tried on these products and neither
-// held the faceted geometry from a reference photograph, which is the entire job here.
-// Leaving a picker on the panel only invited a wasted batch. This is also independent of
-// imgModel(), the app-wide setting other features use, so changing that cannot silently
-// change what a product visualization is rendered with.
-// Was pinned to nano-2. Now a choice, because Nano Banana Pro and GPT Image 2 are both
-// worth a few cents to test and there is no way to know which suits these products
-// without looking at the output.
-//
-// IMPORTANT: the worker maps these names to endpoints, and its source is not in this
-// repo. nano-2 is known to work. The other two need adding there first — the panel says
-// so rather than letting a render fail with an opaque error.
-const SHVIZ_MODELS={
-  "nano-2":{nm:"Nano Banana 2",cost:0.08,ready:true,
-    hint:"What every render so far has used. Holds geometry from a reference well."},
-  // ready:true since the worker deploy — both are wired. Left as false, the picker was
-  // still captioning them "not wired", which is its own way of making you doubt what ran.
-  "nano-banana-pro":{nm:"Nano Banana Pro",cost:0.15,ready:true,
-    hint:"Same family, higher tier. Takes up to 14 reference images against our 3."},
-  "gpt-image-2":{nm:"GPT Image 2",cost:0.053,ready:true,
-    hint:"Cheaper than Nano 2 at medium quality, and stronger at following instructions — which is exactly where camera angle keeps failing. Less proven on photoreal material."}
+// Rendering choices share one ordered catalog. Product renders keep their own preference.
+const IMAGE_MODELS={
+  "nano-2":{nm:"Nano Banana 2",cost:0.08,ready:true,hint:"Scene and reference-photo rendering."},
+  "gpt-image-2":{nm:"GPT Image 2",cost:0.053,ready:true,hint:"OpenAI via fal.ai · medium quality. Estimated cost varies with image size and references."},
+  "nano-banana-pro":{nm:"Nano Banana Pro",cost:0.15,ready:true,hint:"Supports up to 14 reference photos."},
+  "flux-pro":{nm:"Flux 2 Pro",cost:0.03,ready:true,hint:"Photoreal rendering."},
+  "flux-klein":{nm:"Flux 2 Klein",cost:0.014,ready:true,hint:"Fast rendering."}
 };
+const SHVIZ_MODELS=Object.fromEntries(["nano-2","gpt-image-2","nano-banana-pro"].map(k=>[k,IMAGE_MODELS[k]]));
+function imageModelOptions(selected){
+  return Object.keys(IMAGE_MODELS).map(k=>`<option value="${k}" ${selected===k?"selected":""}>${IMAGE_MODELS[k].nm} · ~$${IMAGE_MODELS[k].cost} / image${k==="gpt-image-2"?" · medium":""}</option>`).join("");
+}
+function imageModelPicker(id,selected){
+  return `<label style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;font-size:.72rem;margin:.5rem 0">Rendering engine<select id="${id}" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.3rem;border:1px solid var(--br);border-radius:6px">${imageModelOptions(selected||imgModel())}</select></label>`;
+}
+// Preserve GPT explicitly. The existing Nano multi-plant upgrade remains available.
+function plantingImageModel(hasPlantRefs,selected){
+  const m=selected||imgModel();
+  return hasPlantRefs && m!=="gpt-image-2" ? "nano-banana-pro" : m;
+}
 function shvizModel(){
   let m=""; try{ m=localStorage.getItem("studioh_shvizmodel_v1")||""; }catch(e){}
   return SHVIZ_MODELS[m]?m:"nano-2";
@@ -22626,7 +22624,7 @@ function shvizSetModel(v){
   try{ localStorage.setItem("studioh_shvizmodel_v1",v); }catch(e){}
   try{ goodsRepaint(GOODS_HOST==="mat-body"?"mat":"fur"); }catch(e){}
   const M=SHVIZ_MODELS[v];
-  try{ _toast("Renders will use "+M.nm+" ($"+M.cost.toFixed(3).replace(/0$/,"")+" each)"
+  try{ _toast("Renders will use "+M.nm+" (~$"+M.cost.toFixed(3).replace(/0$/,"")+" each)"
     +(M.ready?"":" — needs adding to the worker first."), M.ready?"#4C7B3D":"#9B7B3A"); }catch(e){}
 }
 const SHVIZ_VIEWS={
@@ -23417,8 +23415,7 @@ async function shvizCard(x,urls){
 // ── Run it ──────────────────────────────────────────────────────────────────
 // Cost is stated up front and nothing is generated until R2 is proven able to store AND
 // serve, so a paid render can never be produced and then lost on reload.
-function _imgModelName(){ const m=imgModel();
-  return m==="nano-2"?"Nano Banana 2":(m==="flux-klein"?"Flux 2 Klein":"Flux 2 Pro"); }
+function _imgModelName(){ return IMAGE_MODELS[imgModel()].nm; }
 const SHVIZ_FIELDS=["shvizHero","shvizFront","shvizSide","shvizTop","shvizCard","shvizCutout"];
 // Which colourway the renders depict — a Kornegay planter comes in nine, so the card
 // is showing one of them and the record has to say which.
@@ -23788,12 +23785,12 @@ function _shvizPanel(x,kind){
     const nm=known.length?SHVIZ_MODELS[known[known.length-1]].nm:_made.replace(/^fal-ai\//,"");
     h+='<div class="shv-eb">Made by<i>'+escAttr(nm)+'</i></div>';
   }
-  h+='<div class="shv-eb">Model<i>$'+(SHVIZ_MODELS[_m].cost.toFixed(3).replace(/0$/,""))+' per image</i></div>';
+  h+='<div class="shv-eb">Model<i>~$'+(SHVIZ_MODELS[_m].cost.toFixed(3).replace(/0$/,""))+' per image</i></div>';
   h+='<div class="shv-mods">'+Object.keys(SHVIZ_MODELS).map(k=>{const M=SHVIZ_MODELS[k];
     return '<button class="'+(k===_m?"on":"")+(M.ready?"":" todo")+'" title="'+escAttr(M.hint)
       +(M.ready?"":" — needs adding to the worker before it will run.")+'" '
       +'onclick="shvizSetModel(\''+k+'\')">'+escAttr(M.nm)
-      +'<i>$'+M.cost.toFixed(3).replace(/0$/,"")+(M.ready?'':' · not wired')+'</i></button>';}).join('')
+      +'<i>~$'+M.cost.toFixed(3).replace(/0$/,"")+(M.ready?'':' · not wired')+'</i></button>';}).join('')
     +'</div>';
   // #5: the manufacturer's own colourways, so the render is a stated choice rather than
   // whichever swatch happened to sort first.
@@ -29684,11 +29681,7 @@ function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) retur
       <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .6rem;line-height:1.45">Uses this plant's size, bloom colour and form from the book. An illustration, not a photo — review before client use. Replaces the current image (revertable). ~$${cost}.</div>
       <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap">
         <span style="font-size:.7rem;color:var(--tm)">Model</span>
-        <select onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
-          <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
-          <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
-          <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · ~$0.08 · best with a reference photo</option>
-        </select>
+        <select id="paimg-model" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.3rem;border:1px solid var(--br);border-radius:6px">${imageModelOptions(imgModel())}</select>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.55rem;flex-wrap:wrap">
         <span style="font-size:.7rem;color:var(--tm)">Style</span>
@@ -29829,7 +29822,7 @@ async function _paimgGo(kind,pid){
   } else { setSt("Failed: "+(r.err||"error"),"#B23F3C"); if(gb) gb.disabled=false; }
 }
 // ── Bulk AI plant images (whole book) + migrate old base64 AI images to R2 ──
-function _imgCostEach(){ const m=imgModel(); return m==="nano-2"?0.08:(m==="flux-klein"?0.014:0.03); }
+function _imgCostEach(){ return IMAGE_MODELS[imgModel()].cost; }
 let _aiImgStop=false;
 function _aiImgRecost(){ const c=document.getElementById("aiimg-cost"); if(!c) return; const missing=_allPlantsFlat().filter(x=>!x.p.img).length; c.textContent="$"+(missing*_imgCostEach()).toFixed(2); }
 function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="aiimg-modal";
@@ -29844,9 +29837,7 @@ function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.r
       <div style="display:flex;gap:.5rem;align-items:center;margin:.6rem 0 .3rem;flex-wrap:wrap">
         <span style="font-size:.7rem;color:var(--tm)">Model</span>
         <select id="aiimg-model" onchange="setImgModel(this.value);_aiImgRecost()" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
-          <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
-          <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
-          <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · ~$0.08</option>
+          ${imageModelOptions(imgModel())}
         </select>
         <span style="font-size:.7rem;color:var(--tm)">Style</span>
         <select id="aiimg-style" onchange="setImgStyle(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
@@ -30581,6 +30572,7 @@ function openPlantListReport(){ try{ plantRefresh(); }catch(e){}   // ensure der
       <button id="pl-water-ai" class="btn" onclick="fetchCityWater()" style="padding:.2rem .6rem;font-size:.7rem;background:#F4F9F5;color:var(--gm);border:1px solid var(--gm)">✨ Look up my city</button>
       ${WATER_CFG.agency?`<span style="font-size:.64rem;color:var(--tl)">${escAttr(WATER_CFG.agency)}</span>`:""}
       <span style="margin-left:auto;display:flex;gap:.35rem">
+        ${imageModelPicker("pl-fill-model")}
         <button id="pl-aifill" class="btn" onclick="aiFillProjectImages()" style="padding:.2rem .6rem;font-size:.7rem;background:#F4F9F5;color:var(--gm);border:1px solid var(--gm)" title="Generate AI illustrations for plants in this project that have no photo">✨ AI images for missing</button>
         <button class="btn" onclick="copyRenderPrompt()" style="padding:.2rem .6rem;font-size:.7rem;background:#fff;color:var(--gm);border:1px solid var(--gm)" title="Copy a Midjourney/AI prompt built from this zone's actual plant list">⧉ Copy render prompt</button>
         <label class="btn" style="padding:.2rem .6rem;font-size:.7rem;background:#fff;color:var(--gm);border:1px solid var(--gm);cursor:pointer;margin:0">＋ Add rendering<input type="file" accept="image/*" style="display:none" onchange="addZoneRender(this)"></label>
@@ -30602,7 +30594,7 @@ async function aiFillProjectImages(){
     (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const k=kind+":"+p.id;
       if(seen.has(k)||p.img) return; seen.add(k); need.push({kind,pid:p.id,name:(p.c||botName(p)||"")}); }); }); });
   if(!need.length){ alert("Every plant in this project already has an image."); return; }
-  const cost=(need.length*(imgModel()==="nano-2"?0.08:imgModel()==="flux-klein"?0.014:0.03)).toFixed(2);
+  const cost=(need.length*_imgCostEach()).toFixed(2);
   if(!confirm(`Generate AI images for the ${need.length} plant${need.length>1?"s":""} in this project with no photo?\n\n~$${cost}.\n\nThese are ILLUSTRATIONS, not photographs — the AI renders a plausible plant and cultivar details can be wrong. Review each one before it goes to a client. You can revert any of them.`)) return;
   const btn=document.getElementById("pl-aifill"); if(btn){ btn.disabled=true; }
   let ok=0;
@@ -31394,18 +31386,15 @@ function _renderPromptModal(z){
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.8rem 0 .3rem">Generate in the app</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">
       <select id="rp-model" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
-        <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
-        <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
-        <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · Google · ~$0.08 · best with a site photo</option>
-        <option value="nano-banana-pro" ${imgModel()==="nano-banana-pro"?"selected":""}>Nano Banana Pro · Google · ~$0.15 · takes 14 reference photos</option>
-      </select>
+          ${imageModelOptions(imgModel())}
+        </select>
       <span id="rp-status" style="font-size:.72rem;color:var(--tm)"></span>
     </div>
     ${(()=>{ const _rp=_zoneRefPlants(z); const _on=plantRefsOn();
       return `<label style="display:flex;gap:.4rem;align-items:flex-start;font-size:.72rem;color:var(--tx);margin-bottom:.45rem;cursor:pointer">
         <input type="checkbox" ${_on?"checked":""} ${_rp.length?"":"disabled"} onchange="setPlantRefs(this.checked,'${z.id}')" style="margin-top:.15rem">
         <span><b>Show the AI the real plant photos</b> ${_rp.length?`<span style="color:var(--gm);font-weight:700">${_rp.length} available</span>`:`<span style="color:var(--tl)">— none of this zone's plants has a photo in the plant book yet</span>`}
-        <div style="font-size:.66rem;color:var(--tm);line-height:1.4">Without this the AI invents what each plant looks like from its name alone. With it, the plant book photographs go along with the prompt${_rp.length?` (${_rp.map(r=>escAttr(r.p.c||"")).slice(0,4).join(", ")}${_rp.length>4?" +"+(_rp.length-4):""})`:""}. Uses Nano Banana Pro · ~$0.15 instead of ~$0.08.</div></span>
+        <div style="font-size:.66rem;color:var(--tm);line-height:1.4">Without this the AI invents what each plant looks like from its name alone. With it, the plant book photographs go along with the prompt${_rp.length?` (${_rp.map(r=>escAttr(r.p.c||"")).slice(0,4).join(", ")}${_rp.length>4?" +"+(_rp.length-4):""})`:""}. Uses your selected GPT engine, or Nano Banana Pro for the other engine choices. Reference photos can increase cost.</div></span>
       </label>`; })()}
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="rp-gen btn" onclick="_rpGenerate('${z.id}','install')" style="flex:1;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">✨ Generate: at installation<div style="font-size:.62rem;font-weight:400;opacity:.85">young plants, visible spacing</div></button>
@@ -31421,7 +31410,7 @@ function _renderPromptModal(z){
     </div>
     <div style="margin:.9rem 0 0;padding:.6rem .7rem;background:var(--brand-soft);border:1px solid var(--br);border-radius:9px">
       <div style="font-size:.8rem;font-weight:800;color:var(--gm)">2 · A few plants, side by side</div>
-      <div style="font-size:.66rem;font-weight:700;color:var(--gm);background:#fff;border:1px solid var(--br);border-radius:6px;padding:.25rem .45rem;margin:.3rem 0 .35rem;line-height:1.45">A separate tool. Nothing set above reaches it, and nothing set here reaches the renderings above. It only runs when you press the 🍌 button.</div>
+      <div style="font-size:.66rem;font-weight:700;color:var(--gm);background:#fff;border:1px solid var(--br);border-radius:6px;padding:.25rem .45rem;margin:.3rem 0 .35rem;line-height:1.45">A separate tool. Scene and plant choices here are independent of the section above. The rendering engine and plant-photo preference are shared. It runs only when you press Generate.</div>
       <div style="font-size:.68rem;color:var(--gm);margin-bottom:.4rem">Tick two to five plants and it draws <b>just those</b>, close up, on a plain generic slope or bed — no site photo, no quantities, no massing ranges. It answers "do these actually look right together?" before you commit them to the palette. Any plant with a photo in the plant book is drawn from that photo, not invented.</div>
       <div style="max-height:120px;overflow:auto;background:#fff;border:1px solid var(--br);border-radius:8px;padding:.4rem .55rem;margin-bottom:.4rem">
         ${(()=>{ const ap=_zonePlantsAll(z); return ap.length?ap.map(r=>`<label style="display:flex;align-items:center;gap:.4rem;font-size:.74rem;padding:.12rem 0"><input type="checkbox" class="rp-cust-pick" value="${escAttr(r.kind+':'+r.p.id)}"> ${escAttr(r.p.c||botName(r.p)||"")} <span style="color:var(--tl);font-size:.68rem">${({tree:"tree",palm:"palm",shrub:"shrub",gc:"GC"})[r.kind]}</span></label>`).join(""):'<div style="font-size:.74rem;color:var(--tl)">No plants in this zone.</div>'; })()}
@@ -31441,7 +31430,8 @@ function _renderPromptModal(z){
         </select>
       </div>
       <input id="rp-custom-scene" placeholder="optional extra notes (e.g. sun at a low angle)…" style="width:100%;padding:.4rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.78rem;box-sizing:border-box">
-      <button class="rp-gen btn" onclick="_rpCustomGenerate('${z.id}')" style="width:100%;margin-top:.4rem;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">🍌 Generate custom grouping (Nano Banana · ~$0.08)</button>
+      ${imageModelPicker("rp-custom-model")}
+      <button class="rp-gen btn" onclick="_rpCustomGenerate('${z.id}')" style="width:100%;margin-top:.4rem;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">✨ Generate custom grouping</button>
       <div id="rp-custom-status" style="font-size:.72rem;color:var(--tm);margin-top:.25rem"></div>
     </div>
     <div style="font-size:.64rem;color:var(--tl);margin-top:.6rem;line-height:1.45">Concept renderings only — an AI impression of the palette and character, not a botanically exact depiction of each cultivar. Labelled as such in the report.</div>
@@ -31815,10 +31805,12 @@ ${lines}
 These plant photographs are identification references ONLY. Use them for what each plant looks like and nothing else. Do NOT copy their backgrounds, pots, nursery labels, framing, camera angle or lighting. Do NOT reproduce any of them as the scene${sceneNo?` — the scene is reference image ${sceneNo}`:" — compose a new scene"}. How many of each plant there are, and how they are grouped, is set out below and overrides anything the reference photographs suggest.
 `;
 }
-// Generate the rendering in-app via the worker (fal.ai → Flux 2 Pro by default)
+// Generate via the Worker; Nano Banana 2 is the default, GPT Image is option two.
 const IMG_MODEL_KEY="studioh_imgmodel_v1";
-function imgModel(){ try{ return localStorage.getItem(IMG_MODEL_KEY)||"nano-2"; }catch(e){ return "nano-2"; } }
-function setImgModel(v){ try{ localStorage.setItem(IMG_MODEL_KEY,v); }catch(e){} }
+function imgModel(){ try{ const m=localStorage.getItem(IMG_MODEL_KEY); return IMAGE_MODELS[m]?m:"nano-2"; }catch(e){ return "nano-2"; } }
+function setImgModel(v){ if(!IMAGE_MODELS[v]) return; try{ localStorage.setItem(IMG_MODEL_KEY,v); }catch(e){}
+  document.querySelectorAll("#rp-model,#rp-custom-model,#rf-model,#elem-model,#pl-fill-model,#paimg-model,#aiimg-model").forEach(el=>{ el.value=v; });
+}
 async function _rpGenerate(zid, stage){
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
   P._siteNotes=P._siteNotes||{};
@@ -31852,9 +31844,8 @@ async function _rpGenerate(zid, stage){
       _shr.forEach(u=>{ if(u) refs.push(u); });
       setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering with "+_refPlants.length+" plant photos… (20–45 sec)","var(--gm)");
     }
-    // More than one reference image needs a model that accepts more than one. Nano Banana
-    // Pro takes fourteen; Flux and Nano Banana 2 are not asked to do something they cannot.
-    const _model=_refPlants.length?"nano-banana-pro":imgModel();
+    // GPT accepts all supplied reference photos; retain the existing Nano Pro upgrade for other selections.
+    const _model=plantingImageModel(_refPlants.length);
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({type:"genimage",key,prompt,model:_model,aspect:"3:2",refs})});
     if(!r.ok){ let t=""; try{ t=(await r.text()).slice(0,200); }catch(e){}
@@ -31944,7 +31935,7 @@ async function _rpCustomGenerate(zid){
     `Naturalistic Mediterranean drought-tolerant character, decomposed granite and granite boulders, professional landscape photography, high detail.${notes?" "+notes:""}`+
     _refKeyText(_refPlants,0,0);
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
-  setSt("Generating with Nano Banana… (10–30 sec)","var(--gm)");
+  setSt("Generating with "+IMAGE_MODELS[plantingImageModel(_refPlants.length)].nm+"…","var(--gm)");
   try{
     if(ref && ref.length > 4*1024*1024){ setSt("Site photo is too large even after resizing — try a smaller image.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const refs=ref?[ref]:[];
@@ -31955,7 +31946,7 @@ async function _rpCustomGenerate(zid){
       setSt("Generating with "+_refPlants.length+" plant photos as references… (20–45 sec)","var(--gm)");
     }
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"genimage",key,prompt,model:_refPlants.length?"nano-banana-pro":"nano-2",aspect:"3:2",refs})});
+      body:JSON.stringify({type:"genimage",key,prompt,model:plantingImageModel(_refPlants.length),aspect:"3:2",refs})});
     if(!r.ok){ let t=""; try{ t=(await r.text()).slice(0,200); }catch(e){}
       setSt("Server error "+r.status+(t?": "+t:""),"#B23F3C");
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
@@ -32042,6 +32033,7 @@ function _refineOpen(zid,idx){
       <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.45rem">
         ${REFINE_TIPS.map(t=>`<button class="btn" onclick="_refineTip(${escAttr(JSON.stringify(t))})" style="padding:.22rem .5rem;font-size:.68rem;background:var(--brand-soft);color:var(--gm);border:1px solid var(--br);font-weight:600">${escAttr(t)}</button>`).join("")}
       </div>
+      ${imageModelPicker("rf-model")}
       <div id="rf-status" style="font-size:.73rem;color:var(--tm);margin-top:.55rem;min-height:1.1em"></div>
     </div>
     <div style="display:flex;gap:.5rem;margin-top:.7rem;flex:none">
@@ -32079,7 +32071,7 @@ Do not re-compose the scene, do not restyle it, do not move the camera, and do n
       _shr.forEach(u=>{ if(u) refs.push(u); });
     }
     const res=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"genimage",key,prompt,model:_refPlants.length?"nano-banana-pro":"nano-2",aspect:"3:2",refs})});
+      body:JSON.stringify({type:"genimage",key,prompt,model:plantingImageModel(_refPlants.length),aspect:"3:2",refs})});
     if(!res.ok){ let t=""; try{ t=(await res.text()).slice(0,200); }catch(e){}
       setSt("Server error "+res.status+(t?": "+t:""),"#B23F3C");
       document.querySelectorAll(".rf-go").forEach(b=>b.disabled=false); return; }
@@ -33489,7 +33481,8 @@ function openElementAdd(){
         <span style="flex:1;height:1px;background:var(--br)"></span>or generate one<span style="flex:1;height:1px;background:var(--br)"></span>
       </div>
       <input id="elem-prompt" placeholder="Describe it — style, materials, setting…" style="width:100%;padding:.45rem .5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;margin-bottom:.5rem;box-sizing:border-box">
-      <button id="elem-gen-btn" class="btn" onclick="elementGenerate()" style="width:100%;padding:.5rem;font-size:.8rem;background:#fff;color:var(--gm);border:1px dashed var(--gm);font-weight:600;margin-bottom:.3rem">✨ Generate with AI (~$0.08)</button>
+      ${imageModelPicker("elem-model")}
+      <button id="elem-gen-btn" class="btn" onclick="elementGenerate()" style="width:100%;padding:.5rem;font-size:.8rem;background:#fff;color:var(--gm);border:1px dashed var(--gm);font-weight:600;margin-bottom:.3rem">✨ Generate with AI</button>
       <div id="elem-gen-status" style="font-size:.74rem;color:var(--tm);min-height:1.1rem;margin-bottom:.2rem"></div>
       <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
         <button class="btn" onclick="document.getElementById('elem-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button>
@@ -40496,7 +40489,7 @@ function _pbkInspector(){
       +(p.imgFlag?'<span class="pb-vchip" title="Review this one — a cultivar photo fell back to the species, or confidence was low">⚠</span>':'')
       +'<button class="pb-imgbtn" onclick="event.stopPropagation();toggleHMenu(\'pbins-img\',event)" title="Image options"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="3.2"/><path d="M4 8h3l1.6-2h6.8L17 8h3v11H4z"/></svg></button>'
       +'<div class="hmenu pb-imgmenu" id="pbins-img">'
-        +'<button onclick="aiPlantImageBtn(\''+kind+'\',\''+p.id+'\')" title="Generate an AI illustration (~$0.03) — verify it">✨&nbsp; Generate AI image</button>'
+        +'<button onclick="aiPlantImageBtn(\''+kind+'\',\''+p.id+'\')" title="Generate an AI illustration with your selected engine — verify it">✨&nbsp; Generate AI image</button>'
         +'<button onclick="fetchOnePlantImage(\''+kind+'\',\''+p.id+'\')" title="Fetch a commercial-safe real photo">🖼&nbsp; Fetch real photo</button>'
         +(p.img?'<button onclick="togglePlantAI(\''+kind+'\',\''+p.id+'\')">'+(p.imgAI?'✓&nbsp; Unmark as AI':'⚑&nbsp; Mark as AI')+'</button>':'')
         +(p.imgAI&&p.imgPrev?'<button onclick="restorePlantPhoto(\''+kind+'\',\''+p.id+'\')">↺&nbsp; Restore real photo</button>':'')
@@ -41075,7 +41068,7 @@ function renderPlantBookList(){
           ${p.imgFlag?`<span class="pb-vchip">⚠</span>`:''}
           <button class="pb-imgbtn" onclick="event.stopPropagation();toggleHMenu('pbimg-${p.id}',event)" title="Image options"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="3.2"/><path d="M4 8h3l1.6-2h6.8L17 8h3v11H4z"/></svg></button>
           <div class="hmenu pb-imgmenu" id="pbimg-${p.id}">
-            <button data-aiimg="${kind}:${p.id}" onclick="aiPlantImageBtn('${kind}','${p.id}')" title="Generate an AI illustration (~$0.03) — verify it">✨&nbsp; Generate AI image</button>
+            <button data-aiimg="${kind}:${p.id}" onclick="aiPlantImageBtn('${kind}','${p.id}')" title="Generate an AI illustration with your selected engine — verify it">✨&nbsp; Generate AI image</button>
             <button onclick="fetchOnePlantImage('${kind}','${p.id}')" title="Fetch a commercial-safe real photo">🖼&nbsp; Fetch real photo</button>
             ${p.img?`<button onclick="togglePlantAI('${kind}','${p.id}')">${p.imgAI?'✓&nbsp; Unmark as AI':'⚑&nbsp; Mark as AI'}</button>`:''}
             ${p.imgAI&&p.imgPrev?`<button onclick="restorePlantPhoto('${kind}','${p.id}')">↺&nbsp; Restore real photo</button>`:''}
