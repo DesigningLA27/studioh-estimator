@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1540</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1541</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31018,6 +31018,32 @@ const MASS_ROLES={
 };
 const MASS_ROLE_ORDER=["matrix","drift","accent","specimen"];
 function _massKey(r){ return r.kind+":"+((r.p&&r.p.id)||""); }
+// Trying a slope with and without the euryops is how you find out whether the euryops is
+// earning its place. Unticking one drops it from the rendering ONLY — the quantity, the
+// price and the plant schedule are untouched, and the remaining species renormalise so the
+// shares still add up to the ground you can see.
+function _massInc(zid,r){ const P=ensurePlanting(); const m=(P._massOff&&P._massOff[zid])||{};
+  return !m[_massKey(r)]; }
+function _massRowsOn(z){ let rows=[]; try{ rows=(_zoneMix(z)||{}).rows||[]; }catch(e){ rows=[]; }
+  return rows.filter(r=>_massInc(z.id,r)); }
+function _massInclude(zid,key,on){
+  const P=ensurePlanting(); P._massOff=P._massOff||{}; P._massOff[zid]=P._massOff[zid]||{};
+  if(on) delete P._massOff[zid][key]; else P._massOff[zid][key]=1;
+  try{ _bidSchedule(); }catch(e){}
+  const row=document.getElementById(_massSafeId("mrow_",key));
+  if(row) row.style.opacity=on?"1":".42";
+  _massCountPaint(zid);
+}
+function _massCountPaint(zid){
+  const el=document.getElementById("rp-inccount"); if(!el) return;
+  const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
+  let all=[]; try{ all=(_zoneMix(z)||{}).rows||[]; }catch(e){}
+  const on=all.filter(r=>_massInc(zid,r)).length;
+  el.textContent = on===all.length
+    ? `All ${all.length} species in the picture`
+    : `${on} of ${all.length} species in the picture — ${all.length-on} held out`;
+  el.style.color = on===all.length ? "var(--tl)" : "#9B7B3A";
+}
 function _massSafeId(pfx,key){ return pfx+String(key).replace(/[^A-Za-z0-9]/g,"_"); }
 function _massIds(key){ const b=_massSafeId("m_",key); return {lo:b+"_lo",hi:b+"_hi",out:b+"_out",role:b+"_role"}; }
 function _massDefaultRole(kind){ return (kind==="tree"||kind==="palm")?"specimen":(kind==="gc"?"matrix":"drift"); }
@@ -31128,7 +31154,7 @@ function _mixLine(rows,kind,zid,scale){
   }).join("\n");
 }
 function _renderPrompt(z, stage, refPlants){
-  const {rows}=_zoneMix(z);
+  const rows=_massRowsOn(z);
   if(!rows.length) return null;
   const P=ensurePlanting(); const ctx=((P._siteNotes&&P._siteNotes[z.id])||"").trim();
   const city=(S.pi&&S.pi.city)||"Southern California";
@@ -31205,7 +31231,7 @@ Mediterranean drought-tolerant character, decomposed granite and boulders, warm 
 }
 // Midjourney-tuned prompt — short, evocative, comma-style (MJ hates long structured prose, botanical names & percentages)
 function _midjourneyPrompt(z, stage){
-  const {rows}=_zoneMix(z); if(!rows.length) return null;
+  const rows=_massRowsOn(z); if(!rows.length) return null;
   const P=ensurePlanting(); const ctx=((P._siteNotes&&P._siteNotes[z.id])||"").trim();
   const city=(S.pi&&S.pi.city)||"Southern California";
   const names=rows.slice().sort((a,b)=>b.pct-a.pct).map(r=>(r.p.c||botName(r.p)||"").trim()).filter(Boolean);
@@ -31289,7 +31315,10 @@ function _renderPromptModal(z){
          </label>`; })()}
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.25rem">Describe the site (optional but makes it much better)</div>
     <textarea id="rp-notes" placeholder="e.g. Steep slope below the house, home sits at the top of the hill, full sun, mature oaks surrounding the property, view down toward the parking court." style="width:100%;height:104px;min-height:56px;padding:.5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;font-family:inherit;resize:vertical;box-sizing:border-box">${escAttr(P._siteNotes[z.id]||"")}</textarea>
-    <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.7rem 0 .25rem">Planting mix &amp; massing</div>
+    <div style="display:flex;align-items:baseline;gap:.5rem;margin:.7rem 0 .25rem">
+      <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase">Planting mix &amp; massing</div>
+      <div id="rp-inccount" style="font-size:.66rem;font-weight:700;color:var(--tl);margin-left:auto"></div>
+    </div>
     <div style="font-size:.66rem;color:var(--tl);margin-bottom:.3rem;line-height:1.45">Set how many plants make up one group, as a <b>range</b> — the spread is what stops every drift coming out the same size, which is what makes a planting read as stamped. The number of groups is worked out from the real quantity, so it always matches the estimate.</div>
     <div style="height:330px;min-height:110px;max-height:72vh;overflow:auto;resize:vertical;border:1px solid var(--br);border-radius:8px;padding:.4rem .55rem">
       ${rows.length?rows.map(r=>{
@@ -31298,8 +31327,10 @@ function _renderPromptModal(z){
         const _lab={tree:"tree",palm:"palm",shrub:"shrub",gc:"GC"}[r.kind];
         const _inp="width:42px;padding:.12rem .22rem;border:1px solid var(--br);border-radius:5px;font-size:.7rem;text-align:right;font-family:inherit";
         const _ed=(f)=>`_massEdit('${escAttr(z.id)}','${escAttr(_k)}',${+r.qty||0},'${r.kind}','${f}',this.value)`;
-        return `<div style="padding:.32rem 0;border-bottom:1px solid var(--br)">
+        const _inc=_massInc(z.id,r);
+        return `<div id="${_massSafeId("mrow_",_k)}" style="padding:.32rem 0;border-bottom:1px solid var(--br);opacity:${_inc?"1":".42"}">
           <div style="display:flex;align-items:baseline;gap:.4rem;font-size:.76rem">
+            <input type="checkbox" ${_inc?"checked":""} onchange="_massInclude('${escAttr(z.id)}','${escAttr(_k)}',this.checked)" title="Include this plant in the rendering. Unticking changes the picture only — never the estimate." style="margin:0;flex:none">
             <span style="flex:1;min-width:104px">${escAttr(r.p.c||"")} <span style="color:var(--tl);font-size:.66rem">${_lab} · ${r.qty}</span></span>
             <b style="color:var(--gm);font-size:.72rem">${Math.round(r.pct)}%</b>
           </div>
@@ -31374,6 +31405,7 @@ function _renderPromptModal(z){
     <div style="display:flex;justify-content:flex-end;margin-top:.6rem;flex:none"><button class="btn" onclick="document.getElementById('rp-modal').remove()" style="padding:.4rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
   </div>`;
   document.body.appendChild(d);
+  _massCountPaint(z.id);
 }
 // ── Marking up the site photo ──────────────────────────────────────────────────
 // Nothing reaches the image model as coordinates — there is no "put a tree at 40%, 60%"
@@ -31593,7 +31625,7 @@ function setPlantRefs(on,zid){
 // which twelve survive the cap, because the species covering 30% of the slope matters more
 // than the one specimen at the back.
 function _zoneRefPlants(z){
-  let rows=[]; try{ rows=(_zoneMix(z)||{}).rows||[]; }catch(e){ rows=[]; }
+  let rows=[]; try{ rows=_massRowsOn(z); }catch(e){ rows=[]; }
   const seen={}; const out=[];
   rows.slice().sort((a,b)=>(b.pct||0)-(a.pct||0)).forEach(r=>{
     const img=(typeof plantImgOf==="function")?plantImgOf(r.p):""; if(!img) return;
@@ -31653,8 +31685,10 @@ async function _rpGenerate(zid, stage){
   const ta=document.getElementById("rp-notes"); if(ta) P._siteNotes[z.id]=ta.value||"";
   const _refPlants=plantRefsOn()?_zoneRefPlants(z):[];
   const prompt=_renderPrompt(z, stage, _refPlants);
-  // (the prompt numbers its own reference images the same way _rpGenerate assembles them)
-  if(!prompt){ alert("Add quantities to this zone's plants first."); return; }
+  if(!prompt){
+    let _all=[]; try{ _all=(_zoneMix(z)||{}).rows||[]; }catch(e){}
+    alert(_all.length ? "Every plant has been unticked in the planting mix — tick at least one for the rendering to draw."
+                      : "Add quantities to this zone's plants first."); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   const st=document.getElementById("rp-status");
