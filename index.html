@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1545</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1546</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -22598,14 +22598,19 @@ const SHVIZ_MAXPX=1600;   // fallback; SHVIZ_CFG.maxPx is what is used
 // Rendering choices share one ordered catalog. Product renders keep their own preference.
 const IMAGE_MODELS={
   "nano-2":{nm:"Nano Banana 2",cost:0.08,ready:true,hint:"Scene and reference-photo rendering."},
-  "gpt-image-2":{nm:"GPT Image 2",cost:0.053,ready:true,hint:"OpenAI via fal.ai · medium quality. Estimated cost varies with image size and references."},
+  "gpt-image-2.5-sunburst":{nm:"GPT Image 2.5 Sunburst",cost:null,ready:true,hint:"OpenAI precision rendering · maximum quality · usage-based fal.ai billing."},
   "nano-banana-pro":{nm:"Nano Banana Pro",cost:0.15,ready:true,hint:"Supports up to 14 reference photos."},
   "flux-pro":{nm:"Flux 2 Pro",cost:0.03,ready:true,hint:"Photoreal rendering."},
   "flux-klein":{nm:"Flux 2 Klein",cost:0.014,ready:true,hint:"Fast rendering."}
 };
-const SHVIZ_MODELS=Object.fromEntries(["nano-2","gpt-image-2","nano-banana-pro"].map(k=>[k,IMAGE_MODELS[k]]));
+const SHVIZ_MODELS=Object.fromEntries(["nano-2","gpt-image-2.5-sunburst","nano-banana-pro"].map(k=>[k,IMAGE_MODELS[k]]));
+function imageCostLabel(count,model){
+  const m=IMAGE_MODELS[model||imgModel()];
+  return m.cost==null?"usage-based cost":"~$"+(count*m.cost).toFixed(3).replace(/0$/,"");
+}
+function upgradeImageModel(m){ return m==="gpt-image-2"?"gpt-image-2.5-sunburst":m; }
 function imageModelOptions(selected){
-  return Object.keys(IMAGE_MODELS).map(k=>`<option value="${k}" ${selected===k?"selected":""}>${IMAGE_MODELS[k].nm} · ~$${IMAGE_MODELS[k].cost} / image${k==="gpt-image-2"?" · medium":""}</option>`).join("");
+  return Object.keys(IMAGE_MODELS).map(k=>`<option value="${k}" ${selected===k?"selected":""}>${IMAGE_MODELS[k].nm} · ${imageCostLabel(1,k)}${k==="gpt-image-2.5-sunburst"?" · max quality":""}</option>`).join("");
 }
 function imageModelPicker(id,selected){
   return `<label style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;font-size:.72rem;margin:.5rem 0">Rendering engine<select id="${id}" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.3rem;border:1px solid var(--br);border-radius:6px">${imageModelOptions(selected||imgModel())}</select></label>`;
@@ -22613,18 +22618,18 @@ function imageModelPicker(id,selected){
 // Preserve GPT explicitly. The existing Nano multi-plant upgrade remains available.
 function plantingImageModel(hasPlantRefs,selected){
   const m=selected||imgModel();
-  return hasPlantRefs && m!=="gpt-image-2" ? "nano-banana-pro" : m;
+  return hasPlantRefs && m!=="gpt-image-2.5-sunburst" ? "nano-banana-pro" : m;
 }
 function shvizModel(){
   let m=""; try{ m=localStorage.getItem("studioh_shvizmodel_v1")||""; }catch(e){}
-  return SHVIZ_MODELS[m]?m:"nano-2";
+  m=upgradeImageModel(m); return SHVIZ_MODELS[m]?m:"nano-2";
 }
 function shvizSetModel(v){
   if(!SHVIZ_MODELS[v]) return;
   try{ localStorage.setItem("studioh_shvizmodel_v1",v); }catch(e){}
   try{ goodsRepaint(GOODS_HOST==="mat-body"?"mat":"fur"); }catch(e){}
   const M=SHVIZ_MODELS[v];
-  try{ _toast("Renders will use "+M.nm+" (~$"+M.cost.toFixed(3).replace(/0$/,"")+" each)"
+  try{ _toast("Renders will use "+M.nm+" ("+imageCostLabel(1,v)+")"
     +(M.ready?"":" — needs adding to the worker first."), M.ready?"#4C7B3D":"#9B7B3A"); }catch(e){}
 }
 const SHVIZ_VIEWS={
@@ -23479,7 +23484,7 @@ async function shvizGenerate(kind,id,opts){
     if(g!==1) return {ok:false,err:"already rendered"};
   }
   const M=SHVIZ_MODELS[shvizModel()]||SHVIZ_MODELS["nano-2"];
-  const each=M.cost, cost=(n*each).toFixed(2);
+  const cost=imageCostLabel(n,shvizModel());
   const a=await askDlg({icon:"✨",title:"Generate "+n+" images for "+(x.nm||"this product")+"?",
     body:(refs.length
       ? (refs.length+" manufacturer photo"+(refs.length===1?"":"s")+" will be given to the model as "
@@ -23495,7 +23500,7 @@ async function shvizGenerate(kind,id,opts){
       : ("\u26a0 No reference photograph could be read for this product, so the model has only "
          +"the written description to go on. For anything with a distinctive surface — a faceted "
          +"or fluted planter — expect a generic shape. Add a reference photo first."))
-      +" This calls "+M.nm+" "+n+" times, about $"+cost+"."
+      +" This calls "+M.nm+" "+n+" times; "+cost+". Sunburst uses maximum quality and may take longer."
       +(M.ready?"":"\n\n\u26a0 "+M.nm+" is not wired into the worker yet, so this will "
         +"fail until it is. nano-2 is the only model confirmed working."),
     note:"The spec card is drawn locally from the record, so its dimensions and price are always the real ones.",
@@ -23785,12 +23790,12 @@ function _shvizPanel(x,kind){
     const nm=known.length?SHVIZ_MODELS[known[known.length-1]].nm:_made.replace(/^fal-ai\//,"");
     h+='<div class="shv-eb">Made by<i>'+escAttr(nm)+'</i></div>';
   }
-  h+='<div class="shv-eb">Model<i>~$'+(SHVIZ_MODELS[_m].cost.toFixed(3).replace(/0$/,""))+' per image</i></div>';
+  h+='<div class="shv-eb">Model<i>'+imageCostLabel(1,_m)+'</i></div>';
   h+='<div class="shv-mods">'+Object.keys(SHVIZ_MODELS).map(k=>{const M=SHVIZ_MODELS[k];
     return '<button class="'+(k===_m?"on":"")+(M.ready?"":" todo")+'" title="'+escAttr(M.hint)
       +(M.ready?"":" — needs adding to the worker before it will run.")+'" '
       +'onclick="shvizSetModel(\''+k+'\')">'+escAttr(M.nm)
-      +'<i>~$'+M.cost.toFixed(3).replace(/0$/,"")+(M.ready?'':' · not wired')+'</i></button>';}).join('')
+      +'<i>'+imageCostLabel(1,k)+(M.ready?'':' · not wired')+'</i></button>';}).join('')
     +'</div>';
   // #5: the manufacturer's own colourways, so the render is a stated choice rather than
   // whichever swatch happened to sort first.
@@ -29673,12 +29678,12 @@ function aiPlantImageBtn(kind,pid){ openPlantAiImage(kind,pid); }
 // Per-plant AI image panel: uses book size/colour/form, plus optional free-text tweak and a reference photo (i2i, not stored)
 let _paimgRef=null, _paimgRef2=null;
 function openPlantAiImage(kind,pid){ const p=plantDbFind(kind,pid); if(!p) return; _paimgRef=null; _paimgRef2=null;
-  const nm=(p.c||botName(p)||"this plant"); const cost=_imgCostEach().toFixed(3).replace(/0$/,"");
+  const nm=(p.c||botName(p)||"this plant"); const cost=imageCostLabel(1);
   let d=document.getElementById("paimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="paimg-modal";
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:1rem";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:1.2rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35)">
       <div style="font-size:1.02rem;font-weight:700;color:var(--gm)">✨ AI image — ${escAttr(nm)}</div>
-      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .6rem;line-height:1.45">Uses this plant's size, bloom colour and form from the book. An illustration, not a photo — review before client use. Replaces the current image (revertable). ~$${cost}.</div>
+      <div style="font-size:.74rem;color:var(--tm);margin:.2rem 0 .6rem;line-height:1.45">Uses this plant's size, bloom colour and form from the book. An illustration, not a photo — review before client use. Replaces the current image (revertable). ${cost}.</div>
       <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap">
         <span style="font-size:.7rem;color:var(--tm)">Model</span>
         <select id="paimg-model" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.3rem;border:1px solid var(--br);border-radius:6px">${imageModelOptions(imgModel())}</select>
@@ -29813,7 +29818,7 @@ async function _paimgGo(kind,pid){
   const style=(document.getElementById("paimg-style")||{}).value||imgStyle(); setImgStyle(style);
   const st=document.getElementById("paimg-status"), gb=document.getElementById("paimg-go");
   const setSt=(t,c)=>{ if(st){ st.textContent=t; st.style.color=c||"var(--tm)"; } };
-  if(gb) gb.disabled=true; setSt("Generating… (10–20 sec)","var(--gm)");
+  if(gb) gb.disabled=true; setSt("Generating… (Sunburst may take several minutes)","var(--gm)");
   const r=await aiPlantImage(kind,pid,{tweak, ref:_paimgRef, ref2:_paimgRef2, twoView, style, heightFt});
   if(r.ok){ setSt("✓ Done — saving…","var(--gm)"); _paimgRef=null; _paimgRef2=null;
     if(typeof renderPlantBook==="function") renderPlantBook(); if(document.getElementById("pl-modal")) _plRender();
@@ -29824,12 +29829,12 @@ async function _paimgGo(kind,pid){
 // ── Bulk AI plant images (whole book) + migrate old base64 AI images to R2 ──
 function _imgCostEach(){ return IMAGE_MODELS[imgModel()].cost; }
 let _aiImgStop=false;
-function _aiImgRecost(){ const c=document.getElementById("aiimg-cost"); if(!c) return; const missing=_allPlantsFlat().filter(x=>!x.p.img).length; c.textContent="$"+(missing*_imgCostEach()).toFixed(2); }
+function _aiImgRecost(){ const c=document.getElementById("aiimg-cost"); if(!c) return; const missing=_allPlantsFlat().filter(x=>!x.p.img).length; c.textContent=imageCostLabel(missing); }
 function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="aiimg-modal";
   const all=_allPlantsFlat();
   const missing=all.filter(x=>!x.p.img).length;
   const inlineAI=all.filter(x=>x.p.imgAI && /^data:/.test(x.p.img||"")).length;
-  const cost=(missing*_imgCostEach()).toFixed(2);
+  const cost=imageCostLabel(missing);
   d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:1rem";
   d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:1.3rem 1.4rem;box-shadow:0 20px 60px rgba(0,0,0,.3)">
       <div style="font-size:1.05rem;font-weight:700;color:var(--gm);margin-bottom:.3rem">🖼 AI plant images</div>
@@ -29846,7 +29851,7 @@ function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.r
         </select>
       </div>
       <div style="font-size:.82rem;color:#4C7B3D;background:#F4F9F5;border:1px solid #cfe0d6;border-radius:8px;padding:.5rem .6rem;margin-bottom:.5rem">
-        <b>${missing.toLocaleString()}</b> plants have no image · est. <b id="aiimg-cost">$${cost}</b> to fill them all.
+        <b>${missing.toLocaleString()}</b> plants have no image · est. <b id="aiimg-cost">${cost}</b> to fill them all.
         <div style="font-size:.7rem;color:var(--tm);margin-top:.2rem">Tip: run the free real-photo fetch first — this fills only what's still blank.</div>
       </div>
       <div id="aiimg-progress" style="font-size:.82rem;color:var(--tm);min-height:1.4rem;margin:.3rem 0"></div>
@@ -29866,8 +29871,8 @@ function openAiImages(){ let d=document.getElementById("aiimg-modal"); if(d) d.r
 async function fillMissingImagesAI(){
   const todo=_allPlantsFlat().filter(x=>!x.p.img && (botName(x.p)||x.p.c||"").trim());
   if(!todo.length){ alert("Every plant already has an image."); return; }
-  const cost=(todo.length*_imgCostEach()).toFixed(2);
-  if(!confirm(`Generate AI images for ${todo.length} plant${todo.length>1?"s":""} with no photo?\n\n~$${cost} · stored on R2 at 512px.\n\nThese are ILLUSTRATIONS, not photographs — review before client use. Any can be reverted.`)) return;
+  const cost=imageCostLabel(todo.length);
+  if(!confirm(`Generate AI images for ${todo.length} plant${todo.length>1?"s":""} with no photo?\n\n${cost} · stored on R2 at 512px.\n\nThese are ILLUSTRATIONS, not photographs — review before client use. Any can be reverted.`)) return;
   const prog=document.getElementById("aiimg-progress"); const fb=document.getElementById("aiimg-fill"); if(fb){ fb.disabled=true; }
   const total=todo.length; const PARALLEL=Math.min(6,total);
   _aiImgStop=false; let ok=0, fail=0, done=0, idx=0, stopMsg="";
@@ -30594,8 +30599,8 @@ async function aiFillProjectImages(){
     (z[rk]||[]).forEach(r=>{ const p=plantDbFind(kind,r.pid); if(!p) return; const k=kind+":"+p.id;
       if(seen.has(k)||p.img) return; seen.add(k); need.push({kind,pid:p.id,name:(p.c||botName(p)||"")}); }); }); });
   if(!need.length){ alert("Every plant in this project already has an image."); return; }
-  const cost=(need.length*_imgCostEach()).toFixed(2);
-  if(!confirm(`Generate AI images for the ${need.length} plant${need.length>1?"s":""} in this project with no photo?\n\n~$${cost}.\n\nThese are ILLUSTRATIONS, not photographs — the AI renders a plausible plant and cultivar details can be wrong. Review each one before it goes to a client. You can revert any of them.`)) return;
+  const cost=imageCostLabel(need.length);
+  if(!confirm(`Generate AI images for the ${need.length} plant${need.length>1?"s":""} in this project with no photo?\n\n${cost}.\n\nThese are ILLUSTRATIONS, not photographs — the AI renders a plausible plant and cultivar details can be wrong. Review each one before it goes to a client. You can revert any of them.`)) return;
   const btn=document.getElementById("pl-aifill"); if(btn){ btn.disabled=true; }
   let ok=0;
   for(let i=0;i<need.length;i++){
@@ -31807,7 +31812,7 @@ These plant photographs are identification references ONLY. Use them for what ea
 }
 // Generate via the Worker; Nano Banana 2 is the default, GPT Image is option two.
 const IMG_MODEL_KEY="studioh_imgmodel_v1";
-function imgModel(){ try{ const m=localStorage.getItem(IMG_MODEL_KEY); return IMAGE_MODELS[m]?m:"nano-2"; }catch(e){ return "nano-2"; } }
+function imgModel(){ try{ const m=upgradeImageModel(localStorage.getItem(IMG_MODEL_KEY)); return IMAGE_MODELS[m]?m:"nano-2"; }catch(e){ return "nano-2"; } }
 function setImgModel(v){ if(!IMAGE_MODELS[v]) return; try{ localStorage.setItem(IMG_MODEL_KEY,v); }catch(e){}
   document.querySelectorAll("#rp-model,#rp-custom-model,#rf-model,#elem-model,#pl-fill-model,#paimg-model,#aiimg-model").forEach(el=>{ el.value=v; });
 }
@@ -31826,7 +31831,7 @@ async function _rpGenerate(zid, stage){
   const st=document.getElementById("rp-status");
   const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } };
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
-  setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering… (10–20 sec)","var(--gm)");
+  setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering… (Sunburst may take several minutes)","var(--gm)");
   try{
     // Reference 1 is always the CLEAN photograph — that is the scene. Reference 2, when the
     // photo has been marked up, is the same photograph with the marks on it, and it exists
@@ -31842,7 +31847,7 @@ async function _rpGenerate(zid, stage){
       setSt("Preparing "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+"…","var(--gm)");
       const _shr=await Promise.all(_refPlants.map(x=>_refShrink(x.img,PLANT_REF_PX)));
       _shr.forEach(u=>{ if(u) refs.push(u); });
-      setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering with "+_refPlants.length+" plant photos… (20–45 sec)","var(--gm)");
+      setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering with "+_refPlants.length+" plant photos… (Sunburst may take several minutes)","var(--gm)");
     }
     // GPT accepts all supplied reference photos; retain the existing Nano Pro upgrade for other selections.
     const _model=plantingImageModel(_refPlants.length);
@@ -31943,7 +31948,7 @@ async function _rpCustomGenerate(zid){
       setSt("Preparing "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+"…","var(--gm)");
       const _shr=await Promise.all(_refPlants.map(x=>_refShrink(x.img,PLANT_REF_PX)));
       _shr.forEach(u=>{ if(u) refs.push(u); });
-      setSt("Generating with "+_refPlants.length+" plant photos as references… (20–45 sec)","var(--gm)");
+      setSt("Generating with "+_refPlants.length+" plant photos as references… (Sunburst may take several minutes)","var(--gm)");
     }
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({type:"genimage",key,prompt,model:plantingImageModel(_refPlants.length),aspect:"3:2",refs})});
@@ -32063,7 +32068,7 @@ MAKE THIS ONE CHANGE: ${want}
 Do not re-compose the scene, do not restyle it, do not move the camera, and do not change anything that was not asked for. Photorealistic, professional landscape photography, high detail.`
     + _refKeyText(_refPlants,1,1);
   document.querySelectorAll(".rf-go").forEach(b=>b.disabled=true);
-  setSt("Making the change… (20–45 sec)","var(--gm)");
+  setSt("Making the change… (Sunburst may take several minutes)","var(--gm)");
   try{
     const refs=[rr.url];
     if(_refPlants.length){
@@ -33560,7 +33565,7 @@ async function elementGenerate(){
   const styleLabels=styleKeys.map(k=>(MB_STYLES.find(s=>s.key===k)||{}).label||k).join(" / ");
   const prompt=`A high-quality photorealistic landscape architecture reference photo of a ${cat}${nm?` — ${nm}`:""}.${styleLabels?` In a "${styleLabels}" design style.`:""}${custom?` ${custom}.`:""} Professional architectural photography, natural daylight, no people, no text or watermarks.`;
   const btn=document.getElementById("elem-gen-btn"); if(btn) btn.disabled=true;
-  const st=document.getElementById("elem-gen-status"); if(st){ st.textContent="Generating… (10–20 sec)"; st.style.color="var(--tm)"; }
+  const st=document.getElementById("elem-gen-status"); if(st){ st.textContent="Generating… (Sunburst may take several minutes)"; st.style.color="var(--tm)"; }
   const r=await aiElementImage(prompt);
   if(r.ok){ _elemApplyImg(r.url); if(st){ st.textContent="✓ Done"; st.style.color="var(--gm)"; } }
   else if(st){ st.textContent="Failed: "+(r.err||"error"); st.style.color="#B23F3C"; }
@@ -70646,6 +70651,7 @@ function askOpen(){
       <div class="askhead">
         <b>Ask</b>
         <small id="ask-idx"></small>
+        <select id="ask-engine" aria-label="Reasoning model" style="max-width:190px;font-size:.75rem"><option value="claude">Claude</option><option value="astra">GPT-6 Astra · checking setup</option></select>
         <span style="flex:1"></span>
         <button type="button" class="ask-x" onclick="askClose()" aria-label="Close">✕</button>
       </div>
@@ -70661,6 +70667,9 @@ function askOpen(){
     document.body.appendChild(m);
   }
   m.style.display="flex";
+  fetch(AI_PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"aistatus"})})
+    .then(r=>r.json()).then(d=>{const o=document.querySelector('#ask-engine option[value="astra"]');if(o)o.textContent=d.astraConfigured?"GPT-6 Astra":"GPT-6 Astra · API setup needed";})
+    .catch(()=>{const o=document.querySelector('#ask-engine option[value="astra"]');if(o)o.textContent="GPT-6 Astra · setup unverified";});
   askRenderIdx();
   if(!_askLast) askRenderWelcome();
   projIndexPull().then(askRenderIdx);
@@ -70737,12 +70746,15 @@ async function askRun(){
 
   let out=null, err="";
   try{
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1600,temperature:0,
-        system:ASK_SYSTEM,
-        messages:[{role:"user",content:"PROJECT INDEX:\n"+JSON.stringify(idx)+"\n\nQUESTION: "+q}]})});
+    const useAstra=(document.getElementById("ask-engine")||{}).value==="astra";
+    const input="PROJECT INDEX:\n"+JSON.stringify(idx)+"\n\nQUESTION: "+q;
+    const payload=useAstra
+      ? {type:"designreason",key:_adminKey(),instructions:ASK_SYSTEM,input}
+      : {model:"claude-sonnet-4-6",max_tokens:1600,temperature:0,system:ASK_SYSTEM,messages:[{role:"user",content:input}]};
+    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     const d=await r.json();
     const txt=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
+    if(st && d && d.model) st.textContent="Answered by "+d.model;
     const m=txt.match(/\{[\s\S]*\}/);
     if(m){ try{ out=JSON.parse(m[0]); }catch(e){ out={answer:txt}; } }
     else out= txt?{answer:txt}:null;
