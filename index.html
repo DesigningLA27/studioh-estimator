@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1529</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1530</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31185,18 +31185,30 @@ async function _rpGenerate(zid, stage){
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const d=await r.json();
     if(d&&d.ok&&d.url){
-      // re-host the render so it saves with the project (fal URLs expire) — R2 first, base64 fallback
+      // The worker answers usedRef: whether it actually routed to the model's image-to-image
+      // endpoint with the site photo, or fell back to text-to-image. This used to be thrown
+      // away, so a render that ignored the photo came back looking like a success and the only
+      // way to find out was to look at the picture and not recognise your own site.
+      const wantedRef=!!ref;
+      const usedRef=(d.usedRef===true);
+      const refUnknown=wantedRef&&(d.usedRef===undefined||d.usedRef===null);
       setSt("Saving image…","var(--gm)");
       let dataUrl=d.url;
       const _up=await _uploadUrlToR2("render_"+z.id+"_"+stage+"_"+Date.now().toString(36), d.url);
       if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
       else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
-      const _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
+      let _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
+      if(wantedRef&&usedRef) _cap="Rendered onto your site photo. "+_cap;
+      else if(wantedRef) _cap="NOT rendered onto your site photo — an invented scene. "+_cap;
       if(!_zoneRenderAdd(z.id,dataUrl,_cap,{kind:stage,names:_zoneNames(z)})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
-      setSt("✓ Added to the report.","var(--gm)");
+      if(wantedRef&&usedRef) setSt("✓ Added — rendered onto your site photo via "+(d.model||"the edit endpoint")+".","var(--gm)");
+      else if(refUnknown) setSt("✓ Added, but this worker build never says whether your site photo was used. It needs redeploying.","#9B7B3A");
+      else if(wantedRef) setSt("⚠ Added, but your site photo was IGNORED — the worker ran "+(d.model||"text-to-image")+". This picture is an invented scene, not your site.","#B23F3C");
+      else setSt("✓ Added. No site photo was attached to this zone, so this is an invented scene.","var(--gm)");
       _plRender();
-      if(typeof _toast==="function") _toast("✓ Rendering added");
-      setTimeout(()=>{ const m=document.getElementById("rp-modal"); if(m) m.remove(); },800);
+      if(typeof _toast==="function") _toast(wantedRef&&!usedRef?"⚠ Site photo ignored":"✓ Rendering added", wantedRef&&!usedRef?"#B23F3C":null);
+      // Closing on a warning would hide the one sentence that explains the picture.
+      if(!(wantedRef&&!usedRef)) setTimeout(()=>{ const m=document.getElementById("rp-modal"); if(m) m.remove(); },800);
     } else if(d&&/authoriz/i.test(d.error||"")){ setSt("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
     else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
     else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
