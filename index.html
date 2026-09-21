@@ -7620,6 +7620,21 @@ i.sb-bas-pattern{background:#FBE9E8;color:#B23F3C}
 .bc-vnums span b{font-size:11px;font-weight:700;color:var(--tm);letter-spacing:.01em}
 .bc-vnums span.win b{color:var(--gm)}
 .bc-vnums span em{font-size:10.5px;font-weight:700;font-style:normal;color:var(--tm);letter-spacing:.04em}
+/* the levelled-allowance table */
+.bc-lvl{min-width:900px;table-layout:fixed}
+.bc-lvl th.l,.bc-lvl td.l{width:280px}
+.bc-lvl th.n,.bc-lvl td.n{width:88px}
+.bc-lvl td.l{line-height:1.35}
+.bc-lvl td.l b,.bc-lvl td.l{overflow-wrap:anywhere}
+.bc-lvl td.n small,.bc-lvl td.l small{display:block;font-size:10px;font-weight:600;color:var(--tm);
+  letter-spacing:.02em;margin-top:1px;text-transform:none}
+.bc-lvl tr.bad td{background:color-mix(in srgb,var(--v-warn) 9%,transparent)}
+.bc-lvl tr.mid td{background:color-mix(in srgb,var(--v-high) 8%,transparent)}
+.bc-lvl tr.off td{opacity:.62}
+.bc-lvl tr.tot td{border-top:2px solid var(--br);font-size:13px}
+.bc-lvl td.n b{font-variant-numeric:tabular-nums}
+.bc-lvl .miss{color:var(--v-warn);font-style:italic;font-weight:600;font-size:11px}
+.bc-lvl tr.ok td.n b{color:var(--gm)}
 .bc-sparse{border:1px solid var(--v-warn);border-radius:11px;padding:11px 13px;background:var(--card);
   display:flex;gap:13px;align-items:center;flex-wrap:wrap;margin-bottom:11px}
 .bc-sparse .num{font-size:29px;font-weight:800;color:var(--v-warn);line-height:1}
@@ -7761,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1543</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1544</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -52896,7 +52911,7 @@ function bcSecOf(b,cat){
 //                   a placeholder, not a price; the money lands on the job either way.
 // Every component names where it came from, so the number can be argued with.
 function bcActual(b){
-  var stated=+b.total||0, secs=bcSections(), adds=[];
+  var stated=+b.total||0, secs=bcSections(), adds=[], norm=bcAllowNorm(b);
   secs.forEach(function(s){
     var got=bcSecOf(b,s.id);
     if(!got.has){
@@ -52907,11 +52922,23 @@ function bcActual(b){
     // Priced work sits below our figure only as far as the allowance in it — a real
     // line that is simply cheaper is a price difference, not an omission, and is left alone.
     if(got.allowance>0){
-      var nonAllow=got.amount-got.allowance;
-      var shortfall=Math.round(s.est-nonAllow-got.allowance);
-      if(shortfall>0) adds.push({kind:"allowance",cat:s.id,name:s.name,amount:shortfall,
-        why:"Carries a "+fmtN(got.allowance)+" allowance. We estimate "+s.name+" at "
-            +fmtN(s.est)+", so "+fmtN(shortfall)+" is not yet priced."});
+      var shortfall=Math.round(s.est-got.amount);
+      // Two ways to measure the same short allowance: level its RATE to the benchmark,
+      // or note the whole section sits under our estimate. They overlap, so the larger
+      // is taken and the other discarded — adding both would charge twice for one gap.
+      var lev=norm.filter(function(x){ return x.cat===s.id; });
+      var rateAdd=lev.reduce(function(t,x){ return t+x.delta; },0);
+      if(rateAdd>=shortfall&&rateAdd>0){
+        var worst=lev.slice().sort(function(p,q){ return q.delta-p.delta; })[0];
+        adds.push({kind:"allowance",cat:s.id,name:s.name,amount:Math.round(rateAdd),
+          why:"Levelled to "+fmtN(worst.bench.rate)+"/"+(worst.unit||"unit")+" — "+worst.bench.src
+              +". This bid allows "+fmtN(worst.theirRate)+", so "+fmtN(Math.round(rateAdd))
+              +" is the gap to the same material."});
+      } else if(shortfall>0){
+        adds.push({kind:"allowance",cat:s.id,name:s.name,amount:shortfall,
+          why:"Carries a "+fmtN(got.allowance)+" allowance. We estimate "+s.name+" at "
+              +fmtN(s.est)+", so "+fmtN(shortfall)+" is not yet priced."});
+      }
     }
   });
   var add=adds.reduce(function(a,x){ return a+x.amount; },0);
@@ -53024,7 +53051,7 @@ async function bcRead(b,b64){
   var sys="You read residential landscape construction bids and report only what the document says.\n"
     +"Return ONLY JSON: {\"contractor\":\"\",\"license\":\"\",\"date\":\"\",\"total\":0,"
     +"\"lines\":[{\"desc\":\"\",\"qty\":0,\"unit\":\"\",\"rate\":0,\"amount\":0,\"kind\":\"line\","
-    +"\"matBasis\":\"named|allowance|unstated\",\"matName\":\"\",\"matRate\":0,\"allowIncl\":\"\",\"installRate\":0}],"
+    +"\"matBasis\":\"named|allowance|unstated\",\"matName\":\"\",\"matRate\":0,\"matUnit\":\"\",\"matQty\":0,\"allowIncl\":\"\",\"installRate\":0}],"
     +"\"exclusions\":[\"\"],\"note\":\"\"}\n"
     +"RULES:\n"
     +"- Copy figures from the document. Never estimate, infer or fill a number that is not printed.\n"
@@ -53032,6 +53059,7 @@ async function bcRead(b,b64){
     +"- matBasis says how the line answers WHAT MATERIAL: \"named\" if it names the product, \"allowance\" if it carries a material allowance, \"unstated\" if it gives a price with neither. \"Per plan\" with no product named is \"unstated\".\n"
     +"- matName is the product as the bid writes it, empty if unstated. matRate is the material-only $/unit if the bid separates it, else 0.\n"
     +"- allowIncl is what the bid says an allowance covers, in its own words, e.g. \"tax, overage and shipping\". Empty if it does not say.\n"
+    +"- matUnit and matQty are the ALLOWANCE's own basis, which is often not the line's. \"Pool, lump sum, includes waterline tile at $20/sf over 50 sf\" is unit LS, matRate 20, matUnit SF, matQty 50. Leave matQty 0 when the bid gives a rate but no quantity. Leave both empty when the line has no allowance.\n"
     +"- installRate is the installed $/unit if the bid states one separately from the material, else 0.\n"
     +"- unit is the bid's own unit (SF, LF, EA, LS, HR). Leave rate 0 when the bid gives only a lump amount.\n"
     +"- total is the bid's own bottom line. 0 if it does not state one.\n"
@@ -53087,6 +53115,8 @@ async function bcRead(b,b64){
              matBasis:String(l&&l.matBasis||"").slice(0,12),
              matName:String(l&&l.matName||"").slice(0,90),
              matRate:+(l&&l.matRate)||0,
+             matUnit:String(l&&l.matUnit||"").slice(0,6),
+             matQty:+(l&&l.matQty)||0,
              allowIncl:String(l&&l.allowIncl||"").slice(0,120),
              installRate:+(l&&l.installRate)||0,
              cat:bcCatOf(desc) };
@@ -53360,6 +53390,104 @@ function _bcOurSpec(cat){
 function _bcOurMatRate(cat){ var o=_bcOurSpec(cat); return o?o.rate:0; }
 function _bcOurMatName(cat){ var o=_bcOurSpec(cat); return o?o.name:""; }
 
+// ── Allowances, levelled ─────────────────────────────────────────────────────
+// A bid that allows $15/SF for paving stone shows a bigger allowance than one that
+// allows $5/SF, and looks worse for it. It is not worse — it is the only one of the
+// two that has budgeted for the material. Counting allowance DOLLARS rewards the bid
+// that allowed too little, which is the opposite of the truth.
+//
+// So every allowance is re-priced at one rate — the same material for everybody —
+// and what is compared is the gap each bid has to close. The rate is never invented:
+// it is the material we specified, or a figure typed here, or the highest rate any
+// bid on this job is itself willing to allow. Where none of those exist, the line is
+// reported as un-levellable and left out of the score rather than guessed at.
+const BC_MATB_KEY="studioh_bcmatbench_v1";
+let BC_MATB={};
+try{ BC_MATB=JSON.parse(localStorage.getItem(BC_MATB_KEY)||"{}")||{}; }catch(e){ BC_MATB={}; }
+function bcMatBSave(){ try{ localStorage.setItem(BC_MATB_KEY,JSON.stringify(BC_MATB)); }catch(e){} }
+function bcMatBSet(cat,v){
+  var n=+v||0;
+  if(n>0) BC_MATB[cat]={rate:n,by:"you",at:new Date().toISOString().slice(0,10)};
+  else delete BC_MATB[cat];
+  bcMatBSave(); renderBidCompare();
+}
+// A pool line is priced LS; the waterline-tile allowance inside it is $20/SF over
+// 50 SF. The allowance's unit is not the line's unit, and treating them as one
+// compared $450-per-cubic-yard mulch against $600-each boulders. matUnit/matQty are
+// the allowance's own basis; the line's only stand in when they agree.
+const BC_LEVEL_UNITS={SF:1,LF:1,SY:1,CY:1,EA:1,TON:1,GAL:1};
+function bcAllowUnit(l){
+  var mu=String(l&&l.matUnit||"").toUpperCase();
+  if(mu) return mu;
+  var lu=String(l&&l.unit||"").toUpperCase();
+  return BC_LEVEL_UNITS[lu]?lu:"";
+}
+// The quantity the allowance covers. Only ever a figure the bid itself states — a
+// quantity back-solved from dollars ÷ rate produced "129 LS" of pool tile out of a
+// fixtures allowance, and then charged a bid $2,314 for it.
+function bcAllowQty(l){
+  if(+(l&&l.matQty)>0) return +l.matQty;
+  var mu=String(l&&l.matUnit||"").toUpperCase();
+  var lu=String(l&&l.unit||"").toUpperCase();
+  if(+(l&&l.qty)>0 && (!mu||mu===lu)) return +l.qty;
+  return 0;
+}
+// The highest material rate any bid on this job is willing to allow for this work,
+// in this unit. Not a market figure and never presented as one — it is the most
+// realistic number the bidders themselves put on the table.
+function _bcPeakAllow(cat,unit){
+  var best=0, who="";
+  bcBids().forEach(function(b){
+    bcLines(b).forEach(function(l){
+      if((l.cat||"")!==cat) return;
+      if(bcMatBasis(l)!=="allowance") return;
+      if(!unit||bcAllowUnit(l)!==unit) return;
+      if(+l.matRate>best){ best=+l.matRate; who=b.contractor||b.name||""; }
+    });
+  });
+  return best>0?{rate:best,who:who}:null;
+}
+function bcMatBench(cat,unit){
+  var u=String(unit||"").toUpperCase();
+  if(!BC_LEVEL_UNITS[u]) return {rate:0, kind:"none", unit:u,
+    src:"this allowance states no unit that can be levelled — a lump sum has no rate to compare"};
+  var sp=(u==="SF")?_bcOurSpec(cat):null;
+  if(sp&&+sp.rate>0) return {rate:+sp.rate, kind:"spec", unit:u,
+    src:"the material you specified — "+(sp.name||"your spec")};
+  var set=(u==="SF")?BC_MATB[cat]:null;
+  if(set&&+set.rate>0) return {rate:+set.rate, kind:"set", unit:u,
+    src:"a figure you set"+(set.at?" · "+set.at:"")};
+  var pk=_bcPeakAllow(cat,u);
+  if(pk) return {rate:pk.rate, kind:"peak", unit:u,
+    src:"the highest allowance any of these bids carries for this work"
+       +(pk.who?" — "+pk.who:"")};
+  return {rate:0, kind:"none", unit:u, src:"nothing to level against for this work"};
+}
+// Every allowance on a bid, re-priced at the benchmark.
+function bcAllowNorm(b){
+  var out=[];
+  bcLines(b).forEach(function(l){
+    if(bcMatBasis(l)!=="allowance") return;
+    var cat=l.cat||"", unit=bcAllowUnit(l), their=+l.matRate||0;
+    var dollars=bcAllowanceOf(l), qty=bcAllowQty(l);
+    var bench=cat?bcMatBench(cat,unit):{rate:0,kind:"none",unit:unit,src:"unmatched line"};
+    var norm=(bench.rate>0&&qty>0)?qty*bench.rate:0;
+    var gap=(bench.rate>0&&their>0)?Math.max(0,(bench.rate-their)/bench.rate):0;
+    out.push({l:l, cat:cat, name:l.desc||"", unit:unit, qty:qty,
+      theirRate:their, dollars:Math.round(dollars), bench:bench,
+      norm:Math.round(norm), delta:(norm>dollars)?Math.round(norm-dollars):0,
+      gap:gap,
+      levelled:!!(bench.rate>0&&their>0&&qty>0),
+      why:(bench.rate<=0)?bench.src
+          :(!(their>0)?"the bid does not state a material rate"
+          :(!(qty>0)?"the bid states the rate but no quantity, so the gap is a rate, not a sum":""))});
+  });
+  return out;
+}
+function bcAllowNormTotal(b){
+  return bcAllowNorm(b).reduce(function(t,x){ return t+x.delta; },0);
+}
+
 // ── A sparse bid is itself the finding ──────────────────────────────────────
 // Few big lines is not tidiness. Every detail left off is a detail decided later,
 // at a price agreed later, which is what a change order is.
@@ -53474,14 +53602,50 @@ function bcScore(b){
           : "Not scored — no minimum install cost is on file for these sections. Set one below and "
             +"this starts counting.")});
 
-  // 4 · allowance exposure
+  // 4 · allowance exposure — measured by how far SHORT each allowance is, not by how
+  // many dollars carry the word. A bid that allows $15/SF for stone shows a bigger
+  // allowance than one that allows $5/SF and is the only one of the two that has
+  // budgeted for it; scoring the dollars marked the honest bid down and the thin one
+  // up. Two parts: how far the rates sit below the benchmark (twice the weight), and
+  // the plain size of the placeholder, which is a real but much smaller risk.
+  var norm=bcAllowNorm(b);
   var alw=ls.reduce(function(x,l){ return x+bcAllowanceOf(l); },0);
   var share=(+b.total>0)?alw/b.total:0;
-  var allowPts=BC_WEIGHTS.allow*(1-Math.min(1,share/0.30));
-  rows.push({k:"allow", label:"Allowance exposure", pts:Math.round(allowPts), max:BC_WEIGHTS.allow,
-    detail:alw?(fmtN(Math.round(alw))+" of "+fmtN(Math.round(+b.total||0))+" is allowance — "
-      +Math.round(share*100)+"% of the bid is a placeholder, not a price.")
-      :"No allowances. Every line carries a price."});
+  var sharePts=(BC_WEIGHTS.allow/3)*(1-Math.min(1,share/0.40));
+  var lev=norm.filter(function(x){ return x.bench.rate>0&&x.theirRate>0; });
+  var wSum=0, gSum=0;
+  lev.forEach(function(x){ var w=x.dollars>0?x.dollars:1; wSum+=w; gSum+=w*x.gap; });
+  var avgGap=wSum?gSum/wSum:0;
+  var canLevel=lev.length>0;
+  var ratePts=canLevel?(BC_WEIGHTS.allow*2/3)*(1-Math.min(1,avgGap/0.35)):0;
+  // A dollar-weighted average hides one catastrophic rate behind several sound ones:
+  // $7/SF tile against a $25 benchmark is a finding whatever sum is attached to it,
+  // and on a bid that states no quantity there is no sum to weight it by at all.
+  var severe=lev.filter(function(x){ return x.gap>0.40; }).length>0;
+  if(canLevel&&severe) ratePts=Math.min(ratePts,(BC_WEIGHTS.allow*2/3)*0.5);
+  var allowMax=canLevel?BC_WEIGHTS.allow:(alw>0?BC_WEIGHTS.allow/3:BC_WEIGHTS.allow);
+  var allowPts=canLevel?(ratePts+sharePts):(alw>0?sharePts:BC_WEIGHTS.allow);
+  var shortD=norm.reduce(function(t,x){ return t+x.delta; },0);
+  var worstN=norm.filter(function(x){ return x.gap>0; })
+                 .sort(function(p,q){ return q.gap-p.gap; })[0];
+  rows.push({k:"allow", label:"Allowance exposure", pts:Math.round(allowPts), max:Math.round(allowMax),
+    scored:true,
+    detail:!alw ? "No allowances. Every line carries a price."
+      : (canLevel
+          ? fmtN(Math.round(alw))+" of "+fmtN(Math.round(+b.total||0))+" is allowance ("
+            +Math.round(share*100)+"%), levelled to the same material as the others. "
+            +(worstN
+               ? "Its rates run "+Math.round(avgGap*100)+"% under the benchmark"
+                 +(shortD>0?" — "+fmtN(shortD)+" short":"")
+                 +". Worst: "+(worstN.name||"one line")+" allows "+fmtN(worstN.theirRate)
+                 +"/"+(worstN.unit||"unit")+" against "+fmtN(worstN.bench.rate)+" — "
+                 +Math.round(worstN.gap*100)+"% under"
+                 +(worstN.qty>0?"."
+                   :", and states no quantity, so the shortfall cannot be put in dollars.")
+               : "Every rate sits at or above the benchmark — this is budgeted, not underpriced.")
+          : fmtN(Math.round(alw))+" of "+fmtN(Math.round(+b.total||0))+" is allowance ("
+            +Math.round(share*100)+"%), but none of it states a rate that can be levelled "
+            +"against the others — so only the size of the placeholder is scored.")});
 
   // 5 · gap to like-for-like
   var gapShare=(a.actual>0)?(a.added/a.actual):0;
@@ -53588,22 +53752,22 @@ function _bidSampleBids(){
         L("CMU walls to match existing wall at entrance","walls",2100,{qty:14,unit:"SF",rate:150}),
         L("Pedestrian concrete field at trash area","paving",3060,{qty:170,unit:"SF",rate:18}),
         L("Linear concrete pavers — Stepstone allowance plus 10% waste, set on concrete","paving",5960,
-          {qty:220,unit:"SF",rate:27.09,matBasis:"allowance",matRate:12,allowAmt:2880,
+          {qty:220,unit:"SF",rate:27.09,matBasis:"allowance",matRate:12,matUnit:"SF",matQty:240,allowAmt:2880,
            allowIncl:"10% waste, and up to 30% for selection, delivery, staging and mark-up"}),
         L("Steppers per plan — Stepstone allowance, with reinforced CMU bench","paving",2330,
-          {qty:75,unit:"SF",matBasis:"allowance",matRate:12,allowAmt:900,
+          {qty:75,unit:"SF",matBasis:"allowance",matRate:12,matUnit:"SF",matQty:75,allowAmt:900,
            allowIncl:"selection, delivery, staging and mark-up"}),
         L("New concrete steppers at entrance","paving",900,{matBasis:"unstated"}),
         L("Pool and spa — excavation, plumbing, steel, shotcrete, Pebble Sheen, Hayward equipment, "
           +"Stepstone coping, waterline tile allowance","pool",67675,
-          {matBasis:"allowance",matRate:25,allowAmt:1500,allowIncl:"glass waterline tile at $25/sf, 60 sf of 140"}),
+          {matBasis:"allowance",matRate:25,matUnit:"SF",matQty:60,allowAmt:1500,allowIncl:"glass waterline tile at $25/sf, 60 sf of 140"}),
         L("Pebble mulch — material allowance, laid on weed barrier","planting",1925,
-          {matBasis:"allowance",matRate:450,allowAmt:1350,allowIncl:"delivery; $450 per yard, 3 yards"}),
+          {matBasis:"allowance",matRate:450,matUnit:"CY",matQty:3,allowAmt:1350,allowIncl:"delivery; $450 per yard, 3 yards"}),
         L("Artificial turf — TigerTurf, pet grade","planting",4200,{qty:300,unit:"SF",rate:14,
           matName:"TigerTurf, lead-free with antibacterial infill"}),
         L("Steel headers per plan","planting",720,{qty:60,unit:"LF",rate:12}),
         L("Boulders — material allowance and installation","planting",1200,
-          {matBasis:"allowance",matRate:600,allowAmt:600,allowIncl:""}),
+          {matBasis:"allowance",matRate:600,matUnit:"EA",matQty:1,allowAmt:600,allowIncl:""}),
         L("Trees — 2 no. 36\" Swan Hill olive, citrus and bay in pottery, with soil prep and crane",
           "planting",4090,{matName:"Olea europaea Swan Hill, Citrus, Laurus nobilis"}),
         L("Shrubs and groundcover — 20 species, 1–15 gallon, with amendment and top dressing",
@@ -53631,13 +53795,13 @@ function _bidSampleBids(){
         L("Swimming pool with water feature — engineering, form, excavation, steel, shotcrete, "
           +"plumbing, automation and equipment, LED lights, waterline tile allowance, "
           +"pebble interior finish, start-up","pool",69850,
-          {matBasis:"allowance",matRate:7,allowAmt:900,
+          {matBasis:"allowance",matRate:7,matUnit:"SF",matQty:0,allowAmt:900,
            allowIncl:"$7 per 6\" lineal foot of waterline tile; $7/sf on the raised feature wall; "
                     +"$900 for scupper fixtures"}),
         L("Hardscape — per plan","paving",30853,{matBasis:"unstated"}),
         L("Landscape — per plan","planting",35238,{matBasis:"unstated"}),
         L("Carpentry — gates and bench, with a gate allowance","woodMetal",12599,
-          {matBasis:"allowance",matRate:2500,allowAmt:2500,allowIncl:"$2,500 on the new front entry gate; "
+          {matBasis:"allowance",matRate:2500,matUnit:"EA",matQty:1,allowAmt:2500,allowIncl:"$2,500 on the new front entry gate; "
             +"final design selected by owner and landscape architect"})
       ]},
 
@@ -53662,11 +53826,11 @@ function _bidSampleBids(){
           +"new wood portico gate","woodMetal",16660,{qty:40,unit:"LF",rate:277.5}),
         L("Pool and spa — excavation, steel, mechanicals, shotcrete, precast coping, pebble "
           +"plaster, variable-speed equipment, waterline tile at a $20/sf allowance","pool",80073,
-          {matBasis:"allowance",matRate:20,allowAmt:1000,allowIncl:"setting material and grout included, 50 sf"}),
+          {matBasis:"allowance",matRate:20,matUnit:"SF",matQty:50,allowAmt:1000,allowIncl:"setting material and grout included, 50 sf"}),
         L("Irrigation — mainline, 7 remote control valves, timer and controller","irrigation",9900,
           {qty:7,unit:"EA",rate:1250}),
         L("Lighting — 20 fixtures on an $85 allowance, tape lights, pool-rated transformer",
-          "lighting",5950,{qty:20,unit:"EA",rate:200,matBasis:"allowance",matRate:85,allowAmt:1700,
+          "lighting",5950,{qty:20,unit:"EA",rate:200,matBasis:"allowance",matRate:85,matUnit:"EA",matQty:20,allowAmt:1700,
           allowIncl:"fixture only; installation priced separately at $115 each"}),
         L("Trees — 2 no. 36\" Swan Hill olive, 3 citrus, 3 bay, with crane and root guards",
           "planting",4545,{matName:"Olive Multi Swan Hill 36\" box"}),
@@ -54254,31 +54418,93 @@ function _bcAllowView(bids,secs){
         return '<td class="n"><b>'+(g.has?fmtN(g.amount):"—")+'</b></td>'; }).join("")+'</tr>';
     h+='</tbody></table></div>';
   });
-  // Every allowance on the job, in one place.
-  h+='<div class="bc-h4">Every allowance across these bids</div>';
+  h+=_bcLevelView(bids,secs);
+  return h+'</div>';
+}
+
+// Every allowance on every bid, re-priced at one rate, with the rate's source named.
+function _bcLevelView(bids,secs){
   var rows=[];
   bids.forEach(function(b){
-    bcLines(b).forEach(function(l){
-      if(bcMatBasis(l)!=="allowance") return;
-      var s=bcSections().find(function(x){ return x.id===(l.cat||""); });
-      rows.push({who:b.contractor||b.name||"Bid", desc:l.desc,
-        incl:l.allowIncl||"", amt:+l.amount||0, ours:s?s.est:0});
-    });
+    bcAllowNorm(b).forEach(function(x){ rows.push({b:b,x:x}); });
   });
-  if(!rows.length) h+='<div class="bc-none">No allowances on any of these bids. Everything is priced.</div>';
-  else{
-    h+='<div class="bc-scroll"><table class="bc-t"><thead><tr><th class="l">Allowance</th><th class="n">Bid</th>'
-      +'<th class="n">Allowed</th><th class="n ours">We estimate</th><th class="n">Exposure</th></tr></thead><tbody>';
-    rows.forEach(function(r){
-      var exp=r.ours>r.amt?(r.ours-r.amt):0;
-      h+='<tr><td class="l">'+escAttr(r.desc)+(r.incl?' <i class="sm">· incl. '+escAttr(r.incl)+'</i>'
-        :' <i class="sm bad">· basis not stated</i>')+'</td>'
-        +'<td class="n sm">'+escAttr(r.who)+'</td><td class="n">'+fmtN(r.amt)+'</td>'
-        +'<td class="n ours">'+(r.ours?fmtN(r.ours):"—")+'</td>'
-        +'<td class="n'+(exp?" bad":"")+'">'+(exp?fmtN(exp):"—")+'</td></tr>';
-    });
-    h+='</tbody></table></div>';
-  }
+  if(!rows.length) return "";
+  var lvl=rows.filter(function(r){ return r.x.bench.rate>0&&r.x.theirRate>0; });
+  var tot={}; bids.forEach(function(b){ tot[b.id]=bcAllowNormTotal(b); });
+  var h='<div class="bc-h4">Levelled to the same material</div>'
+    +'<p class="bc-n">Two bids can show wildly different allowance totals and the bigger one be '
+    +'the safer: <b>$15/SF of stone budgeted is not worse than $5/SF of stone not budgeted.</b> '
+    +'So each allowance is re-priced at one rate and what is compared is the gap left to close. '
+    +'The rate is never invented — it is the material you specified, a figure you set below, or '
+    +'the highest rate any of these bids is itself willing to allow.</p>';
+  if(!lvl.length) return h+'<div class="bc-none">None of these allowances states a rate and a unit '
+    +'that can be levelled, so there is nothing here to compare yet.</div>';
+  h+='<div class="bc-scroll"><table class="bc-t bc-lvl"><thead><tr>'
+    +'<th class="l">Allowance</th><th class="n">Bid</th><th class="n">Their rate</th>'
+    +'<th class="n">Levelled to</th><th class="n">Qty</th><th class="n">As allowed</th>'
+    +'<th class="n">At the same rate</th><th class="n">Gap</th></tr></thead><tbody>';
+  rows.sort(function(p,q){ return (q.x.gap-p.x.gap)||(q.x.delta-p.x.delta); });
+  rows.forEach(function(r){
+    var x=r.x, ok=(x.bench.rate>0&&x.theirRate>0&&x.gap<=0);
+    var cls=x.gap>0.40?"bad":(x.gap>0?"mid":(ok?"ok":"off"));
+    var nm=String(x.name||"line"); if(nm.length>52) nm=nm.slice(0,50).replace(/[\s,;—-]+$/,"")+"…";
+    h+='<tr class="'+cls+'"><td class="l" title="'+escAttr(x.name||"")+'">'+escAttr(nm)
+      +'<small>'+escAttr(bcCatName(x.cat))+'</small></td>'
+      +'<td class="n sm">'+escAttr((r.b.contractor||r.b.name||"Bid").split(" ")[0])+'</td>'
+      +'<td class="n">'+(x.theirRate>0?fmtN(x.theirRate)+'<small>/'+escAttr(x.unit||"unit")+'</small>'
+         :'<span class="miss">none stated</span>')+'</td>'
+      +'<td class="n">'+(x.bench.rate>0
+         ?fmtN(x.bench.rate)+'<small>'+escAttr(x.bench.kind==="spec"?"your spec"
+            :(x.bench.kind==="set"?"your figure":"highest bid"))+'</small>'
+         :'<span class="miss">—</span>')+'</td>'
+      +'<td class="n">'+(x.qty>0?Math.round(x.qty*10)/10+' '+escAttr(x.unit):'<span class="miss">—</span>')+'</td>'
+      +'<td class="n">'+(x.dollars?fmtN(x.dollars):"—")+'</td>'
+      +'<td class="n">'+(x.norm?fmtN(x.norm):"—")+'</td>'
+      +'<td class="n"><b>'+(x.delta?'+'+fmtN(x.delta)
+         :(x.gap>0?Math.round(x.gap*100)+'% under':(x.why?'<span class="miss">not levelled</span>':'level')))
+      +'</b>'+(x.why?'<small>'+escAttr(x.why)+'</small>':'')+'</td></tr>';
+  });
+  h+='<tr class="tot"><td class="l"><b>Gap to close, levelled</b>'
+    +'<small>only where the bid states a quantity — a rate gap with no quantity cannot be put in dollars</small></td><td class="n"></td>'
+    +'<td class="n"></td><td class="n"></td><td class="n"></td><td class="n"></td><td class="n"></td>'
+    +'<td class="n"><b>'+fmtN(bids.reduce(function(t,b){ return t+tot[b.id]; },0))+'</b></td></tr>';
+  h+='</tbody></table></div>';
+  h+='<div class="bc-vnums" style="margin-top:12px">'+bids.map(function(b){
+      var t=tot[b.id];
+      var un=bcAllowNorm(b).filter(function(x){ return x.gap>0&&!(x.qty>0); });
+      var worst=un.slice().sort(function(p,q){ return q.gap-p.gap; })[0];
+      var cls=(t>0||un.length)?"":"win";
+      return '<span class="'+cls+'"><b>'+escAttr(b.contractor||b.name||"Bid")+'</b>'
+        +(t>0?'+'+fmtN(t):(un.length?Math.round(worst.gap*100)+'% under':'level'))
+        +'<em>'+(t>0?'to match the same material'
+                :(un.length?'on rate, with no quantity stated to price it'
+                :'nothing to close'))+'</em></span>';
+    }).join("")+'</div>';
+  return h+_bcBenchEditor(secs);
+}
+// The benchmark rates, typed. Same contract as the minimum install costs: they are
+// your numbers, nothing is filled in from memory, and where you set none the tool
+// falls back to the highest rate the bids themselves carry and says so.
+function _bcBenchEditor(secs){
+  var h='<div class="bc-h4">Material allowance benchmark</div>'
+    +'<p class="bc-n">What the material you actually specified costs per unit, before installation. '
+    +'Set one and every bid&rsquo;s allowance for that section is levelled to it. Leave it blank and '
+    +'the highest rate on the table is used instead — which is only ever as good as the best bid '
+    +'on this job, not a market rate.</p>';
+  h+='<div class="bc-floors">';
+  secs.forEach(function(s){
+    var sp=_bcOurSpec(s.id), set=BC_MATB[s.id], bench=bcMatBench(s.id,"SF");
+    var src=(sp&&+sp.rate>0) ? "your spec: "+(sp.name||"")+" at "+fmtN(sp.rate)+"/SF"
+          : (set&&+set.rate>0) ? ("set by you"+(set.at?" · "+set.at:""))
+          : (bench.kind==="peak") ? bench.src
+          : "no benchmark for this section";
+    h+='<div class="bc-fl"><span class="n">'+escAttr(s.name)+'</span>'
+      +'<span class="i">$<input type="number" min="0" step="0.5" inputmode="decimal" '
+      +'value="'+(set&&+set.rate>0?escAttr(set.rate):"")+'" placeholder="—" '
+      +'onchange="bcMatBSet(\''+s.id+'\',this.value)" aria-label="Allowance benchmark for '
+      +escAttr(s.name)+'">/SF</span>'
+      +'<span class="s'+(bench.kind==="none"?" none":"")+'">'+escAttr(src)+'</span></div>';
+  });
   return h+'</div>';
 }
 
