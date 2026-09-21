@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1541</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1542</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31110,6 +31110,23 @@ function _massPaint(zid,key,qty,kind){
 // trees, so a tree stated as a share of canopy reads as already satisfied and none get
 // added. They are pulled out of the mix and issued as an instruction instead — and this
 // is how many of them appear in the frame. Picture only; it never touches the estimate.
+const COVER_DEF=70;
+function _coverOf(zid){ const P=ensurePlanting(); const v=+((P._cover||{})[zid]);
+  return (v>=10&&v<=100)?Math.round(v):COVER_DEF; }
+function _coverSet(zid,v){ const P=ensurePlanting(); P._cover=P._cover||{};
+  P._cover[zid]=Math.max(10,Math.min(100,Math.round(+v||COVER_DEF)));
+  try{ _bidSchedule(); }catch(e){}
+  _coverPaint(zid); }
+// Day one cannot look like year five: the same design is far sparser when the plants are
+// still nursery size, so the installation figure is derived rather than asked for twice.
+function _coverAt(zid,stage){ const v=_coverOf(zid);
+  return stage==="install" ? Math.max(15,Math.round(v*.55)) : v; }
+function _coverPaint(zid){
+  const out=document.getElementById("rp-coverout"); if(!out) return;
+  const v=_coverOf(zid);
+  out.innerHTML=`<b style="color:var(--gm)">${v}%</b> covered when grown in · about <b>${_coverAt(zid,"install")}%</b> at installation`;
+  const sl=document.getElementById("rp-cover"); if(sl&&+sl.value!==v) sl.value=v;
+}
 function _viewN(zid,r){
   const P=ensurePlanting(); const m=(P._viewN&&P._viewN[zid])||{};
   const v=+m[_massKey(r)];
@@ -31150,7 +31167,7 @@ function _mixLine(rows,kind,zid,scale){
         : rec.min===rec.max
           ? `${r.qty} plants in ${nd} SEPARATE drifts of about ${rec.min} each, repeated across the area with other species between them`
           : `${r.qty} plants in ${nd} SEPARATE drifts holding anywhere between ${rec.min} and ${rec.max} plants each — deliberately UNEVEN, some large sweeps and some small pockets, never all the same size — repeated across the area with other species between them`;
-    return `- ${nm}: ${how}. ${Math.round(r.pct*scale)}% of the ground plane.`;
+    return `- ${nm}: ${how}. ${Math.round(r.pct*scale)}% of the PLANTED area (not of the whole bed).`;
   }).join("\n");
 }
 function _renderPrompt(z, stage, refPlants){
@@ -31167,6 +31184,7 @@ function _renderPrompt(z, stage, refPlants){
   // Trees are listed separately below, so their canopy must come out of the denominator
   // or the shrub and groundcover shares no longer add up to the ground you can see.
   const groundPct=rows.reduce((t,r)=>t+((r.kind==="shrub"||r.kind==="gc")?r.pct:0),0);
+  const _cov=_coverAt(z.id,stage);
   const gScale=groundPct>0?(100/groundPct):1;
   const shrubs=_mixLine(rows,"shrub",z.id,gScale), gc=_mixLine(rows,"gc",z.id,gScale);
   // Trees and palms are issued as an instruction, not a share. Stated as a percentage of
@@ -31210,6 +31228,8 @@ ${woody}
 `:""}SHRUB AND GROUNDCOVER MASSING — the number of drifts is as important as the quantity. Each species listed below must appear in that many SEPARATE, non-adjacent groups, spread across the whole planting area and interleaved with the other species:
 ${shrubs?`SHRUBS:\n${shrubs}\n`:""}${gc?`GROUNDCOVER:\n${gc}\n`:""}${density?`
 Overall density: roughly ${Math.round(density)} plants per 100 SF.`:""}
+
+PLANT COVERAGE — read this before placing anything: the planting covers about ${_cov}% of the bed. The other ${100-_cov}% is OPEN GROUND, clearly visible between and around the drifts: decomposed granite, gravel and bark mulch, with the soil surface readable. ${_cov>=90?"Near-continuous planting." : _cov>=65 ? "Generous planting with real breathing space between the drifts — not a solid carpet." : _cov>=38 ? "A spare, gravel-garden character: as much open ground as planting, the drifts sitting as islands in it." : "Sparse, desert character: mostly open ground with widely separated islands of planting."} Do not fill the bed edge to edge. Do not close up the gaps to make it look lusher.
 
 COMPOSITION RULES — these matter more than any individual plant:
 - Drifts are irregular, overlapping and soft-edged, wider than they are deep, reading as natural sweeps.
@@ -31347,6 +31367,14 @@ function _renderPromptModal(z){
             <span id="${_id.out}" style="margin-left:auto;color:var(--gm);font-weight:700;font-size:.68rem;white-space:nowrap">${_massWord(r.kind,_rec,r.qty)}</span>
           </div>
         </div>`; }).join(""):'<div style="font-size:.74rem;color:var(--tl)">No quantities set — add quantities so percentages can be calculated.</div>'}    </div>
+    <div style="display:flex;align-items:center;gap:.6rem;margin:.55rem 0 .2rem;padding:.45rem .6rem;border:1px solid var(--br);border-radius:8px">
+      <div style="flex:none">
+        <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase">Ground covered by planting</div>
+        <div id="rp-coverout" style="font-size:.7rem;color:var(--tm);line-height:1.4"></div>
+      </div>
+      <input type="range" id="rp-cover" min="10" max="100" step="5" value="${_coverOf(z.id)}" oninput="_coverSet('${escAttr(z.id)}',this.value)" style="flex:1;min-width:120px;accent-color:var(--gm)">
+    </div>
+    <div style="font-size:.64rem;color:var(--tl);margin-bottom:.5rem;line-height:1.45">The percentages above are shares <b>of the planting</b>. This is how much of the bed is planted at all — the rest comes out as visible decomposed granite and mulch. Drop it for a gravel-garden look; raise it for a full, closed-up border.</div>
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.8rem 0 .3rem">Generate in the app</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">
       <select id="rp-model" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
@@ -31405,7 +31433,7 @@ function _renderPromptModal(z){
     <div style="display:flex;justify-content:flex-end;margin-top:.6rem;flex:none"><button class="btn" onclick="document.getElementById('rp-modal').remove()" style="padding:.4rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
   </div>`;
   document.body.appendChild(d);
-  _massCountPaint(z.id);
+  _massCountPaint(z.id); _coverPaint(z.id);
 }
 // ── Marking up the site photo ──────────────────────────────────────────────────
 // Nothing reaches the image model as coordinates — there is no "put a tree at 40%, 60%"
