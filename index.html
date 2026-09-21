@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1536</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1537</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31166,8 +31166,9 @@ function _renderPrompt(z, stage, refPlants){
     ? `\nUSE THE SUPPLIED PHOTOGRAPH AS THE SITE. Keep the existing terrain, slope, grade, structures, hardscape, walls, buildings, background trees, horizon and camera viewpoint EXACTLY as they are in the photo. Replace ONLY the planting areas with the palette below. Match the photo's lighting, season, and perspective. Do not redesign the site, do not move the camera, do not invent new structures.\n`
     : "";
   const refTxt=_refKeyText(refPlants,hasPhoto);
+  const markTxt=hasPhoto?_markPromptText(z):"";
   return `Photorealistic landscape architecture rendering. ${sun} residential planting${sf?` of approximately ${sf.toLocaleString()} SF`:""} in ${city}.
-${photoTxt}${refTxt}${ctx?`SITE: ${ctx}\n`:""}
+${photoTxt}${markTxt}${refTxt}${ctx?`SITE: ${ctx}\n`:""}
 ${stageTxt}
 
 ${woody?`TREES AND PALMS TO ADD — these are NEW and are not present in the photograph. Add every one of them:
@@ -31256,11 +31257,19 @@ function _renderPromptModal(z){
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.25rem">Site photo (optional — renders onto your actual site)</div>
     ${(()=>{ const ph=(P._sitePhoto&&P._sitePhoto[z.id])||"";
       return ph
-      ? `<div style="display:flex;gap:.6rem;align-items:center;margin-bottom:.6rem">
+      ? (()=>{ const _mk=_marksOf(z.id).items; const _pins=_mk.filter(x=>x.t==="pin").length; const _str=_mk.length-_pins;
+        return `<div style="display:flex;gap:.6rem;align-items:center;margin-bottom:.4rem">
            <img src="${escAttr(ph)}" style="width:110px;height:70px;object-fit:cover;border-radius:7px;border:1px solid var(--br)">
            <div style="font-size:.72rem;color:var(--gm);font-weight:600">✓ Using your site photo<div style="font-size:.66rem;color:var(--tm);font-weight:400">The AI keeps the terrain, house, walls and viewpoint — and replants it.</div></div>
            <button class="btn" onclick="clearSitePhoto('${z.id}')" style="margin-left:auto;padding:.2rem .5rem;font-size:.68rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C">Remove</button>
-         </div>`
+         </div>
+         <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.6rem">
+           <button class="btn" onclick="_markOpen('${z.id}')" style="padding:.4rem .7rem;font-size:.75rem;background:${_mk.length?"var(--gm)":"#F4F9F5"};color:${_mk.length?"#fff":"var(--gm)"};border:1px ${_mk.length?"solid var(--gm)":"dashed var(--gm)"};font-weight:700">📍 Mark up the photo</button>
+           <div style="font-size:.66rem;color:${_mk.length?"var(--gm)":"var(--tm)"};line-height:1.4">${_mk.length
+             ? `<b>${_pins} tree position${_pins===1?"":"s"}${_str?" · "+_str+" painted area"+(_str===1?"":"s"):""}</b> — sent with the photo so the AI plants where you said.`
+             : "Tap where the trees go, and paint which areas are beds and which must not be touched. The AI is given the marked-up photo."}</div>
+           ${_mk.length?`<button class="btn" onclick="_markWipe('${z.id}')" style="margin-left:auto;padding:.25rem .5rem;font-size:.66rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C">Clear marks</button>`:""}
+         </div>`; })()
       : `<label class="btn" style="display:block;text-align:center;padding:.55rem;margin-bottom:.6rem;font-size:.76rem;background:#F4F9F5;color:var(--gm);border:1px dashed var(--gm);cursor:pointer">
            📷 Upload a photo of the slope / site
            <div style="font-size:.64rem;font-weight:400;color:var(--tm)">The rendering keeps your real terrain, house and viewpoint — big quality jump</div>
@@ -31353,6 +31362,196 @@ function _renderPromptModal(z){
   </div>`;
   document.body.appendChild(d);
 }
+// ── Marking up the site photo ──────────────────────────────────────────────────
+// Nothing reaches the image model as coordinates — there is no "put a tree at 40%, 60%"
+// field on any of these endpoints. What DOES work is drawing the instruction onto the
+// photograph itself and telling the model what the marks mean: Nano Banana is a
+// marked-up-image editor at heart, and following an annotation is the thing it is best at.
+// So the pins and washes below are painted into a copy of the site photo, that copy is sent
+// as the reference, and the prompt carries a key explaining each mark — plus a standing
+// order to remove every mark from the finished picture.
+//
+// Marks are stored as fractions of the image (0..1), never pixels, so they survive the
+// photo being re-scaled and land in the same place on any screen.
+const _MK={zid:null,img:null,cv:null,ctx:null,w:0,h:0,items:[],tool:"pin",species:"",size:.055,drawing:null};
+function _marksOf(zid){ const P=ensurePlanting(); P._marks=P._marks||{};
+  const m=P._marks[zid]; return (m&&Array.isArray(m.items))?m:{items:[]}; }
+function _marksCount(zid){ return _marksOf(zid).items.length; }
+function _markWipe(zid){
+  askDlg({title:"Clear the marks?",body:"The tree positions and painted areas on this photo are removed. The photo itself stays.",
+    actions:["Keep them","Clear the marks"],safe:0,danger:true}).then(i=>{
+    if(i!==1) return;
+    const P=ensurePlanting(); if(P._marks) delete P._marks[zid];
+    try{ _bidSchedule(); }catch(e){}
+    const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z); });
+}
+function _mkTreeList(z){ return _zonePlantsAll(z).filter(r=>r.kind==="tree"||r.kind==="palm"); }
+function _mkSpeciesName(z,key){
+  if(!key) return "any tree from the list below";
+  const r=_mkTreeList(z).find(x=>(x.kind+":"+x.p.id)===key);
+  return r ? ((r.p.c||"")+(botName(r.p)?" ("+botName(r.p)+")":"")) : "any tree from the list below";
+}
+// ── the editor ──
+function _markOpen(zid){
+  const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
+  const ph=(P._sitePhoto&&P._sitePhoto[zid])||""; 
+  if(!ph){ askTell("No site photo yet","Upload a photo of the site first — the marks are drawn onto that photograph."); return; }
+  _MK.zid=zid; _MK.items=_marksOf(zid).items.map(x=>JSON.parse(JSON.stringify(x)));
+  _MK.tool="pin"; _MK.species=""; _MK.drawing=null;
+  let d=document.getElementById("mk-modal"); if(d) d.remove();
+  d=document.createElement("div"); d.id="mk-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(14,18,12,.92);z-index:10040;display:flex;flex-direction:column;padding:10px;gap:8px";
+  const trees=_mkTreeList(z);
+  d.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:#EDEBE4;font-size:.78rem">
+      <b style="font-size:.9rem">Mark up the photo — ${escAttr(z.name||"Zone")}</b>
+      <span style="color:#a8b3a0;font-size:.72rem">Tap to place a tree. Drag to paint the beds. The marks are instructions to the AI — they never appear in the finished picture.</span>
+      <button class="btn" id="mk-cancel" style="margin-left:auto;padding:.3rem .8rem;font-size:.76rem;background:transparent;border:1px solid #6b7566;color:#EDEBE4">Cancel</button>
+      <button class="btn" id="mk-save" style="padding:.3rem .9rem;font-size:.76rem;background:var(--gm);border:none;color:#fff;font-weight:700">Save marks</button>
+    </div>
+    <div id="mk-tools" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
+    <div id="mk-stage" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center">
+      <canvas id="mk-cv" style="border-radius:10px;box-shadow:0 14px 50px rgba(0,0,0,.5);touch-action:none;cursor:crosshair"></canvas>
+    </div>
+    <div id="mk-hint" style="color:#a8b3a0;font-size:.72rem;text-align:center;min-height:1.1em"></div>`;
+  document.body.appendChild(d);
+  d.querySelector("#mk-cancel").onclick=()=>{ d.remove(); };
+  d.querySelector("#mk-save").onclick=()=>{
+    const Q=ensurePlanting(); Q._marks=Q._marks||{}; Q._marks[zid]={items:_MK.items.slice()};
+    try{ _bidSchedule(); }catch(e){}
+    d.remove(); const zz=(Q.zones||[]).find(x=>x.id===zid); if(zz) _renderPromptModal(zz);
+  };
+  const cv=d.querySelector("#mk-cv"); _MK.cv=cv; _MK.ctx=cv.getContext("2d");
+  const im=new Image();
+  im.onload=()=>{ _MK.img=im; _mkFit(); _mkTools(z,trees); _mkPaint(); };
+  im.onerror=()=>{ d.remove(); askTell("Could not open the photo","The site photo could not be loaded for marking up."); };
+  im.src=ph;
+  cv.addEventListener("pointerdown",_mkDown);
+  cv.addEventListener("pointermove",_mkMove);
+  cv.addEventListener("pointerup",_mkUp);
+  cv.addEventListener("pointercancel",_mkUp);
+  window.addEventListener("resize",_mkFitRepaint);
+}
+function _mkFitRepaint(){ if(!document.getElementById("mk-modal")) { window.removeEventListener("resize",_mkFitRepaint); return; } _mkFit(); _mkPaint(); }
+function _mkFit(){
+  const im=_MK.img, cv=_MK.cv; if(!im||!cv) return;
+  const stage=document.getElementById("mk-stage"); if(!stage) return;
+  const aw=Math.max(200,stage.clientWidth-8), ah=Math.max(160,stage.clientHeight-8);
+  const sc=Math.min(aw/im.width, ah/im.height);
+  const w=Math.max(120,Math.round(im.width*sc)), h=Math.max(90,Math.round(im.height*sc));
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+  cv.style.width=w+"px"; cv.style.height=h+"px";
+  _MK.ctx.setTransform(dpr,0,0,dpr,0,0);
+  _MK.w=w; _MK.h=h;
+}
+function _mkTools(z,trees){
+  const bar=document.getElementById("mk-tools"); if(!bar) return;
+  const chip=(on,label,onclick,extra)=>`<button class="btn" onclick="${onclick}" style="padding:.32rem .7rem;font-size:.74rem;font-weight:700;border-radius:8px;border:1px solid ${on?"transparent":"#6b7566"};background:${on?"var(--gm)":"transparent"};color:${on?"#fff":"#EDEBE4"};${extra||""}">${label}</button>`;
+  let h="";
+  h+=chip(_MK.tool==="pin","📍 Tree here","_mkTool('pin')");
+  h+=chip(_MK.tool==="plant","🖌 Plant here","_mkTool('plant')");
+  h+=chip(_MK.tool==="keep","🚫 Leave alone","_mkTool('keep')");
+  h+=`<span style="width:10px"></span>`;
+  h+=chip(false,"↩ Undo","_mkUndo()");
+  h+=chip(false,"🗑 Clear all","_mkClear()");
+  if(_MK.tool==="pin"){
+    h+=`<span style="color:#a8b3a0;font-size:.72rem;margin-left:10px">which tree:</span>`;
+    h+=chip(_MK.species==="","Any","_mkSpecies('')");
+    trees.forEach(r=>{ const k=r.kind+":"+r.p.id;
+      h+=chip(_MK.species===k,escAttr(r.p.c||""),`_mkSpecies('${escAttr(k)}')`); });
+    if(!trees.length) h+=`<span style="color:#a8b3a0;font-size:.72rem">this zone has no trees or palms</span>`;
+  } else {
+    h+=`<span style="color:#a8b3a0;font-size:.72rem;margin-left:10px">brush</span>`;
+    [["S",.03],["M",.055],["L",.1]].forEach(([lab,v])=>{ h+=chip(Math.abs(_MK.size-v)<.001,lab,`_mkSize(${v})`); });
+  }
+  bar.innerHTML=h;
+  const hint=document.getElementById("mk-hint");
+  if(hint) hint.textContent = _MK.tool==="pin"
+    ? "Tap the photo where a tree should stand. "+_MK.items.filter(x=>x.t==="pin").length+" placed."
+    : (_MK.tool==="plant" ? "Drag over the areas that are planting beds — the shrubs and groundcover go inside them."
+                          : "Drag over anything that must not change: driveway, lawn, patio, the house.");
+}
+function _mkTool(t){ _MK.tool=t; const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); }
+function _mkSpecies(k){ _MK.species=k; const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); }
+function _mkSize(v){ _MK.size=v; const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); }
+function _mkUndo(){ _MK.items.pop(); _mkPaint(); const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); }
+function _mkClear(){ _MK.items=[]; _mkPaint(); const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); }
+function _mkXY(e){ const r=_MK.cv.getBoundingClientRect();
+  return [Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)), Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))]; }
+function _mkDown(e){
+  e.preventDefault(); try{ _MK.cv.setPointerCapture(e.pointerId); }catch(_){}
+  const [x,y]=_mkXY(e);
+  if(_MK.tool==="pin"){ _MK.items.push({t:"pin",x,y,k:_MK.species}); _MK.drawing=null; _mkPaint();
+    const P=ensurePlanting(); const z=(P.zones||[]).find(v=>v.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); return; }
+  _MK.drawing={t:"stroke",m:_MK.tool,w:_MK.size,p:[[x,y]]};
+  _MK.items.push(_MK.drawing); _mkPaint();
+}
+function _mkMove(e){ if(!_MK.drawing) return; e.preventDefault();
+  const [x,y]=_mkXY(e); const p=_MK.drawing.p; const last=p[p.length-1];
+  if(Math.abs(last[0]-x)+Math.abs(last[1]-y)<.004) return;
+  p.push([x,y]); _mkPaint(); }
+function _mkUp(e){ if(_MK.drawing){ _MK.drawing=null;
+  const P=ensurePlanting(); const z=(P.zones||[]).find(v=>v.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); } }
+// The one drawing routine — used for the editor canvas AND for the copy that is sent to
+// the model, so what you draw is exactly what it is given.
+function _mkDrawMarks(ctx,W,H,items){
+  const R=Math.min(W,H);
+  items.forEach(it=>{ if(it.t!=="stroke"||!it.p||!it.p.length) return;
+    ctx.save(); ctx.globalAlpha=.42;
+    ctx.strokeStyle = it.m==="keep" ? "#FF1744" : "#00E64D";
+    ctx.lineWidth=Math.max(8,(it.w||.055)*R); ctx.lineCap="round"; ctx.lineJoin="round";
+    ctx.beginPath();
+    if(it.p.length===1){ ctx.moveTo(it.p[0][0]*W,it.p[0][1]*H); ctx.lineTo(it.p[0][0]*W+.5,it.p[0][1]*H); }
+    else it.p.forEach((pt,i)=>{ const x=pt[0]*W,y=pt[1]*H; if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); });
+    ctx.stroke(); ctx.restore(); });
+  let n=0;
+  items.forEach(it=>{ if(it.t!=="pin") return; n++;
+    const x=it.x*W, y=it.y*H, r=Math.max(12,Math.round(R*.030));
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fillStyle="#FF00AA"; ctx.globalAlpha=.95; ctx.fill();
+    ctx.globalAlpha=1; ctx.lineWidth=Math.max(2,r*.17); ctx.strokeStyle="#FFFFFF"; ctx.stroke();
+    ctx.fillStyle="#FFFFFF"; ctx.font="700 "+Math.round(r*1.2)+"px -apple-system,system-ui,sans-serif";
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(String(n),x,y);
+    ctx.restore(); });
+}
+function _mkPaint(){ const {ctx,img,w,h}=_MK; if(!ctx||!img) return;
+  ctx.clearRect(0,0,w,h); ctx.drawImage(img,0,0,w,h); _mkDrawMarks(ctx,w,h,_MK.items); }
+// The copy that actually goes to the model: full photo resolution, marks burnt in.
+function _markComposite(zid){
+  return new Promise(res=>{
+    const P=ensurePlanting(); const ph=(P._sitePhoto&&P._sitePhoto[zid])||"";
+    const m=_marksOf(zid);
+    if(!ph || !m.items.length) return res(ph||null);
+    const im=new Image();
+    im.onload=()=>{ try{
+      const cv=document.createElement("canvas"); cv.width=im.width; cv.height=im.height;
+      const cx=cv.getContext("2d"); cx.drawImage(im,0,0);
+      _mkDrawMarks(cx,im.width,im.height,m.items);
+      res(cv.toDataURL("image/jpeg",.9));
+    }catch(e){ res(ph); } };
+    im.onerror=()=>res(ph);
+    im.src=ph;
+  });
+}
+// The key. Without it the model gets a photo with coloured blobs on it and paints the blobs.
+function _markPromptText(z){
+  const m=_marksOf(z.id); if(!m.items.length) return "";
+  const pins=m.items.filter(i=>i.t==="pin");
+  const plant=m.items.some(i=>i.t==="stroke"&&i.m==="plant");
+  const keep=m.items.some(i=>i.t==="stroke"&&i.m==="keep");
+  let t="\nTHE SUPPLIED PHOTOGRAPH HAS BEEN MARKED UP BY THE DESIGNER. Every mark on it is an INSTRUCTION about where things go. The marks are not objects and are not part of the scene.\n";
+  if(pins.length){
+    t+=`- Each magenta numbered circle is the position of ONE TREE. Plant a tree at each circle, standing at that exact spot:\n`;
+    pins.forEach((p,i)=>{ t+=`   Marker ${i+1}: ${_mkSpeciesName(z,p.k)}\n`; });
+    t+=`   The trunk goes where the circle is. Size each tree as specified in the tree list below.\n`;
+  }
+  if(plant) t+="- Every area under the translucent GREEN wash is planting bed. All the shrub and groundcover planting below belongs inside those areas and nowhere else.\n";
+  if(keep)  t+="- Every area under the translucent RED / PINK wash must be left EXACTLY as photographed. Do not plant it, do not resurface it, do not alter it in any way.\n";
+  t+="REMOVE ALL MARKINGS FROM THE FINAL IMAGE. No magenta circles, no numbers, no green wash, no red wash, no outlines, no tint of any kind left behind. Whatever is UNDER a wash stays as it is in the photograph — the wash is an instruction about that area, not a change to it. The finished picture must look like an ordinary photograph of the completed garden with no annotation on it.\n";
+  return t;
+}
 // ── Plant photographs as references ────────────────────────────────────────────
 // Until now the rendering was told only the NAMES of the plants, so every plant in the
 // picture was invented from whatever the model believes "Euryops" looks like — which is why
@@ -31440,7 +31639,10 @@ async function _rpGenerate(zid, stage){
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering… (10–20 sec)","var(--gm)");
   try{
+    // When the photo has been marked up, the copy carrying the marks is what goes out.
     let ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
+    const _marked=!!_marksCount(z.id);
+    if(ref&&_marked){ setSt("Adding your marks to the photo…","var(--gm)"); ref=(await _markComposite(z.id))||ref; }
     if(ref && ref.length > 4*1024*1024){ setSt("Site photo is too large even after resizing — try a smaller image.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const refs=ref?[ref]:[];
     if(_refPlants.length){
@@ -31479,11 +31681,11 @@ async function _rpGenerate(zid, stage){
       if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
       else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
       let _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
-      if(wantedRef&&usedRef) _cap="Rendered onto your site photo. "+_cap;
+      if(wantedRef&&usedRef) _cap="Rendered onto your "+(_marked?"marked-up ":"")+"site photo. "+_cap;
       else if(wantedRef) _cap="NOT rendered onto your site photo — an invented scene. "+_cap;
       if(!_zoneRenderAdd(z.id,dataUrl,_cap,{kind:stage,names:_zoneNames(z)})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       const _pr=_refPlants.length?" "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+" sent as references.":"";
-      if(wantedRef&&usedRef) setSt("✓ Added — rendered onto your site photo via "+(d.model||"the edit endpoint")+"."+_pr,"var(--gm)");
+      if(wantedRef&&usedRef) setSt("✓ Added — rendered onto your "+(_marked?"marked-up ":"")+"site photo via "+(d.model||"the edit endpoint")+"."+_pr,"var(--gm)");
       else if(refUnknown) setSt("✓ Added, but this worker build never says whether your site photo was used. It needs redeploying.","#9B7B3A");
       else if(wantedRef) setSt("⚠ Added, but your site photo was IGNORED — the worker ran "+(d.model||"text-to-image")+". This picture is an invented scene, not your site.","#B23F3C");
       else setSt("✓ Added. No site photo was attached to this zone, so this is an invented scene."+_pr,"var(--gm)");
