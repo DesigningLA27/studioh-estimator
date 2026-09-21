@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1537</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1538</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30218,6 +30218,7 @@ function _plStyle(){ return `
   #plr-zoom img{max-width:96vw;max-height:88vh;object-fit:contain;border-radius:8px;box-shadow:0 18px 60px rgba(0,0,0,.5)}
   #plr-zoom .zcap{color:#e8e6dd;font-size:11.5px;margin-top:10px;max-width:70ch;text-align:center;line-height:1.5}
   #plr-zoom .zx{position:absolute;top:14px;right:16px;width:34px;height:34px;border-radius:50%;border:none;background:rgba(255,255,255,.16);color:#fff;font-size:20px;line-height:1;cursor:pointer}
+  .plr-rfn{position:absolute;top:5px;left:5px;height:22px;padding:0 9px;border-radius:11px;border:none;background:rgba(20,28,18,.62);color:#fff;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center}
   .plr-rm{position:absolute;top:5px;right:5px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(20,28,18,.6);color:#fff;font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .plr-zact{margin:2px 0 8px}
   .plr-zact button{font-size:11px;font-weight:700;color:var(--gm);background:var(--brand-soft);border:1px solid var(--br);border-radius:7px;padding:4px 10px;cursor:pointer}
@@ -30444,7 +30445,7 @@ function _plantListHTML(opts){ opts=opts||{}; const P=S.planting; const zones=(P
     const _rsz=_plrSizeOf(z.id);
     h+=`<div class="plr-zact"><button onclick="openRenderForZone('${z.id}')">🎨 Renderings &amp; Midjourney prompt</button>${_rlist.length?`<span class="plr-szwrap">${PLR_SIZE_ORDER.map(k=>`<button class="plr-szb${_rsz===k?" on":""}" onclick="_plrSizeSet('${z.id}','${k}')" title="How big the renderings print on the report">${PLR_SIZE[k].lab}</button>`).join("")}</span>`:""}</div>`;
     if(_rlist.length){
-      const rcard=(rr,idx)=>`<div class="plr-render" style="position:relative"><img src="${escAttr(rr.url)}" onclick="_renderZoom(this.src,${escAttr(JSON.stringify(_renderCap(rr)))})" title="Click to see it full size"><button class="plr-rm" onclick="removeZoneRender('${z.id}',${idx})" title="Remove rendering">×</button><div class="cap">${escAttr(_renderCap(rr))}</div></div>`;
+      const rcard=(rr,idx)=>`<div class="plr-render" style="position:relative"><img src="${escAttr(rr.url)}" onclick="_renderZoom(this.src,${escAttr(JSON.stringify(_renderCap(rr)))})" title="Click to see it full size"><button class="plr-rfn plr-rm-hideprint" onclick="_refineOpen('${z.id}',${idx})" title="Change something about this rendering">✎ Refine</button><button class="plr-rm" onclick="removeZoneRender('${z.id}',${idx})" title="Remove rendering">×</button><div class="cap">${escAttr(_renderCap(rr))}${rr.refined?` · refined ${rr.refined}×`:""}</div></div>`;
       h+=`<div style="margin:12px 0 4px;max-width:${PLR_SIZE[_rsz].w}">`;
       h+=rcard(_rlist[0],0);
       const rest=_rlist.slice(1);
@@ -31812,6 +31813,96 @@ function _renderZoom(src,cap){ if(!src) return;
   const esc=e=>{ if(e.key==="Escape") close(); };
   d.onclick=close; document.addEventListener("keydown",esc);
   document.body.appendChild(d); }
+// ── Refining a rendering ───────────────────────────────────────────────────────
+// A render that is 90% right used to mean starting again from the prompt and hoping. The
+// picture you already have is itself the best possible reference for the next attempt, so
+// it goes back in as the reference image with one instruction about what to change and a
+// standing order to leave everything else alone. The result replaces the original — this
+// is an iteration, not a fifth slot.
+const REFINE_TIPS=[
+  "Make the trees much taller — full-size mature trees, not shrubs",
+  "Break the planting into more separate drifts, spread further apart",
+  "Less bare soil — the groundcover should knit together",
+  "Move the planting back off the path and driveway edges",
+  "Vary the drift sizes — some big sweeps, some small pockets",
+  "Warmer late-afternoon light"
+];
+function _refineOpen(zid,idx){
+  const r=_zoneRenders(zid); const rr=r[idx]; if(!rr) return;
+  let d=document.getElementById("rf-modal"); if(d) d.remove();
+  d=document.createElement("div"); d.id="rf-modal";
+  d.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.62);z-index:10045;display:flex;align-items:center;justify-content:center;padding:1rem";
+  d.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;padding:1.1rem 1.3rem;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+    <div style="font-size:1rem;font-weight:700;color:var(--gm)">Refine this rendering</div>
+    <div style="font-size:.73rem;color:var(--tm);margin:.2rem 0 .6rem">The picture below goes back to the AI as the starting point. Say what should change — everything else is held as it is.</div>
+    <div style="flex:1 1 auto;min-height:0;overflow:auto">
+      <img src="${escAttr(rr.url)}" style="width:100%;border-radius:9px;border:1px solid var(--br);display:block;margin-bottom:.6rem">
+      <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.25rem">What should change?</div>
+      <textarea id="rf-text" placeholder="e.g. the crape myrtles are far too small — make them full-size trees, well above the roof line" style="width:100%;height:82px;min-height:52px;padding:.5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.45rem">
+        ${REFINE_TIPS.map(t=>`<button class="btn" onclick="_refineTip(${escAttr(JSON.stringify(t))})" style="padding:.22rem .5rem;font-size:.68rem;background:var(--brand-soft);color:var(--gm);border:1px solid var(--br);font-weight:600">${escAttr(t)}</button>`).join("")}
+      </div>
+      <div id="rf-status" style="font-size:.73rem;color:var(--tm);margin-top:.55rem;min-height:1.1em"></div>
+    </div>
+    <div style="display:flex;gap:.5rem;margin-top:.7rem;flex:none">
+      <button class="btn" onclick="document.getElementById('rf-modal').remove()" style="padding:.45rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Cancel</button>
+      <button class="btn rf-go" onclick="_refineGo('${escAttr(zid)}',${+idx})" style="flex:1;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:700">✨ Make the change</button>
+    </div>
+  </div>`;
+  document.body.appendChild(d);
+  d.addEventListener("click",e=>{ if(e.target===d) d.remove(); });
+}
+function _refineTip(t){ const ta=document.getElementById("rf-text"); if(!ta) return;
+  const v=ta.value.trim(); ta.value=v?(v.replace(/[.\s]+$/,"")+". "+t):t; ta.focus(); }
+async function _refineGo(zid,idx){
+  const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid);
+  const r=_zoneRenders(zid); const rr=r[idx]; if(!rr) return;
+  const st=document.getElementById("rf-status");
+  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } };
+  const want=((document.getElementById("rf-text")||{}).value||"").trim();
+  if(!want){ setSt("Say what should change first.","#B23F3C"); return; }
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep){ setSt("No worker connected.","#B23F3C"); return; }
+  const key=_adminKey(); if(!key) return;
+  const _refPlants=(z&&plantRefsOn())?_zoneRefPlants(z):[];
+  const prompt=`Edit the supplied photograph (reference image 1). It is an existing rendering of a residential garden.
+KEEP EVERYTHING ELSE EXACTLY AS IT IS — the same camera position and angle, the same terrain, grade and skyline, the same buildings, walls, paving and background, the same season, lighting and time of day, and the same planting layout except where the change below requires otherwise.
+MAKE THIS ONE CHANGE: ${want}
+Do not re-compose the scene, do not restyle it, do not move the camera, and do not change anything that was not asked for. Photorealistic, professional landscape photography, high detail.`
+    + _refKeyText(_refPlants,true);
+  document.querySelectorAll(".rf-go").forEach(b=>b.disabled=true);
+  setSt("Making the change… (20–45 sec)","var(--gm)");
+  try{
+    const refs=[rr.url];
+    if(_refPlants.length){
+      const _shr=await Promise.all(_refPlants.map(x=>_refShrink(x.img,PLANT_REF_PX)));
+      _shr.forEach(u=>{ if(u) refs.push(u); });
+    }
+    const res=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"genimage",key,prompt,model:_refPlants.length?"nano-banana-pro":"nano-2",aspect:"3:2",refs})});
+    if(!res.ok){ let t=""; try{ t=(await res.text()).slice(0,200); }catch(e){}
+      setSt("Server error "+res.status+(t?": "+t:""),"#B23F3C");
+      document.querySelectorAll(".rf-go").forEach(b=>b.disabled=false); return; }
+    const d=await res.json();
+    if(d&&d.ok&&d.url){
+      setSt("Saving image…","var(--gm)");
+      let url=d.url;
+      const _up=await _uploadUrlToR2("render_"+zid+"_rf"+Date.now().toString(36), d.url);
+      if(_up.ok && await _imgLoads(_up.url)) url=_up.url;
+      else { try{ const ir=await fetch(d.url); const blob=await ir.blob();
+        url=await new Promise((ok,no)=>{ const fr=new FileReader(); fr.onload=()=>ok(fr.result); fr.onerror=no; fr.readAsDataURL(blob); }); }catch(e){} }
+      rr.url=url; rr.refined=(+rr.refined||0)+1;
+      try{ _bidSchedule(); }catch(e){}
+      _plRender();
+      setSt("✓ Updated.","var(--gm)");
+      if(typeof _toast==="function") _toast("✓ Rendering refined");
+      setTimeout(()=>{ const m=document.getElementById("rf-modal"); if(m) m.remove(); },700);
+    } else if(d&&/authoriz/i.test(d.error||"")){ setSt("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
+    else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
+    else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
+  }catch(e){ setSt("Failed ("+((e&&e.message)||"error")+").","#B23F3C"); }
+  document.querySelectorAll(".rf-go").forEach(b=>b.disabled=false);
+}
 function removeZoneRender(zid,idx){ const r=_zoneRenders(zid); if(idx>=0&&idx<r.length){ r.splice(idx,1); _plRender(); } }
 function openFireReport(){ let d=document.getElementById("fire-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="fire-modal";
   const list=_projectPlantList();
