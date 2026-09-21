@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1539</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1540</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31166,8 +31166,14 @@ function _renderPrompt(z, stage, refPlants){
   const photoTxt = hasPhoto
     ? `\nUSE THE SUPPLIED PHOTOGRAPH AS THE SITE. Keep the existing terrain, slope, grade, structures, hardscape, walls, buildings, background trees, horizon and camera viewpoint EXACTLY as they are in the photo. Replace ONLY the planting areas with the palette below. Match the photo's lighting, season, and perspective. Do not redesign the site, do not move the camera, do not invent new structures.\n`
     : "";
-  const refTxt=_refKeyText(refPlants,hasPhoto);
-  const markTxt=hasPhoto?_markPromptText(z):"";
+  // reference order, assembled the same way _rpGenerate sends them:
+  //   1 = the clean site photo (when there is one), 2 = the marked-up copy (when marked),
+  //   then the plant identification photographs.
+  const _hasMarks=hasPhoto&&!!_marksCount(z.id);
+  const _sceneNo=hasPhoto?1:0;
+  const _markNo=_hasMarks?2:0;
+  const refTxt=_refKeyText(refPlants,(hasPhoto?1:0)+(_hasMarks?1:0),_sceneNo);
+  const markTxt=_hasMarks?_markPromptText(z,_markNo,_sceneNo):"";
   return `Photorealistic landscape architecture rendering. ${sun} residential planting${sf?` of approximately ${sf.toLocaleString()} SF`:""} in ${city}.
 ${photoTxt}${markTxt}${refTxt}${ctx?`SITE: ${ctx}\n`:""}
 ${stageTxt}
@@ -31191,7 +31197,8 @@ DO NOT:
 - Do not place all of one species in one continuous band.
 - Do not leave any listed species as a single isolated specimen.
 - Do not arrange the planting in stripes or repeating bands parallel to the path or driveway.
-- Do not evenly scatter individual plants one by one across the area.${woody?`
+- Do not evenly scatter individual plants one by one across the area.
+- Do not add ANY plant that is not named in the lists above. No citrus, no fruit trees, no roses, no annuals, no bedding colour, nothing invented to fill a gap. If a space needs filling, fill it with one of the listed species or with bare mulch.${woody?`
 - Do not draw the listed trees as saplings, potted nursery stock, twigs or shrub-height plants.`:""}
 
 Mediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, wide establishing shot, high detail --ar 3:2 --style raw`;
@@ -31513,12 +31520,12 @@ function _mkDrawMarks(ctx,W,H,items){
     ctx.stroke(); ctx.restore(); });
   let n=0;
   items.forEach(it=>{ if(it.t!=="pin") return; n++;
-    const x=it.x*W, y=it.y*H, r=Math.max(12,Math.round(R*.030));
+    const x=it.x*W, y=it.y*H, r=Math.max(8,Math.round(R*.017));
     ctx.save();
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
     ctx.fillStyle="#FF00AA"; ctx.globalAlpha=.95; ctx.fill();
-    ctx.globalAlpha=1; ctx.lineWidth=Math.max(2,r*.17); ctx.strokeStyle="#FFFFFF"; ctx.stroke();
-    ctx.fillStyle="#FFFFFF"; ctx.font="700 "+Math.round(r*1.2)+"px -apple-system,system-ui,sans-serif";
+    ctx.globalAlpha=1; ctx.lineWidth=Math.max(1.5,r*.2); ctx.strokeStyle="#FFFFFF"; ctx.stroke();
+    ctx.fillStyle="#FFFFFF"; ctx.font="700 "+Math.round(r*1.25)+"px -apple-system,system-ui,sans-serif";
     ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(String(n),x,y);
     ctx.restore(); });
 }
@@ -31542,20 +31549,29 @@ function _markComposite(zid){
   });
 }
 // The key. Without it the model gets a photo with coloured blobs on it and paints the blobs.
-function _markPromptText(z){
+// Where a marker sits, said in words as well as drawn. The picture alone is read
+// approximately; the words pin it down, and the two agree.
+function _pinWhere(x,y){
+  const h = x<.34 ? "left" : (x<.67 ? "centre" : "right");
+  const v = y<.34 ? "upper" : (y<.67 ? "middle" : "lower");
+  return `${v} ${h} of the frame — ${Math.round(x*100)}% across, ${Math.round(y*100)}% down`;
+}
+function _markPromptText(z,markNo,sceneNo){
   const m=_marksOf(z.id); if(!m.items.length) return "";
   const pins=m.items.filter(i=>i.t==="pin");
   const plant=m.items.some(i=>i.t==="stroke"&&i.m==="plant");
   const keep=m.items.some(i=>i.t==="stroke"&&i.m==="keep");
-  let t="\nTHE SUPPLIED PHOTOGRAPH HAS BEEN MARKED UP BY THE DESIGNER. Every mark on it is an INSTRUCTION about where things go. The marks are not objects and are not part of the scene.\n";
+  let t=`
+REFERENCE IMAGE ${markNo} IS AN INSTRUCTION SHEET, NOT A SCENE. It is reference image ${sceneNo} — the same photograph — with the designer's marks drawn on top of it. Read the positions off it and then FORGET IT. You are rendering reference image ${sceneNo}, the clean photograph. Not one mark from image ${markNo} may appear in your output: no magenta discs, no numbers, no green tint, no red tint, no outlines, no residue where a mark was.
+`;
   if(pins.length){
-    t+=`- Each magenta numbered circle is the position of ONE TREE. Plant a tree at each circle, standing at that exact spot:\n`;
-    pins.forEach((p,i)=>{ t+=`   Marker ${i+1}: ${_mkSpeciesName(z,p.k)}\n`; });
-    t+=`   The trunk goes where the circle is. Size each tree as specified in the tree list below.\n`;
+    t+=`Each magenta numbered disc in image ${markNo} is the position of ONE TREE. Plant a tree with its trunk at that exact spot:\n`;
+    pins.forEach((p,i)=>{ t+=`   Marker ${i+1} — ${_mkSpeciesName(z,p.k)} — ${_pinWhere(p.x,p.y)}.\n`; });
+    t+=`   These positions are exact and deliberate. Do not shuffle them, do not spread them out "more naturally", do not add trees anywhere else, and do not leave any of them out.\n`;
   }
-  if(plant) t+="- Every area under the translucent GREEN wash is planting bed. All the shrub and groundcover planting below belongs inside those areas and nowhere else.\n";
-  if(keep)  t+="- Every area under the translucent RED / PINK wash must be left EXACTLY as photographed. Do not plant it, do not resurface it, do not alter it in any way.\n";
-  t+="REMOVE ALL MARKINGS FROM THE FINAL IMAGE. No magenta circles, no numbers, no green wash, no red wash, no outlines, no tint of any kind left behind. Whatever is UNDER a wash stays as it is in the photograph — the wash is an instruction about that area, not a change to it. The finished picture must look like an ordinary photograph of the completed garden with no annotation on it.\n";
+  if(plant) t+=`Every area under the translucent GREEN wash in image ${markNo} is planting bed. All the shrub and groundcover planting belongs inside those areas and nowhere else.\n`;
+  if(keep)  t+=`Every area under the translucent RED / PINK wash in image ${markNo} must come through EXACTLY as photographed. Do not plant it, do not resurface it, do not alter it in any way.\n`;
+  t+=`Whatever lies UNDER a wash is unchanged by the wash — the wash says what that ground is FOR, it is not a change to the ground. The finished picture is an ordinary photograph of the completed garden with no annotation of any kind on it.\n`;
   return t;
 }
 // ── Plant photographs as references ────────────────────────────────────────────
@@ -31617,14 +31633,14 @@ function _refShrink(url,max){
 }
 // The key that tells the model what each attached photograph IS. Without it thirteen
 // pictures arrive with no explanation and the model treats them as scenes to imitate.
-function _refKeyText(refPlants,hasPhoto){
+function _refKeyText(refPlants,base,sceneNo){
   if(!refPlants||!refPlants.length) return "";
-  const base=hasPhoto?1:0;
+  base=+base||0; sceneNo=+sceneNo||0;
   const lines=refPlants.map((r,i)=>`- Reference image ${i+1+base}: ${(r.p.c||"")}${botName(r.p)?" ("+botName(r.p)+")":""} — this is what that plant ACTUALLY looks like. Match its foliage colour, leaf shape and texture, growth habit and flower colour.`).join("\n");
   return `
-REFERENCE PHOTOGRAPHS${hasPhoto?" — reference image 1 is the SITE, described above":""}:
+PLANT IDENTIFICATION PHOTOGRAPHS:
 ${lines}
-These plant photographs are identification references ONLY. Use them for what each plant looks like and nothing else. Do NOT copy their backgrounds, pots, nursery labels, framing, camera angle or lighting. Do NOT reproduce any of them as the scene${hasPhoto?" — the scene is reference image 1":" — compose a new scene"}. How many of each plant there are, and how they are grouped, is set out below and overrides anything the reference photographs suggest.
+These plant photographs are identification references ONLY. Use them for what each plant looks like and nothing else. Do NOT copy their backgrounds, pots, nursery labels, framing, camera angle or lighting. Do NOT reproduce any of them as the scene${sceneNo?` — the scene is reference image ${sceneNo}`:" — compose a new scene"}. How many of each plant there are, and how they are grouped, is set out below and overrides anything the reference photographs suggest.
 `;
 }
 // Generate the rendering in-app via the worker (fal.ai → Flux 2 Pro by default)
@@ -31637,6 +31653,7 @@ async function _rpGenerate(zid, stage){
   const ta=document.getElementById("rp-notes"); if(ta) P._siteNotes[z.id]=ta.value||"";
   const _refPlants=plantRefsOn()?_zoneRefPlants(z):[];
   const prompt=_renderPrompt(z, stage, _refPlants);
+  // (the prompt numbers its own reference images the same way _rpGenerate assembles them)
   if(!prompt){ alert("Add quantities to this zone's plants first."); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
@@ -31645,12 +31662,16 @@ async function _rpGenerate(zid, stage){
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering… (10–20 sec)","var(--gm)");
   try{
-    // When the photo has been marked up, the copy carrying the marks is what goes out.
+    // Reference 1 is always the CLEAN photograph — that is the scene. Reference 2, when the
+    // photo has been marked up, is the same photograph with the marks on it, and it exists
+    // only to be read. Keeping them separate is what stops the markers being painted in.
     let ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
-    const _marked=!!_marksCount(z.id);
-    if(ref&&_marked){ setSt("Adding your marks to the photo…","var(--gm)"); ref=(await _markComposite(z.id))||ref; }
+    const _marked=!!(ref&&_marksCount(z.id));
+    let _markImg=null;
+    if(_marked){ setSt("Preparing your marked-up copy…","var(--gm)"); _markImg=await _markComposite(z.id); }
     if(ref && ref.length > 4*1024*1024){ setSt("Site photo is too large even after resizing — try a smaller image.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const refs=ref?[ref]:[];
+    if(_marked&&_markImg) refs.push(_markImg);
     if(_refPlants.length){
       setSt("Preparing "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+"…","var(--gm)");
       const _shr=await Promise.all(_refPlants.map(x=>_refShrink(x.img,PLANT_REF_PX)));
@@ -31747,7 +31768,7 @@ async function _rpCustomGenerate(zid){
     `Groundcover in broad sweeps that spill over the boulders and fill every edge and gap.\n`+
     `Show the COMPLETE plants — full canopy and tops fully in frame, nothing cropped at the top or sides.\n`+
     `Naturalistic Mediterranean drought-tolerant character, decomposed granite and granite boulders, professional landscape photography, high detail.${notes?" "+notes:""}`+
-    _refKeyText(_refPlants,false);
+    _refKeyText(_refPlants,0,0);
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating with Nano Banana… (10–30 sec)","var(--gm)");
   try{
@@ -31874,7 +31895,7 @@ async function _refineGo(zid,idx){
 KEEP EVERYTHING ELSE EXACTLY AS IT IS — the same camera position and angle, the same terrain, grade and skyline, the same buildings, walls, paving and background, the same season, lighting and time of day, and the same planting layout except where the change below requires otherwise.
 MAKE THIS ONE CHANGE: ${want}
 Do not re-compose the scene, do not restyle it, do not move the camera, and do not change anything that was not asked for. Photorealistic, professional landscape photography, high detail.`
-    + _refKeyText(_refPlants,true);
+    + _refKeyText(_refPlants,1,1);
   document.querySelectorAll(".rf-go").forEach(b=>b.disabled=true);
   setSt("Making the change… (20–45 sec)","var(--gm)");
   try{
