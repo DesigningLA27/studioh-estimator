@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1546</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1547</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31816,6 +31816,32 @@ function imgModel(){ try{ const m=upgradeImageModel(localStorage.getItem(IMG_MOD
 function setImgModel(v){ if(!IMAGE_MODELS[v]) return; try{ localStorage.setItem(IMG_MODEL_KEY,v); }catch(e){}
   document.querySelectorAll("#rp-model,#rp-custom-model,#rf-model,#elem-model,#pl-fill-model,#paimg-model,#aiimg-model").forEach(el=>{ el.value=v; });
 }
+// Rendering APIs do not report a percentage. Show activity and real stage changes.
+function _paletteRenderProgress(parentId){
+  const parent=document.getElementById(parentId);
+  const previous=document.getElementById("palette-render-progress");
+  if(previous) return null;
+  const overlay=document.createElement("div"); overlay.id="palette-render-progress";
+  overlay.style.cssText="position:fixed;inset:0;z-index:11000;background:rgba(20,28,18,.55);display:flex;align-items:center;justify-content:center;padding:1rem";
+  overlay.innerHTML=`<div role="dialog" aria-modal="true" aria-labelledby="prp-title" style="background:#fff;border-radius:14px;width:100%;max-width:420px;padding:1.4rem;color:var(--tm);box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <b id="prp-title" style="font-size:1.05rem;color:var(--gm)">Creating your rendering</b>
+    <p data-message role="status" aria-live="polite" style="font-size:.85rem;line-height:1.5">Preparing your palette…</p>
+    <progress aria-label="Rendering in progress" style="width:100%;height:12px;accent-color:#4C7B3D"></progress>
+    <p data-time style="font-size:.75rem;margin-bottom:0">0:00 elapsed · Please keep this page open.</p>
+    <button type="button" data-dismiss class="btn" hidden style="margin-top:1rem">Back to rendering</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  const bar=overlay.querySelector("progress"), msg=overlay.querySelector("[data-message]"), title=overlay.querySelector("b"), dismiss=overlay.querySelector("button");
+  const start=Date.now(); const timer=setInterval(()=>{const sec=Math.floor((Date.now()-start)/1000);overlay.querySelector('[data-time]').textContent=Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0")+" elapsed · Please keep this page open.";},1000);
+  let stopped=false;
+  function hold(text,warning){stopped=true;clearInterval(timer);title.textContent=warning?"Rendering needs review":"Rendering not completed";msg.textContent=text;bar.hidden=true;dismiss.hidden=false;dismiss.focus();}
+  dismiss.onclick=()=>overlay.remove();
+  return {
+    update(text,color){if(stopped)return;msg.textContent=text;if(color==="#B23F3C"||color==="#9B7B3A")hold(text,color==="#9B7B3A");},
+    async complete(){stopped=true;clearInterval(timer);title.textContent="Completed";msg.textContent="Your rendering has been added to the report.";bar.max=100;bar.value=100;bar.setAttribute("aria-label","Rendering completed");overlay.querySelector('[data-time]').textContent="Closing…";await new Promise(resolve=>setTimeout(resolve,1100));overlay.remove();if(parent&&parent.isConnected)parent.remove();},
+    review(text){hold(text,true);}
+  };
+}
 async function _rpGenerate(zid, stage){
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
   P._siteNotes=P._siteNotes||{};
@@ -31829,7 +31855,9 @@ async function _rpGenerate(zid, stage){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
   const st=document.getElementById("rp-status");
-  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } };
+  let progress=null;
+  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } if(progress) progress.update(t,col); };
+  progress=_paletteRenderProgress("rp-modal"); if(!progress) return;
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering… (Sunburst may take several minutes)","var(--gm)");
   try{
@@ -31876,7 +31904,8 @@ async function _rpGenerate(zid, stage){
       let dataUrl=d.url;
       const _up=await _uploadUrlToR2("render_"+z.id+"_"+stage+"_"+Date.now().toString(36), d.url);
       if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
-      else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
+      else { try{ const ir=await fetch(d.url); if(!ir.ok) throw new Error("Image download failed"); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
+      if(dataUrl===d.url) throw new Error("The image was created but could not be saved. Please try again.");
       let _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
       if(wantedRef&&usedRef) _cap="Rendered onto your "+(_marked?"marked-up ":"")+"site photo. "+_cap;
       else if(wantedRef) _cap="NOT rendered onto your site photo — an invented scene. "+_cap;
@@ -31886,10 +31915,11 @@ async function _rpGenerate(zid, stage){
       else if(refUnknown) setSt("✓ Added, but this worker build never says whether your site photo was used. It needs redeploying.","#9B7B3A");
       else if(wantedRef) setSt("⚠ Added, but your site photo was IGNORED — the worker ran "+(d.model||"text-to-image")+". This picture is an invented scene, not your site.","#B23F3C");
       else setSt("✓ Added. No site photo was attached to this zone, so this is an invented scene."+_pr,"var(--gm)");
-      _plRender();
+      try{ _plRender(); }catch(e){ console.warn("Report refresh failed after saving rendering",e); }
       if(typeof _toast==="function") _toast(wantedRef&&!usedRef?"⚠ Site photo ignored":"✓ Rendering added", wantedRef&&!usedRef?"#B23F3C":null);
       // Closing on a warning would hide the one sentence that explains the picture.
-      if(!(wantedRef&&!usedRef)) setTimeout(()=>{ const m=document.getElementById("rp-modal"); if(m) m.remove(); },800);
+      if(wantedRef&&!usedRef) progress.review(st?st.textContent:"Please review whether your site photo was used.");
+      else await progress.complete();
     } else if(d&&/authoriz/i.test(d.error||"")){ setSt("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
     else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
     else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
@@ -31911,7 +31941,8 @@ function _rpCopy(zid, stage){
 async function _rpCustomGenerate(zid){
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
   const st=document.getElementById("rp-custom-status");
-  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } };
+  let progress=null;
+  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } if(progress) progress.update(t,col); };
   const notes=((document.getElementById("rp-custom-scene")||{}).value||"").trim();
   const setting=(document.getElementById("rp-cust-setting")||{}).value||"on a hillside slope";
   const size=(document.getElementById("rp-cust-size")||{}).value||"a (~20×20 ft) planting area";
@@ -31939,6 +31970,7 @@ async function _rpCustomGenerate(zid){
     `Show the COMPLETE plants — full canopy and tops fully in frame, nothing cropped at the top or sides.\n`+
     `Naturalistic Mediterranean drought-tolerant character, decomposed granite and granite boulders, professional landscape photography, high detail.${notes?" "+notes:""}`+
     _refKeyText(_refPlants,0,0);
+  progress=_paletteRenderProgress("rp-modal"); if(!progress) return;
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating with "+IMAGE_MODELS[plantingImageModel(_refPlants.length)].nm+"…","var(--gm)");
   try{
@@ -31961,14 +31993,15 @@ async function _rpCustomGenerate(zid){
       let dataUrl=d.url;   // temporary fal URL — must be re-hosted or it expires
       const _up=await _uploadUrlToR2("render_"+z.id+"_"+Date.now().toString(36), d.url);
       if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
-      else { try{ const ir=await fetch(d.url); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
+      else { try{ const ir=await fetch(d.url); if(!ir.ok) throw new Error("Image download failed"); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
+      if(dataUrl===d.url) throw new Error("The image was created but could not be saved. Please try again.");
       const shortNames=names.map(n=>n.replace(/\s*\(.*\)\s*/,"").trim()).filter(Boolean);
       const cap="Grouping — "+shortNames.slice(0,4).join(", ")+(shortNames.length>4?" +"+(shortNames.length-4):"");
       if(!_zoneRenderAdd(z.id,dataUrl,cap,{kind:"group",names:shortNames})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       setSt("✓ Added to the report."+(_refPlants.length?" Drawn from "+_refPlants.length+" real plant photo"+(_refPlants.length>1?"s":"")+".":""),"var(--gm)");
-      _plRender();
+      try{ _plRender(); }catch(e){ console.warn("Report refresh failed after saving rendering",e); }
       if(typeof _toast==="function") _toast("✓ Rendering added");
-      setTimeout(()=>{ const m=document.getElementById("rp-modal"); if(m) m.remove(); },800);
+      await progress.complete();
     } else if(d&&/authoriz/i.test(d.error||"")){ setSt("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
     else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
     else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
@@ -32055,7 +32088,8 @@ async function _refineGo(zid,idx){
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid);
   const r=_zoneRenders(zid); const rr=r[idx]; if(!rr) return;
   const st=document.getElementById("rf-status");
-  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } };
+  let progress=null;
+  const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } if(progress) progress.update(t,col); };
   const want=((document.getElementById("rf-text")||{}).value||"").trim();
   if(!want){ setSt("Say what should change first.","#B23F3C"); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
@@ -32067,6 +32101,7 @@ KEEP EVERYTHING ELSE EXACTLY AS IT IS — the same camera position and angle, th
 MAKE THIS ONE CHANGE: ${want}
 Do not re-compose the scene, do not restyle it, do not move the camera, and do not change anything that was not asked for. Photorealistic, professional landscape photography, high detail.`
     + _refKeyText(_refPlants,1,1);
+  progress=_paletteRenderProgress("rf-modal"); if(!progress) return;
   document.querySelectorAll(".rf-go").forEach(b=>b.disabled=true);
   setSt("Making the change… (Sunburst may take several minutes)","var(--gm)");
   try{
@@ -32086,14 +32121,15 @@ Do not re-compose the scene, do not restyle it, do not move the camera, and do n
       let url=d.url;
       const _up=await _uploadUrlToR2("render_"+zid+"_rf"+Date.now().toString(36), d.url);
       if(_up.ok && await _imgLoads(_up.url)) url=_up.url;
-      else { try{ const ir=await fetch(d.url); const blob=await ir.blob();
+      else { try{ const ir=await fetch(d.url); if(!ir.ok) throw new Error("Image download failed"); const blob=await ir.blob();
         url=await new Promise((ok,no)=>{ const fr=new FileReader(); fr.onload=()=>ok(fr.result); fr.onerror=no; fr.readAsDataURL(blob); }); }catch(e){} }
+      if(url===d.url) throw new Error("The image was created but could not be saved. Please try again.");
       rr.url=url; rr.refined=(+rr.refined||0)+1;
       try{ _bidSchedule(); }catch(e){}
-      _plRender();
+      try{ _plRender(); }catch(e){ console.warn("Report refresh failed after saving rendering",e); }
       setSt("✓ Updated.","var(--gm)");
       if(typeof _toast==="function") _toast("✓ Rendering refined");
-      setTimeout(()=>{ const m=document.getElementById("rf-modal"); if(m) m.remove(); },700);
+      await progress.complete();
     } else if(d&&/authoriz/i.test(d.error||"")){ setSt("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
     else if(d&&/FAL_KEY/i.test(d.error||"")){ setSt("No image API key on the worker. Add the FAL_KEY secret in Cloudflare.","#B23F3C"); }
     else setSt("Failed: "+((d&&(d.detail||d.error))||"error"),"#B23F3C");
