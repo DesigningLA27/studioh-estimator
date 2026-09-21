@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1531</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1532</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -30986,6 +30986,51 @@ function _zonePick(cb){
     b.onclick=()=>{ const z=withPlants[+b.getAttribute("data-i")]; d.remove(); cb(z); };
   });
 }
+// ── Massing: how a species is grouped, not how much of it there is ────────────
+// A share-of-area list is not a composition. "22% Lavender [40]" is equally satisfied
+// by one run of forty down an edge, which is exactly what came back — a hedge of
+// lavender and a single clump of Euryops. So the render now states how many separate
+// drifts each species forms. You set plants-per-drift; the count of drifts is DERIVED
+// from the real quantity, so the picture cannot drift away from the estimate.
+function _massKey(r){ return r.kind+":"+((r.p&&r.p.id)||""); }
+function _massSafeId(pfx,key){ return pfx+key.replace(/[^A-Za-z0-9]/g,"_"); }
+function _massDefault(kind,qty){
+  qty=+qty||0;
+  if(kind==="tree"||kind==="palm") return 1;          // specimens, not clumps, unless told otherwise
+  const per=Math.round(qty/5)||0;                      // aim for roughly five drifts
+  return kind==="gc" ? Math.min(20,Math.max(5,per||5)) : Math.min(20,Math.max(3,per||3));
+}
+function _massN(zid,r){
+  const P=ensurePlanting(); const m=(P._massN&&P._massN[zid])||{};
+  const v=+m[_massKey(r)];
+  return v>0 ? Math.min(20,Math.max(1,Math.round(v))) : _massDefault(r.kind,r.qty);
+}
+function _massCount(qty,per){ qty=+qty||0; per=+per||1; return Math.max(1,Math.round(qty/per)); }
+// A tree planted one-to-a-hole is five specimens, not five drifts.
+function _massWord(kind,per,c){
+  if(kind==="tree"||kind==="palm") return (+per<=1) ? (c+" specimen"+(c===1?"":"s")) : (c+" group"+(c===1?"":"s"));
+  return c===1 ? "one mass" : c+" drifts";
+}
+function _massSet(zid,key,qty,v,outId,kind){
+  const P=ensurePlanting(); P._massN=P._massN||{}; P._massN[zid]=P._massN[zid]||{};
+  v=Math.min(20,Math.max(1,Math.round(+v||1)));
+  P._massN[zid][key]=v;
+  const o=document.getElementById(outId);
+  if(o) o.textContent=_massWord(kind||(key.split(":")[0]),v,_massCount(qty,v));
+}
+// Trees are the one thing an edit render reliably ignores: the photo already HAS big
+// trees, so a tree stated as a share of canopy reads as already satisfied and none get
+// added. They are pulled out of the mix and issued as an instruction instead — and this
+// is how many of them appear in the frame. Picture only; it never touches the estimate.
+function _viewN(zid,r){
+  const P=ensurePlanting(); const m=(P._viewN&&P._viewN[zid])||{};
+  const v=+m[_massKey(r)];
+  return v>0 ? Math.round(v) : (+r.qty||0);
+}
+function _viewSet(zid,key,v){
+  const P=ensurePlanting(); P._viewN=P._viewN||{}; P._viewN[zid]=P._viewN[zid]||{};
+  P._viewN[zid][key]=Math.max(0,Math.min(99,Math.round(+v||0)));
+}
 // Build a render prompt from the zone's REAL plant list — with coverage percentages
 // (qty x mature canopy), so the image reflects the actual design proportions.
 function _zoneMix(z){
@@ -31002,9 +31047,18 @@ function _zoneMix(z){
   rows.sort((a,b)=>b.pct-a.pct);
   return {rows,totalCanopy};
 }
-function _mixLine(rows,kind){
+function _mixLine(rows,kind,zid,scale){
   const list=rows.filter(r=>r.kind===kind); if(!list.length) return "";
-  return list.map(r=>`${Math.round(r.pct)}% ${r.p.c||""}${botName(r.p)?" ("+botName(r.p)+")":""}${r.qty?` [${r.qty}]`:""}`).join(", ");
+  scale=(+scale>0)?+scale:1;
+  return list.map(r=>{
+    const nm=(r.p.c||"")+(botName(r.p)?" ("+botName(r.p)+")":"");
+    if(zid==null) return `${Math.round(r.pct)}% ${nm}${r.qty?` [${r.qty}]`:""}`;
+    const per=_massN(zid,r), c=_massCount(r.qty,per);
+    const how = c===1
+      ? `all ${r.qty} together as ONE mass`
+      : `${r.qty} plants in ${c} SEPARATE drifts of about ${per}, repeated across the area with other species between them`;
+    return `- ${nm}: ${how}. ${Math.round(r.pct*scale)}% of the ground plane.`;
+  }).join("\n");
 }
 function _renderPrompt(z, stage){
   const {rows}=_zoneMix(z);
@@ -31015,8 +31069,23 @@ function _renderPrompt(z, stage){
   // dominant sun exposure across the palette
   const sunAll=[]; rows.forEach(r=>sunAll.push(...lightSetOf(r.p)));
   const sun = sunAll.filter(x=>x==="sun").length>=sunAll.length/2 ? "full sun" : "partial shade";
+  // Was computed and then never used — the model got no planting density at all.
   const density = sf>0 ? (rows.reduce((a,r)=>a+r.qty,0)/sf*100) : 0;  // plants per 100 SF
-  const trees=_mixLine(rows,"tree"), palms=_mixLine(rows,"palm"), shrubs=_mixLine(rows,"shrub"), gc=_mixLine(rows,"gc");
+  // Trees are listed separately below, so their canopy must come out of the denominator
+  // or the shrub and groundcover shares no longer add up to the ground you can see.
+  const groundPct=rows.reduce((t,r)=>t+((r.kind==="shrub"||r.kind==="gc")?r.pct:0),0);
+  const gScale=groundPct>0?(100/groundPct):1;
+  const shrubs=_mixLine(rows,"shrub",z.id,gScale), gc=_mixLine(rows,"gc",z.id,gScale);
+  // Trees and palms are issued as an instruction, not a share. Stated as a percentage of
+  // canopy they read as already satisfied by whatever is standing in the photo, so none
+  // were ever added — which is why the crape myrtles never appeared.
+  const woody=rows.filter(r=>r.kind==="tree"||r.kind==="palm")
+    .map(r=>{ const nv=_viewN(z.id,r); if(!(nv>0)) return "";
+      const per=_massN(z.id,r), grp=(per>1)?` planted in groups of ${per}`:" as separate individual specimens";
+      const size = stage==="install" ? "young 24-inch box stock, 6-8 ft tall, slender trunks"
+                                     : "mature, full canopy";
+      return `- ${nv} x ${(r.p.c||"")}${botName(r.p)?" ("+botName(r.p)+")":""} — ${size},${grp}, distributed through and around the planting area, NOT all in one corner.`; })
+    .filter(Boolean).join("\n");
   const stageTxt = stage==="install"
     ? `AT INSTALLATION — plants are young nursery stock at their planting size, spaced apart at design spacing with visible bare soil and fresh mulch between them, gaps clearly readable, shrubs roughly 1-2 ft across, groundcover not yet knitted together, trees are young 24-inch box specimens. Show the spacing honestly — this is day one, not grown in.`
     : `FULLY GROWN IN, 5 YEARS AFTER PLANTING — plants at mature size, groundcover fully knitted into continuous drifts with no bare soil, shrubs touching and massed, trees at mature canopy. Lush and established.`;
@@ -31028,9 +31097,27 @@ function _renderPrompt(z, stage){
 ${photoTxt}${ctx?`SITE: ${ctx}\n`:""}
 ${stageTxt}
 
-PLANTING MIX (percentages are share of planted area — respect these proportions):
-${trees?`Trees: ${trees}\n`:""}${palms?`Palms: ${palms}\n`:""}${shrubs?`Shrubs: ${shrubs}\n`:""}${gc?`Groundcover: ${gc}\n`:""}
-Plant in naturalistic drifts and repeating masses, not evenly scattered. Mediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, wide establishing shot, high detail --ar 3:2 --style raw`;
+${woody?`TREES AND PALMS TO ADD — these are NEW and are not present in the photograph. Add every one of them:
+${woody}
+
+`:""}SHRUB AND GROUNDCOVER MASSING — the number of drifts is as important as the quantity. Each species listed below must appear in that many SEPARATE, non-adjacent groups, spread across the whole planting area and interleaved with the other species:
+${shrubs?`SHRUBS:\n${shrubs}\n`:""}${gc?`GROUNDCOVER:\n${gc}\n`:""}${density?`
+Overall density: roughly ${Math.round(density)} plants per 100 SF.`:""}
+
+COMPOSITION RULES — these matter more than any individual plant:
+- Drifts are irregular, overlapping and soft-edged, wider than they are deep, reading as natural sweeps.
+- Every species repeats. A species that appears in only one place on the whole slope is WRONG.
+- Interleave: no two drifts of the same species touch each other.
+- Vary drift size — some large sweeps, some small pockets. Not a uniform grid of equal blobs.
+
+DO NOT:
+- Do not plant anything in a straight line, a single file, a row, a hedge or a ribbon along an edge or a path.
+- Do not place all of one species in one continuous band.
+- Do not leave any listed species as a single isolated specimen.
+- Do not arrange the planting in stripes or repeating bands parallel to the path or driveway.
+- Do not evenly scatter individual plants one by one across the area.
+
+Mediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, wide establishing shot, high detail --ar 3:2 --style raw`;
 }
 // Midjourney-tuned prompt — short, evocative, comma-style (MJ hates long structured prose, botanical names & percentages)
 function _midjourneyPrompt(z, stage){
@@ -31105,9 +31192,21 @@ function _renderPromptModal(z){
          </label>`; })()}
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.25rem">Describe the site (optional but makes it much better)</div>
     <textarea id="rp-notes" placeholder="e.g. Steep slope below the house, home sits at the top of the hill, full sun, mature oaks surrounding the property, view down toward the parking court." style="width:100%;min-height:64px;padding:.5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;font-family:inherit;resize:vertical">${escAttr(P._siteNotes[z.id]||"")}</textarea>
-    <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.7rem 0 .25rem">Planting mix (share of planted area)</div>
-    <div style="max-height:130px;overflow:auto;border:1px solid var(--br);border-radius:8px;padding:.4rem .55rem">
-      ${rows.length?rows.map(r=>`<div style="display:flex;justify-content:space-between;font-size:.74rem;padding:.12rem 0"><span>${escAttr(r.p.c||"")} <span style="color:var(--tl);font-size:.68rem">${{tree:"tree",palm:"palm",shrub:"shrub",gc:"GC"}[r.kind]} · ${r.qty}</span></span><b style="color:var(--gm)">${Math.round(r.pct)}%</b></div>`).join(""):'<div style="font-size:.74rem;color:var(--tl)">No quantities set — add quantities so percentages can be calculated.</div>'}
+    <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.7rem 0 .25rem">Planting mix &amp; massing</div>
+    <div style="font-size:.66rem;color:var(--tl);margin-bottom:.25rem;line-height:1.4">Plants per drift is the one number you set — the number of drifts is worked out from the real quantity. Five small drifts read as a designed planting; one drift of forty reads as a hedge.</div>
+    <div style="max-height:190px;overflow:auto;border:1px solid var(--br);border-radius:8px;padding:.4rem .55rem">
+      ${rows.length?rows.map(r=>{
+        const _k=_massKey(r), _per=_massN(z.id,r), _c=_massCount(r.qty,_per), _o=_massSafeId("mo_",_k);
+        const _w=(r.kind==="tree"||r.kind==="palm");
+        const _lab={tree:"tree",palm:"palm",shrub:"shrub",gc:"GC"}[r.kind];
+        const _inp="width:40px;padding:.1rem .2rem;border:1px solid var(--br);border-radius:5px;font-size:.7rem;text-align:right;font-family:inherit";
+        return `<div style="display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;font-size:.74rem;padding:.24rem 0;border-bottom:1px solid var(--br)">
+          <span style="flex:1;min-width:104px">${escAttr(r.p.c||"")} <span style="color:var(--tl);font-size:.66rem">${_lab} · ${r.qty}</span></span>
+          ${_w?`<label style="font-size:.64rem;color:var(--tl)" title="How many of this tree appear in the picture. Changes the rendering only — it never touches the estimate.">show <input type="number" min="0" max="99" value="${_viewN(z.id,r)}" oninput="_viewSet('${escAttr(z.id)}','${escAttr(_k)}',this.value)" style="${_inp}"></label>`:""}
+          <label style="font-size:.64rem;color:var(--tl)" title="${_w?"1 = separate specimens. 3 = planted in threes.":"How many plants make up one drift."}">${_w?"per group":"per drift"} <input type="number" min="1" max="20" value="${_per}" oninput="_massSet('${escAttr(z.id)}','${escAttr(_k)}',${+r.qty||0},this.value,'${_o}','${r.kind}')" style="${_inp}"></label>
+          <span id="${_o}" style="width:74px;text-align:right;color:var(--gm);font-weight:600;font-size:.68rem">${_massWord(r.kind,_per,_c)}</span>
+          <b style="color:var(--gm);width:32px;text-align:right">${Math.round(r.pct)}%</b>
+        </div>`; }).join(""):'<div style="font-size:.74rem;color:var(--tl)">No quantities set — add quantities so percentages can be calculated.</div>'}
     </div>
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.8rem 0 .3rem">Generate in the app</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">
