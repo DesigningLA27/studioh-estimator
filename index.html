@@ -7761,7 +7761,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1535</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1536</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31126,7 +31126,7 @@ function _mixLine(rows,kind,zid,scale){
     return `- ${nm}: ${how}. ${Math.round(r.pct*scale)}% of the ground plane.`;
   }).join("\n");
 }
-function _renderPrompt(z, stage){
+function _renderPrompt(z, stage, refPlants){
   const {rows}=_zoneMix(z);
   if(!rows.length) return null;
   const P=ensurePlanting(); const ctx=((P._siteNotes&&P._siteNotes[z.id])||"").trim();
@@ -31165,8 +31165,9 @@ function _renderPrompt(z, stage){
   const photoTxt = hasPhoto
     ? `\nUSE THE SUPPLIED PHOTOGRAPH AS THE SITE. Keep the existing terrain, slope, grade, structures, hardscape, walls, buildings, background trees, horizon and camera viewpoint EXACTLY as they are in the photo. Replace ONLY the planting areas with the palette below. Match the photo's lighting, season, and perspective. Do not redesign the site, do not move the camera, do not invent new structures.\n`
     : "";
+  const refTxt=_refKeyText(refPlants,hasPhoto);
   return `Photorealistic landscape architecture rendering. ${sun} residential planting${sf?` of approximately ${sf.toLocaleString()} SF`:""} in ${city}.
-${photoTxt}${ctx?`SITE: ${ctx}\n`:""}
+${photoTxt}${refTxt}${ctx?`SITE: ${ctx}\n`:""}
 ${stageTxt}
 
 ${woody?`TREES AND PALMS TO ADD — these are NEW and are not present in the photograph. Add every one of them:
@@ -31300,9 +31301,16 @@ function _renderPromptModal(z){
         <option value="flux-pro" ${imgModel()==="flux-pro"?"selected":""}>Flux 2 Pro · photoreal · ~$0.03</option>
         <option value="flux-klein" ${imgModel()==="flux-klein"?"selected":""}>Flux 2 Klein · fast · ~$0.014</option>
         <option value="nano-2" ${imgModel()==="nano-2"?"selected":""}>Nano Banana 2 · Google · ~$0.08 · best with a site photo</option>
+        <option value="nano-banana-pro" ${imgModel()==="nano-banana-pro"?"selected":""}>Nano Banana Pro · Google · ~$0.15 · takes 14 reference photos</option>
       </select>
       <span id="rp-status" style="font-size:.72rem;color:var(--tm)"></span>
     </div>
+    ${(()=>{ const _rp=_zoneRefPlants(z); const _on=plantRefsOn();
+      return `<label style="display:flex;gap:.4rem;align-items:flex-start;font-size:.72rem;color:var(--tx);margin-bottom:.45rem;cursor:pointer">
+        <input type="checkbox" ${_on?"checked":""} ${_rp.length?"":"disabled"} onchange="setPlantRefs(this.checked,'${z.id}')" style="margin-top:.15rem">
+        <span><b>Show the AI the real plant photos</b> ${_rp.length?`<span style="color:var(--gm);font-weight:700">${_rp.length} available</span>`:`<span style="color:var(--tl)">— none of this zone's plants has a photo in the plant book yet</span>`}
+        <div style="font-size:.66rem;color:var(--tm);line-height:1.4">Without this the AI invents what each plant looks like from its name alone. With it, the plant book photographs go along with the prompt${_rp.length?` (${_rp.map(r=>escAttr(r.p.c||"")).slice(0,4).join(", ")}${_rp.length>4?" +"+(_rp.length-4):""})`:""}. Uses Nano Banana Pro · ~$0.15 instead of ~$0.08.</div></span>
+      </label>`; })()}
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="rp-gen btn" onclick="_rpGenerate('${z.id}','install')" style="flex:1;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">✨ Generate: at installation<div style="font-size:.62rem;font-weight:400;opacity:.85">young plants, visible spacing</div></button>
       <button class="rp-gen btn" onclick="_rpGenerate('${z.id}','mature')" style="flex:1;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">✨ Generate: grown in (5 yr)<div style="font-size:.62rem;font-weight:400;opacity:.85">mature, filled out</div></button>
@@ -31317,7 +31325,7 @@ function _renderPromptModal(z){
     </div>
     <div style="margin:.9rem 0 0;padding:.6rem .7rem;background:var(--brand-soft);border:1px solid var(--br);border-radius:9px">
       <div style="font-size:.74rem;font-weight:800;color:var(--gm);margin-bottom:.15rem">🍌 Plant combination study — a few plants, close up</div>
-      <div style="font-size:.68rem;color:var(--gm);margin-bottom:.4rem">Not the same thing as the renderings above. Those redraw the <b>whole zone</b> from the full plant list and your site photo. This one ignores the mix and the site: tick two to five plants and it draws <b>just those</b>, close up, on a plain generic slope or bed — so you can see how a combination actually looks together before committing it to the palette.</div>
+      <div style="font-size:.68rem;color:var(--gm);margin-bottom:.4rem">Not the same thing as the renderings above. Those redraw the <b>whole zone</b> from the full plant list and your site photo. This one ignores the mix and the site: tick two to five plants and it draws <b>just those</b>, close up, on a plain generic slope or bed — so you can see how a combination actually looks together before committing it to the palette. Any plant with a photo in the plant book is drawn from that photo, not invented.</div>
       <div style="max-height:120px;overflow:auto;background:#fff;border:1px solid var(--br);border-radius:8px;padding:.4rem .55rem;margin-bottom:.4rem">
         ${(()=>{ const ap=_zonePlantsAll(z); return ap.length?ap.map(r=>`<label style="display:flex;align-items:center;gap:.4rem;font-size:.74rem;padding:.12rem 0"><input type="checkbox" class="rp-cust-pick" value="${escAttr(r.kind+':'+r.p.id)}"> ${escAttr(r.p.c||botName(r.p)||"")} <span style="color:var(--tl);font-size:.68rem">${({tree:"tree",palm:"palm",shrub:"shrub",gc:"GC"})[r.kind]}</span></label>`).join(""):'<div style="font-size:.74rem;color:var(--tl)">No plants in this zone.</div>'; })()}
       </div>
@@ -31345,6 +31353,75 @@ function _renderPromptModal(z){
   </div>`;
   document.body.appendChild(d);
 }
+// ── Plant photographs as references ────────────────────────────────────────────
+// Until now the rendering was told only the NAMES of the plants, so every plant in the
+// picture was invented from whatever the model believes "Euryops" looks like — which is why
+// the plants never quite match the book. The plant book already holds a real photograph of
+// most of them, and the worker already forwards every reference image it is handed
+// (payload.image_urls). Send them, and the model has the actual plant in front of it.
+// Nano Banana Pro accepts 14 references: one site photo plus up to thirteen plants.
+const PLANT_REF_KEY="studioh_plantrefs_v1";
+const PLANT_REF_MAX=12;      // + the site photo = 13, inside Nano Banana Pro's 14
+const PLANT_REF_PX=448;      // thirteen full-size photos would make a 12MB request
+function plantRefsOn(){ try{ return localStorage.getItem(PLANT_REF_KEY)!=="0"; }catch(e){ return true; } }
+function setPlantRefs(on,zid){
+  try{ localStorage.setItem(PLANT_REF_KEY,on?"1":"0"); }catch(e){}
+  const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z);
+}
+// The plants in this zone that HAVE a picture, most prominent first — prominence decides
+// which twelve survive the cap, because the species covering 30% of the slope matters more
+// than the one specimen at the back.
+function _zoneRefPlants(z){
+  let rows=[]; try{ rows=(_zoneMix(z)||{}).rows||[]; }catch(e){ rows=[]; }
+  const seen={}; const out=[];
+  rows.slice().sort((a,b)=>(b.pct||0)-(a.pct||0)).forEach(r=>{
+    const img=(typeof plantImgOf==="function")?plantImgOf(r.p):""; if(!img) return;
+    const k=r.kind+":"+((r.p&&r.p.id)||""); if(seen[k]) return; seen[k]=1;
+    out.push({kind:r.kind,p:r.p,img});
+  });
+  return out.slice(0,PLANT_REF_MAX);
+}
+// Named plants (custom grouping picks them by hand, not by share of the ground).
+function _pickRefPlants(picks){
+  const out=[]; const seen={};
+  (picks||[]).forEach(v=>{ const i=String(v).indexOf(":"); if(i<0) return;
+    const kind=v.slice(0,i), pid=v.slice(i+1);
+    const p=plantDbFind(kind,pid); if(!p) return;
+    const img=(typeof plantImgOf==="function")?plantImgOf(p):""; if(!img) return;
+    const k=kind+":"+pid; if(seen[k]) return; seen[k]=1;
+    out.push({kind,p,img}); });
+  return out.slice(0,PLANT_REF_MAX);
+}
+// Shrink a data-URL reference. An https reference (R2) is left alone — fal fetches those
+// itself, and a cross-origin canvas read would taint and throw anyway.
+function _refShrink(url,max){
+  return new Promise(res=>{
+    if(!url || String(url).slice(0,5)!=="data:") return res(url||"");
+    const im=new Image();
+    im.onload=()=>{ try{
+      let w=im.width,h=im.height; const sc=Math.min(1,(max||PLANT_REF_PX)/Math.max(w,h));
+      if(sc>=1) return res(url);
+      w=Math.max(1,Math.round(w*sc)); h=Math.max(1,Math.round(h*sc));
+      const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+      cv.getContext("2d").drawImage(im,0,0,w,h);
+      res(cv.toDataURL("image/jpeg",0.82));
+    }catch(e){ res(url); } };
+    im.onerror=()=>res(url);
+    im.src=url;
+  });
+}
+// The key that tells the model what each attached photograph IS. Without it thirteen
+// pictures arrive with no explanation and the model treats them as scenes to imitate.
+function _refKeyText(refPlants,hasPhoto){
+  if(!refPlants||!refPlants.length) return "";
+  const base=hasPhoto?1:0;
+  const lines=refPlants.map((r,i)=>`- Reference image ${i+1+base}: ${(r.p.c||"")}${botName(r.p)?" ("+botName(r.p)+")":""} — this is what that plant ACTUALLY looks like. Match its foliage colour, leaf shape and texture, growth habit and flower colour.`).join("\n");
+  return `
+REFERENCE PHOTOGRAPHS${hasPhoto?" — reference image 1 is the SITE, described above":""}:
+${lines}
+These plant photographs are identification references ONLY. Use them for what each plant looks like and nothing else. Do NOT copy their backgrounds, pots, nursery labels, framing, camera angle or lighting. Do NOT reproduce any of them as the scene${hasPhoto?" — the scene is reference image 1":" — compose a new scene"}. How many of each plant there are, and how they are grouped, is set out below and overrides anything the reference photographs suggest.
+`;
+}
 // Generate the rendering in-app via the worker (fal.ai → Flux 2 Pro by default)
 const IMG_MODEL_KEY="studioh_imgmodel_v1";
 function imgModel(){ try{ return localStorage.getItem(IMG_MODEL_KEY)||"nano-2"; }catch(e){ return "nano-2"; } }
@@ -31353,7 +31430,8 @@ async function _rpGenerate(zid, stage){
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
   P._siteNotes=P._siteNotes||{};
   const ta=document.getElementById("rp-notes"); if(ta) P._siteNotes[z.id]=ta.value||"";
-  const prompt=_renderPrompt(z, stage);
+  const _refPlants=plantRefsOn()?_zoneRefPlants(z):[];
+  const prompt=_renderPrompt(z, stage, _refPlants);
   if(!prompt){ alert("Add quantities to this zone's plants first."); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
@@ -31364,8 +31442,18 @@ async function _rpGenerate(zid, stage){
   try{
     let ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
     if(ref && ref.length > 4*1024*1024){ setSt("Site photo is too large even after resizing — try a smaller image.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
+    const refs=ref?[ref]:[];
+    if(_refPlants.length){
+      setSt("Preparing "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+"…","var(--gm)");
+      const _shr=await Promise.all(_refPlants.map(x=>_refShrink(x.img,PLANT_REF_PX)));
+      _shr.forEach(u=>{ if(u) refs.push(u); });
+      setSt("Generating "+(stage==="install"?"at-installation":"grown-in")+" rendering with "+_refPlants.length+" plant photos… (20–45 sec)","var(--gm)");
+    }
+    // More than one reference image needs a model that accepts more than one. Nano Banana
+    // Pro takes fourteen; Flux and Nano Banana 2 are not asked to do something they cannot.
+    const _model=_refPlants.length?"nano-banana-pro":imgModel();
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"genimage",key,prompt,model:imgModel(),aspect:"3:2",refs:ref?[ref]:[]})});
+      body:JSON.stringify({type:"genimage",key,prompt,model:_model,aspect:"3:2",refs})});
     if(!r.ok){ let t=""; try{ t=(await r.text()).slice(0,200); }catch(e){}
       setSt("Server error "+r.status+(t?": "+t:""),"#B23F3C");
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
@@ -31394,10 +31482,11 @@ async function _rpGenerate(zid, stage){
       if(wantedRef&&usedRef) _cap="Rendered onto your site photo. "+_cap;
       else if(wantedRef) _cap="NOT rendered onto your site photo — an invented scene. "+_cap;
       if(!_zoneRenderAdd(z.id,dataUrl,_cap,{kind:stage,names:_zoneNames(z)})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
-      if(wantedRef&&usedRef) setSt("✓ Added — rendered onto your site photo via "+(d.model||"the edit endpoint")+".","var(--gm)");
+      const _pr=_refPlants.length?" "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+" sent as references.":"";
+      if(wantedRef&&usedRef) setSt("✓ Added — rendered onto your site photo via "+(d.model||"the edit endpoint")+"."+_pr,"var(--gm)");
       else if(refUnknown) setSt("✓ Added, but this worker build never says whether your site photo was used. It needs redeploying.","#9B7B3A");
       else if(wantedRef) setSt("⚠ Added, but your site photo was IGNORED — the worker ran "+(d.model||"text-to-image")+". This picture is an invented scene, not your site.","#B23F3C");
-      else setSt("✓ Added. No site photo was attached to this zone, so this is an invented scene.","var(--gm)");
+      else setSt("✓ Added. No site photo was attached to this zone, so this is an invented scene."+_pr,"var(--gm)");
       _plRender();
       if(typeof _toast==="function") _toast(wantedRef&&!usedRef?"⚠ Site photo ignored":"✓ Rendering added", wantedRef&&!usedRef?"#B23F3C":null);
       // Closing on a warning would hide the one sentence that explains the picture.
@@ -31440,19 +31529,30 @@ async function _rpCustomGenerate(zid){
   const names=picks.map(v=>{ const i=v.indexOf(":"); const kind=v.slice(0,i), pid=v.slice(i+1); const p=plantDbFind(kind,pid); if(!p) return null; return (p.c||"")+(botName(p)?" ("+botName(p)+")":""); }).filter(Boolean);
   const city=(S.pi&&S.pi.city)||"Southern California";
   const ref=null;   // custom grouping = ONLY the selected plants together — never render onto the site photo
+  // This is the screen where a real photograph matters most: the whole point is to judge a
+  // combination, and judging an invented Euryops against an invented lavender is worthless.
+  const _refPlants=plantRefsOn()?_pickRefPlants(picks):[];
   const prompt=`Photorealistic landscape architecture rendering in ${city}. ${size} ${setting}, ${light}.\n`+
     `Show ONLY these plants grouped together: ${names.join(", ")}. Do not add other species.\n`+
     `Arrange EACH species in its own natural drift or mass — several of the same plant clustered organically together, NOT one of each scattered.\n`+
     `${layerTxt}\n`+
     `Groundcover in broad sweeps that spill over the boulders and fill every edge and gap.\n`+
     `Show the COMPLETE plants — full canopy and tops fully in frame, nothing cropped at the top or sides.\n`+
-    `Naturalistic Mediterranean drought-tolerant character, decomposed granite and granite boulders, professional landscape photography, high detail.${notes?" "+notes:""}`;
+    `Naturalistic Mediterranean drought-tolerant character, decomposed granite and granite boulders, professional landscape photography, high detail.${notes?" "+notes:""}`+
+    _refKeyText(_refPlants,false);
   document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=true);
   setSt("Generating with Nano Banana… (10–30 sec)","var(--gm)");
   try{
     if(ref && ref.length > 4*1024*1024){ setSt("Site photo is too large even after resizing — try a smaller image.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
+    const refs=ref?[ref]:[];
+    if(_refPlants.length){
+      setSt("Preparing "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+"…","var(--gm)");
+      const _shr=await Promise.all(_refPlants.map(x=>_refShrink(x.img,PLANT_REF_PX)));
+      _shr.forEach(u=>{ if(u) refs.push(u); });
+      setSt("Generating with "+_refPlants.length+" plant photos as references… (20–45 sec)","var(--gm)");
+    }
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"genimage",key,prompt,model:"nano-2",aspect:"3:2",refs:ref?[ref]:[]})});
+      body:JSON.stringify({type:"genimage",key,prompt,model:_refPlants.length?"nano-banana-pro":"nano-2",aspect:"3:2",refs})});
     if(!r.ok){ let t=""; try{ t=(await r.text()).slice(0,200); }catch(e){}
       setSt("Server error "+r.status+(t?": "+t:""),"#B23F3C");
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
@@ -31466,7 +31566,7 @@ async function _rpCustomGenerate(zid){
       const shortNames=names.map(n=>n.replace(/\s*\(.*\)\s*/,"").trim()).filter(Boolean);
       const cap="Grouping — "+shortNames.slice(0,4).join(", ")+(shortNames.length>4?" +"+(shortNames.length-4):"");
       if(!_zoneRenderAdd(z.id,dataUrl,cap,{kind:"group",names:shortNames})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
-      setSt("✓ Added to the report.","var(--gm)");
+      setSt("✓ Added to the report."+(_refPlants.length?" Drawn from "+_refPlants.length+" real plant photo"+(_refPlants.length>1?"s":"")+".":""),"var(--gm)");
       _plRender();
       if(typeof _toast==="function") _toast("✓ Rendering added");
       setTimeout(()=>{ const m=document.getElementById("rp-modal"); if(m) m.remove(); },800);
