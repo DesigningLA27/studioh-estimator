@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1548</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1549</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -70477,7 +70477,7 @@ function _bidSchedule(){
   _bidSaveTimer=setTimeout(()=>{ _bidSaveTimer=null; _bidAutoSave(); }, 60*1000);
 }
 async function _bidAutoSave(){
-  if(_bidSaveBusy) return;
+  if(_bidSaveBusy || _cloudOpening) return;
   if(!CLOUD_BID_ID || !CLOUD_BID_NAME) return;        // never autosave an unsaved project
   if(!_bidDirty()) return;
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
@@ -71065,7 +71065,7 @@ async function cloudOpenBids(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
         <div style="min-width:0"><div style="font-size:.86rem;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escAttr(b.name||"Project")}</div>
           <div style="font-size:.66rem;color:var(--tl);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${new Date(b.at).toLocaleString()}${b.addr?" · "+escAttr(b.addr):""}</div></div>
         <div style="display:flex;gap:.35rem;flex:none">
-          <button class="btn" onclick="CLOUD_BID_NAME=this.dataset.n;cloudLoadBid('${b.id}')" data-n="${escAttr(b.name||'')}" style="padding:.25rem .7rem;font-size:.74rem;background:var(--gm);color:#fff;border:none">Open</button>
+          <button class="btn" onclick="cloudLoadBid('${b.id}',this.dataset.n)" data-n="${escAttr(b.name||'')}" style="padding:.25rem .7rem;font-size:.74rem;background:var(--gm);color:#fff;border:none">Open</button>
           <button class="btn" onclick="cloudDeleteBid('${b.id}')" style="padding:.25rem .5rem;font-size:.74rem;background:#fff;color:#B23F3C;border:1px solid #B23F3C">✕</button>
         </div></div>`).join('');
   }catch(e){ const box=document.getElementById("cb-list"); if(box) box.innerHTML=`<span style="color:#B23F3C">Couldn't load projects.</span>`; }
@@ -71084,35 +71084,67 @@ async function newProject(){
   try{ localStorage.setItem("studioh_want_blank","1"); }catch(e){}
   setTimeout(()=>{ location.reload(); }, 500);
 }
-async function cloudLoadBid(id){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
-  const targetName=CLOUD_BID_NAME||"this project";
+let _cloudOpening=false;
+async function cloudLoadBid(id,name){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
+  if(!ep || _cloudOpening) return;
+  const targetName=name||"this project";
   const currentName=(S.pi&&S.pi.project)||(S.pi&&S.pi.client)||"your current project";
-  const _i=await askDlg({icon:"📂",title:`Open "${targetName}"?`,
-    body:`Your current work on "${currentName}" will be replaced. Nothing is deleted — it stays saved and reopenable from Projects.`,
-    actions:["Cancel","Open Project"]});
-  if(_i!==1) return;
-  const _busy=(msg)=>{ let b=document.getElementById("cb-busy"); if(!b){ b=document.createElement("div"); b.id="cb-busy"; b.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10001;display:flex;align-items:center;justify-content:center"; b.innerHTML='<div style="background:#fff;border-radius:12px;padding:1rem 1.4rem;font-size:.9rem;color:#4C7B3D;font-weight:600"></div>'; document.body.appendChild(b); } b.firstChild.textContent=msg; };
-  const _done=()=>{ const b=document.getElementById("cb-busy"); if(b) b.remove(); };
-  try{ _busy("Opening project…");
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbid",id})}); const d=await r.json();
-    if(!(d&&d.found&&d.bid)){ _done(); alert("Couldn't load that project."); return; }
-    CLOUD_BID_ID=id; CLOUD_PDF_SIG=null; try{_refreshProjectName();}catch(e){}
-    try{ setTimeout(()=>{ try{ _bidMarkSaved(); }catch(e){} }, 800); }catch(e){}  // baseline after restore settles
-    // pull the plan PDF back out of R2 if this project had one
-    if(d.bid.trace && d.bid.trace.hasPdf && !d.bid.trace.pdf){
-      _busy("Loading plan PDF…");
-      try{ const pr=await fetch(ep+"?pdfget="+encodeURIComponent(id),{method:"GET"});
-        if(pr.ok && (pr.headers.get("Content-Type")||"").indexOf("pdf")>=0){
-          const buf=await pr.arrayBuffer(); const pf=_ab2b64(buf);
-          d.bid.trace.pdf=pf; CLOUD_PDF_SIG=_pdfSig(pf);
-        }
-      }catch(e){ console.error("pdf fetch:",e); }
+  _cloudOpening=true; // Also blocks autosave while confirmation/download/restore is in progress.
+  let busy=null,controller=null,watch=null,cancelled=false,timedOut=false;
+  try{
+    const choice=await askDlg({icon:"📂",title:`Open "${targetName}"?`,body:`Your current work on "${currentName}" will be replaced. Nothing is deleted — it stays saved and reopenable from Projects.`,actions:["Cancel","Open Project"]});
+    if(choice!==1) return;
+    controller=new AbortController();let lastActivity=Date.now();const started=Date.now();
+    busy=document.createElement("div");busy.id="cb-busy";
+    busy.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10001;display:flex;align-items:center;justify-content:center;padding:1rem";
+    busy.innerHTML='<div role="dialog" aria-modal="true" aria-label="Opening project" style="background:#fff;border-radius:12px;padding:1.2rem;width:360px;max-width:100%;color:#4C7B3D"><b data-title>Opening project…</b><p data-detail role="status" aria-live="polite" style="font-size:.82rem">Connecting…</p><progress aria-label="Project download" style="width:100%;accent-color:#4C7B3D"></progress><button type="button" class="btn" style="margin-top:1rem">Cancel</button></div>';
+    busy.querySelector('button').onclick=()=>{cancelled=true;controller.abort();};document.body.appendChild(busy);
+    const status=(title,detail)=>{busy.querySelector('[data-title]').textContent=title;busy.querySelector('[data-detail]').textContent=detail;};
+    watch=setInterval(()=>{if(Date.now()-lastActivity>45000 || Date.now()-started>300000){timedOut=true;controller.abort();}},1000);
+    async function download(url,options,label){
+      lastActivity=Date.now();status(label,"Connecting…");const bar=busy.querySelector('progress');bar.removeAttribute('value');
+      const response=await fetch(url,{...options,signal:controller.signal});lastActivity=Date.now();
+      if(!response.ok) throw new Error(label+" failed (HTTP "+response.status+").");
+      const reader=response.body&&response.body.getReader?response.body.getReader():null;
+      if(!reader){const data=new Uint8Array(await response.arrayBuffer());if(controller.signal.aborted)throw new Error('Download interrupted');return data;}
+      const parts=[];let bytes=0;
+      // Compressed Content-Length is not the decoded byte count; show downloaded MB instead.
+      while(true){const chunk=await reader.read();if(chunk.done)break;lastActivity=Date.now();parts.push(chunk.value);bytes+=chunk.value.length;status(label,(bytes/1048576).toFixed(1)+" MB downloaded · "+Math.floor((Date.now()-started)/1000)+"s elapsed");}
+      if(controller.signal.aborted)throw new Error('Download interrupted');
+      const result=new Uint8Array(bytes);let offset=0;parts.forEach(part=>{result.set(part,offset);offset+=part.length;});return result;
     }
-    _done();
-    const m=document.getElementById("cb-modal"); if(m) m.remove();
-    try{ restoreBid(d.bid); }
-    catch(e2){ console.error("restoreBid failed:",e2); alert("The project data loaded, but restoring it failed:\n"+((e2&&e2.message)||e2)); return; }
-  }catch(e){ _done(); console.error("cloudLoadBid failed:",e); alert("Load failed: "+((e&&e.message)||e)); }
+    const bytes=await download(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"loadbid",id})},"Downloading project…");
+    status("Reading project…","Download complete");
+    const d=JSON.parse(new TextDecoder().decode(bytes));
+    if(!(d&&d.found&&d.bid&&d.bid.S))throw new Error("The server did not return a valid saved project.");
+    let pdfSig=d.bid.trace&&d.bid.trace.pdf?_pdfSig(d.bid.trace.pdf):null;
+    if(d.bid.trace&&d.bid.trace.hasPdf&&!d.bid.trace.pdf){
+      const pdf=await download(ep+"?pdfget="+encodeURIComponent(id),{method:"GET"},"Downloading plan PDF…");
+      if(new TextDecoder().decode(pdf.slice(0,5))!=="%PDF-")throw new Error("The saved plan PDF could not be read.");
+      d.bid.trace.pdf=_ab2b64(pdf.buffer);pdfSig=_pdfSig(d.bid.trace.pdf);
+    }
+    if(controller.signal.aborted)throw new Error('Download interrupted');
+    clearInterval(watch);watch=null;status("Opening project…","Drawing your saved project");busy.querySelector('button').disabled=true;
+    await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));
+    // Commit identity only once data is ready. Never expose the sample under a client's ID.
+    const previous=_bidPayload();
+    try{ restoreBid(d.bid); }catch(restoreError){
+      try{ restoreBid(previous); }catch(rollbackError){console.error("Could not redraw previous project",rollbackError);}
+      throw restoreError;
+    }
+    CLOUD_BID_ID=id;CLOUD_BID_NAME=name||(S.pi&&S.pi.project)||(S.pi&&S.pi.client)||"Project";CLOUD_PDF_SIG=pdfSig;
+    if(_bidSaveTimer){clearTimeout(_bidSaveTimer);_bidSaveTimer=null;}
+    _bidMarkSaved();_refreshProjectName();
+    const modal=document.getElementById('cb-modal');if(modal)modal.remove();
+    _toast("Opened "+CLOUD_BID_NAME,"#4C7B3D");
+  }catch(e){
+    if(!cancelled){
+      const message=timedOut?"The download stopped responding. Your current project has not been replaced. Check your connection and try Open again.":"Could not open the project: "+((e&&e.message)||"connection failed");
+      if(busy){busy.remove();busy=null;}
+      askTell("Project could not be opened",message,{icon:"⚠"});
+    }
+  }finally{if(watch)clearInterval(watch);if(busy)busy.remove();_cloudOpening=false;}
 }
 async function cloudDeleteBid(id){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
   if(!confirm("Delete this project from the server? This can't be undone.")) return;
