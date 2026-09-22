@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1555</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1556</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31149,6 +31149,19 @@ function _coverPaint(zid){
   out.innerHTML=`<b style="color:var(--gm)">${v}%</b> covered when grown in · about <b>${_coverAt(zid,"install")}%</b> at installation`;
   const sl=document.getElementById("rp-cover"); if(sl&&+sl.value!==v) sl.value=v;
 }
+function _photoScope(zid){const v=ensurePlanting()._photoScope?.[zid]||{};return {mode:['all','untraced','traced'].includes(v.mode)?v.mode:(_marksCount(zid)?'untraced':'all'),untouched:Math.max(0,Math.min(100,+v.untouched||0))};}
+function _photoScopeSet(zid,key,value){const P=ensurePlanting();P._photoScope=P._photoScope||{};P._photoScope[zid]={..._photoScope(zid),[key]:key==='untouched'?Math.max(0,Math.min(100,+value||0)):value};try{_bidSchedule();}catch(e){} _photoScopePaint(zid);}
+function _photoScopePaint(zid){const v=_photoScope(zid);document.querySelectorAll('[data-mix-mode]').forEach(b=>{const active=b.dataset.mixMode===v.mode;b.style.background=active?'#4f843e':'#fff';b.style.color=active?'#fff':'#40533a';b.setAttribute('aria-pressed',String(active));});const fields=document.getElementById('rp-mass-fields');if(fields){fields.disabled=v.mode==='traced';fields.style.opacity=v.mode==='traced'?'.45':'1';}const out=document.getElementById('rp-untouched-out');if(out)out.textContent=v.untouched+'% unchanged · '+(100-v.untouched)+'% available for new planting';const hint=document.getElementById('rp-mix-hint');if(hint)hint.textContent=v.mode==='traced'?'Mix and massing are off. Only your marked areas and individual placements may change.':v.mode==='untraced'?'Your traced species areas stay as drawn; mix and massing fill only eligible untraced ground.':'Mix and massing guide the planting throughout; explicit species marks and protected areas still take priority.';}
+function _photoScopePrompt(prompt,z,stage){const v=_photoScope(z.id),cov=_coverAt(z.id,stage);
+ if(v.mode==='traced'){
+  prompt=prompt.replace(/TREES AND PALMS TO ADD[\s\S]*?(?=SHRUB AND GROUNDCOVER MASSING)/,'');
+  prompt=prompt.replace(/SHRUB AND GROUNDCOVER MASSING[\s\S]*?(?=PLANT COVERAGE)/,'MIX AND MASSING ARE OFF. Add only explicitly marked species, individuals and boulders. Preserve all unmarked ground.\n\n');
+ }else if(v.mode==='untraced')prompt=prompt.replace('SHRUB AND GROUNDCOVER MASSING —','SHRUB AND GROUNDCOVER MASSING — APPLIES ONLY TO ELIGIBLE UNTRACED GROUND. Do not carry the whole-zone counts into this smaller remainder; use species proportions and drift character scaled to the available space. Never override a traced species bed.');
+ // General repeat/group rules must not override individually placed plants or traced species beds.
+ prompt=prompt.replace(/COMPOSITION RULES[\s\S]*?(?=Mediterranean drought-tolerant character)/,'COMPOSITION: use natural spacing within the permitted regions. Explicit plant positions, species boundaries and protected ground take priority over automatic grouping. Never move marked individuals or introduce other species into a labelled bed.\n\n');
+ const scope=v.mode==='traced'?'Only traced planting areas, green planting brush and individual placement marks may change. Leave all other ground exactly as photographed.':v.mode==='untraced'?'Use the automatic mix only on remaining eligible UNTRACED ground; no automatic planting in protected areas.':'Use the mix within eligible planting ground, respecting all explicit marks.';
+ return prompt+`\nFINAL SPATIAL PRIORITIES:\n1. RED LEAVE-ALONE areas are immutable. Preserve their existing plants, rocks, surfaces and appearance even if another mark overlaps. Existing buildings, roads and hardscape are also protected.\n2. Honour explicit species outlines and ground anchors. An outline defines WHERE a species is allowed, not 100% foliage coverage. Within each permitted bed, target ${cov}% visible plant coverage at this rendering stage, with ${100-cov}% gaps of visible ground. Do not shrink the outline to implement density.\n3. ${scope}\n4. UNTOUCHED ZONE TARGET: retain approximately ${v.untouched}% of this planting zone exactly as it exists, leaving up to ${100-v.untouched}% available for new planting. This is separate from foliage density inside beds. Choose untraced ground to satisfy this target before adding automatic planting. Preserve original ground and vegetation there; do not convert it to new gravel or mulch. Explicit marks and red protection take priority if the percentage conflicts. Percentages are visual targets, not measured areas from the perspective photograph.\n${v.untouched===100?'No new planting or boulders: the entire zone must remain unchanged.\n':''}Return a clean photograph with no visible annotations.`;
+}
 function _viewN(zid,r){
   const P=ensurePlanting(); const m=(P._viewN&&P._viewN[zid])||{};
   const v=+m[_massKey(r)];
@@ -31240,7 +31253,7 @@ function _renderPrompt(z, stage, refPlants){
   const _markNo=_hasMarks?2:0;
   const refTxt=_refKeyText(refPlants,(hasPhoto?1:0)+(_hasMarks?1:0),_sceneNo);
   const markTxt=_hasMarks?_markPromptText(z,_markNo,_sceneNo):"";
-  return `Photorealistic landscape architecture rendering. ${sun} residential planting${sf?` of approximately ${sf.toLocaleString()} SF`:""} in ${city}.
+  const prompt=`Photorealistic landscape architecture rendering. ${sun} residential planting${sf?` of approximately ${sf.toLocaleString()} SF`:""} in ${city}.
 ${photoTxt}${markTxt}${refTxt}${ctx?`SITE: ${ctx}\n`:""}
 ${stageTxt}
 
@@ -31270,6 +31283,7 @@ DO NOT:
 - Do not draw the listed trees as saplings, potted nursery stock, twigs or shrub-height plants.`:""}
 
 Mediterranean drought-tolerant character, decomposed granite and boulders, warm late-afternoon light, professional landscape photography, wide establishing shot, high detail --ar 3:2 --style raw`;
+  return _photoScopePrompt(prompt,z,stage);
 }
 // Midjourney-tuned prompt — short, evocative, comma-style (MJ hates long structured prose, botanical names & percentages)
 function _midjourneyPrompt(z, stage){
@@ -31358,12 +31372,13 @@ function _renderPromptModal(z){
          </label>`; })()}
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin-bottom:.25rem">Describe the site (optional but makes it much better)</div>
     <textarea id="rp-notes" placeholder="e.g. Steep slope below the house, home sits at the top of the hill, full sun, mature oaks surrounding the property, view down toward the parking court." style="width:100%;height:104px;min-height:56px;padding:.5rem;border:1px solid var(--br);border-radius:8px;font-size:.8rem;font-family:inherit;resize:vertical;box-sizing:border-box">${escAttr(P._siteNotes[z.id]||"")}</textarea>
+    <div style="border:1px solid #d6ddcb;border-radius:9px;padding:10px;margin:10px 0;background:#f9faf6"><b style="font-size:.76rem">Where to use planting mix &amp; massing</b><div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${[['all','Mix throughout'],['untraced','Mix only in untraced areas'],['traced','Traced areas only']].map(([key,label])=>`<button type="button" data-mix-mode="${key}" onclick="_photoScopeSet('${escAttr(z.id)}','mode','${key}')" style="border:1px solid #d6ddcb;border-radius:7px;padding:8px;font-size:.7rem">${label}</button>`).join('')}</div><div id="rp-mix-hint" style="font-size:.68rem;color:#66735e"></div></div>
     <div style="display:flex;align-items:baseline;gap:.5rem;margin:.7rem 0 .25rem">
       <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase">Planting mix &amp; massing</div>
       <div id="rp-inccount" style="font-size:.66rem;font-weight:700;color:var(--tl);margin-left:auto"></div>
     </div>
     <div style="font-size:.66rem;color:var(--tl);margin-bottom:.3rem;line-height:1.45">Set how many plants make up one group, as a <b>range</b> — the spread is what stops every drift coming out the same size, which is what makes a planting read as stamped. The number of groups is worked out from the real quantity, so it always matches the estimate.</div>
-    <div style="height:330px;min-height:110px;max-height:72vh;overflow:auto;resize:vertical;border:1px solid var(--br);border-radius:8px;padding:.4rem .55rem">
+    <fieldset id="rp-mass-fields" style="border:0;margin:0;padding:0;min-width:0"><div style="height:330px;min-height:110px;max-height:72vh;overflow:auto;resize:vertical;border:1px solid var(--br);border-radius:8px;padding:.4rem .55rem">
       ${rows.length?rows.map(r=>{
         const _k=_massKey(r), _rec=_massRec(z.id,r), _id=_massIds(_k);
         const _w=(r.kind==="tree"||r.kind==="palm");
@@ -31389,15 +31404,16 @@ function _renderPromptModal(z){
             ${_w?`<label style="font-size:.64rem;color:var(--tl);margin-left:.3rem" title="How many of this tree appear in the picture. Changes the rendering only — it never touches the estimate.">show <input type="number" min="0" max="99" value="${_viewN(z.id,r)}" oninput="_viewSet('${escAttr(z.id)}','${escAttr(_k)}',this.value)" style="${_inp}"></label>`:""}
             <span id="${_id.out}" style="margin-left:auto;color:var(--gm);font-weight:700;font-size:.68rem;white-space:nowrap">${_massWord(r.kind,_rec,r.qty)}</span>
           </div>
-        </div>`; }).join(""):'<div style="font-size:.74rem;color:var(--tl)">No quantities set — add quantities so percentages can be calculated.</div>'}    </div>
+        </div>`; }).join(""):'<div style="font-size:.74rem;color:var(--tl)">No quantities set — add quantities so percentages can be calculated.</div>'}    </div></fieldset>
     <div style="display:flex;align-items:center;gap:.6rem;margin:.55rem 0 .2rem;padding:.45rem .6rem;border:1px solid var(--br);border-radius:8px">
       <div style="flex:none">
-        <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase">Ground covered by planting</div>
+        <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase">Plant density within beds</div>
         <div id="rp-coverout" style="font-size:.7rem;color:var(--tm);line-height:1.4"></div>
       </div>
       <input type="range" id="rp-cover" min="10" max="100" step="5" value="${_coverOf(z.id)}" oninput="_coverSet('${escAttr(z.id)}',this.value)" style="flex:1;min-width:120px;accent-color:var(--gm)">
     </div>
-    <div style="font-size:.64rem;color:var(--tl);margin-bottom:.5rem;line-height:1.45">The percentages above are shares <b>of the planting</b>. This is how much of the bed is planted at all — the rest comes out as visible decomposed granite and mulch. Drop it for a gravel-garden look; raise it for a full, closed-up border.</div>
+    <div style="font-size:.64rem;color:var(--tl);margin-bottom:.5rem;line-height:1.45">A traced outline defines the bed boundary, not solid plant coverage. At 60% density, foliage covers about 60% inside that boundary, with 40% visible ground between plants. This does not mean that 40% of the site is protected.</div>
+    <div style="border:1px solid #d6ddcb;border-radius:9px;padding:10px;margin:10px 0"><label for="rp-untouched" style="font-size:.76rem;font-weight:700">Leave part of this planting zone untouched</label><div id="rp-untouched-out" style="font-size:.7rem;margin:5px 0"></div><input id="rp-untouched" type="range" min="0" max="100" step="5" value="${_photoScope(z.id).untouched}" oninput="_photoScopeSet('${escAttr(z.id)}','untouched',this.value)" style="width:100%;accent-color:#b83b35"><div style="font-size:.66rem;color:#66735e">Set 40% untouched to make up to 60% available for new planting. Paint red Leave alone marks to specify exactly where. Percentages are visual targets; explicit marks take priority.</div></div>
     <div style="font-size:.66rem;font-weight:700;color:var(--tl);text-transform:uppercase;margin:.8rem 0 .3rem">Generate in the app</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.4rem">
       <select id="rp-model" onchange="setImgModel(this.value)" style="font-size:.72rem;padding:.2rem .3rem;border:1px solid var(--br);border-radius:6px">
@@ -31449,7 +31465,7 @@ function _renderPromptModal(z){
     <div style="display:flex;justify-content:flex-end;margin-top:.6rem;flex:none"><button class="btn" onclick="document.getElementById('rp-modal').remove()" style="padding:.4rem .9rem;font-size:.8rem;background:#fff;border:1px solid var(--br);color:var(--tm)">Close</button></div>
   </div>`;
   document.body.appendChild(d);
-  _massCountPaint(z.id); _coverPaint(z.id);
+  _massCountPaint(z.id); _coverPaint(z.id); _photoScopePaint(z.id);
 }
 // ── Marking up the site photo ──────────────────────────────────────────────────
 // Nothing reaches the image model as coordinates — there is no "put a tree at 40%, 60%"
@@ -31504,7 +31520,7 @@ function _markOpen(zid){
   const ph=(P._sitePhoto&&P._sitePhoto[zid])||"";
   if(!ph){askTell("No site photo yet","Upload a photo of the site first — the marks are drawn onto that photograph.");return;}
   _mkDispose();
-  Object.assign(_MK,{zid,img:null,items:structuredClone(_marksOf(zid).items),tool:"area",species:"",drawing:null,poly:null,history:[],selected:-1,drag:null,tab:"plants",plantType:"all",rockSize:"M",zoom:1,visible:true,session:_projectSession,phase:S.phase});
+  Object.assign(_MK,{zid,img:null,items:structuredClone(_marksOf(zid).items),tool:"area",species:"",drawing:null,poly:null,history:[],selected:-1,drag:null,tab:"plants",plantType:"all",rockSize:"M",zoom:1,visible:true,labels:true,session:_projectSession,phase:S.phase});
   _MK.species=_mkFirstBedKey();
   const d=document.createElement("div");d.id="mk-modal";d.setAttribute("role","dialog");d.setAttribute("aria-modal","true");d.setAttribute("aria-label","Photo markup");
   d.innerHTML=`<style>#mk-modal *{box-sizing:border-box}#mk-modal{margin:0;background:#e9ece3;color:#253023;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}#mk-modal button,#mk-modal input{font:inherit}#mk-modal button{cursor:pointer}#mk-modal button:focus-visible,#mk-modal input:focus-visible{outline:3px solid #b8d991;outline-offset:2px}#mk-modal button{border:0}#mk-modal .mk-header{height:76px;padding:0 24px;display:flex;align-items:center;gap:20px;border-bottom:1px solid #d6dbcf;background:#f9faf6}#mk-modal .mk-brand{font:26px Georgia;letter-spacing:-1px;padding-right:20px;border-right:1px solid #dce0d4}#mk-modal .mk-kicker{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:#74816b;margin-bottom:5px}#mk-modal .mk-title{font-size:17px;font-weight:650}#mk-modal .mk-pill{font-size:10px;letter-spacing:.6px;border:1px solid #d6ddcb;padding:6px 9px;border-radius:6px;color:#77816e}#mk-modal .mk-right{margin-left:auto;display:flex;align-items:center;gap:12px}#mk-modal .mk-button{height:40px;padding:0 17px;border:1px solid #d6ddcb;background:#fff;border-radius:9px;color:#40533a;font-size:12px;font-weight:650}#mk-modal .mk-save{background:#4f843e;border-color:#4f843e;color:#fff}#mk-modal .mk-workspace{height:calc(100dvh - 76px);display:grid;grid-template-columns:78px 280px minmax(0,1fr);gap:12px;padding:16px;transition:grid-template-columns .2s}#mk-modal .mk-workspace.mk-collapsed{grid-template-columns:78px 0 minmax(0,1fr)}#mk-modal .mk-rail{background:#11180d;border-radius:22px;display:flex;flex-direction:column;align-items:center;padding:12px 8px;gap:5px;color:#95ad86;overflow:auto}#mk-modal .mk-rail button{width:62px;min-height:56px;border-radius:14px;background:none;color:inherit;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;font-size:10px;font-weight:700}#mk-modal .mk-rail button.mk-active{background:#5ba34a;color:#10250a}#mk-modal .mk-rail button:hover{background:#2a3721;color:#eaf0e4}#mk-modal .mk-rail svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}#mk-modal .mk-rail hr{border:0;border-top:1px solid #303b27;width:40px;margin:7px}#mk-modal .mk-spacer{flex:1;min-height:12px}#mk-modal .mk-panel{background:linear-gradient(#1a2113,#131a0d);border-radius:22px;display:flex;flex-direction:column;min-width:0;overflow:hidden;color:#eaf0e4}#mk-modal .mk-collapsed .mk-panel{visibility:hidden}#mk-modal .mk-panelhead{padding:21px 18px 15px}#mk-modal .mk-panelhead h2{margin:0 0 5px;font-size:17px}#mk-modal .mk-sub{font-size:11px;color:#99ad8b;line-height:1.5}#mk-modal .mk-panelclose{float:right;background:#2b3622;color:#d4dfcc;border-radius:7px;width:30px;height:30px;font-size:19px}#mk-modal .mk-search{margin-top:17px;width:100%;background:#283220;border:1px solid #3a472e;padding:11px 12px;color:#eaf0e4;border-radius:9px;font-size:12px}#mk-modal .mk-search::placeholder{color:#a1b194}#mk-modal .mk-tabs{display:flex;margin:0 18px 12px;gap:5px;background:#10170c;border-radius:9px;padding:4px}#mk-modal .mk-tabs button{width:50%;background:none;color:#a2b693;padding:8px;border-radius:6px;font-size:11px}#mk-modal .mk-tabs .mk-active{background:#3b4b30;color:#fff}#mk-modal .mk-list{overflow:auto;min-height:0;flex:1;padding:0 12px 15px;scrollbar-width:thin;scrollbar-color:#46513c transparent}#mk-modal .mk-section{font-size:9px;color:#8ba07d;letter-spacing:1.4px;text-transform:uppercase;margin:12px 7px 10px;font-weight:750}#mk-modal .mk-plant{width:100%;background:#242e1c;color:#d9e7cd;display:flex;gap:10px;align-items:center;text-align:left;padding:12px 10px;border-radius:11px;margin:5px 0}#mk-modal .mk-plant:hover{background:#34422b}#mk-modal .mk-plant.mk-active{background:#5ba34a;color:#0c2007}#mk-modal .mk-swatch{height:24px;width:24px;border-radius:50%;flex:none;background:var(--sw);border:3px solid #ffffff33}#mk-modal .mk-plant strong{display:block;font-size:12px;font-weight:650}#mk-modal .mk-plant small{font-size:10px;display:block;opacity:.65;margin-top:3px}#mk-modal .mk-plant .mk-qty{font:11px monospace;margin-left:auto;opacity:.7}#mk-modal .mk-panelbottom{padding:17px 18px;background:#11190c;border-top:1px solid #34412a;font-size:11px;line-height:1.6;color:#a8bc98}#mk-modal .mk-panelbottom b{color:#ecf4e5;display:block;margin-bottom:4px;font-size:12px}#mk-modal .mk-stage{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid #d4dacb;border-radius:18px;background:#f5f6f0;overflow:hidden}#mk-modal .mk-toolbar{min-height:58px;display:flex;align-items:center;padding:10px 18px;gap:12px;border-bottom:1px solid #e0e4d7}#mk-modal .mk-tooltag{padding:7px 9px;background:#e2ebd9;border-radius:7px;font-size:11px;font-weight:700;color:#426532}#mk-modal .mk-hint{font-size:11px;color:#7b8774}#mk-modal .mk-view{margin-left:auto;display:flex;gap:6px}#mk-modal .mk-view button{background:#fff;border:1px solid #dce1d3;border-radius:7px;padding:7px 10px;font-size:11px;color:#67745d}#mk-modal .mk-view button.on{background:#e0e9d7;color:#355c29}#mk-modal .mk-viewport{flex:1;min-height:0;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;padding:22px;overflow:hidden;background:#e5e8dd}#mk-modal .mk-photo{position:relative;aspect-ratio:4/3;width:100%;max-height:100%;max-width:100%;box-shadow:0 10px 30px #2435191a;border-radius:7px;overflow:hidden}#mk-modal .mk-photo img{width:100%;height:100%;object-fit:contain;display:block}#mk-modal .mk-photo svg{position:absolute;inset:0;width:100%;height:100%}#mk-modal .mk-photo.hide svg{display:none}#mk-modal .mk-photo.zoom{transform:scale(1.2)}#mk-modal .mk-legend{display:flex;gap:15px;padding:12px 18px;font-size:10px;color:#69775f;border-top:1px solid #d8dece;align-items:center}#mk-modal .mk-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#7eaa60;margin-right:5px}#mk-modal .mk-muted{color:#98a28f;margin-left:auto}#mk-modal .mk-caption{position:absolute;left:34px;top:34px;background:#fafbf2ed;padding:7px 10px;border-radius:6px;font-size:10px;letter-spacing:.4px;color:#53614a}#mk-modal .mk-toast{position:fixed;bottom:35px;left:50%;transform:translateX(-50%);background:#24351d;color:white;padding:15px 25px;border-radius:12px;box-shadow:0 8px 30px #0003;display:none}#mk-modal .mk-marks-list{font-size:12px;line-height:1.7;padding:8px;color:#d9e7cd}#mk-modal .mk-marks-list div{padding:12px;background:#25321d;border-radius:10px;margin-bottom:8px}@media(max-width:1100px){#mk-modal .mk-workspace{grid-template-columns:78px 248px minmax(0,1fr)}#mk-modal .mk-hint{display:none}#mk-modal .mk-pill{display:none}#mk-modal .mk-toolbar{padding:10px}#mk-modal .mk-viewport{padding:14px}#mk-modal .mk-caption{left:23px;top:23px}}@media(max-width:750px){#mk-modal .mk-workspace{grid-template-columns:64px 205px minmax(0,1fr);gap:8px;padding:8px}#mk-modal .mk-workspace.mk-collapsed{grid-template-columns:64px 0 minmax(0,1fr)}#mk-modal .mk-rail button{width:50px}#mk-modal .mk-header{padding:0 12px;gap:10px}#mk-modal .mk-brand{display:none}#mk-modal .mk-title{font-size:14px}#mk-modal .mk-panelhead{padding:14px}#mk-modal .mk-toolbar .mk-view button{padding:7px}#mk-modal .mk-legend .mk-muted{display:none}}
@@ -31514,7 +31530,7 @@ function _markOpen(zid){
 </style>
   <div class="mk-header"><div class="mk-brand">studio h</div><div class="mk-heading"><div class="mk-kicker">${escAttr(S.pi?.project||"Project")} / Planting palette</div><div class="mk-title">Photo markup <span style="color:#9ba58f;font-weight:400">/</span> ${escAttr(z.name||"Zone")}</div></div><div class="mk-right"><button class="mk-button" id="mk-cancel">Cancel</button><button class="mk-button mk-save" id="mk-save">✓ &nbsp; Save marks</button></div></div>
   <div class="mk-workspace" id="mk-workspace"><nav class="mk-rail" id="mk-rail" aria-label="Markup tools"></nav><aside class="mk-panel"><div class="mk-panelhead"><button class="mk-panelclose" aria-label="Collapse plants" onclick="_mkSidebar()">‹</button><h2>Plant palette</h2><div class="mk-sub">${escAttr(z.name||"Zone")} · ${_zonePlantsAll(z).length} plants</div><input class="mk-search" id="mk-search" placeholder="Search this palette…" aria-label="Search plants" oninput="_mkRefresh()"></div><div class="mk-tabs"><button id="mk-tab-plants" onclick="_mkTab('plants')">Plants</button><button id="mk-tab-marks" onclick="_mkTab('marks')">Marks</button></div><div id="mk-types" style="display:flex;flex-wrap:wrap;gap:5px;padding:0 12px 10px"></div><div class="mk-list" id="mk-list"></div><div class="mk-panelbottom"><b id="mk-active-name"></b><span id="mk-instruction"></span><div style="margin-top:10px;color:#7c926d">Your marks guide the AI. They won’t appear in the finished rendering.</div><div id="mk-selection-actions"></div></div></aside>
-  <main class="mk-stage"><div class="mk-toolbar"><span class="mk-tooltag" id="mk-tooltag"></span><span class="mk-hint" id="mk-hint"></span><div class="mk-context" id="mk-context"></div><div class="mk-view"><button id="mk-visibility" onclick="_mkVisibility()">◉ Marks</button><button aria-label="Zoom in" onclick="_mkZoom(1)">＋</button><button aria-label="Zoom out" onclick="_mkZoom(-1)">−</button><button onclick="_mkZoom(0)">Fit</button></div></div><div class="mk-viewport" id="mk-stage"><div class="mk-canvas-wrap"><canvas id="mk-cv" aria-label="Site photo — draw planting directions"></canvas></div></div><footer class="mk-legend"><span>SITE PHOTO</span><span><i class="mk-dot" style="background:#00b8d9"></i>Planting area</span><span><i class="mk-dot" style="background:#ff00aa"></i>Tree placement</span><span id="mk-count"></span><span class="mk-muted">Photo directions, not measured planting quantities</span></footer></main></div>`;
+  <main class="mk-stage"><div class="mk-toolbar"><span class="mk-tooltag" id="mk-tooltag"></span><span class="mk-hint" id="mk-hint"></span><div class="mk-context" id="mk-context"></div><div class="mk-view"><button id="mk-labels" onclick="_mkLabels()">Labels</button><button id="mk-visibility" onclick="_mkVisibility()">◉ Marks</button><button aria-label="Zoom in" onclick="_mkZoom(1)">＋</button><button aria-label="Zoom out" onclick="_mkZoom(-1)">−</button><button onclick="_mkZoom(0)">Fit</button></div></div><div class="mk-viewport" id="mk-stage"><div class="mk-canvas-wrap"><canvas id="mk-cv" aria-label="Site photo — draw planting directions"></canvas></div></div><footer class="mk-legend"><span>SITE PHOTO</span><span><i class="mk-dot" style="background:#00b8d9"></i>Planting area</span><span><i class="mk-dot" style="background:#ff00aa"></i>Tree placement</span><span id="mk-count"></span><span class="mk-muted">Photo directions, not measured planting quantities</span></footer></main></div>`;
   document.body.appendChild(d);
   d.querySelector('#mk-cancel').onclick=_mkDispose;
   d.querySelector('#mk-save').onclick=()=>{
@@ -31541,6 +31557,7 @@ function _mkFit(){
 function _mkSidebar(open){const el=document.getElementById('mk-workspace');if(!el)return;if(open===true)el.classList.remove('mk-collapsed');else el.classList.toggle('mk-collapsed');_mkFitRepaint();}
 function _mkTab(t){_MK.tab=t;_mkRefresh();}
 function _mkZoom(n){_MK.zoom=n?Math.min(3,Math.max(1,_MK.zoom+n*.25)):1;_mkFitRepaint();}
+function _mkLabels(){_MK.labels=!_MK.labels;_mkPaint();_mkRefresh();}
 function _mkVisibility(){_MK.visible=!_MK.visible;_mkPaint();_mkRefresh();}
 function _mkRefresh(){const z=(ensurePlanting().zones||[]).find(x=>x.id===_MK.zid);if(z)_mkTools(z,_mkTreeList(z));}
 // Codes share one dictionary between the editor, composite and AI prompt.
@@ -31563,7 +31580,7 @@ function _mkTools(z,trees){
   const rail=document.getElementById('mk-rail');if(!rail)return;
   const paths={rock:'<path d="m3 17 2-8 7-5 7 4 3 9-5 3H8Z"/><path d="m5 9 7 3 7-4M12 12l5 8"/>',undo:'<path d="M8 5 3 10l5 5M3 10h11a5 5 0 0 1 0 10"/>',select:'<path d="m5 3 5 17 3-7 7-3Z"/>',specimen:'<path d="M12 21V10M12 15C3 15 4 6 4 6s9-1 8 9Zm0-4c0-8 8-8 8-8s2 8-8 8Z"/>',pin:'<path d="M12 20v-6M8 15h8a4 4 0 0 0 2-7 6 6 0 0 0-12 0 4 4 0 0 0 2 7Z"/>',area:'<path d="m3 7 9-4 8 7-4 10-11-2Z"/>',plant:'<path d="M12 21s7-7 7-13A7 7 0 0 0 5 8c0 6 7 13 7 13Z"/><circle cx="12" cy="8" r="2"/>',keep:'<path d="m12 2 8 4v6q0 6-8 10Q4 18 4 12V6Z"/><path d="m8 11 3 3 5-6"/>'};
   const labels={select:'Select',pin:'Tree',specimen:'Place plant',area:'Plant area',plant:'Paint bed',rock:'Boulders',keep:'Leave alone'};
-  rail.innerHTML=[['undo','Undo'],['select','Select'],['specimen','Place plant'],['pin','Tree'],['area','Plant area'],['plant','Paint bed'],['rock','Boulders'],['keep','Leave alone']].map(([k,l])=>`<button data-tool="${k}" class="${_MK.tool===k?'mk-active':''}" aria-pressed="${_MK.tool===k}" onclick="${k==='undo'?'_mkUndo()':`_mkTool('${k}')`}" ${k==='undo'&&!_MK.history.length&&!_MK.poly?.length?'disabled':''}><svg viewBox="0 0 24 24">${paths[k]}</svg>${l}</button>${k==='select'?'<hr>':''}`).join('')+'<div class="mk-spacer"></div><button onclick="_mkSidebar()" aria-label="Toggle plant sidebar"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>Sidebar</button><button onclick="_mkClear()">⌫<br>Clear marks</button>';
+  rail.innerHTML=[['undo','Undo'],['select','Select'],['specimen','Place plant'],['pin','Tree'],['area','Plant area'],['plant','Paint bed'],['rock','Boulders'],['keep','Leave alone']].map(([k,l])=>`<button data-tool="${k}" style="${k==='keep'&&_MK.tool==='keep'?'background:#ce2929;color:#fff':''}" class="${_MK.tool===k?'mk-active':''}" aria-pressed="${_MK.tool===k}" onclick="${k==='undo'?'_mkUndo()':`_mkTool('${k}')`}" ${k==='undo'&&!_MK.history.length&&!_MK.poly?.length?'disabled':''}><svg viewBox="0 0 24 24">${paths[k]}</svg>${l}</button>${k==='select'?'<hr>':''}`).join('')+'<div class="mk-spacer"></div><button onclick="_mkSidebar()" aria-label="Toggle plant sidebar"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>Sidebar</button><button onclick="_mkClear()">⌫<br>Clear marks</button>';
   const search=(document.getElementById('mk-search').value||'').toLowerCase(),list=document.getElementById('mk-list'),scroll=list.scrollTop;
   const types=[['tree','Trees'],['palm','Palms'],['shrub','Shrubs'],['gc','Groundcover']],all=_zonePlantsAll(z),codes=_mkCodes(z);
   const order=Object.fromEntries(types.map(([key],i)=>[key,i]));
@@ -31577,11 +31594,12 @@ function _mkTools(z,trees){
   }else list.innerHTML=_MK.items.map((it,i)=>`<button class="mk-plant ${_MK.selected===i?'mk-active':''}" onclick="_mkSelect(${i})"><span><strong>${escAttr(_mkLabel(it,i))}</strong><small>${escAttr(it.t==='rock'?({S:'Small',M:'Medium',L:'Large'}[it.size]||'Medium')+' natural boulder':it.k?_mkPlantName(z,it.k):it.t==='pin'?'Tree placement':it.m==='keep'?'Keep unchanged':'Mixed planting')}</small></span></button>`).join('')||'<div class="mk-empty">No marks yet. Choose a tool and mark the photo.</div>';
   list.scrollTop=scroll;
   document.getElementById('mk-tab-plants').classList.toggle('mk-active',_MK.tab==='plants');document.getElementById('mk-tab-marks').classList.toggle('mk-active',_MK.tab==='marks');document.getElementById('mk-tab-marks').textContent='Marks · '+_MK.items.length;
-  const hint=_MK.tool==='rock'?'Choose a size, then tap the ground centre of each boulder. Relative sizes, not measured quantities.':_MK.tool==='select'?'Tap a mark to select it. Drag it to move.':_MK.tool==='pin'?'Tap where the trunk meets the ground, not the canopy.':_MK.tool==='specimen'?'Choose a species, then tap to place one plant at its ground position.':_MK.tool==='area'?(!_MK.species?'Choose a plant, then tap around its outline.':_MK.poly?.length?`Tap to add corners (${_MK.poly.length}). Close the area when ready.`:'Tap corners around the area this plant fills.'):_MK.tool==='plant'?'Drag to paint mixed planting areas.':'Drag over areas that must remain unchanged.';
+  const hint=_MK.tool==='rock'?'Choose a size, then tap the ground centre of each boulder. Relative sizes, not measured quantities.':_MK.tool==='select'?'Tap a mark to select it. Drag it to move.':_MK.tool==='pin'?'Tap where the trunk meets the ground, not the canopy.':_MK.tool==='specimen'?'Choose a species, then tap to place one plant at its ground position.':_MK.tool==='area'?(!_MK.species?'Choose a plant, then tap around its outline.':_MK.poly?.length?`Tap to add corners (${_MK.poly.length}). Close the area when ready.`:'Tap corners around the area this plant fills.'):_MK.tool==='plant'?'Drag to paint mixed planting areas.':'Paint RED over areas the AI must leave exactly as they are.';
   document.getElementById('mk-tooltag').textContent=labels[_MK.tool];document.getElementById('mk-hint').textContent=hint;document.getElementById('mk-instruction').textContent=hint;
   document.getElementById('mk-active-name').textContent=_MK.tool==='rock'?'R'+_MK.rockSize+' · '+({S:'Small',M:'Medium',L:'Large'}[_MK.rockSize])+' boulder':_MK.tool==='select'&&_MK.selected>=0?_mkLabel(_MK.items[_MK.selected],_MK.selected):_MK.species&&['pin','specimen','area'].includes(_MK.tool)?_mkPlantName(z,_MK.species):_MK.tool==='pin'?'Any tree in this palette':labels[_MK.tool];
   document.getElementById('mk-context').innerHTML=_MK.tool==='rock'?[['S','Small'],['M','Medium'],['L','Large']].map(([v,label])=>`<button data-rock-size="${v}" aria-pressed="${_MK.rockSize===v}" class="${_MK.rockSize===v?'mk-active':''}" onclick="_mkRockSize('${v}')">R${v} · ${label}</button>`).join(''):_MK.tool==='area'&&_MK.poly?.length>=3?'<button onclick="_mkCloseArea()">✓ Close area</button>':['plant','keep'].includes(_MK.tool)?[['S',.03],['M',.055],['L',.1]].map(([l,v])=>`<button aria-label="${l} brush" class="${Math.abs(_MK.size-v)<.001?'mk-active':''}" onclick="_mkSize(${v})">${l}</button>`).join(''):'';
   document.getElementById('mk-selection-actions').innerHTML=_MK.tool==='select'&&_MK.selected>=0?'<button class="mk-delete" onclick="_mkDelete()">Remove selected mark</button>':'';
+  document.getElementById('mk-labels').classList.toggle('on',_MK.labels);document.getElementById('mk-labels').setAttribute('aria-pressed',String(_MK.labels));
   document.getElementById('mk-visibility').classList.toggle('on',_MK.visible);document.getElementById('mk-visibility').setAttribute('aria-pressed',String(_MK.visible));
   document.getElementById('mk-count').textContent=_MK.items.filter(x=>x.t==='pin'&&_mkIsTree(x)).length+' trees · '+_MK.items.filter(x=>x.t==='pin'&&!_mkIsTree(x)).length+' plants · '+_MK.items.filter(x=>x.t==='area').length+' areas · '+_MK.items.filter(x=>x.t==='rock').length+' boulders · '+_MK.items.filter(x=>x.t==='stroke').length+' brush marks';
   if(_MK.cv)_MK.cv.style.cursor=_MK.tool==='select'?'grab':'crosshair';
@@ -31621,7 +31639,7 @@ function _mkXY(e){ const r=_MK.cv.getBoundingClientRect();
 function _mkHit(x,y){
   // Hit-test in screen pixels so narrow brush strokes and pins stay selectable at every zoom.
   const px=x*_MK.w,py=y*_MK.h;
-  for(let i=_MK.items.length-1;i>=0;i--){const it=_MK.items[i];if(_mkPoint(it)){const r=Math.max(12,Math.min(_MK.w,_MK.h)*.023),labelY=it.y*_MK.h>r*3?it.y*_MK.h-r*2.2:it.y*_MK.h+r*2.2;if(Math.hypot((it.x-x)*_MK.w,(it.y-y)*_MK.h)<20||Math.hypot((it.x-x)*_MK.w,py-labelY)<r*1.7)return i;continue;}
+  for(let i=_MK.items.length-1;i>=0;i--){const it=_MK.items[i];if(_mkPoint(it)){const r=Math.max(8,Math.min(_MK.w,_MK.h)*.023*2/3),labelY=it.y*_MK.h>r*3?it.y*_MK.h-r*2.2:it.y*_MK.h+r*2.2;if(Math.hypot((it.x-x)*_MK.w,(it.y-y)*_MK.h)<20||(_MK.labels!==false&&Math.hypot((it.x-x)*_MK.w,py-labelY)<r*1.7))return i;continue;}
     const pts=it.p||[];if(it.t==='area'){let inside=false;for(let a=0,b=pts.length-1;a<pts.length;b=a++){const A=pts[a],B=pts[b];if((A[1]>y)!==(B[1]>y)&&x<(B[0]-A[0])*(y-A[1])/(B[1]-A[1])+A[0])inside=!inside;}if(inside)return i;}
     const tolerance=it.t==='stroke'?Math.max(12,(it.w||.055)*Math.min(_MK.w,_MK.h)/2):12;
     for(let j=0;j<pts.length;j++){const a=pts[j],b=pts[Math.min(j+1,pts.length-1)],ax=a[0]*_MK.w,ay=a[1]*_MK.h,dx=(b[0]-a[0])*_MK.w,dy=(b[1]-a[1])*_MK.h,t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy||1)));if(Math.hypot(px-ax-t*dx,py-ay-t*dy)<tolerance)return i;}
@@ -31656,7 +31674,7 @@ function _mkUp(e){ if(_MK.drag){_MK.drag=null;_mkRefresh();} if(_MK.drawing){ _M
   const P=ensurePlanting(); const z=(P.zones||[]).find(v=>v.id===_MK.zid); if(z) _mkTools(z,_mkTreeList(z)); } }
 // The one drawing routine — used for the editor canvas AND for the copy that is sent to
 // the model, so what you draw is exactly what it is given.
-function _mkDrawMarks(ctx,W,H,items,z){
+function _mkDrawMarks(ctx,W,H,items,z,showLabels=true){
   const R=Math.min(W,H);
   let ai=0;
   items.forEach(it=>{ if(it.t!=="area"||!it.p||it.p.length<3) return;
@@ -31667,32 +31685,32 @@ function _mkDrawMarks(ctx,W,H,items,z){
     ctx.globalAlpha=.32; ctx.fillStyle=col; ctx.fill();
     ctx.globalAlpha=.95; ctx.lineWidth=Math.max(2,R*.006); ctx.strokeStyle=col;
     ctx.lineJoin="round"; ctx.stroke();
-    const c=_areaCentre(it), cx=c[0]*W, cy=c[1]*H, r=Math.max(9,Math.round(R*.022));
-    ctx.globalAlpha=1; ctx.font="800 "+Math.round(r*.95)+"px -apple-system,system-ui,sans-serif"; const rx=Math.max(r,ctx.measureText(tag).width/2+6); ctx.beginPath(); ctx.ellipse(cx,cy,rx,r,0,0,Math.PI*2);
+    const c=_areaCentre(it), cx=c[0]*W, cy=c[1]*H, r=Math.max(6,Math.round(R*.022*2/3));
+    if(showLabels){ctx.globalAlpha=1; ctx.font="800 "+Math.round(r*.95)+"px -apple-system,system-ui,sans-serif"; const rx=Math.max(r,ctx.measureText(tag).width/2+6); ctx.beginPath(); ctx.ellipse(cx,cy,rx,r,0,0,Math.PI*2);
     ctx.fillStyle=col; ctx.fill(); ctx.lineWidth=Math.max(1.5,r*.18); ctx.strokeStyle="#FFFFFF"; ctx.stroke();
     ctx.fillStyle="#FFFFFF"; ctx.font="800 "+Math.round(r*.95)+"px -apple-system,system-ui,sans-serif";
-    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(tag,cx,cy);
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(tag,cx,cy);}
     ctx.restore(); });
-  items.forEach(it=>{ if(it.t!=="stroke"||!it.p||!it.p.length) return;
-    ctx.save(); ctx.globalAlpha=.42;
-    ctx.strokeStyle = it.m==="keep" ? "#FF1744" : "#00E64D";
+  items.filter(it=>it.t==="stroke").sort((a,b)=>(a.m==="keep")-(b.m==="keep")).forEach(it=>{ if(it.t!=="stroke"||!it.p||!it.p.length) return;
+    ctx.save(); ctx.globalAlpha=it.m==="keep"?.6:.42;
+    ctx.strokeStyle = it.m==="keep" ? "#FF0000" : "#00E64D";
     ctx.lineWidth=Math.max(8,(it.w||.055)*R); ctx.lineCap="round"; ctx.lineJoin="round";
     ctx.beginPath();
     if(it.p.length===1){ ctx.moveTo(it.p[0][0]*W,it.p[0][1]*H); ctx.lineTo(it.p[0][0]*W+.5,it.p[0][1]*H); }
     else it.p.forEach((pt,i)=>{ const x=pt[0]*W,y=pt[1]*H; if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); });
     ctx.stroke(); ctx.restore(); });
   items.forEach(it=>{if(!_mkPoint(it))return;
-    const x=it.x*W,y=it.y*H,r=Math.max(12,Math.round(R*.023)),code=it.t==='rock'?'R'+(it.size||'M'):_mkCode(z,it.k),colour=it.t==='rock'?'#80583C':_mkIsTree(it)?'#FF00AA':'#00A8B5';
+    const x=it.x*W,y=it.y*H,r=Math.max(8,Math.round(R*.023*2/3)),code=it.t==='rock'?'R'+(it.size||'M'):_mkCode(z,it.k),colour=it.t==='rock'?'#80583C':_mkIsTree(it)?'#FF00AA':'#00A8B5';
     const labelY=y>r*3?y-r*2.2:y+r*2.2;
     ctx.save();ctx.strokeStyle='#FFFFFF';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x-7,y);ctx.lineTo(x+7,y);ctx.moveTo(x,y-7);ctx.lineTo(x,y+7);ctx.stroke();
-    ctx.strokeStyle=colour;ctx.lineWidth=2;ctx.stroke();ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,labelY);ctx.stroke();
+    ctx.strokeStyle=colour;ctx.lineWidth=2;ctx.stroke();if(!showLabels){ctx.restore();return;}ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,labelY);ctx.stroke();
     ctx.font='700 '+Math.round(r*.95)+'px -apple-system,system-ui,sans-serif';const rx=Math.max(r,ctx.measureText(code).width/2+6),labelX=Math.max(rx+2,Math.min(W-rx-2,x));
     ctx.beginPath();ctx.ellipse(labelX,labelY,rx,r,0,0,Math.PI*2);ctx.fillStyle=colour;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#FFFFFF';ctx.stroke();ctx.fillStyle='#FFFFFF';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(code,labelX,labelY);ctx.restore();
   });
 }
 function _mkPaint(){ const {ctx,img,w,h}=_MK; if(!ctx||!img) return;
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===_MK.zid);
-  ctx.clearRect(0,0,w,h); ctx.drawImage(img,0,0,w,h); if(!_MK.visible)return; _mkDrawMarks(ctx,w,h,_MK.items,z);
+  ctx.clearRect(0,0,w,h); ctx.drawImage(img,0,0,w,h); if(!_MK.visible)return; _mkDrawMarks(ctx,w,h,_MK.items,z,_MK.labels!==false);
   const selected=_MK.items[_MK.selected];if(_MK.tool==='select'&&selected){const pts=_mkPoint(selected)?[[selected.x,selected.y]]:selected.p;const xs=pts.map(p=>p[0]*w),ys=pts.map(p=>p[1]*h);ctx.save();ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.strokeRect(Math.min(...xs)-12,Math.min(...ys)-12,Math.max(...xs)-Math.min(...xs)+24,Math.max(...ys)-Math.min(...ys)+24);ctx.restore();}
   // the outline being drawn right now, before it is closed
   const poly=_MK.poly;
@@ -31749,18 +31767,18 @@ REFERENCE IMAGE ${markNo} IS AN INSTRUCTION SHEET, NOT A SCENE. It is reference 
   }
   const areas=m.items.filter(i=>i.t==="area"&&i.p&&i.p.length>=3);
   if(areas.length){
-    t+=`Image ${markNo} also carries ${areas.length} OUTLINED REGION${areas.length===1?"":"S"}, each filled with a flat colour and labelled with its botanical species code. Repeated codes mean separate beds of the same species. Every region is a bed given over to ONE named species. Fill each region with that species and nothing else:\n`;
+    t+=`Image ${markNo} also carries ${areas.length} OUTLINED REGION${areas.length===1?"":"S"}, each filled with a flat colour and labelled with its botanical species code. Repeated codes mean separate beds of the same species. Every region permits ONE named species. Apply the specified plant density inside it; the coloured wash is not an instruction for 100% foliage coverage:\n`;
     areas.forEach((a,i)=>{ const c=_areaCentre(a);
       t+=`   Region ${i+1} — ${_areaColName(z,a.k)} outline, labelled ${_mkCode(z,a.k)} — planted with ${_mkPlantName(z,a.k)||"the species named in the list below"} — ${_pinWhere(c[0],c[1])}.\n`; });
-    t+=`   The outline is where that species stops: do not let it spill outside its region, and do not put a different species inside it. Within its own region the species still forms natural, irregular, overlapping drifts — not a solid block cut to the outline, and not a shape with a hard edge. Between and around the regions, plant the remaining species as set out below.\n`;
+    t+=`   The outline is where that species stops: do not let it spill outside its region, and do not put a different species inside it. Within its own region the species still forms natural, irregular, overlapping drifts — not a solid block cut to the outline, and not a shape with a hard edge. Outside the regions, follow the chosen mix-and-massing mode and untouched-zone target; do not assume all untraced ground should be planted.\n`;
   }
   const rocks=m.items.filter(it=>it.t==='rock');
   if(rocks.length){t+=`BOULDER PLACEMENT: brown labels use RS = small, RM = medium, RL = large natural landscape boulder. Each leader ends at a ground cross marking the centre of ONE boulder's contact footprint, not its top. These are relative visual size classes; no measured dimensions are supplied. Preserve existing rocks. Add only the specified boulders, seated naturally into the slope, matching existing stone character and perspective. Do not interpret rock labels as plant species.\n`;
     rocks.forEach((it,i)=>{t+=`Boulder ${i+1}: R${it.size||'M'} — ${_pinWhere(it.x,it.y)}.\n`;});
     t+=`Remove all rock labels, crosses and leaders from the finished photograph.\n`;
   }
-  if(plant) t+=`Every area under the translucent GREEN wash in image ${markNo} is planting bed. All the shrub and groundcover planting belongs inside those areas and nowhere else.\n`;
-  if(keep)  t+=`Every area under the translucent RED / PINK wash in image ${markNo} must come through EXACTLY as photographed. Do not plant it, do not resurface it, do not alter it in any way.\n`;
+  if(plant) t+=`Every area under the translucent GREEN wash in image ${markNo} is planting bed. The green wash permits mixed planting at the selected bed density; labelled species beds and individual marks also permit planting. Red protected areas always override green or other marks.\n`;
+  if(keep)  t+=`Every area under the translucent RED wash in image ${markNo} must come through EXACTLY as photographed. Do not plant it, do not resurface it, do not alter it in any way.\n`;
   t+=`Whatever lies UNDER a wash is unchanged by the wash — the wash says what that ground is FOR, it is not a change to the ground. The finished picture is an ordinary photograph of the completed garden with no annotation of any kind on it.\n`;
   return t;
 }
