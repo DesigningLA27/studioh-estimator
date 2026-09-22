@@ -35,7 +35,7 @@ const assert=require('node:assert/strict');
   failure=!saveFail;await setup('install',saveFail);await page.evaluate(()=>_rpGenerate('test','install'));
   assert.equal(await page.locator('#prp-title').textContent(),'Rendering not completed');assert.equal(await page.locator('#rp-modal').count(),1);await page.locator('#palette-render-progress button').click();assert.equal(await page.locator('#rp-modal').count(),1);assert.equal(await page.locator('.rp-gen').isEnabled(),true);console.log(saveFail?'save failure':'provider failure','keeps options open and retry enabled');
  }
- failure=false;await setup('install');await page.evaluate(()=>{window.renderTask=_rpGenerate('test','install');S.planting={zones:[{id:'other'}]};CLOUD_BID_ID='other-project';});await page.evaluate(()=>window.renderTask);assert.match(await page.locator('#palette-render-progress [data-message]').textContent(),/active project changed/);assert.equal(await page.evaluate(()=>S.planting._renders),undefined);console.log('Switched project is not modified by late render result');
+ failure=false;await setup('install');await page.evaluate(()=>{window.renderTask=_rpGenerate('test','install');S.planting={zones:[{id:'other'}]};CLOUD_BID_ID='other-project';_projectSession++;});await page.evaluate(()=>window.renderTask);assert.match(await page.locator('#palette-render-progress [data-message]').textContent(),/project or design phase changed/);assert.equal(await page.evaluate(()=>S.planting._renders),undefined);console.log('Switched project is not modified by late render result');
  assert.deepEqual(errors,[]);console.log('PASS: no browser errors');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1549</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1550</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12902,6 +12902,7 @@ function _notifyAppRefresh(){
   _appRefreshNoticeShown=true;
   try{ _toast("An update is ready. Save your project, then refresh when you are ready.","#4C7B3D"); }catch(e){}
 }
+let _projectSession=0; // Changes only when an actual project is replaced, never for a calculation refresh.
 function _projectHasWork(){
   try{
     if(S._sample) return false;
@@ -12929,6 +12930,7 @@ function removeSampleProject(){
   setTimeout(()=>{ location.reload(); }, 200);
 }
 function _buildSampleProject(){
+  _projectSession++;
   closeSettings();
   S._sample=true;
   const today=new Date().toISOString().slice(0,10);
@@ -13298,6 +13300,7 @@ function buildDemoOnTrace(){
   _buildDemoProject(true);
 }
 async function _buildDemoProject(keepTrace){
+  _projectSession++;
   closeSettings();
   S._sample=true; S._demo=true;
   const today=new Date().toISOString().slice(0,10);
@@ -31861,8 +31864,8 @@ async function _rpGenerate(zid, stage){
                       : "Add quantities to this zone's plants first."); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
-  const renderProjectId=CLOUD_BID_ID;
-  const assertRenderProject=()=>{ if(S.planting!==P || CLOUD_BID_ID!==renderProjectId) throw new Error("The active project changed during rendering. No image was added to the other project."); };
+  const renderSession=_projectSession, renderPhase=S.phase;
+  const assertRenderProject=()=>{ if(_projectSession!==renderSession || S.phase!==renderPhase) throw new Error("The project or design phase changed during rendering. No image was added to the other project."); if(!(ensurePlanting().zones||[]).some(zone=>zone.id===zid)) throw new Error("The planting zone was removed during rendering."); };
   const st=document.getElementById("rp-status");
   let progress=null;
   const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } if(progress) progress.update(t,col); };
@@ -31968,8 +31971,8 @@ async function _rpCustomGenerate(zid){
   if(_zoneRenders(z.id).length>=4){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ setSt("No worker connected.","#B23F3C"); return; }
   const key=_adminKey(); if(!key) return;
-  const renderProjectId=CLOUD_BID_ID;
-  const assertRenderProject=()=>{ if(S.planting!==P || CLOUD_BID_ID!==renderProjectId) throw new Error("The active project changed during rendering. No image was added to the other project."); };
+  const renderSession=_projectSession, renderPhase=S.phase;
+  const assertRenderProject=()=>{ if(_projectSession!==renderSession || S.phase!==renderPhase) throw new Error("The project or design phase changed during rendering. No image was added to the other project."); if(!(ensurePlanting().zones||[]).some(zone=>zone.id===zid)) throw new Error("The planting zone was removed during rendering."); };
   const names=picks.map(v=>{ const i=v.indexOf(":"); const kind=v.slice(0,i), pid=v.slice(i+1); const p=plantDbFind(kind,pid); if(!p) return null; return (p.c||"")+(botName(p)?" ("+botName(p)+")":""); }).filter(Boolean);
   const city=(S.pi&&S.pi.city)||"Southern California";
   const ref=null;   // custom grouping = ONLY the selected plants together — never render onto the site photo
@@ -32112,8 +32115,8 @@ async function _refineGo(zid,idx){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep){ setSt("No worker connected.","#B23F3C"); return; }
   const key=_adminKey(); if(!key) return;
-  const renderProjectId=CLOUD_BID_ID;
-  const assertRenderProject=()=>{ if(S.planting!==P || CLOUD_BID_ID!==renderProjectId) throw new Error("The active project changed during rendering. No image was added to the other project."); };
+  const renderSession=_projectSession, renderPhase=S.phase;
+  const assertRenderProject=()=>{ if(_projectSession!==renderSession || S.phase!==renderPhase) throw new Error("The project or design phase changed during rendering. No image was added to the other project."); if(!(ensurePlanting().zones||[]).some(zone=>zone.id===zid)) throw new Error("The planting zone was removed during rendering."); };
   const _refPlants=(z&&plantRefsOn())?_zoneRefPlants(z):[];
   const prompt=`Edit the supplied photograph (reference image 1). It is an existing rendering of a residential garden.
 KEEP EVERYTHING ELSE EXACTLY AS IT IS — the same camera position and angle, the same terrain, grade and skyline, the same buildings, walls, paving and background, the same season, lighting and time of day, and the same planting layout except where the change below requires otherwise.
@@ -32145,7 +32148,9 @@ Do not re-compose the scene, do not restyle it, do not move the camera, and do n
         url=await new Promise((ok,no)=>{ const fr=new FileReader(); fr.onload=()=>ok(fr.result); fr.onerror=no; fr.readAsDataURL(blob); }); }catch(e){} }
       if(url===d.url) throw new Error("The image was created but could not be saved. Please try again.");
       assertRenderProject();
-      rr.url=url; rr.refined=(+rr.refined||0)+1;
+      const liveRender=_zoneRenders(zid)[idx];
+      if(!liveRender || liveRender.url!==rr.url) throw new Error("This rendering was changed or removed while the edit was running.");
+      liveRender.url=url; liveRender.refined=(+liveRender.refined||0)+1;
       try{ _bidSchedule(); }catch(e){}
       try{ _plRender(); }catch(e){ console.warn("Report refresh failed after saving rendering",e); }
       setSt("✓ Updated.","var(--gm)");
@@ -71166,6 +71171,7 @@ function loadBidFile(input){ const f=input&&input.files&&input.files[0]; if(inpu
 function restoreBid(bid){
   _SPEC_CACHE=null;                       // the spec sweep memo belongs to the old project
   if(!bid||!bid.S){ alert("That doesn't look like a saved bid file."); return; }
+  _projectSession++;
   try{ specResync(); }catch(e){}
   // Merge, never replace. This used to overwrite the live record wholesale, which meant opening an
   // old project stripped every field the library has seeded since it was saved — growth data, image
