@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1559</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1560</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -71083,9 +71083,9 @@ async function _cloudSaveBidName(){ const ep=(typeof AI_PROXY_URL!=="undefined"&
   _cloudSaveBidRun(name, CLOUD_BID_ID||null);
 }
 function _cloudSaveBidChoose(update){ _cloudSaveBidRun(_csbName, update?(_csbMatch&&_csbMatch.id):null); }
-async function _cloudSaveBidRun(name, targetId){
-  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return;
-  const key=_adminKey(); if(!key) return;
+async function _cloudSaveBidRun(name, targetId, signal){
+  const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep) return false;
+  const key=_adminKey(); if(!key) return false;
   const m=document.getElementById("csb-modal"); if(m) m.remove();
   if(!targetId) CLOUD_PDF_SIG=null;   // a new project gets its own PDF
   const bid=_bidPayload();
@@ -71094,16 +71094,16 @@ async function _cloudSaveBidRun(name, targetId){
   let pdfData=null;
   if(bid.trace && bid.trace.pdf){ pdfData=bid.trace.pdf; bid.trace.pdf=null; bid.trace.hasPdf=true; }
   const size=JSON.stringify(bid).length;
-  if(size>20*1024*1024){ _toast("Too large to save ("+Math.round(size/1024/1024)+"MB) even without the PDF.","#B23F3C"); return; }
+  if(size>20*1024*1024){ _toast("Too large to save ("+Math.round(size/1024/1024)+"MB) even without the PDF.","#B23F3C"); return false; }
   const _busy=(msg)=>{ let b=document.getElementById("cb-busy"); if(!b){ b=document.createElement("div"); b.id="cb-busy"; b.style.cssText="position:fixed;inset:0;background:rgba(20,28,18,.45);z-index:10060;display:flex;align-items:center;justify-content:center"; b.innerHTML='<div style="background:#fff;border-radius:12px;padding:1rem 1.4rem;font-size:.9rem;color:#4C7B3D;font-weight:600"></div>'; document.body.appendChild(b); } b.firstChild.textContent=msg; };
   const _done=()=>{ const b=document.getElementById("cb-busy"); if(b) b.remove(); };
   try{
     _busy(targetId?"Updating project…":"Saving project…");
-    const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebid",key,id:targetId||undefined,name,addr:(S.pi&&S.pi.address)||"",bid})}); const d=await r.json();
+    const r=await fetch(ep,{method:"POST",signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"savebid",key,id:targetId||undefined,name,addr:(S.pi&&S.pi.address)||"",bid})}); const d=await r.json();
     if(!(d&&d.ok)){ _done();
       if(d&&/authoriz/i.test(d.error||"")){ _toast("Wrong admin key. Check it in Settings → Master library access.","#B23F3C"); }
       else _toast("Save failed: "+((d&&d.error)||"error"),"#B23F3C");
-      return; }
+      return false; }
     const wasUpdate=!!targetId;
     CLOUD_BID_ID=d.id; CLOUD_BID_NAME=name; try{_refreshProjectName();}catch(e){}
     try{ _bidMarkSaved(); }catch(e){}
@@ -71112,18 +71112,18 @@ async function _cloudSaveBidRun(name, targetId){
     try{ projIndexPush(projDigest()); }catch(e){}
     if(pdfData){
       const sig=_pdfSig(pdfData);
-      if(wasUpdate && CLOUD_PDF_SIG && sig===CLOUD_PDF_SIG){ _done(); _toast("Updated ✓ — "+name+" (plan PDF unchanged)"); return; }
+      if(wasUpdate && CLOUD_PDF_SIG && sig===CLOUD_PDF_SIG){ _done(); _toast("Updated ✓ — "+name+" (plan PDF unchanged)"); return true; }
       _busy("Uploading plan PDF ("+Math.round(pdfData.length*0.75/1024/1024)+"MB)…");
       // send RAW BYTES — base64 JSON blows past the worker's memory limit on big plans
       const bytes=new Uint8Array(_b642ab(pdfData));
-      const pr=await fetch(ep+"?pdfup="+encodeURIComponent(d.id)+"&key="+encodeURIComponent(key),{method:"POST",headers:{"Content-Type":"application/pdf"},body:bytes}); const pd=await pr.json();
+      const pr=await fetch(ep+"?pdfup="+encodeURIComponent(d.id)+"&key="+encodeURIComponent(key),{method:"POST",signal,headers:{"Content-Type":"application/pdf"},body:bytes}); const pd=await pr.json();
       _done();
       if(pd&&pd.ok){ CLOUD_PDF_SIG=sig; _toast((wasUpdate?"Updated ✓ — ":"Saved to server ✓ — ")+name+" (plan PDF stored)"); }
       else _toast("Project saved ✓ — but the plan PDF didn't upload"+(pd&&pd.error?(": "+pd.error):"")+". Areas & costs are safe.","#B8860B");
-      return;
+      return !!(pd&&pd.ok);
     }
-    _done(); _toast((wasUpdate?"Updated ✓ — ":"Saved to server ✓ — ")+name);
-  }catch(e){ _done(); _toast("Save failed ("+((e&&e.message)||"error")+").","#B23F3C"); }
+    _done(); _toast((wasUpdate?"Updated ✓ — ":"Saved to server ✓ — ")+name); return true;
+  }catch(e){ _done(); _toast("Save failed ("+((e&&e.message)||"error")+").","#B23F3C"); return false; }
 }
 async function cloudOpenBids(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   let d=document.getElementById("cb-modal"); if(d) d.remove(); d=document.createElement("div"); d.id="cb-modal";
@@ -71155,18 +71155,34 @@ async function cloudOpenBids(){ const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_
   }catch(e){ const box=document.getElementById("cb-list"); if(box) box.innerHTML=`<span style="color:#B23F3C">Couldn't load projects.</span>`; }
 }
 // Start a new project — save the current one to the server first, then load a fresh file.
-async function newProject(){
-  if(!confirm("Start a new project?\n\nYour current project is saved to the server first, then a fresh project opens.")) return;
-  const cb=document.getElementById("cb-modal"); if(cb) cb.remove();
-  _toast("Saving current project…");
-  try{ const name=CLOUD_BID_NAME||(S.pi&&S.pi.project)||(S.pi&&S.pi.client)||("Project "+new Date().toLocaleDateString()); await _cloudSaveBidRun(name, CLOUD_BID_ID||null); }catch(e){}
-  try{ CLOUD_BID_ID=null; CLOUD_BID_NAME=null; }catch(e){}
-  try{ localStorage.removeItem("studioh_bid_last"); }catch(e){}
-  // Clearing the last-project marker is what makes the reload come up blank — but that
-  // same marker is the only thing stopping the sample from loading itself on boot. So
-  // say explicitly that a blank project was asked for, and have boot honour it.
-  try{ localStorage.setItem("studioh_want_blank","1"); }catch(e){}
-  setTimeout(()=>{ location.reload(); }, 500);
+let _newProjectBusy=false;
+function newProject(){
+  if(_newProjectBusy || document.getElementById('new-project-dialog'))return;
+  const overlay=document.createElement('div');overlay.id='new-project-dialog';
+  overlay.style.cssText='position:fixed;inset:0;z-index:10070;background:rgba(20,28,18,.55);display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML='<div role="dialog" aria-modal="true" aria-labelledby="np-title" style="background:#fff;color:#283426;border-radius:14px;padding:24px;width:440px;max-width:100%"><h2 id="np-title" style="font-size:20px;margin:0 0 12px">Start a new project?</h2><p style="font-size:14px;line-height:1.6">We’ll save your current project first, then open a blank project. If saving fails, your current work stays open.</p><p id="np-status" role="status" style="font-size:13px;line-height:1.6"></p><div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px"><button id="np-cancel" class="btn">Cancel</button><button id="np-start" class="btn" style="background:#48683b;color:#fff">Save & start new</button></div></div>';
+  document.body.appendChild(overlay);
+  const cancel=()=>{if(!_newProjectBusy){overlay.remove();document.querySelector('#cb-modal button[onclick="newProject()"]')?.focus()}};
+  overlay.querySelector('#np-cancel').onclick=cancel;
+  overlay.onkeydown=e=>{if(e.key==='Escape')cancel();if(e.key==='Tab'){const buttons=[...overlay.querySelectorAll('button:not(:disabled)')];const first=buttons[0],last=buttons.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}};
+  overlay.querySelector('#np-start').onclick=async()=>{
+    if(_newProjectBusy)return;_newProjectBusy=true;
+    const status=overlay.querySelector('#np-status');status.textContent='Saving current project…';overlay.querySelectorAll('button').forEach(b=>b.disabled=true);
+    const session=_projectSession;
+    const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),60000);
+    try{
+      const name=CLOUD_BID_NAME||S.pi?.project||S.pi?.client||('Project '+new Date().toLocaleDateString());
+      const ok=await _cloudSaveBidRun(name,CLOUD_BID_ID||null,controller.signal);
+      if(!ok)throw Error('The current project was not fully saved. Check your connection and Admin access, then try again. Nothing has been cleared.');
+      if(session!==_projectSession)throw Error('The active project changed. Nothing has been cleared. Please try again.');
+      localStorage.setItem('studioh_want_blank','1');
+      localStorage.removeItem('studioh_bid_last');
+      CLOUD_BID_ID=null;CLOUD_BID_NAME=null;
+      status.textContent='Saved. Opening your new project…';
+      location.reload();
+    }catch(e){status.textContent=e.message||'Could not start a new project. Your current work is still open.';status.style.color='#a63832';overlay.querySelectorAll('button').forEach(b=>b.disabled=false);_newProjectBusy=false;}finally{clearTimeout(timer);}
+  };
+  overlay.querySelector('#np-start').focus();
 }
 let _cloudOpening=false;
 async function cloudLoadBid(id,name){
