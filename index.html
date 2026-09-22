@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1553</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1554</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31405,12 +31405,7 @@ function _renderPromptModal(z){
         </select>
       <span id="rp-status" style="font-size:.72rem;color:var(--tm)"></span>
     </div>
-    ${(()=>{ const _rp=_zoneRefPlants(z); const _on=plantRefsOn();
-      return `<label style="display:flex;gap:.4rem;align-items:flex-start;font-size:.72rem;color:var(--tx);margin-bottom:.45rem;cursor:pointer">
-        <input type="checkbox" ${_on?"checked":""} ${_rp.length?"":"disabled"} onchange="setPlantRefs(this.checked,'${z.id}')" style="margin-top:.15rem">
-        <span><b>Show the AI the real plant photos</b> ${_rp.length?`<span style="color:var(--gm);font-weight:700">${_rp.length} available</span>`:`<span style="color:var(--tl)">— none of this zone's plants has a photo in the plant book yet</span>`}
-        <div style="font-size:.66rem;color:var(--tm);line-height:1.4">Without this the AI invents what each plant looks like from its name alone. With it, the plant book photographs go along with the prompt${_rp.length?` (${_rp.map(r=>escAttr(r.p.c||"")).slice(0,4).join(", ")}${_rp.length>4?" +"+(_rp.length-4):""})`:""}. Uses your selected GPT engine, or Nano Banana Pro for the other engine choices. Reference photos can increase cost.</div></span>
-      </label>`; })()}
+    <div id="rp-photo-refs">${_rpRefPicker(z)}</div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="rp-gen btn" onclick="_rpGenerate('${z.id}','install')" style="flex:1;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">✨ Generate: at installation<div style="font-size:.62rem;font-weight:400;opacity:.85">young plants, visible spacing</div></button>
       <button class="rp-gen btn" onclick="_rpGenerate('${z.id}','mature')" style="flex:1;padding:.5rem;font-size:.8rem;background:var(--gm);color:#fff;border:none;font-weight:600">✨ Generate: grown in (5 yr)<div style="font-size:.62rem;font-weight:400;opacity:.85">mature, filled out</div></button>
@@ -31767,21 +31762,38 @@ const PLANT_REF_MAX=12;      // + the site photo = 13, inside Nano Banana Pro's 
 const PLANT_REF_PX=448;      // thirteen full-size photos would make a 12MB request
 function plantRefsOn(){ try{ return localStorage.getItem(PLANT_REF_KEY)!=="0"; }catch(e){ return true; } }
 function setPlantRefs(on,zid){
-  try{ localStorage.setItem(PLANT_REF_KEY,on?"1":"0"); }catch(e){}
-  const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(z) _renderPromptModal(z);
+  try{localStorage.setItem(PLANT_REF_KEY,on?"1":"0");}catch(e){}
+  _rpRefRefresh(zid);
 }
-// The plants in this zone that HAVE a picture, most prominent first — prominence decides
-// which twelve survive the cap, because the species covering 30% of the slope matters more
-// than the one specimen at the back.
+function _zoneRefCandidates(z){
+  // Read current quantities without plantRefresh(): a picker redraw must not clone
+  // the active phase or replace the planting object while a selection is being saved.
+  const rank=new Map();
+  for(const [field,kind] of [['treeRows','tree'],['palmRows','palm'],['shrubRows','shrub'],['gcRows','gc']])for(const row of z[field]||[]){const p=plantDbFind(kind,row.pid);if(!p)continue;const key=kind+':'+p.id;rank.set(key,(rank.get(key)||0)+plantCanopySF(p,kind)*rowQty(row));}
+  return _zonePlantsAll(z).map(r=>({...r,img:plantImgOf(r.p)||''})).sort((a,b)=>(rank.get(b.kind+':'+b.p.id)||0)-(rank.get(a.kind+':'+a.p.id)||0));
+}
 function _zoneRefPlants(z){
-  let rows=[]; try{ rows=_massRowsOn(z); }catch(e){ rows=[]; }
-  const seen={}; const out=[];
-  rows.slice().sort((a,b)=>(b.pct||0)-(a.pct||0)).forEach(r=>{
-    const img=(typeof plantImgOf==="function")?plantImgOf(r.p):""; if(!img) return;
-    const k=r.kind+":"+((r.p&&r.p.id)||""); if(seen[k]) return; seen[k]=1;
-    out.push({kind:r.kind,p:r.p,img});
-  });
-  return out.slice(0,PLANT_REF_MAX);
+  const picks=ensurePlanting()._refPhotoPicks?.[z.id],available=_zoneRefCandidates(z).filter(r=>r.img);
+  // An explicitly empty selection means no references; never silently substitute automatic picks.
+  return (Array.isArray(picks)?available.filter(r=>picks.includes(r.kind+':'+r.p.id)):available).slice(0,PLANT_REF_MAX);
+}
+function _rpRefRefresh(zid){const z=(ensurePlanting().zones||[]).find(x=>x.id===zid),el=document.getElementById('rp-photo-refs');if(z&&el){const open=el.querySelector('details')?.open,scroll=el.querySelector('[data-ref-list]')?.scrollTop||0,focus=document.activeElement?.dataset?.refKey;el.innerHTML=_rpRefPicker(z);if(open!==undefined)el.querySelector('details').open=open;el.querySelector('[data-ref-list]').scrollTop=scroll;if(focus)[...el.querySelectorAll('[data-ref-key]')].find(e=>e.dataset.refKey===focus)?.focus({preventScroll:true});}}
+
+function _rpRefSet(zid,key,on){
+ const P=ensurePlanting(),z=P.zones.find(x=>x.id===zid);if(!z)return;
+ let picks=_zoneRefPlants(z).map(r=>r.kind+':'+r.p.id);
+ if(on){if(picks.length>=PLANT_REF_MAX||!_zoneRefCandidates(z).some(r=>r.img&&r.kind+':'+r.p.id===key)){_rpRefRefresh(zid);return;}if(!picks.includes(key))picks.push(key);}else picks=picks.filter(k=>k!==key);
+ P._refPhotoPicks=P._refPhotoPicks||{};P._refPhotoPicks[zid]=picks;try{_bidSchedule();}catch(e){} _rpRefRefresh(zid);
+}
+function _rpRefMode(zid,mode){const P=ensurePlanting();P._refPhotoPicks=P._refPhotoPicks||{};if(mode==='auto')delete P._refPhotoPicks[zid];else P._refPhotoPicks[zid]=[];try{_bidSchedule();}catch(e){} _rpRefRefresh(zid);}
+function _rpRefPicker(z){
+ const all=_zoneRefCandidates(z),selected=_zoneRefPlants(z),keys=new Set(selected.map(r=>r.kind+':'+r.p.id)),on=plantRefsOn(),manual=Array.isArray(ensurePlanting()._refPhotoPicks?.[z.id]);
+ return `<label style="display:flex;gap:8px;align-items:flex-start;font-size:.75rem;margin-bottom:8px"><input id="rp-use-photos" type="checkbox" ${on?'checked':''} onchange="setPlantRefs(this.checked,'${escAttr(z.id)}')"><span><b>Show the AI the real plant photos</b><br>Uses Plant Book photos to guide plant appearance. ${on?selected.length+' photos selected':'Reference photos are off'}.</span></label>
+ <details open style="border:1px solid #d6ddcb;border-radius:9px;padding:10px;margin-bottom:12px;background:#f9faf6"><summary style="cursor:pointer;font-size:.75rem;font-weight:700;color:#40533a">Choose reference plants · ${selected.length}/${PLANT_REF_MAX} · ${manual?'Your selection':'Automatic'}</summary>
+ <div style="font-size:.68rem;color:#66735e;margin:8px 0">Choose the shrubs, groundcovers or trees that need the most accurate representation. Unselected species remain in your design. Twelve plant-photo slots reserve room for the site photo and placement guide. Photos can increase rendering cost.</div>
+ <div style="display:flex;gap:8px;margin-bottom:8px"><button type="button" class="btn" style="font-size:.7rem" onclick="_rpRefMode('${escAttr(z.id)}','auto')">Automatic selection</button><button type="button" class="btn" style="font-size:.7rem" onclick="_rpRefMode('${escAttr(z.id)}','none')">Clear selection</button></div>
+ <div data-ref-list style="max-height:240px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px">${all.map(r=>{const k=r.kind+':'+r.p.id,checked=keys.has(k),disabled=!on||!r.img||(!checked&&selected.length>=PLANT_REF_MAX);return `<label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid ${checked?'#82a76b':'#d6ddcb'};border-radius:8px;background:${checked?'#e5efde':'#fff'};opacity:${disabled&&!checked?'.55':'1'};font-size:.7rem;cursor:${disabled?'default':'pointer'}"><input type="checkbox" data-ref-key="${escAttr(k)}" ${checked?'checked':''} ${disabled?'disabled':''} onchange="_rpRefSet('${escAttr(z.id)}',this.dataset.refKey,this.checked)">${r.img?`<img src="${escAttr(r.img)}" alt="" loading="lazy" style="width:42px;height:42px;object-fit:contain;border-radius:5px;background:white">`:'<span style="width:42px;flex-shrink:0;font-size:.6rem">No photo</span>'}<span><b>${escAttr(r.p.c||'Plant')}</b><br><span style="font-size:.63rem;color:#687560">${escAttr(botName(r.p))}</span>${!r.img?'<br>Add a photo in Plant Book':''}</span></label>`;}).join('')}</div>
+ <div style="font-size:.68rem;color:#66735e;margin-top:8px">${!on?'Turn on real plant photos above to use these selections.':selected.length===PLANT_REF_MAX?'All 12 slots are selected. Deselect one to choose another.':selected.length===0?'No reference photos selected. Choose plants above or use Automatic selection.':'Selection saved with this planting zone.'}</div></details>`;
 }
 // Named plants (custom grouping picks them by hand, not by share of the ground).
 function _pickRefPlants(picks){
