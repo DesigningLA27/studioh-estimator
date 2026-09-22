@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1547</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1548</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -12895,6 +12895,13 @@ function _sampleQty(u,area){
 }
 // Guard: a project with sections switched on, or one that has been saved to the
 // cloud, is real work — say so plainly before the sample lands on top of it.
+// Background updates must never discard the active project or an in-flight render.
+let _appRefreshNoticeShown=false;
+function _notifyAppRefresh(){
+  if(_appRefreshNoticeShown) return;
+  _appRefreshNoticeShown=true;
+  try{ _toast("An update is ready. Save your project, then refresh when you are ready.","#4C7B3D"); }catch(e){}
+}
 function _projectHasWork(){
   try{
     if(S._sample) return false;
@@ -28655,14 +28662,14 @@ function cfgApplyLive(applied){
   if(!allLive) _cfgStale=true;
   return allLive;
 }
-// A stale screen is refreshed when you are not watching it — on the way out, or on a tab
-// you have come back to after leaving. Never mid-edit, and never as a surprise.
+// Unapplied shared settings request a manual refresh. Backgrounding the app must
+// never discard the active project or interrupt a render.
 try{
   document.addEventListener("visibilitychange",()=>{
     // Coming back to a tab is the exact moment you have most likely just been on the
     // other machine, so poll at once and go back to watching closely.
     if(document.visibilityState==="visible"){ _cfgQuiet=0; cfgPollNow(); return; }
-    if(_cfgStale && !_cfgSaveTm && !_cfgSaveBusy) location.reload();
+    if(_cfgStale && !_cfgSaveTm && !_cfgSaveBusy) _notifyAppRefresh();
   });
   // MEASURED: a save landed at 1:40:11 and the iPad did not see it until 1:40:48 — 38
   // seconds, on a device reporting "asking every 8s". The timer was not running. iPadOS
@@ -29333,8 +29340,8 @@ async function configLoad(silent,force){
     const live=cfgApplyLive(toApply);
     const n=Object.keys(toApply).length;
     _cfgT.applyAt=Date.now(); _cfgT.applyKeys=n;
-    if(!silent) _toast(live?("Updated from your other device ("+n+")"):"Updated — refreshing","#4C7B3D");
-    if(!live && document.visibilityState!=="visible") location.reload();
+    if(!silent) _toast(live?("Updated from your other device ("+n+")"):"Updated — refresh after saving your project","#4C7B3D");
+    if(!live) _notifyAppRefresh();
   }catch(e){ if(!silent) alert("Couldn't reach the server."); }
 }
 // Auto-save is armed only once the boot pull has finished, so this device can never write
@@ -31854,6 +31861,8 @@ async function _rpGenerate(zid, stage){
                       : "Add quantities to this zone's plants first."); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ alert("No worker connected."); return; }
   const key=_adminKey(); if(!key) return;
+  const renderProjectId=CLOUD_BID_ID;
+  const assertRenderProject=()=>{ if(S.planting!==P || CLOUD_BID_ID!==renderProjectId) throw new Error("The active project changed during rendering. No image was added to the other project."); };
   const st=document.getElementById("rp-status");
   let progress=null;
   const setSt=(t,col)=>{ if(st){ st.textContent=t; st.style.color=col||"var(--tm)"; } if(progress) progress.update(t,col); };
@@ -31900,6 +31909,7 @@ async function _rpGenerate(zid, stage){
       const pathIsEdit=/\/edit(\/|$)/.test(modelPath);
       const usedRef=!!(d&&d.usedRef)||pathIsEdit;
       const refUnknown=wantedRef&&!usedRef&&!modelPath;
+      assertRenderProject();
       setSt("Saving image…","var(--gm)");
       let dataUrl=d.url;
       const _up=await _uploadUrlToR2("render_"+z.id+"_"+stage+"_"+Date.now().toString(36), d.url);
@@ -31909,12 +31919,14 @@ async function _rpGenerate(zid, stage){
       let _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
       if(wantedRef&&usedRef) _cap="Rendered onto your "+(_marked?"marked-up ":"")+"site photo. "+_cap;
       else if(wantedRef) _cap="NOT rendered onto your site photo — an invented scene. "+_cap;
+      assertRenderProject();
       if(!_zoneRenderAdd(z.id,dataUrl,_cap,{kind:stage,names:_zoneNames(z)})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       const _pr=_refPlants.length?" "+_refPlants.length+" plant photo"+(_refPlants.length>1?"s":"")+" sent as references.":"";
       if(wantedRef&&usedRef) setSt("✓ Added — rendered onto your "+(_marked?"marked-up ":"")+"site photo via "+(d.model||"the edit endpoint")+"."+_pr,"var(--gm)");
       else if(refUnknown) setSt("✓ Added, but this worker build never says whether your site photo was used. It needs redeploying.","#9B7B3A");
       else if(wantedRef) setSt("⚠ Added, but your site photo was IGNORED — the worker ran "+(d.model||"text-to-image")+". This picture is an invented scene, not your site.","#B23F3C");
       else setSt("✓ Added. No site photo was attached to this zone, so this is an invented scene."+_pr,"var(--gm)");
+      try{ _bidSchedule(); }catch(e){}
       try{ _plRender(); }catch(e){ console.warn("Report refresh failed after saving rendering",e); }
       if(typeof _toast==="function") _toast(wantedRef&&!usedRef?"⚠ Site photo ignored":"✓ Rendering added", wantedRef&&!usedRef?"#B23F3C":null);
       // Closing on a warning would hide the one sentence that explains the picture.
@@ -31956,6 +31968,8 @@ async function _rpCustomGenerate(zid){
   if(_zoneRenders(z.id).length>=4){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); return; }
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null; if(!ep){ setSt("No worker connected.","#B23F3C"); return; }
   const key=_adminKey(); if(!key) return;
+  const renderProjectId=CLOUD_BID_ID;
+  const assertRenderProject=()=>{ if(S.planting!==P || CLOUD_BID_ID!==renderProjectId) throw new Error("The active project changed during rendering. No image was added to the other project."); };
   const names=picks.map(v=>{ const i=v.indexOf(":"); const kind=v.slice(0,i), pid=v.slice(i+1); const p=plantDbFind(kind,pid); if(!p) return null; return (p.c||"")+(botName(p)?" ("+botName(p)+")":""); }).filter(Boolean);
   const city=(S.pi&&S.pi.city)||"Southern California";
   const ref=null;   // custom grouping = ONLY the selected plants together — never render onto the site photo
@@ -31989,6 +32003,7 @@ async function _rpCustomGenerate(zid){
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
     const d=await r.json();
     if(d&&d.ok&&d.url){
+      assertRenderProject();
       setSt("Saving image…","var(--gm)");
       let dataUrl=d.url;   // temporary fal URL — must be re-hosted or it expires
       const _up=await _uploadUrlToR2("render_"+z.id+"_"+Date.now().toString(36), d.url);
@@ -31997,8 +32012,10 @@ async function _rpCustomGenerate(zid){
       if(dataUrl===d.url) throw new Error("The image was created but could not be saved. Please try again.");
       const shortNames=names.map(n=>n.replace(/\s*\(.*\)\s*/,"").trim()).filter(Boolean);
       const cap="Grouping — "+shortNames.slice(0,4).join(", ")+(shortNames.length>4?" +"+(shortNames.length-4):"");
+      assertRenderProject();
       if(!_zoneRenderAdd(z.id,dataUrl,cap,{kind:"group",names:shortNames})){ setSt("Up to 4 renderings per zone — remove one first.","#B23F3C"); document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
       setSt("✓ Added to the report."+(_refPlants.length?" Drawn from "+_refPlants.length+" real plant photo"+(_refPlants.length>1?"s":"")+".":""),"var(--gm)");
+      try{ _bidSchedule(); }catch(e){}
       try{ _plRender(); }catch(e){ console.warn("Report refresh failed after saving rendering",e); }
       if(typeof _toast==="function") _toast("✓ Rendering added");
       await progress.complete();
@@ -32095,6 +32112,8 @@ async function _refineGo(zid,idx){
   const ep=(typeof AI_PROXY_URL!=="undefined"&&AI_PROXY_URL)?AI_PROXY_URL:null;
   if(!ep){ setSt("No worker connected.","#B23F3C"); return; }
   const key=_adminKey(); if(!key) return;
+  const renderProjectId=CLOUD_BID_ID;
+  const assertRenderProject=()=>{ if(S.planting!==P || CLOUD_BID_ID!==renderProjectId) throw new Error("The active project changed during rendering. No image was added to the other project."); };
   const _refPlants=(z&&plantRefsOn())?_zoneRefPlants(z):[];
   const prompt=`Edit the supplied photograph (reference image 1). It is an existing rendering of a residential garden.
 KEEP EVERYTHING ELSE EXACTLY AS IT IS — the same camera position and angle, the same terrain, grade and skyline, the same buildings, walls, paving and background, the same season, lighting and time of day, and the same planting layout except where the change below requires otherwise.
@@ -32117,6 +32136,7 @@ Do not re-compose the scene, do not restyle it, do not move the camera, and do n
       document.querySelectorAll(".rf-go").forEach(b=>b.disabled=false); return; }
     const d=await res.json();
     if(d&&d.ok&&d.url){
+      assertRenderProject();
       setSt("Saving image…","var(--gm)");
       let url=d.url;
       const _up=await _uploadUrlToR2("render_"+zid+"_rf"+Date.now().toString(36), d.url);
@@ -32124,6 +32144,7 @@ Do not re-compose the scene, do not restyle it, do not move the camera, and do n
       else { try{ const ir=await fetch(d.url); if(!ir.ok) throw new Error("Image download failed"); const blob=await ir.blob();
         url=await new Promise((ok,no)=>{ const fr=new FileReader(); fr.onload=()=>ok(fr.result); fr.onerror=no; fr.readAsDataURL(blob); }); }catch(e){} }
       if(url===d.url) throw new Error("The image was created but could not be saved. Please try again.");
+      assertRenderProject();
       rr.url=url; rr.refined=(+rr.refined||0)+1;
       try{ _bidSchedule(); }catch(e){}
       try{ _plRender(); }catch(e){ console.warn("Report refresh failed after saving rendering",e); }
@@ -73792,7 +73813,8 @@ function _convexHull(pts){
    The one thing that needs handling is the gap between "a new version downloaded"
    and "the tab is running it": the browser keeps the old worker until every tab
    closes. Rather than wait for that, the new one is told to take over and the page
-   reloads once — so a push lands on the next visit, not eventually.
+   offers a refresh notice. The user saves and refreshes when ready; no automatic
+   reload may interrupt a project or a long-running render.
 
    Registered on load rather than immediately: the app is a single 4.8MB file and the
    install precache would otherwise compete with it for bandwidth on first open. */
@@ -73801,10 +73823,10 @@ function _convexHull(pts){
   if(location.protocol==="file:") return;            // no worker from the filesystem
   window.addEventListener("load",function(){
     navigator.serviceWorker.register("sw.js").then(function(reg){
-      // Take over as soon as a replacement is waiting, then reload exactly once.
-      var reloaded=false;
+      // A replacement may take over, but must not reload an open project.
+      var hadController=!!navigator.serviceWorker.controller;
       navigator.serviceWorker.addEventListener("controllerchange",function(){
-        if(reloaded) return; reloaded=true; location.reload();
+        if(hadController) _notifyAppRefresh();
       });
       if(reg.waiting) reg.waiting.postMessage("skipWaiting");
       reg.addEventListener("updatefound",function(){
