@@ -7776,7 +7776,7 @@ function algoRecalc(){
   </button>
   <div class="sb-brand">
     <span class="sb-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21c0-6 3-11 8-13-1 7-4 11-8 13Z" fill="#fff"/><path d="M12 21c0-5-2.6-9-7-11 1 6 3.4 9 7 11Z" fill="#fff" opacity=".75"/></svg></span>
-    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1552</span></small></div>
+    <div class="sb-name"><b>Studio&nbsp;H</b><small>Cost Estimator <span class="sb-ver">v1553</span></small></div>
   </div>
   <button class="sb-project" id="sb-project" onclick="cloudOpenBids()" title="Switch or manage projects"><svg viewBox="0 0 24 24"><path d="M4 7h5l2 2h9v9H4z"/></svg><span id="sb-project-name">Untitled project</span><svg viewBox="0 0 24 24" style="width:13px;margin-left:auto;opacity:.6"><path d="M6 9l6 6 6-6"/></svg></button>
   <div class="sb-group">
@@ -31856,6 +31856,22 @@ function _paletteRenderProgress(parentId){
     review(text){hold(text,true);}
   };
 }
+// Marked Nano renders get a separate photographic retouch pass. No instruction overlay
+// is supplied to this pass: reference 1 is the generated landscape, reference 2 the clean site.
+async function _paletteCleanAnnotations(ep,key,model,renderUrl,cleanPhoto,assertProject,setStatus){
+  assertProject();
+  setStatus("Removing placement labels and drawing marks…","var(--gm)");
+  const prompt=`PHOTO RETOUCH ONLY. Return one finished, unannotated landscape photograph.
+Image 1 is the completed landscape rendering to RETAIN. Remove every superimposed planting annotation from image 1: coloured numbered or lettered discs, botanical abbreviation labels, white rims, leader lines, crosses, polygon outlines, translucent painted washes, text and keys. Reconstruct the underlying leaves, branches, soil, rocks or paving naturally where each graphic was. Remove annotation colour casts, not real flowers or naturally coloured foliage.
+Image 2 is the ORIGINAL CLEAN SITE PHOTO, supplied only to distinguish existing physical objects and ground from graphics. Do NOT restore its bare planting beds or remove the new planting in image 1.
+Preserve image 1's plant identities, number, positions, sizes, foliage, flowers, terrain, buildings, vehicles, lighting, camera, framing and aspect ratio. No redesign, new planting, relocation, labels, legend or before/after collage. When no annotations are present, retain image 1. Inspect the entire frame before returning the clean photograph.`;
+  const response=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"genimage",key,model,aspect:"3:2",refs:[renderUrl,cleanPhoto],prompt})});
+  if(!response.ok)throw new Error("Annotation cleanup failed (server "+response.status+"). The uncleaned image was not saved. Please retry.");
+  const result=await response.json();assertProject();
+  if(!result?.ok||!result.url)throw new Error("Annotation cleanup failed. The uncleaned image was not saved. Please retry.");
+  if(!result.usedRef&&!/\/edit(\/|$)/.test(String(result.model||'')))throw new Error("Annotation cleanup could not confirm use of the rendered photo. The image was not saved.");
+  return result.url;
+}
 async function _rpGenerate(zid, stage){
   const P=ensurePlanting(); const z=(P.zones||[]).find(x=>x.id===zid); if(!z) return;
   P._siteNotes=P._siteNotes||{};
@@ -31879,7 +31895,7 @@ async function _rpGenerate(zid, stage){
   try{
     // Reference 1 is always the CLEAN photograph — that is the scene. Reference 2, when the
     // photo has been marked up, is the same photograph with the marks on it, and it exists
-    // only to be read. Keeping them separate is what stops the markers being painted in.
+    // only to be read. A separate Nano retouch pass removes annotation leakage.
     let ref=(P._sitePhoto&&P._sitePhoto[z.id])||null;
     const _marked=!!(ref&&_marksCount(z.id));
     let _markImg=null;
@@ -31896,7 +31912,7 @@ async function _rpGenerate(zid, stage){
     // GPT accepts all supplied reference photos; retain the existing Nano Pro upgrade for other selections.
     const _model=plantingImageModel(_refPlants.length);
     const r=await fetch(ep,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({type:"genimage",key,prompt,model:_model,aspect:"3:2",refs})});
+      body:JSON.stringify({type:"genimage",key,prompt:prompt+(_marked?"\nFINAL OUTPUT REQUIREMENT: a clean photograph with ZERO annotation graphics. The marked reference is an instruction sheet only. All coloured discs, letters, numbers, species codes, leader lines, crosses, area boundaries and paint overlays must disappear. Preserve the requested planting placements, not the graphic marks.":""),model:_model,aspect:"3:2",refs})});
     if(!r.ok){ let t=""; try{ t=(await r.text()).slice(0,200); }catch(e){}
       setSt("Server error "+r.status+(t?": "+t:""),"#B23F3C");
       document.querySelectorAll(".rp-gen").forEach(b=>b.disabled=false); return; }
@@ -31918,11 +31934,14 @@ async function _rpGenerate(zid, stage){
       const refUnknown=wantedRef&&!usedRef&&!modelPath;
       assertRenderProject();
       setSt("Saving image…","var(--gm)");
-      let dataUrl=d.url;
-      const _up=await _uploadUrlToR2("render_"+z.id+"_"+stage+"_"+Date.now().toString(36), d.url);
+      const needsCleanup=_marked&&/^nano/.test(_model);
+      const finalUrl=needsCleanup?await _paletteCleanAnnotations(ep,key,_model,d.url,ref,assertRenderProject,setSt):d.url;
+      assertRenderProject();setSt("Saving image…","var(--gm)");
+      let dataUrl=finalUrl;
+      const _up=await _uploadUrlToR2("render_"+z.id+"_"+stage+"_"+Date.now().toString(36), finalUrl);
       if(_up.ok && await _imgLoads(_up.url)) dataUrl=_up.url;
-      else { try{ const ir=await fetch(d.url); if(!ir.ok) throw new Error("Image download failed"); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
-      if(dataUrl===d.url) throw new Error("The image was created but could not be saved. Please try again.");
+      else { try{ const ir=await fetch(finalUrl); if(!ir.ok) throw new Error("Image download failed"); const blob=await ir.blob(); dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }catch(e){} }
+      if(dataUrl===finalUrl) throw new Error("The image was created but could not be saved. Please try again.");
       let _cap=stage==="install"?"At installation — plants at nursery size, spacing visible. Concept rendering, illustrative only.":"Grown in, ~5 years — plants at mature size. Concept rendering, illustrative only.";
       if(wantedRef&&usedRef) _cap="Rendered onto your "+(_marked?"marked-up ":"")+"site photo. "+_cap;
       else if(wantedRef) _cap="NOT rendered onto your site photo — an invented scene. "+_cap;
