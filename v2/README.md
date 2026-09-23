@@ -61,3 +61,48 @@ Script blocks are syntax checked and V1 hash compared with engine-source.json.
 - Replace future-workspace previews as their roadmap functionality is implemented.
 - Financial templates, rates, proposal terms and signing workflow need studio
   decisions; no illustrative financial numbers are production defaults.
+
+## Expanded workspace preview · 23 September
+
+The default experience now uses the V1 sidebar structure: 236px expanded rail,
+project picker, original V1 SVGs, 13.5px labels, 10px row corners, pin/collapse,
+mouse hover, keyboard focus expansion, touch logo/menu, width adjustment, separate
+navigation scrolling, and bottom Settings. Four themes remain available.
+The earlier tile-only navigation is hidden and replaced by this rail.
+
+### Built and interactive with local sample data
+
+- Dashboard: phase selection, checklist, activity and sample project metrics.
+- Brief & site: five numbered steps linking the real project tools.
+- Design: overview, builder entry points and rendering workflow preview.
+- Mood Board: reorderable sample sections, notes and presentation dialog.
+- Insights and Savings Center: sample findings, selectable alternatives and budget-gap calculation.
+- Client Center: local chat drafts, approvals/change requests, shared-file samples,
+  client portal preview, and the same proposal demonstration as Financials.
+- Financials: the existing interactive fee builder, deliverables, staff rates,
+  contractor cost, proposal signing simulation and profitability forecast.
+- Delivery: checklists, report entry points, sample Plan Check findings and specifications.
+- Libraries: original working libraries, City Library directory, CAD samples,
+  Product Watch findings with accept/dismiss interactions.
+- Resource Center: guides/tool links, favorites and saved website links.
+- Community: local discussion drafts, saved sample collections, contribution drafts and guidelines.
+- Studio business: project overview, local phase-based time entries, sample change orders and team chat.
+- Site studies: illustrative time slider, seasons, take-off-set selection and scan examples.
+- Settings: all themes, navigation preferences, role previews, calculation/admin entry points.
+- Searchable roadmap: 130 entries drawn from ROADMAP.md and the open BACKLOG.md section.
+
+Sample figures and conversations do not represent the imported project. All sample
+edits use `studioh_v2_workspace_v2`; they do not update the project engine or V1.
+The time-entry demo does not feed the fee forecast. File/CAD cards are examples,
+not downloadable technical documents. Sun/shade and plan findings are illustrative,
+not calculations or AI analysis. New service features remain demonstrations, as requested.
+
+### Verification
+
+`tests/workspace.browser.cjs` covers every new workspace, rail pin/hover, all themes,
+chat/approval/savings/time/watch interactions, local persistence, return from engine
+screens, and 390–1440px layouts. The original engine regression also passes.
+V1's expanded DOM was measured (236px, 13.5px labels, 10px radius, 8.25px/11.7px
+padding) and compared visually with the V2 rail (236px, 13.5px, 10px, 8px/12px).
+The Afternoon rail uses #42523a; Day retains V1's #35502a. Cards use #fff on #faf9f6,
+20px corners, and no decorative borders. Real iPad Safari remains a device check.
