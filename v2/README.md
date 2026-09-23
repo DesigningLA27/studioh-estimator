@@ -120,3 +120,10 @@ mechanics remain. The rail occupies 236px, including its 8px outside inset.
 
 `tests/grouped-navigation.browser.cjs` verifies the exact approved menu, library
 and cost tool entry points, parent return behavior, pin/hover and tablet overflow.
+
+## Five themes · V2-04
+
+Morning preserves the former Afternoon palette. Day uses approved study 02 Sage
+daylight; Afternoon uses study 03 Forest & white. Dusk and Night are unchanged.
+White cards are restored; the rejected pale-green card tint is removed. Existing
+Afternoon preferences migrate once to Morning. New previews start in Day.

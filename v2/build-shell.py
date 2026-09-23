@@ -3,6 +3,11 @@ import re
 root=Path(__file__).resolve().parent
 mock=(root/'src/layout.html').read_text()
 mock=mock.replace('function save(){', "window.v2Layout={open(page){state.page=page;state.detail='';render()},financial(tab,view){state.page='financials';fee.tab=tab||'Fee builder';fee.view=view||'Designer';renderFinancials()}};function save(){")
+# Keep the approved old Afternoon palette as Morning; add the two approved studies.
+mock=mock.replace('Afternoon','Morning')
+mock=mock.replace("['Day','Morning','Dusk','Night']","['Morning','Day','Afternoon','Dusk','Night']")
+mock=re.sub(r'<div class="themebar" aria-label="Color theme">.*?</div>', '<div class="themebar" aria-label="Color theme">'+''.join('<button data-theme="'+t+'">'+t+'</button>' for t in ['Morning','Day','Afternoon','Dusk','Night'])+'</div>', mock, count=1)
+mock=mock.replace('data-theme="Morning" aria-label=', 'data-theme="Day" aria-label=').replace("theme:'Morning'", "theme:'Day'")
 mock=re.sub(r'<i data-lucide="[^"]*" aria-hidden="true"></i>','',mock)
 mock=mock.replace("page:'financials',detail:'',theme:","page:'home',detail:'',theme:")
 mock=mock.replace('V2 concept','V2 preview').replace('V2 layout proposal','Workspace preview')
@@ -16,4 +21,4 @@ mock=mock.replace('const money=n=>',"try{const prior=JSON.parse(localStorage.get
 mock=mock.replace('function renderFinancials(){let t=totals();',"function renderFinancials(){try{localStorage.setItem('studioh_v2_financial_scenario',JSON.stringify(fee))}catch{}let t=totals();")
 extra='''<dialog id="v2-projects"><h2>Preview project</h2><p>Import an exported V1 project as an independent copy, or use sample data. Changes stay in V2 on this device.</p><label>Import project JSON<input id="v2-import" type="file" accept=".json,application/json"></label><button id="v2-sample">Open sample project</button><button onclick="this.closest('dialog').close()">Close</button><p>AI, online lookups, uploads and cloud sync are disconnected in this isolated preview.</p></dialog>'''
 mock=mock.replace('<main id="sh-content"></main></div></div>','<main id="sh-content"></main></div>'+extra+'</div>')
-(root/'index.html').write_text('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Studio H · V2 Preview</title><link rel="stylesheet" href="src/shell.css"></head><body>'+mock+'<div id="v2-notice" hidden role="status"></div><script src="src/shell.js"></script><link rel="stylesheet" href="src/workspace.css?v=3"><script src="src/icons.js"></script><script src="src/workspace.js?v=3"></script></body></html>')
+(root/'index.html').write_text('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Studio H · V2 Preview</title><link rel="stylesheet" href="src/shell.css"></head><body>'+mock+'<div id="v2-notice" hidden role="status"></div><script src="src/shell.js?v=4"></script><link rel="stylesheet" href="src/workspace.css?v=4"><script src="src/icons.js"></script><script src="src/workspace.js?v=4"></script></body></html>')

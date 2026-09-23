@@ -4,6 +4,7 @@
  const pane=document.createElement('section');pane.id='v2-engine-pane';pane.hidden=true;pane.innerHTML='<div class="v2-toolhead"><button id="v2-back">← Workspace</button><strong id="v2-tooltitle"></strong><span>Local preview</span></div><div id="v2-tooltabs"></div><iframe id="v2-engine" title="Studio H project workspace" sandbox="allow-scripts allow-downloads allow-modals"></iframe>';body.appendChild(pane);
  const frame=pane.querySelector('iframe');let ready=false,pending=null,current=null,project=null,lastName="";
  const keys={store:'studioh_v2_preview_store_v1',theme:'studioh_v2_theme_v1'};
+ if(!localStorage.getItem('studioh_v2_theme_mapping_v2')){if(localStorage.getItem(keys.theme)==='Afternoon')localStorage.setItem(keys.theme,'Morning');localStorage.setItem('studioh_v2_theme_mapping_v2','1')}
  const routes={
  '01 · Project info':['projectinfo','Project info'], '02 · Questionnaires':['clientbrief','Client questionnaire'],'03 · Site trace':['trace','Site trace'],'04 · Site intelligence':['projectinfo','Site intelligence'],'05 · Photos & references':['photos','Photos & references'],
  'Project insights':['insights','Project insights'],'Plan & builders':['trace','Design & take-offs'],'Mood board':['moodboard','Mood board'],'Plants & materials':['plantbook','Plant Book'],'Furniture & products':['furnishings','Furnishings'],
@@ -23,7 +24,7 @@
  },true);
  window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data?.v2)return;const m=e.data;
  if(m.v2==='storage'){try{localStorage.setItem(keys.store,JSON.stringify(m.data))}catch{notice('Device storage is full. Export this preview to keep your work.')}}
- if(m.v2==='ready'){ready=true;command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Afternoon'});if(pending){const m=pending;pending=null;command(m)}document.getElementById('v2-state').textContent='Local preview · Cloud writes blocked'}
+ if(m.v2==='ready'){ready=true;command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Day'});if(pending){const m=pending;pending=null;command(m)}document.getElementById('v2-state').textContent='Local preview · Cloud writes blocked'}
  if(m.v2==='saved'){document.getElementById('v2-state').textContent='Saved on this device';updateName(m.name)}
  if(m.v2==='snapshot'){project=m.bid;updateName(project?.S?.pi?.project||project?.S?.pi?.client||'Preview project')}
  if(m.v2==='error')notice(m.message);if(m.v2==='open-projects')document.getElementById('v2-projects').showModal();
@@ -36,6 +37,6 @@
  document.getElementById('v2-sample').onclick=()=>{command({v2cmd:'sample'});document.getElementById('v2-projects').close();notice('Sample opened in V2 only.')};
  document.getElementById('v2-import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>30*1024*1024)throw Error('Choose a project file under 30 MB');const bid=JSON.parse(await f.text());if(!bid?.S)throw Error('Choose an exported Studio H project JSON file');command({v2cmd:'import',bid});document.getElementById('v2-projects').close();show('projectinfo','Project info')}catch(err){notice(err.message)}e.target.value=''};
  const theme=localStorage.getItem(keys.theme);if(theme)root.querySelector('button[data-theme="'+theme+'"]')?.click();
- fetch('engine.html').then(r=>{if(!r.ok)throw Error('Engine could not load');return r.text()}).then(html=>{let seed={};try{seed=JSON.parse(localStorage.getItem(keys.store)||'{}')}catch{}const json=JSON.stringify(seed).replaceAll('<','\\u003c');frame.srcdoc=html.replace('/*V2_STORAGE_SEED*/{}',json)}).catch(e=>notice(e.message));
+ fetch('engine.html?v=4').then(r=>{if(!r.ok)throw Error('Engine could not load');return r.text()}).then(html=>{let seed={};try{seed=JSON.parse(localStorage.getItem(keys.store)||'{}')}catch{}const json=JSON.stringify(seed).replaceAll('<','\\u003c');frame.srcdoc=html.replace('/*V2_STORAGE_SEED*/{}',json)}).catch(e=>notice(e.message));
  window.v2Preview={show,workspace,command,get ready(){return ready}};
 })();
