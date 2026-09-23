@@ -1,9 +1,14 @@
 # Studio H Estimator — the complete roadmap
 
-**Built 16 Sep 2026 against v1520.** This is the single list. It was assembled by sweeping every
-session on disk — **1,846 of Warwick's messages** across four transcripts (779 MB), **96 deferrals**
-written at the end of a version, and **17 explicit "add to the roadmap" instructions** — then
-reconciling every one against the live `index.html`, `BACKLOG.md` and the 83 roadmap memories.
+**Built 16 Sep 2026 against v1520. Refreshed 23 Sep 2026 against v1560.** This is the single list.
+It was assembled by sweeping every session on disk — **1,846 of Warwick's messages** across four
+transcripts (779 MB), **96 deferrals** written at the end of a version, and **17 explicit "add to the
+roadmap" instructions** — then reconciling every one against the live `index.html`, `BACKLOG.md` and
+the 83 roadmap memories.
+
+**The 23 Sep refresh** reconciled forty versions (v1521–v1560) against this list. It closed out the
+Bid Compare round-2 items that shipped, and added two sections for work that did not exist when the
+sweep was written: **§5 the renderer** and **§6 questionnaires**. Old §5–§10 are now §7–§12.
 
 Items marked **★ RECOVERED** were raised, deferred, and never written down anywhere until this sweep.
 They existed only in the transcripts.
@@ -103,8 +108,27 @@ section is empty on purpose: a section with no floor is **left out of the score*
 renormalises, rather than a threshold being invented. Derived floors stay inert until PB sections
 name a default assembly (§2.1).
 
+**Rounds 3–5 — BUILT v1523–v1528, v1544.** In order:
+- **v1523 — the reader could not read a real bid.** Three 2018 bids from Dropbox found it; all three
+  now import.
+- **v1524 — all three bids scored F** because of two modelling faults, not because the bids were bad.
+- **v1525 — price realism stopped inventing a rate** for a line that is only part of a section.
+- **v1526 — the confidence grade says how many checks it is measured on**, so a grade out of 80 is
+  never presented as a grade out of 100.
+- **v1527/v1528 — a plain-English verdict** on each bid and one across all of them, written into a
+  card with the recommendation on top. The AI is given engine facts and a glossary; it never
+  produces a number of its own.
+- **v1544 — allowances are levelled to one material rate.** This is the fix for the round-2 allowance
+  model, and it inverted a wrong answer: a bid allowing $15/SF for stone showed a *bigger* allowance
+  than one allowing $5/SF and was marked down for it, when it is the only one of the two that had
+  budgeted for the material. Every allowance is now re-priced at one rate — your spec, a figure you
+  type, or the highest rate any bid on the job is itself willing to allow — and what is compared is
+  the gap left to close. Where a bid states a rate but **no quantity**, the gap is reported as a rate
+  and explicitly *not* put in dollars, rather than back-solved into an invented quantity.
+
 **Still Warwick's to set:** the remaining floors, the six weights (25/20/20/15/10/10) and the grade
-boundaries (90/80/70/60).
+boundaries (90/80/70/60), and the material allowance benchmark per section (paving seeded from the
+spec; every other section falls back to the highest rate on the table and says so).
 
 **Also open:** the allowance-heavy threshold sits at 10% of the bid. Line-to-section matching is
 keyword-based and editable per line. Nothing exports yet.
@@ -114,23 +138,91 @@ Note: this is separate from the **bid log** (§77, Price Book › Bids vs estima
 
 ---
 
-## 5 · Take-offs and tracing
+## 5 · The renderer — built v1529–v1557, and the one thing it still gets wrong
 
-| # | Item | State |
-|---|---|---|
-| 5.1 | **Take-off sets** — satellite and PDF side by side, one marked in use. Built, reverted, never rebuilt. ★ RECOVERED | 0 hits |
-| 5.2 | **Automatic PDF take-off** — the extraction code is written but has never been wired up or verified. ★ RECOVERED | Written, dead |
-| 5.3 | **Scan site** — vision model identifies existing pool/spa/court/driveway/patio and feeds demo flags into the estimate. "Highest value, plumbing's ready." ★ RECOVERED | 0 hits |
-| 5.4 | **AI location auto-detect** — label each paving area street/front/back/side. Needs a server-fetched satellite image (the canvas is cross-origin-tainted) → Worker vision call → map back onto areas. ★ RECOVERED | Planned, unbuilt |
-| 5.5 | **Paving snaps to the building edge** — shared-boundary auto-complete. ★ RECOVERED | Own build |
-| 5.6 | **Freeform drawing sheet** (option C) — "the reserve". ★ RECOVERED | Unbuilt |
-| 5.7 | **Setbacks: 51 of 65 cities unsourced.** The reader works; knowing which document is authoritative per city is judgement. A zoning API (Zoneomics/Regrid) is the real answer at scale and is a commercial decision — `sbProvider` is the seam, deliberately inert. | Judgement, not plumbing |
-| 5.8 | **Accessory-structure setbacks** — only the six original edges have real figures; the nine landscape items inherit the structure rule. A fire pit, pool heater and patio cover should carry their own numbers where the code gives them one. | Open |
-| 5.9 | **Nothing reads setbacks for pricing or placement yet** — lands with AI placement. | Open |
+None of this existed when the sweep was written. It is now the most-used AI feature in the app and
+has its own open list.
+
+**What it does.** A planting zone renders from its **real plant list** — the same quantities the
+estimate prices — at installation and grown in, up to four renderings per zone, shown on the plant
+report at small / medium / large with click-to-zoom (v1535). With a site photo attached it runs
+image-to-image, so the terrain, house, walls and camera position are the client's own land rather
+than an invented scene, and the app says which of the two it got (v1530/v1531).
+
+**What it is told.** The prompt is assembled from the design, not written by hand:
+- **Massing per species** — a role (matrix / drift / accent / specimen) and a **min–max group size**,
+  from which the number of separate drifts is derived against the real quantity (v1532/v1533). The
+  range matters: evenness is what made the planting read as stamped.
+- **Tree scale** — mature height and spread read off the plant book (`p.h`/`p.w`), with something in
+  the photograph to judge them against. Before v1534 a tree was told only "mature, full canopy" and
+  came back the size of a shrub.
+- **Coverage** — a slider sets how much of the bed is planted at all; the rest is instructed as
+  visible decomposed granite and mulch (v1542). Species shares are of the *planting*, not of the
+  whole bed — stated as "% of the ground plane" they summed to 100 and the model filled every square
+  foot.
+- **Plant photographs** — the plant book's real images go as reference images (up to 12, most
+  prominent species first), each numbered and named, so a plant is no longer invented from its name
+  alone (v1536). Selectable per zone since v1554.
+- **Species in or out** — any species can be held out of a rendering to try the slope without it,
+  without touching the estimate (v1541).
+
+**Marking up the photo (v1537, v1540, v1551–v1557).** Nothing reaches an image model as coordinates,
+so the instruction is *drawn onto the photograph* and the prompt carries a key. Tap where each tree
+goes (species chosen first); draw the bed a shrub fills and name the plant, which fills in that
+plant's colour with a letter tag; wash the ground that is planting bed and the ground that must not
+be touched. The **clean photo and the marked-up copy go as two separate references** — sending one
+image that was both scene and instruction sheet printed the markers into the output (v1540), and
+overlays are cleaned before a marked render is saved (v1553). Laid out as a tracer-style sidebar
+since v1551, with species-labelled planting pins and ground anchors (v1552) and traced planting
+positions treated as authoritative in the request (v1557).
+
+**Refining (v1538).** A rendering that is 90% right goes back in as its own reference with one
+instruction about what to change and a standing order to leave everything else alone. The result
+replaces the original rather than eating one of the four slots.
+
+**Models.** Flux 2 Pro / Klein, Nano Banana 2 and Pro (14 reference images), GPT image (v1545),
+Sunburst max-quality and Astra (v1546).
+
+**Still wrong, and it is the main one:**
+- **Drift instructions are under-obeyed.** A species asked for 7–15 plants per group still comes back
+  in one place, or as a single specimen. The drawn region is the strongest lever built so far; the
+  next lever, untried, is restructuring the prompt so massing leads rather than sitting behind the
+  site description.
+- **Invented species.** Fixed by an explicit "add nothing not on the list" rule, but worth watching.
+
+**Offered and never built** — all four were proposed to Warwick and not taken up:
+- **Depth band per species** — foreground / middle / background / throughout.
+- **Composition style selector** — linear / structured / organic.
+- **Hero / supporting / filler tags.**
+- **Drag-to-reorder species by importance.**
 
 ---
 
-## 6 · Libraries
+## 6 · Questionnaires — built v1558–v1559
+
+Client and designer questionnaires, with categorised priorities and touch reordering, connected to
+the project libraries. New in this refresh; scope beyond what the commits state has not been
+verified against the live file.
+
+---
+
+## 7 · Take-offs and tracing
+
+| # | Item | State |
+|---|---|---|
+| 7.1 | **Take-off sets** — satellite and PDF side by side, one marked in use. Built, reverted, never rebuilt. ★ RECOVERED | 0 hits |
+| 7.2 | **Automatic PDF take-off** — the extraction code is written but has never been wired up or verified. ★ RECOVERED | Written, dead |
+| 7.3 | **Scan site** — vision model identifies existing pool/spa/court/driveway/patio and feeds demo flags into the estimate. "Highest value, plumbing's ready." ★ RECOVERED | 0 hits |
+| 7.4 | **AI location auto-detect** — label each paving area street/front/back/side. Needs a server-fetched satellite image (the canvas is cross-origin-tainted) → Worker vision call → map back onto areas. ★ RECOVERED | Planned, unbuilt |
+| 7.5 | **Paving snaps to the building edge** — shared-boundary auto-complete. ★ RECOVERED | Own build |
+| 7.6 | **Freeform drawing sheet** (option C) — "the reserve". ★ RECOVERED | Unbuilt |
+| 7.7 | **Setbacks: 51 of 65 cities unsourced.** The reader works; knowing which document is authoritative per city is judgement. A zoning API (Zoneomics/Regrid) is the real answer at scale and is a commercial decision — `sbProvider` is the seam, deliberately inert. | Judgement, not plumbing |
+| 7.8 | **Accessory-structure setbacks** — only the six original edges have real figures; the nine landscape items inherit the structure rule. A fire pit, pool heater and patio cover should carry their own numbers where the code gives them one. | Open |
+| 7.9 | **Nothing reads setbacks for pricing or placement yet** — lands with AI placement. | Open |
+
+---
+
+## 8 · Libraries
 
 - **Product records — the fields beyond a price.** Manufacturer, model, finish/colour, dimensions, image, spec PDF, CAD/detail reference, vendor, purchase link. The shape was proved on the fence segment (v1494) and the pricing seam works. **No library to pick from, no images, and the wall, court, pool and water builders have none of it.**
 - **Material Library** — three prices (MSRP / contractor / designer) + margin + commission, supplier logins, the full field list. *The moat.* Supplier tenancy needs accounts; the designer half does not.
@@ -149,7 +241,7 @@ Note: this is separate from the **bid log** (§77, Price Book › Bids vs estima
 
 ---
 
-## 7 · Reports, documents and output
+## 9 · Reports, documents and output
 
 - **Proposals tab** — generate the proposal from project data, *and* upload one written elsewhere so AI knows the agreed scope. It is the missing reference document for Financials.
 - **Financials** — cost, time spent, fees, margin; AI flags when a change order is due. **Depends on Proposals** — a change order is meaningless without an agreed scope. Time tracking is the missing input; keep entry cheap (per phase, not per task).
@@ -160,7 +252,7 @@ Note: this is separate from the **bid log** (§77, Price Book › Bids vs estima
 
 ---
 
-## 8 · Platform, accounts and the commercial layer
+## 10 · Platform, accounts and the commercial layer
 
 Blocked on the backend/accounts phase, in CLAUDE.md's locked build sequence.
 
@@ -177,7 +269,7 @@ Blocked on the backend/accounts phase, in CLAUDE.md's locked build sequence.
 
 ---
 
-## 9 · Smaller open items
+## 11 · Smaller open items
 
 - **Per-phase input gating** — hiding fields can hide work already entered, so it wants walking phase by phase rather than switching on blind. ★ RECOVERED
 - **Metric units** — the Metric button is present and deliberately inert. Feet, SF and gallons are written into every calculator and price line, so a switch has to convert the pricing, not relabel it. ★ RECOVERED
@@ -194,7 +286,7 @@ Blocked on the backend/accounts phase, in CLAUDE.md's locked build sequence.
 
 ---
 
-## 10 · How to keep this correct
+## 12 · How to keep this correct
 
 The gap this sweep closed was structural: **capture depended on Warwick saying the word "roadmap."**
 Anything deferred mid-build — including every "Not done" line at the end of a version — had no home
