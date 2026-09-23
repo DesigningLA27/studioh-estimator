@@ -1,6 +1,19 @@
+function v2PlantRequest(m){
+ if(m.action==='record'){
+ const [kind,...rest]=m.key.split(':'),p=plantDbFind(kind,rest.join(':'));if(!p)throw Error('Plant not found');
+ return {fields:_pbFieldsFor(kind).map(f=>({k:f.k,sec:f.sec,lab:f.lab,type:f.type,a:f.a,b:f.b,aLab:f.aLab,bLab:f.bLab,opts:f.opts,value:f.read(p)})).concat([{k:'estimatedWater',sec:'Water',lab:'Estimated annual use',type:'readonly',value:Math.round(plantAnnualGal(p,kind,1)).toLocaleString()+' gal/yr each'}]),lights:lightSetOf(p),fire:dsZoneOf(p)};
+ }
+ if(m.action==='filter'){
+ const prior=PB_BOOK,zone=S.pi?.sunsetZone;
+ try{PB_BOOK={...prior,q:'',tags:[],photo:'all',sizev:'all',nursery:null,fav:false,avail:'all',imgstate:'all',detstate:'all',colors:[],seasons:[],dorm:'all',dszone:'all',sunset:'all',water:[],sun:[],szband:'all',priced:'all',tox:'all',recent:false,...m.filters};
+ let keys=[];for(const k of ['tree','shrub','gc','palm']){PB_BOOK.kind=k;for(const p of PLANT_DB[k]||[])if(_pbkPass(p,null,{q:'',ftags:PB_BOOK.tags}))keys.push(k+':'+p.id)}return {keys,projectZone:projSunsetZone()};
+ }finally{PB_BOOK=prior}
+ }
+ throw Error('Unknown plant request');
+}
 // Catalogs arrive as copies from the shell's fixed read-only loader. Never publish them.
 function v2ApplyCatalog(m){
- if(m.id==='plantbook'&&m.data){for(const k of ['tree','shrub','gc','palm'])if(Array.isArray(m.data[k]))PLANT_DB[k]=m.data[k];_imgNameIdx=null;if(Array.isArray(m.favorites))FAVS=new Set(m.favorites);}
+ if(m.id==='plantbook'&&m.data){if(m.nurseries&&Array.isArray(m.nurseries.nurseries))NURSERY_DB=m.nurseries;for(const k of ['tree','shrub','gc','palm'])if(Array.isArray(m.data[k]))PLANT_DB[k]=m.data[k];_imgNameIdx=null;if(Array.isArray(m.favorites))FAVS=new Set(m.favorites);}
  else if(m.id==='materials'&&Array.isArray(m.data))MATERIALS=m.data.map(p=>({...p,specSF:0}));
  else if(m.id==='furnishings'&&Array.isArray(m.data))FURNISHINGS=m.data.map(p=>({...p,specQty:0}));
  else if(m.id==='colorlibrary'&&Array.isArray(m.data)){COLOR_PALETTES=m.data;_colorPalettesPulled=true;}
@@ -17,7 +30,7 @@ function v2QuestionnaireHTML(html){
  function save(){const bid=snapshot();if(!bid)throw Error('Project not ready');localStorage.setItem('v2_project',JSON.stringify(bid));send('saved',{name:bid.S?.pi?.project||bid.S?.pi?.client||'Preview project'});return bid}
  function theme(t){const d=document.documentElement;d.dataset.v2theme=t;d.dataset.theme=['Dusk','Night'].includes(t)?'dark':'light';const colors=t==='Night'?['#11151C','#161B24','#1E2531','#EAEEF4','#A2AAB8','#6FA855','#1C2C1B']:t==='Dusk'?['#20251f','#292f28','#30382d','#edf0e8','#adb7a5','#82a96b','#354531']:t==='Day'?['#E1E9DC','#fff','#E1E9DC','#202b21','#42503f','#365D29','#D4E3C9']:t==='Afternoon'?['#E8ECE6','#fff','#E8ECE6','#202b21','#42503f','#3C622E','#DBE8D1']:['#faf9f6','#fff','#faf9f6','#263026','#65705e','#50793e','#eaf1e5'];['--bg','--card','--surface2','--tx','--tm','--gm','--brand-soft'].forEach((k,i)=>d.style.setProperty(k,colors[i]));d.style.setProperty('--outer',colors[0]);try{qPost('v2-theme',{css:v2QThemeCSS()})}catch{}}
  const routes={trace:()=>tkStart(),reports:()=>openReports(),checklist:()=>openChecklist(),dashboard:()=>goEstimate(),settings:()=>openSettings(),clientbrief:()=>{document.querySelector('[data-view="questionnaire"]').click();qSwitchMode('client')},designerbrief:()=>{document.querySelector('[data-view="questionnaire"]').click();qSwitchMode('designer')},cities:()=>sbGoBook(),photos:()=>piOpenBrief('client',7)};
- window.addEventListener('message',e=>{if(e.source!==parent||!e.data?.v2cmd)return;const m=e.data;try{if(m.v2cmd==='catalog'){v2ApplyCatalog(m)}else if(m.v2cmd==='route'){document.querySelectorAll('#tk-start,.reports-modal').forEach(el=>el.remove());if(routes[m.route])routes[m.route]();else{const b=document.querySelector('.tab[data-view="'+m.route+'"]');if(!b)throw Error('This workspace is not connected yet');b.click()}send('route',{route:m.route})}else if(m.v2cmd==='theme')theme(m.theme);else if(m.v2cmd==='save')save();else if(m.v2cmd==='export'){save();saveBid()}else if(m.v2cmd==='import'){if(!m.bid?.S)throw Error('Choose a Studio H project JSON file');restoreBid(m.bid);CLOUD_BID_ID=null;CLOUD_BID_NAME=null;save()}else if(m.v2cmd==='sample'){loadSampleProject();setTimeout(save,200)}else if(m.v2cmd==='snapshot')send('snapshot',{bid:snapshot()});}catch(err){send('error',{message:err.message})}});
+ window.addEventListener('message',e=>{if(e.source!==parent||!e.data?.v2cmd)return;const m=e.data;try{if(m.v2cmd==='plant-request'){try{send('plant-response',{requestId:m.requestId,result:v2PlantRequest(m)})}catch(err){send('plant-response',{requestId:m.requestId,error:err.message})}}else if(m.v2cmd==='catalog'){v2ApplyCatalog(m)}else if(m.v2cmd==='route'){document.querySelectorAll('#tk-start,.reports-modal').forEach(el=>el.remove());if(routes[m.route])routes[m.route]();else{const b=document.querySelector('.tab[data-view="'+m.route+'"]');if(!b)throw Error('This workspace is not connected yet');b.click()}send('route',{route:m.route})}else if(m.v2cmd==='theme')theme(m.theme);else if(m.v2cmd==='save')save();else if(m.v2cmd==='export'){save();saveBid()}else if(m.v2cmd==='import'){if(!m.bid?.S)throw Error('Choose a Studio H project JSON file');restoreBid(m.bid);CLOUD_BID_ID=null;CLOUD_BID_NAME=null;save()}else if(m.v2cmd==='sample'){loadSampleProject();setTimeout(save,200)}else if(m.v2cmd==='snapshot')send('snapshot',{bid:snapshot()});}catch(err){send('error',{message:err.message})}});
  window.addEventListener('load',()=>{setTimeout(()=>{
  // Keep save actions meaningful and local, including questionnaire Save progress.
  window.cloudSaveBid=()=>{try{save();_toast('Saved in V2 on this device')}catch(e){send('error',{message:e.message})}};

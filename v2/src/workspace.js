@@ -144,5 +144,5 @@ root.addEventListener('submit',e=>{if(e.target.id==='resource-form'){e.preventDe
 // Returning from a real tool returns to its V2 workspace, not the retired tile-only shell.
 document.getElementById('v2-back').onclick=()=>{v2Preview.workspace();const item=all.find(x=>x[0]===active);if(item?.[3])open(parentPage(active));else if(active==='financials')v2Layout.financial();else render()};
 fetch('src/roadmap.json').then(r=>r.json()).then(x=>{roadmap=x;if(active==='roadmap')render()});
-window.v2Workspace={open,get active(){return active},get demo(){return demo}};open('home');
+window.v2Workspace={open,get active(){return active},get demo(){return demo}};const initialView=new URLSearchParams(location.search).get('view');open(['plantbook','materials','furnishings','colorlibrary'].includes(initialView)?initialView:'home');
 })();

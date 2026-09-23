@@ -162,3 +162,29 @@ plant ID and image URL in studioh_v2_image_framing_v1 only. It is not written to
 the shared library or V1. The device-level developer switch is an editing
 preference, not authenticated role enforcement. Card size is a single 44px-high
 control, with the redundant Larger/Smaller caption removed.
+
+## Plant workspace · V2-07
+
+Plant cards start at six columns (the responsive maximum is lower on small screens),
+with photographed records first. AI result order preserves the model's ranking.
+Adjust images is now visible directly in the Plant Book. Plant Book's legacy
+Project tools button is replaced by native full records and a Details inspector.
+
+The full record and right inspector share Read/Edit controls, V1 field definitions,
+light and climate formatting, growth data, estimated water calculation, book prices,
+tags and source metadata. Local edits persist in studioh_v2_plant_edits_v1 and are
+applied only to V2's catalog copies. Shared records and V1 projects are not written.
+Nursery records are read with favorites so the existing nursery/price filters work.
+Filters call V1's existing predicate inside the isolated engine; its network guard
+remains intact. Plant type can span more than one group.
+
+AI search is an explicit action (button or Enter), using the existing AI service:
+first extract types/water/light, then rank up to 400 filtered candidates. The
+considered count is shown, and returned IDs must exist among submitted records.
+Regular filtering and record editing do not call AI. This is catalog search, not
+a live site/climate research service. Production catalog save APIs remain blocked.
+
+The interactive mockup is at mockups/plant-book-v07/; it opens the full record
+and includes Browse, Full record and Right sidebar preview buttons. Tests cover
+record edits/reload, source isolation, filters, sidebar, defaults and AI wiring;
+the separate plant-ai-live test makes billable AI requests and is opt-in.
