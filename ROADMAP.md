@@ -250,6 +250,22 @@ verified against the live file.
 - **Mood Board** — manual reordering, per-section AI suggestions for materials/furnishings/lighting (trickier than plants: goods need a cost-book line, not just a library match), multiple outputs (PDF / web / interactive / budget-focused), AI-generated inspiration images. ★ partially RECOVERED
 - **Proposal export** is deliberately `_reportSoon(…)`.
 
+### 9.1 · Financials Center — expanded scope requested 23 Sep 2026
+
+Extends the Proposals and Financials items above; **planned, not shipped**. V2 mockups are exploratory, not a production implementation or approved pricing defaults.
+
+- **Deliverable-based fee builder.** Select deliverables and tasks; editable studio templates provide estimated hours by staff role. Show estimated labor cost, billable value, contractor costs, proposed design fee, profit and margin. Keep hours, cost rates and billing rates editable and sourced; mockup examples are not production defaults.
+- **Staffing and rates.** Staff/role cost rates and separate billable rates, with project overrides. Explicitly identify whether cost rates include employment burden and overhead to prevent double-counting.
+- **1099 / external contractors.** Record agreed fixed-fee costs by scope/deliverable, plus committed and actual costs; distinguish project cost from any amount charged to the client.
+- **Proposal and signatures.** Generate a versioned design proposal from selected deliverables, fee, scope, exclusions, revisions and payment schedule. Both designer and client can access the shared proposal and sign in the app; retain the accepted version and signature history. Keep uploaded external proposals supported.
+- **Project profitability.** Compare planned hours/costs with time and expenses actually incurred, and forecast remaining effort and costs. Show fee, spent/committed cost, forecast final cost, profit and margin. Keep time entry lightweight (phase entry with optional task detail), while planning can use task-level hours.
+- **Access and source of truth.** Financials is the internal home for fee planning and profitability; Client Center links to the same client-safe proposal, not a duplicate. Internal staff costs, margins and profit must be absent from the client payload. E-signing, portal access and persistence need the later backend/accounts work.
+- **Scope changes.** Connect additional services/change orders to the accepted proposal and update the fee forecast only when approved.
+
+**Decisions still needed:** Warwick's deliverable/hour templates, cost-rate treatment of overhead, fee/margin rules, proposal terms/payment schedules, signature workflow/provider and permissions. No numbers or legal terms are approved by this roadmap entry.
+
+**V2 appearance exploration (23 Sep 2026):** retain the existing blue-black night palette as a fourth theme alongside the light and warm/green concepts. Working names: Day, Afternoon, Dusk, Night; names and final theme mapping remain open.
+
 ---
 
 ## 10 · Platform, accounts and the commercial layer
