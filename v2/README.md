@@ -150,3 +150,15 @@ Project tools remains available inside the isolated engine. Loaded catalogs are
 passed into that engine as copies, retaining the existing calculation functions.
 All engine network connections remain blocked. Native catalog editing, cloud V2
 project saving, and migration of the remaining tool interiors are still pending.
+
+## Image framing · V2-06
+
+Plant card photos fill their square by default. Full photos remain visible in the
+detail dialog. Settings → Library admin → Enable developer tools reveals Adjust
+images in the Plant Book. Zoom (1–4×), pointer/touch drag, arrow-key positioning,
+Reset and Done adjusting control the crop. Turning the mode off hides controls
+and disables dragging; reload and navigation also lock it. Framing is saved by
+plant ID and image URL in studioh_v2_image_framing_v1 only. It is not written to
+the shared library or V1. The device-level developer switch is an editing
+preference, not authenticated role enforcement. Card size is a single 44px-high
+control, with the redundant Larger/Smaller caption removed.
