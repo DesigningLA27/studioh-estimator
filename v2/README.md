@@ -106,3 +106,17 @@ V1's expanded DOM was measured (236px, 13.5px labels, 10px radius, 8.25px/11.7px
 padding) and compared visually with the V2 rail (236px, 13.5px, 10px, 8px/12px).
 The Afternoon rail uses #42523a; Day retains V1's #35502a. Cards use #fff on #faf9f6,
 20px corners, and no decorative borders. Real iPad Safari remains a device check.
+
+## Sidebar correction · V2-03
+
+Restored the approved mockup's seven project destinations (Project home, Brief &
+site, Design, Costs & savings, Client Center, Financials, Deliver) and four studio
+destinations (Libraries, Resource Center, Community, Studio business), with Settings
+at the bottom. The flat list of individual tools has been removed from the rail;
+Costs & savings and Libraries now provide grouped entry points. Active highlights
+and return navigation stay with the parent group. The light themes use the approved
+#faf9f6 sidebar, #eaf1e5 selection and 22px container corners. V1 pin/hover/resize
+mechanics remain. The rail occupies 236px, including its 8px outside inset.
+
+`tests/grouped-navigation.browser.cjs` verifies the exact approved menu, library
+and cost tool entry points, parent return behavior, pin/hover and tablet overflow.
