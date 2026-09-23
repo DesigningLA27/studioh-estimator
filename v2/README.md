@@ -4,7 +4,7 @@ URL: `https://designingla27.github.io/studioh-estimator/v2/`
 
 ## Scope
 
-The V2 navigation and four themes wrap the existing v1571 tools. Calculators and
+The V2 navigation and five themes wrap the existing v1571 tools. Calculators and
 project data shapes are reused; the production `../index.html` is unchanged.
 
 Connected: Project Info, client/designer questionnaire, photos, tracing launcher,
@@ -29,8 +29,8 @@ resources and studio business include clearly marked future-workspace previews.
 - Engine localStorage is an in-memory facade, persisted by the parent only under
   `studioh_v2_preview_store_v1`. Financial example and theme have separate V2 keys.
 - Importing V1 JSON restores a COPY inside the sandbox. Saving/exporting V2 never
-  writes a V1 project or shared library. Libraries begin with the bundled seed data;
-  the production cloud catalog is not automatically pulled.
+  writes a V1 project or shared library. Legacy engine tools begin with bundled seed data;
+  the four native V2 libraries read current shared catalogs without publishing changes.
 - `Save preview` is device-local. `Export project` downloads the existing project
   JSON format. Import a downloaded project via `Preview project`.
 - Cloud uploads, AI, online lookups, scraping and cloud sync are deliberately
@@ -42,8 +42,9 @@ resources and studio business include clearly marked future-workspace previews.
 iframe communication adapter. `engine-source.json` records its source hash.
 `python3 v2/build-shell.py` builds the shell from `src/layout.html`.
 
-Do not replace V1 or remove the sandbox to make an online feature work. Add a
-separate test backend first. Before publishing fetch/review origin/main, commit
+Do not replace V1 or remove the sandbox to make an online feature work. The parent
+may read explicitly allowlisted catalog operations. Cloud writes require a separate
+test backend first. Before publishing fetch/review origin/main, commit
 only V2 files, and use a normal fast-forward push (never force).
 
 ## Verification
@@ -127,3 +128,25 @@ Morning preserves the former Afternoon palette. Day uses approved study 02 Sage
 daylight; Afternoon uses study 03 Forest & white. Dusk and Night are unchanged.
 White cards are restored; the rejected pale-green card tint is removed. Existing
 Afternoon preferences migrate once to Morning. New previews start in Day.
+
+## Native libraries · V2-05
+
+Plant Book, Materials, Furnishings and Color Library now open native V2 screens,
+using the existing shared catalogs and images. Search, category counts, favorites,
+photo filter, card-size control, detail dialog, source links and incremental card
+loading are implemented. No production files, project records or shared libraries
+are written. Catalog requests are fixed loadbook/loadgoods/loadconfig operations;
+although the existing API uses POST, these operations are reads. Credentials are
+omitted and no admin key is accessed. Only the favorites field of shared config
+is retained. The service allows the published GitHub origin, not localhost.
+
+Catalog copies are cached separately in IndexedDB studioh_v2_catalogs, with a
+visible offline status when refresh fails. Favorite overrides use only the V2
+key studioh_v2_library_favorites_v1. Missing photos remain explicitly missing;
+existing AI images and price estimates retain their source labels. Prices are
+recorded catalog information, not live supplier quotes.
+
+Project tools remains available inside the isolated engine. Loaded catalogs are
+passed into that engine as copies, retaining the existing calculation functions.
+All engine network connections remain blocked. Native catalog editing, cloud V2
+project saving, and migration of the remaining tool interiors are still pending.

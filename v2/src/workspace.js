@@ -115,7 +115,7 @@ function modal(title,body){let d=document.getElementById('workspace-dialog');if(
 root.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
 if(b.dataset.page){e.stopImmediatePropagation();open(b.dataset.page);return}
 if(b.dataset.group){let nav=b.nextElementSibling;nav.hidden=!nav.hidden;b.setAttribute('aria-expanded',!nav.hidden);return}
-if(b.dataset.tool){v2Preview.show(b.dataset.tool,b.textContent.replace('Open ',''));return}
+if(b.dataset.tool){if(window.v2Libraries?.supports(b.dataset.tool))open(b.dataset.tool);else v2Preview.show(b.dataset.tool,b.textContent.replace('Open ',''));return}
 if(b.hasAttribute('data-client-proposal')){active='financials';v2Preview.workspace();v2Layout.financial('Proposal','Client');return}
 if(b.dataset.finOpen){active='financials';v2Preview.workspace();v2Layout.financial(b.dataset.finOpen);return}
 if(b.dataset.theme){e.stopImmediatePropagation();root.dataset.theme=b.dataset.theme;root.querySelectorAll('[data-theme]').forEach(x=>{x.classList.toggle('active',x.dataset.theme===b.dataset.theme);x.setAttribute('aria-pressed',x.dataset.theme===b.dataset.theme)});if(active==='settings')render();return}
