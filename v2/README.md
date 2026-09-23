@@ -188,3 +188,10 @@ The interactive mockup is at mockups/plant-book-v07/; it opens the full record
 and includes Browse, Full record and Right sidebar preview buttons. Tests cover
 record edits/reload, source isolation, filters, sidebar, defaults and AI wiring;
 the separate plant-ai-live test makes billable AI requests and is opt-in.
+
+## Visible release numbers
+
+The current app version is stored in `version.json`, formatted as `V2.011`.
+For every subsequent published V2 app update, run `python3 v2/build-shell.py --bump` once, then commit both `version.json` and the regenerated `index.html` with the changes. For a rebuild of the same release, omit `--bump`. Mockup-only publications do not change the live app version.
+
+The build injects the visible header/sidebar label and uses the same version on shell assets and the engine URL to refresh cached files. The version comes from the build, not the URL query parameter.

@@ -1,6 +1,13 @@
 from pathlib import Path
 import re
+import json, sys
 root=Path(__file__).resolve().parent
+version_file=root/'version.json'
+version=json.loads(version_file.read_text())
+if '--bump' in sys.argv:
+    version['release']+=1
+    version_file.write_text(json.dumps(version)+'\n')
+release=f"V{version['major']}.{version['release']:03d}"
 mock=(root/'src/layout.html').read_text()
 mock=mock.replace('function save(){', "window.v2Layout={open(page){state.page=page;state.detail='';render()},financial(tab,view){state.page='financials';fee.tab=tab||'Fee builder';fee.view=view||'Designer';renderFinancials()}};function save(){")
 # Keep the approved old Afternoon palette as Morning; add the two approved studies.
@@ -21,4 +28,10 @@ mock=mock.replace('const money=n=>',"try{const prior=JSON.parse(localStorage.get
 mock=mock.replace('function renderFinancials(){let t=totals();',"function renderFinancials(){try{localStorage.setItem('studioh_v2_financial_scenario',JSON.stringify(fee))}catch{}let t=totals();")
 extra='''<dialog id="v2-projects"><h2>Preview project</h2><p>Import an exported V1 project as an independent copy, or use sample data. Changes stay in V2 on this device.</p><label>Import project JSON<input id="v2-import" type="file" accept=".json,application/json"></label><button id="v2-sample">Open sample project</button><button onclick="this.closest('dialog').close()">Close</button><p>AI, online lookups, uploads and cloud sync are disconnected in this isolated preview.</p></dialog>'''
 mock=mock.replace('<main id="sh-content"></main></div></div>','<main id="sh-content"></main></div>'+extra+'</div>')
-(root/'index.html').write_text('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Studio H · V2 Preview</title><link rel="stylesheet" href="src/shell.css"></head><body>'+mock+'<div id="v2-notice" hidden role="status"></div><script src="src/shell.js?v=10"></script><link rel="stylesheet" href="src/workspace.css?v=10"><script src="src/icons.js"></script><link rel="stylesheet" href="src/libraries.css?v=10"><script src="src/libraries.js?v=10"></script><script src="src/workspace.js?v=10"></script></body></html>')
+html=('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Studio H · V2 Preview</title><link rel="stylesheet" href="src/shell.css"></head><body>'+mock+'<div id="v2-notice" hidden role="status"></div><script src="src/shell.js?v=10"></script><link rel="stylesheet" href="src/workspace.css?v=10"><script src="src/icons.js"></script><link rel="stylesheet" href="src/libraries.css?v=10"><script src="src/libraries.js?v=10"></script><script src="src/workspace.js?v=10"></script></body></html>')
+
+html=html.replace('<head>', '<head><meta name="studioh-version" content="'+release+'">', 1)
+html=html.replace('<title>Studio H · V2 Preview</title>', '<title>Studio H · '+release+'</title>')
+html=re.sub(r'((?:src|href)="src/[^"?]+)(?:\?v=[^"]+)?"', lambda m: m.group(1)+'?v='+release+'"', html)
+(root/'index.html').write_text(html)
+print('Built '+release)
