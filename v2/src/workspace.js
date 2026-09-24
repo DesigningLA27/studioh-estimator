@@ -59,7 +59,7 @@ h=heading('Libraries','Shared knowledge and products, available inside every pro
 else if(active==='brief'){
 h=heading('Brief & site','Your project, priorities and site knowledge in one place.',false)+`<div class="library-preview-grid brief-preview-grid">${[
 ['01','Project info','Address, contacts, property size and area sources.','projectinfo','projectinfo'],
-['02','Client Goals','Client priorities and the designer’s site assessment.','clientgoals','clientbrief'],
+['02','Questionnaire','Client priorities and the designer’s site assessment.','clientgoals','clientbrief'],
 ['03','Programming','Define the work area using your plan or a site trace.','programming','trace'],
 ['04','Site Intelligence','Project data, site requirements and reports.','intelligence','projectinfo'],
 ['05','Photos & references','Site photos, inspiration and products in one collection.','photos','photos'],
