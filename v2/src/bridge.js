@@ -97,3 +97,28 @@ _piRenderStyle=function(...args){const result=v2OriginalStyleRenderer.apply(this
 function v2MapZoom(delta){if(typeof map==='undefined'||!map)return;const zoom=map.getZoom();if(Number.isFinite(zoom))map.setZoom(Math.max(0,Math.min(22,zoom+delta)))}
 const v2OriginalBuildMap=buildMap;
 buildMap=function(...args){const result=v2OriginalBuildMap.apply(this,args);map.setOptions({zoomControl:false});const host=document.getElementById('map-wrap');if(host&&!document.getElementById('v2-map-zoom')){const controls=document.createElement('div');controls.id='v2-map-zoom';controls.setAttribute('aria-label','Map zoom');for(const [label,delta] of [['Zoom in',1],['Zoom out',-1]]){const button=document.createElement('button');button.type='button';button.textContent=delta>0?'+':'−';button.setAttribute('aria-label',label);button.onclick=()=>v2MapZoom(delta);controls.append(button)}host.append(controls)}return result};
+
+// Next-step card reads the same review state as the client questionnaire.
+const v2QuestionnaireSteps=['Property & goals','People & activities','Elements & priorities','Furniture & space','Style & inspiration','Planting & materials','Budget & timing','Photos & references','Review your brief'];
+_piRenderStyle=function(){
+ const host=document.getElementById('pinfo-style-slot');if(!host)return;qMigrateProjectInfo();
+ const brief=S.designBrief||{},reviewed=[...new Set((brief.completed||[]).filter(n=>Number.isInteger(n)&&n>=0&&n<8))];
+ if(brief.confirmed)reviewed.push(8);const count=reviewed.length,next=v2QuestionnaireSteps.findIndex((_,i)=>!reviewed.includes(i)),target=next<0?8:next,last=reviewed.at(-1);
+ host.innerHTML=`<div class="v2-next-card"><h2>Questionnaire</h2><p>Client priorities, design direction and how the garden will be used.</p><strong>${count} of 9 sections reviewed</strong><div class="v2-brief-progress" role="progressbar" aria-label="Questionnaire review progress" aria-valuemin="0" aria-valuemax="9" aria-valuenow="${count}"><i style="width:${count/9*100}%"></i></div><div class="v2-next-focus"><small>${next<0?'READY TO REVIEW':'UP NEXT · '+String(target+1).padStart(2,'0')}</small><h3>${v2QuestionnaireSteps[target]}</h3><p>${next<0?'All sections have been reviewed. Revisit your brief whenever you need to.':['Choose the project areas and describe what you have in mind.','Tell us who uses the garden and how they spend time outdoors.','Choose your garden elements and set their priorities.','Choose furniture types and quantities, then tell us what you already own.','Choose the styles and inspiration that feel right to you.','Set your planting, materials and color preferences.','Share your budget priorities and preferred timing.','Collect site photos, inspiration and product references.','Check the complete brief and confirm your selections.'][target]}</p></div><dl><div><dt>Last reviewed</dt><dd>${last===undefined?'No sections reviewed yet':v2QuestionnaireSteps[last]}</dd></div><div><dt>Still to review</dt><dd>${9-count} sections</dd></div></dl><button class="btn" onclick="piOpenBrief('client',${target})">${next<0?'Review your brief':count?'Continue where you left off':'Start questionnaire'} →</button></div>`;
+};
+function v2ArrangeRequirements(){
+ const host=document.getElementById('pinfo-refcards');if(!host||host.querySelector('.v2-requirement-column'))return;
+ const cards=[...host.children].filter(x=>x.classList.contains('pinfo-sub'));if(cards.length!==5)return;
+ const [setbacks,hoa,fire,water,climate]=cards;
+ function group(parent,title,nodes){if(!nodes.length)return;const d=document.createElement('details');d.className='v2-requirement-details';const summary=document.createElement('summary');summary.textContent=title;d.append(summary);nodes[0].before(d);nodes.forEach(n=>d.append(n));return d}
+ const items=setbacks.querySelector('.sb-items');if(items){const rows=[...items.children],pool=rows.filter(r=>/^(pool|spa)/i.test(r.querySelector('span')?.textContent.trim()||'')),other=rows.filter(r=>!pool.includes(r));group(items,'Pool & spa · '+pool.length+' requirements',pool);group(items,'Structures & equipment · '+other.length+' requirements',other)}
+ const notes=[...setbacks.children].filter(n=>n.classList.contains('pinfo-note'));
+ // Preserve a visible warning even when the full verification/source controls are collapsed.
+ const warning=setbacks.querySelector('.sb-warn');if(warning){const status=document.createElement('p');status.className='v2-source-warning';status.textContent='Source-code verification needed. Review sources before relying on these figures.';setbacks.querySelector('.pinfo-sub-h').after(status)}
+ group(setbacks,'Sources & verification',notes);
+ const guidance=[...fire.children].filter(n=>n.classList.contains('pinfo-note')&&n.textContent.includes('Defensible space'));group(fire,'Defensible-space guidance',guidance);
+ for(const list of [[setbacks],[hoa,water],[fire,climate]]){const column=document.createElement('div');column.className='v2-requirement-column';host.append(column);list.forEach(card=>column.append(card))}
+}
+const v2OriginalRequirementRenderer=_renderPInfoCards;
+_renderPInfoCards=function(...args){const result=v2OriginalRequirementRenderer.apply(this,args);v2ArrangeRequirements();return result};
+window.addEventListener('load',()=>{_piRenderStyle();v2ArrangeRequirements()});
