@@ -60,7 +60,17 @@ This is the deepest unfinished layer in the app and almost none of it was writte
 
 Guessed rates have been wrong every time: pot $1,425 → $750, pergola $3.1k → $38k, SPJ uplight $280 → $150.
 
-- **Value engineering** — reads the estimate against the budget and proposes how to close the gap, with the trade-off per suggestion, not just the saving. In Take-offs *and* the estimate at every phase. **The biggest one on this list.**
+- **~~Value engineering~~ — BUILT, as its own tab.** The 16 Sep sweep listed this as unbuilt and it
+  was already there. Every figure on it is **measured, not estimated**: a suggestion is applied to a
+  throwaway copy of the job, the grand total is recomputed, and the difference is the saving — so
+  market adjustment, markup, section multipliers and the builders are all already inside the number.
+  Savings are tagged free / min / med / high / defer; there are named plans, a one-step undo, and a
+  natural-language box that turns *"drop the sealer"* into a change the app already knows how to
+  make, refusing anything not really in the job rather than inventing it. The AI writes one sentence
+  of advice and is forbidden numbers of its own. **What is left on it:** (a) the deferral
+  percentages in `VE_DEFER` — kitchen 12%, fire pit 8%, pergola 13% — are the author's figures and
+  **Warwick's to set**; (b) the original ask was *"in Take-offs and the estimate at every phase"* and
+  it is a standalone tab, reached deliberately rather than surfacing where the overspend appears.
 - **Lighting design** — fixtures placed by context: uplights per tree, downlights where a tree meets paving, well lights ~4' OC on accent walls, shrub uplighting weighted front > rear > side, vines on property walls, LED tape geometry for counters, toe kicks, step treads, bench runs.
 - **Planting palette** — species mix, densities and container sizes by zone, sun and water use.
 - **Lighting energy** — fixtures carry watts for transformer sizing, but nothing prices kWh. Any energy figure today would be invented. ★ RECOVERED
@@ -302,7 +312,51 @@ Blocked on the backend/accounts phase, in CLAUDE.md's locked build sequence.
 
 ---
 
-## 12 · How to keep this correct
+## 12 · Project status AI — "where things stand"
+
+Asked for 23 Sep 2026. Two surfaces on one engine.
+
+**1 · On demand.** A button that reports on **one project, or across all of them**: what is
+incomplete, what is urgent, what is over budget, the next steps to take, items to review.
+
+**2 · The daily brief.** A popup at 8am — on by default, switchable off in Settings — with the
+update, the progress report and the recap. *"Good morning Warwick, here is where things currently
+stand."*
+
+**How it has to be built**, against decisions already made elsewhere in this app:
+
+- **It registers as a specialist under the existing AI orchestrator** (`aiRegister`; six are
+  registered today — Knowledge Auditor, Estimating, Assembly Selection, Value Engineering, Site
+  Conditions). One Studio H AI over many specialists, never a parallel AI bolted on the side.
+- **It proposes, it never writes.** Same contract as every other AI card, including honest badges
+  and per-user metering.
+- **Every number comes from the engine, not the model.** The same rule Bid Compare's verdict obeys
+  and Value Engineering's advice obeys: the model is handed facts and turns them into sentences. It
+  may not produce a figure of its own.
+
+**Inputs that already exist:** total against budget, the value-engineering gap and its costed
+savings, checklist state, phase snapshots, Bid Compare's scores and questions, plant-report gaps,
+and the site-conditions flags.
+
+**Inputs that do not exist yet — these are the real build:**
+- **No schedule.** Nothing carries a due date, so "urgent" has nothing to measure against.
+- **No time tracking.** "Over budget" on fees needs §9 Financials, which needs Proposals first.
+- **No changelog.** A project has no history of what changed, so "progress since yesterday" and the
+  recap have nothing to diff. Something has to record the deltas before a recap can read them.
+- **No project index.** Projects load one at a time; "across all your projects" needs a list that
+  can be read without opening each one.
+
+**And the 8am trigger is not what it sounds like.** A browser popup only fires while the app is
+open. A brief that actually arrives at 8am — on a phone, without the app running — is a scheduled
+server-side job, which lands in the backend/accounts phase (§10). Ship the in-app version first and
+be straight about which one it is.
+
+**Cost:** a daily generated brief for every user is a recurring AI spend per head. It has to sit
+inside the usage-metering cap (§10), counted in documents and searches, not tokens.
+
+---
+
+## 13 · How to keep this correct
 
 The gap this sweep closed was structural: **capture depended on Warwick saying the word "roadmap."**
 Anything deferred mid-build — including every "Not done" line at the end of a version — had no home
