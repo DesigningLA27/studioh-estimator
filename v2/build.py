@@ -18,7 +18,7 @@ src=src.replace('token:_qToken,...data},location.origin)','token:_qToken,...data
 expr="new TextDecoder().decode(Uint8Array.from(atob(_qMode==='designer'?Q_DESIGNER_HTML:Q_FRAME_HTML),c=>c.charCodeAt(0)))"
 assert expr in src
 src=src.replace(expr,'v2QuestionnaireHTML('+expr+')')
-guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text();css=(root/'src/engine.css').read_text()
+guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text()+'\n'+(root/'src/programming.js').read_text();css=(root/'src/engine.css').read_text()
 # These restrictions are parsed before any original scripts. Production APIs,
 # forms, object plugins and workers cannot write to live services.
 csp="connect-src 'none'; form-action 'none'; object-src 'none'; worker-src blob:; frame-src 'self' about: blob:; base-uri 'none'"
