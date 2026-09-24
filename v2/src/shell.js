@@ -15,7 +15,7 @@
  };
  const command=m=>{if(ready)frame.contentWindow.postMessage(m,'*');else pending=m};
  function notice(message){const n=document.getElementById('v2-notice');n.textContent=message;n.hidden=false;clearTimeout(n.timer);n.timer=setTimeout(()=>n.hidden=true,6500)}
- function show(route,label,projectTools=false){if(!projectTools&&window.v2Libraries?.supports(route)){workspace();window.v2Libraries.open(route,main);return}window.v2Libraries?.close();current={route,label};root.classList.toggle('brief-open',['projectinfo','clientbrief','designerbrief','photos','trace'].includes(route));root.classList.toggle('questionnaire-open',['clientbrief','designerbrief','photos'].includes(route));main.hidden=true;pane.hidden=false;document.getElementById('v2-tooltitle').textContent=({projectinfo:/intelligence/i.test(label)?'Site Intelligence':'Project info',trace:'Programming',clientbrief:'Questionnaire',designerbrief:'Questionnaire',photos:'Photos & references'})[route]||label;let tabs=route.includes('brief')||route==='photos'?[]:['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(route)?Object.values(routes).filter(x=>['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(x[0])).filter((x,i,a)=>a.findIndex(y=>y[0]===x[0])===i):[];const bar=document.getElementById('v2-tooltabs');bar.replaceChildren(...tabs.map(([id,name])=>{const b=document.createElement('button');b.textContent=name;b.className=id===route?'on':'';b.onclick=()=>show(id,name);return b}));command({v2cmd:'route',route});}
+ function show(route,label,projectTools=false){if(!projectTools&&window.v2Libraries?.supports(route)){workspace();window.v2Libraries.open(route,main);return}window.v2Libraries?.close();current={route,label};frame.style.visibility="hidden";pane.setAttribute("aria-busy","true");root.classList.toggle('brief-open',['projectinfo','clientbrief','designerbrief','photos','trace'].includes(route));root.classList.toggle('questionnaire-open',['clientbrief','designerbrief','photos'].includes(route));main.hidden=true;pane.hidden=false;document.getElementById('v2-tooltitle').textContent=({projectinfo:/intelligence/i.test(label)?'Site Intelligence':'Project info',trace:'Programming',clientbrief:'Questionnaire',designerbrief:'Questionnaire',photos:'Photos & references'})[route]||label;let tabs=route.includes('brief')||route==='photos'?[]:['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(route)?Object.values(routes).filter(x=>['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(x[0])).filter((x,i,a)=>a.findIndex(y=>y[0]===x[0])===i):[];const bar=document.getElementById('v2-tooltabs');bar.replaceChildren(...tabs.map(([id,name])=>{const b=document.createElement('button');b.textContent=name;b.className=id===route?'on':'';b.onclick=()=>show(id,name);return b}));command({v2cmd:'route',route});}
  function workspace(){window.v2Libraries?.close();pane.hidden=true;main.hidden=false;current=null;root.classList.remove('questionnaire-open','brief-open')}
  document.getElementById('v2-back').onclick=workspace;
  document.getElementById('v2-tool-save').onclick=()=>command({v2cmd:'save'});
@@ -25,6 +25,7 @@
  if(b.dataset.theme){localStorage.setItem(keys.theme,b.dataset.theme);command({v2cmd:'theme',theme:b.dataset.theme})}
  },true);
  window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data?.v2)return;const m=e.data;
+ if(m.v2==='route'&&m.route===current?.route){frame.style.visibility='visible';pane.removeAttribute('aria-busy')}
  if(m.v2==='workspace'){workspace();return}
  if(m.v2==='questionnaire-state'){root.classList.toggle('questionnaire-open',m.visible);return}
  if(m.v2==='plant-response'){const task=plantRequests.get(m.requestId);if(task){clearTimeout(task.timer);plantRequests.delete(m.requestId);m.error?task.reject(Error(m.error)):task.resolve(m.result)}return}
@@ -32,7 +33,7 @@
  if(m.v2==='ready'){ready=true;window.v2Libraries?.sync();command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Day'});if(pending){const m=pending;pending=null;command(m)}document.getElementById('v2-state').textContent='Local preview · Cloud writes blocked'}
  if(m.v2==='saved'){document.getElementById('v2-state').textContent='Saved on this device';updateName(m.name)}
  if(m.v2==='snapshot'){project=m.bid;updateName(project?.S?.pi?.project||project?.S?.pi?.client||'Preview project')}
- if(m.v2==='error')notice(m.message);if(m.v2==='open-projects')document.getElementById('v2-projects').showModal();
+ if(m.v2==='error'){frame.style.visibility='visible';pane.removeAttribute('aria-busy');notice(m.message)};if(m.v2==='open-projects')document.getElementById('v2-projects').showModal();
  });
  function updateName(name){lastName=name;const p=root.querySelector('.project strong');if(p)p.textContent=name}
  root.addEventListener('click',()=>setTimeout(()=>{if(lastName)updateName(lastName)},0));
