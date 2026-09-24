@@ -1,7 +1,7 @@
 /* V2 shell: the original tool engine stays mounted while navigation changes. */
 (()=>{
  const root=document.getElementById('sh-v2'),body=root.querySelector('.body'),main=root.querySelector('main');
- const pane=document.createElement('section');pane.id='v2-engine-pane';pane.hidden=true;pane.innerHTML='<div class="v2-toolhead"><button id="v2-back">← Workspace</button><strong id="v2-tooltitle"></strong><span>Local preview</span></div><div id="v2-tooltabs"></div><iframe id="v2-engine" title="Studio H project workspace" sandbox="allow-scripts allow-downloads allow-modals"></iframe>';body.appendChild(pane);
+ const pane=document.createElement('section');pane.id='v2-engine-pane';pane.hidden=true;pane.innerHTML='<div class="v2-toolhead"><button id="v2-back">← Workspace</button><strong id="v2-tooltitle"></strong><button id="v2-tool-save">Save progress</button></div><div id="v2-tooltabs"></div><iframe id="v2-engine" title="Studio H project workspace" sandbox="allow-scripts allow-downloads allow-modals"></iframe>';body.appendChild(pane);
  const frame=pane.querySelector('iframe');let ready=false,pending=null,current=null,project=null,lastName="";
  const keys={store:'studioh_v2_preview_store_v1',theme:'studioh_v2_theme_v1'};
  if(!localStorage.getItem('studioh_v2_theme_mapping_v2')){if(localStorage.getItem(keys.theme)==='Afternoon')localStorage.setItem(keys.theme,'Morning');localStorage.setItem('studioh_v2_theme_mapping_v2','1')}
@@ -15,15 +15,18 @@
  };
  const command=m=>{if(ready)frame.contentWindow.postMessage(m,'*');else pending=m};
  function notice(message){const n=document.getElementById('v2-notice');n.textContent=message;n.hidden=false;clearTimeout(n.timer);n.timer=setTimeout(()=>n.hidden=true,6500)}
- function show(route,label,projectTools=false){if(!projectTools&&window.v2Libraries?.supports(route)){workspace();window.v2Libraries.open(route,main);return}window.v2Libraries?.close();current={route,label};main.hidden=true;pane.hidden=false;document.getElementById('v2-tooltitle').textContent=label;let tabs=route.includes('brief')||route==='photos'?[]:['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(route)?Object.values(routes).filter(x=>['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(x[0])).filter((x,i,a)=>a.findIndex(y=>y[0]===x[0])===i):[];const bar=document.getElementById('v2-tooltabs');bar.replaceChildren(...tabs.map(([id,name])=>{const b=document.createElement('button');b.textContent=name;b.className=id===route?'on':'';b.onclick=()=>show(id,name);return b}));command({v2cmd:'route',route});}
- function workspace(){window.v2Libraries?.close();pane.hidden=true;main.hidden=false;current=null}
+ function show(route,label,projectTools=false){if(!projectTools&&window.v2Libraries?.supports(route)){workspace();window.v2Libraries.open(route,main);return}window.v2Libraries?.close();current={route,label};root.classList.toggle('brief-open',['projectinfo','clientbrief','designerbrief','photos','trace'].includes(route));root.classList.toggle('questionnaire-open',['clientbrief','designerbrief','photos'].includes(route));main.hidden=true;pane.hidden=false;document.getElementById('v2-tooltitle').textContent=({projectinfo:/intelligence/i.test(label)?'Site Intelligence':'Project info',trace:'Programming',clientbrief:'Questionnaire',designerbrief:'Questionnaire',photos:'Photos & references'})[route]||label;let tabs=route.includes('brief')||route==='photos'?[]:['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(route)?Object.values(routes).filter(x=>['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(x[0])).filter((x,i,a)=>a.findIndex(y=>y[0]===x[0])===i):[];const bar=document.getElementById('v2-tooltabs');bar.replaceChildren(...tabs.map(([id,name])=>{const b=document.createElement('button');b.textContent=name;b.className=id===route?'on':'';b.onclick=()=>show(id,name);return b}));command({v2cmd:'route',route});}
+ function workspace(){window.v2Libraries?.close();pane.hidden=true;main.hidden=false;current=null;root.classList.remove('questionnaire-open','brief-open')}
  document.getElementById('v2-back').onclick=workspace;
+ document.getElementById('v2-tool-save').onclick=()=>command({v2cmd:'save'});
  root.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.detail&&routes[b.dataset.detail]){e.stopImmediatePropagation();show(...routes[b.dataset.detail]);return}
  if(b.dataset.go)workspace();
  if(b.dataset.theme){localStorage.setItem(keys.theme,b.dataset.theme);command({v2cmd:'theme',theme:b.dataset.theme})}
  },true);
  window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data?.v2)return;const m=e.data;
+ if(m.v2==='workspace'){workspace();return}
+ if(m.v2==='questionnaire-state'){root.classList.toggle('questionnaire-open',m.visible);return}
  if(m.v2==='plant-response'){const task=plantRequests.get(m.requestId);if(task){clearTimeout(task.timer);plantRequests.delete(m.requestId);m.error?task.reject(Error(m.error)):task.resolve(m.result)}return}
  if(m.v2==='storage'){try{localStorage.setItem(keys.store,JSON.stringify(m.data))}catch{notice('Device storage is full. Export this preview to keep your work.')}}
  if(m.v2==='ready'){ready=true;window.v2Libraries?.sync();command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Day'});if(pending){const m=pending;pending=null;command(m)}document.getElementById('v2-state').textContent='Local preview · Cloud writes blocked'}
