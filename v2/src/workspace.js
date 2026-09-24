@@ -17,7 +17,7 @@ const groups=[['This project',[
 ['home','Project home','home'],['brief','Brief & site','brief'],['design','Design','design'],['costs','Costs & savings','cost'],['client','Client Center','chat'],['financials','Financials','chart'],['deliver','Deliver','brief']]],
 ['Across the studio',[['libraries','Libraries','book'],['resources','Resource Center','book'],['community','Community','chat'],['business','Studio business','chart']]]];
 const all=[...groups.flatMap(g=>g[1]),...libraries,['mood','Mood board','grid'],['insights','Project insights','chart'],['estimate','Estimate','cost','estimate'],['savings','Savings Center','chart'],['bidcompare','Bid Compare','cost','bidcompare'],['roadmap','What’s coming','grid']];
-const parentPage=id=>libraries.some(x=>x[0]===id)?'libraries':['estimate','savings','bidcompare'].includes(id)?'costs':['mood','studies'].includes(id)?'design':id==='insights'?'home':id==='roadmap'?'resources':id;
+const parentPage=id=>libraries.some(x=>x[0]===id)?'libraries':['estimate','savings','bidcompare'].includes(id)?'costs':['mood','studies'].includes(id)?'design':id==='insights'?'brief':id==='roadmap'?'resources':id;
 const rail=document.createElement('aside');rail.id='v2-rail';rail.innerHTML=`<div class="rail-brand"><button id="rail-logo" aria-label="Expand navigation">${icon('logo')}</button><div class="rail-copy"><strong>Studio H</strong><small>Design workspace <b>${esc(appVersion)}</b></small></div><button id="v2-pin" aria-label="Collapse sidebar" title="Pin or collapse sidebar">${icon('pin')}</button></div><button class="rail-project" id="rail-project">${icon('folder')}<span class="rail-copy" id="rail-project-name">Preview project</span><span class="rail-copy">⌄</span></button><div class="rail-scroll">${groups.map(([label,items])=>`<section><button class="rail-label" data-group="${label}" aria-expanded="true"><span>${label}</span><span>⌄</span></button><nav aria-label="${label}">${items.map(([id,label,i])=>`<button class="rail-item" data-page="${id}" title="${label}">${icon(window.V2_ICONS?.[id]?id:i)}<span class="rail-copy">${label}</span></button>`).join('')}</nav></section>`).join('')}</div><button class="rail-item rail-settings" data-page="settings">${icon('settings')}<span class="rail-copy">Settings</span></button>`;root.prepend(rail);
 const mobile=document.createElement('button');mobile.id='v2-menu';mobile.innerHTML='☰';mobile.setAttribute('aria-label','Open navigation');root.querySelector('.top').prepend(mobile);
 root.querySelector('.top .brand').innerHTML='<span id="workspace-label">Dashboard</span><small class="top-caption">Studio H · '+esc(appVersion)+'</small>';
@@ -58,10 +58,10 @@ h=heading('Libraries','Shared knowledge and products, available inside every pro
 }
 else if(active==='brief'){
 h=heading('Brief & site','Your project, priorities and site knowledge in one place.',false)+`<div class="library-preview-grid brief-preview-grid">${[
-['01','Project info','Address, contacts, property size and area sources.','projectinfo','projectinfo'],
+['01','Project info','Address, contacts, property facts, site requirements and sources.','projectinfo','projectinfo'],
 ['02','Questionnaire','Client priorities and the designer’s site assessment.','clientgoals','clientbrief'],
 ['03','Programming','Define the work area using your plan or a site trace.','programming','trace'],
-['04','Site Intelligence','Project data, site requirements and reports.','intelligence','projectinfo'],
+['04','Project Insights','Explore project insights by cost, property, planting, water and progress.','intelligence','insights'],
 ['05','Photos & references','Site photos, inspiration and products in one collection.','photos','photos'],
 ['','Site Knowledge','Compare take-off sets, explore sun and shade, and review site observations.','knowledge','studies']
 ].map(([n,t,d,asset,r])=>`<article class="library-preview-card"><div class="library-preview-copy">${n?`<span class="step-number">${n}</span>`:''}<h2>${t}</h2><p>${d}</p></div><div class="library-preview-thumb"><img src="assets/brief-icons/${asset}.svg" alt="" aria-hidden="true"></div>${r==='studies'?go('Explore site knowledge →',r):tool('Open '+t.toLowerCase()+' →',r)}</article>`).join('')}</div>`;
