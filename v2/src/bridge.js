@@ -70,3 +70,24 @@ function v2QuestionnaireHTML(html){
  document.addEventListener('change',()=>{clearTimeout(window._v2Save);window._v2Save=setTimeout(()=>{try{save()}catch{}},800)});
  },2000);});
 })();
+
+// Preserve existing form nodes and handlers while arranging the approved Clear cards layout.
+function v2ClearProjectCards(){
+ const card=document.querySelector('#view-projectinfo .pinfo-card'),basics=card?.querySelector('.pinfo-block'),style=document.getElementById('pinfo-style-slot');
+ if(basics&&style&&!card.querySelector('.v2-project-top')){const row=document.createElement('div');row.className='v2-project-top';basics.before(row);row.append(basics,style)}
+ const mapEl=document.getElementById('site-map');
+ if(mapEl&&!document.getElementById('v2-fit-property')){const button=document.createElement('button');button.id='v2-fit-property';button.className='btn v2-fit-property';button.textContent='⤢ Fit property';button.onclick=()=>v2FitProperty(true);document.getElementById('map-wrap').before(button);const status=document.createElement('div');status.id='v2-fit-status';status.className='v2-fit-status';status.setAttribute('role','status');button.after(status);let lastWidth=0;new ResizeObserver(entries=>{const width=entries[0].contentRect.width;if(width&&Math.abs(width-lastWidth)>1){lastWidth=width;v2FitProperty()}}).observe(mapEl)}
+}
+function v2FitProperty(manual=false){
+ const el=document.getElementById('site-map'),status=document.getElementById('v2-fit-status');
+ if(!el||!el.clientWidth||typeof map==='undefined'||!map||typeof google==='undefined'||!google.maps||typeof parcelOutline==='undefined'||!parcelOutline){if(manual&&status)status.textContent='A loaded map and property boundary are needed to fit the view.';return false}
+ const points=[];parcelOutline.getPaths().forEach(path=>path.forEach(p=>points.push(p)));if(!points.length)return false;
+ const bounds=new google.maps.LatLngBounds();points.forEach(p=>bounds.extend(p));const ne=bounds.getNorthEast(),sw=bounds.getSouthWest();
+ const lat=Math.max(.000001,ne.lat()-sw.lat()),lng=Math.max(.000001,(ne.lng()-sw.lng())*Math.cos((ne.lat()+sw.lat())*Math.PI/360));
+ el.style.height=Math.min(850,Math.max(340,(el.clientWidth-72)*lat/lng+72))+'px';
+ google.maps.event.trigger(map,'resize');map.setTilt?.(0);map.setHeading?.(0);map.fitBounds(bounds,36);if(status)status.textContent='Full property boundary fitted with padding.';return true;
+}
+for(const name of ['drawParcelGeoJSON','handleParcelResponse','initMap']){const original=window[name];if(typeof original==='function')window[name]=function(...args){const result=original.apply(this,args);if(result?.then)result.then(()=>requestAnimationFrame(()=>v2FitProperty()));else requestAnimationFrame(()=>v2FitProperty());return result}}
+window.addEventListener('load',v2ClearProjectCards);
+const v2OriginalStyleRenderer=_piRenderStyle;
+_piRenderStyle=function(...args){const result=v2OriginalStyleRenderer.apply(this,args);const host=document.getElementById('pinfo-style-slot');if(host){const title=host.querySelector('b');if(title)title.textContent='Questionnaire';const button=host.querySelector('button');if(button)button.textContent='Open questionnaire →'}return result};
