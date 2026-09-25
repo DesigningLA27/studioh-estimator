@@ -18,6 +18,8 @@ Update this list at each release. Raise a dependency when the current feature ne
 - Add JPG/PNG bases through the same tracer.
 - Project picker redesign remains a choice among mockups until approved.
 
+- [ ] Connect the tracer’s “Design the garden” AI request in V2. V1 siteAsk uses the AI service to propose elements and the existing placement solver/tray. V2 currently blocks that request. Needed when enabling AI layout generation inside the tracer; preserve review/place/apply behavior. This is separate from document extraction and photo rendering.
+
 ## Compatibility follow-up
 - [ ] Check Google Maps iframe compatibility on iPad Safari: Chrome renders the real map, zooms and reopens correctly, but Google's map library logs a cross-frame listener warning in the opaque iframe. Keep the production-write boundary; do not remove the sandbox just to silence a warning.
 
