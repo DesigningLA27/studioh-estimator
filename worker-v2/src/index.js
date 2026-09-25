@@ -1,4 +1,4 @@
-const ORIGIN='https://designingla27.github.io';
+const ORIGIN='http://127.0.0.1:51844';
 const TTL=14*86400;
 const enc=new TextEncoder();
 export async function hash(value){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',typeof value==='string'?enc.encode(value):value))].map(b=>b.toString(16).padStart(2,'0')).join('')}
@@ -14,6 +14,7 @@ export default {async fetch(req,env){try{
  if(req.method==='OPTIONS')return new Response(null,{status:204,headers:headers()});
  if(path==='/authorize'&&req.method==='GET'){const s=await session(req,env,true);return authPage((url.searchParams.get('state')||'').replace(/[^a-zA-Z0-9-]/g,'').slice(0,100),s?.token)}
  if(path==='/session'&&req.method==='POST'){
+  if(!env.LEGACY)return reply(503,{error:'Individual account sign-in is not connected in this isolated test yet.'});
   const ip=await hash(req.headers.get('CF-Connecting-IP')||'unknown'),minute=Math.floor(Date.now()/60000),rk=`rate/${ip}/${minute}`;
   const prior=await env.PROJECTS.get(rk),count=prior?Number(await prior.text()):0;if(count>=8)return reply(429,{error:'Too many attempts. Please wait a minute.'});
   const reserved=await env.PROJECTS.put(rk,String(count+1),{onlyIf:prior?{etagMatches:prior.etag}:{etagDoesNotMatch:'*'}});if(!reserved)return reply(429,{error:'Please wait a moment and try again.'});
