@@ -16,7 +16,7 @@
  const command=m=>{if(ready)frame.contentWindow.postMessage(m,'*');else pending=m};
  function notice(message){const n=document.getElementById('v2-notice');n.textContent=message;n.hidden=false;clearTimeout(n.timer);n.timer=setTimeout(()=>n.hidden=true,6500)}
  function show(route,label,projectTools=false){if(window.v2Experience&&!v2Experience.allowsTool(route)){notice("This tool is available in Developer or Designer mode.");return}if(!projectTools&&window.v2Libraries?.supports(route)){workspace();window.v2Libraries.open(route,main);return}window.v2Libraries?.close();current={route,label};document.getElementById('v2-back').hidden=route==='homeinsights';frame.style.visibility="hidden";pane.setAttribute("aria-busy","true");root.classList.toggle('brief-open',['projectfiles','projectinfo','clientbrief','designerbrief','photos','trace','insights','homeinsights'].includes(route));root.classList.toggle('questionnaire-open',['clientbrief','designerbrief'].includes(route));main.hidden=true;pane.hidden=false;document.getElementById('v2-tooltitle').textContent=({projectinfo:/intelligence/i.test(label)?'Site Intelligence':'Project info',trace:'Programming',clientbrief:'Questionnaire',designerbrief:'Questionnaire',photos:'Photos & references'})[route]||label;let tabs=route.includes('brief')||route==='photos'?[]:['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(route)?Object.values(routes).filter(x=>['plantbook','materials','furnishings','products','colorlibrary','pricebook','hoa','cities','nurseries'].includes(x[0])).filter((x,i,a)=>a.findIndex(y=>y[0]===x[0])===i):[];const bar=document.getElementById('v2-tooltabs');bar.replaceChildren(...tabs.map(([id,name])=>{const b=document.createElement('button');b.textContent=name;b.className=id===route?'on':'';b.onclick=()=>show(id,name);return b}));command({v2cmd:'route',route});}
- function workspace(){window.v2Libraries?.close();pane.hidden=true;main.hidden=false;current=null;root.classList.remove('questionnaire-open','brief-open')}
+ function workspace(){root.classList.remove('v2-moodboard-present');window.v2Libraries?.close();pane.hidden=true;main.hidden=false;current=null;root.classList.remove('questionnaire-open','brief-open')}
  document.getElementById('v2-back').onclick=workspace;
  document.getElementById('v2-tracer-back').onclick=()=>command({v2cmd:'close-trace'});
  document.getElementById('v2-tool-save').onclick=()=>command({v2cmd:'save'});
@@ -26,7 +26,8 @@
  if(b.dataset.theme){localStorage.setItem(keys.theme,b.dataset.theme);command({v2cmd:'theme',theme:b.dataset.theme})}
  },true);
  window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data?.v2)return;const m=e.data;
- if(m.v2==='route'&&m.route===current?.route){frame.style.visibility='visible';pane.removeAttribute('aria-busy')}
+ if(m.v2==='moodboard-presentation'){root.classList.toggle('v2-moodboard-present',!!m.present&&current?.route==='moodboard');return}
+ if(m.v2==='route'&&m.route===current?.route){if(m.route==='moodboard')window.v2Libraries?.prepareMoodboard();frame.style.visibility='visible';pane.removeAttribute('aria-busy')}
  if(m.v2==='open-demo'){v2OpenCloudSample();return}
  if(m.v2==='tracer-state')root.classList.toggle('v2-tracer-open',!!m.open);
  if(m.v2==='insights-open'){window.v2Workspace.open('insights');return}

@@ -18,7 +18,9 @@ src=src.replace('token:_qToken,...data},location.origin)','token:_qToken,...data
 expr="new TextDecoder().decode(Uint8Array.from(atob(_qMode==='designer'?Q_DESIGNER_HTML:Q_FRAME_HTML),c=>c.charCodeAt(0)))"
 assert expr in src
 src=src.replace(expr,'v2QuestionnaireHTML('+expr+')')
-guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text()+'\n'+(root/'src/programming.js').read_text()+'\n'+(root/'src/photos.js').read_text()+'\n'+(root/'src/insights.js').read_text()+'\n'+(root/'src/project-files.js').read_text();css=(root/'src/engine.css').read_text()
+# A blocked catalog read must not recursively repaint the Moodboard.
+src=src.replace('if(document.getElementById("mb-body")) renderMoodBoard();', 'if(_elementsPulled && _colorPalettesPulled && document.getElementById("mb-body")) renderMoodBoard();')
+guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text()+'\n'+(root/'src/programming.js').read_text()+'\n'+(root/'src/photos.js').read_text()+'\n'+(root/'src/insights.js').read_text()+'\n'+(root/'src/project-files.js').read_text();css=(root/'src/engine.css').read_text()+'\n'+(root/'src/moodboard.css').read_text();bridge+='\n'+(root/'src/moodboard.js').read_text()
 # These restrictions are parsed before any original scripts. Production APIs,
 # forms, object plugins and workers cannot write to live services.
 csp="connect-src https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com; form-action 'none'; object-src 'none'; worker-src blob:; frame-src 'self' about: blob:; base-uri 'none'"

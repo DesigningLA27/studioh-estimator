@@ -25,3 +25,9 @@ Update this list at each release. Raise a dependency when the current feature ne
 
 ## Verification
 Real SAMPLE DEMO read from Cloudflare: 16 shapes, live satellite base, 14,204 SF displayed. Zoom, close, saved reload and real satellite thumbnail verified. PDF/DXF existing tests passed; JPG base opens the same tracer. Root V1 source unchanged. Popup mockups: clear list, visual cards, focused chooser.
+
+## Moodboard release V2.029
+- [x] Three approved moodboard views built over the original project selections, switchable within the actual board.
+- [x] Connect Add to Moodboard from V2 Plant Book/material/furnishing records and palette selection. Keep native quantity/pricing checks.
+- [ ] Account-bound moodboard cloud writes remain part of the server-persistence dependency above; view controls do not claim that edits are synced.
+- [ ] Verify and connect existing AI suggestions/import services before presenting those actions as available.
