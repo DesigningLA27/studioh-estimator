@@ -18,7 +18,7 @@ function v2ApplyCatalog(m){
  else if(m.id==='furnishings'&&Array.isArray(m.data))FURNISHINGS=m.data.map(p=>({...p,specQty:0}));
  else if(m.id==='colorlibrary'&&Array.isArray(m.data)){COLOR_PALETTES=m.data;_colorPalettesPulled=true;}
 }
-function v2QThemeCSS(){const s=getComputedStyle(document.documentElement);const val=k=>s.getPropertyValue(k).trim();return ':root{'+Object.entries({'--qp-bg':val('--bg'),'--qp-panel':val('--surface2'),'--qp-text':val('--tx'),'--qp-muted':val('--tm'),'--qp-green':val('--gm'),'--qp-selected':val('--brand-soft'),'--qp-pill':val('--card'),'--qp-font':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}).map(([k,v])=>k+':'+v+'!important').join(';')+'}body,button,input,textarea,select{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif!important}header .brand,header .topname{display:none!important}';}
+function v2QThemeCSS(){const s=getComputedStyle(document.documentElement);const val=k=>s.getPropertyValue(k).trim();return (window.v2ExperienceRole==='customer'?'.q-roles{display:none!important}':'')+ ':root{'+Object.entries({'--qp-bg':val('--bg'),'--qp-panel':val('--surface2'),'--qp-text':val('--tx'),'--qp-muted':val('--tm'),'--qp-green':val('--gm'),'--qp-selected':val('--brand-soft'),'--qp-pill':val('--card'),'--qp-light':val('--tm'),'--qp-well':val('--brand-soft'),'--qp-font':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}).map(([k,v])=>k+':'+v+'!important').join(';')+'}body,button,input,textarea,select{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif!important}header .brand,header .topname{display:none!important}';}
 function v2CompactQuestionnaireHeader(){
  const header=document.querySelector('header');if(!header)return;
  header.classList.add('v2-compact-header');
@@ -41,10 +41,18 @@ header .q-progress [role=progressbar]{max-width:160px!important;height:5px!impor
 .shell nav{top:12px!important;max-height:calc(100vh - 24px)!important}
 @media(max-width:760px){header.v2-compact-header{padding:14px 14px 10px!important}.shell{padding:4px 14px 14px!important}header .right{flex-basis:100%;justify-content:space-between}.q-roles{flex:1}header .q-roles button{padding:10px 8px;font-size:11px}header .v2-q-title{flex:1}.shell nav{max-height:none!important}}
 `;
+// Normalize stylesheet colors, including the newer questionnaire section styles.
+// Photo pixels, SVG artwork, palette swatches and inline user colors are untouched.
+function v2QuestionnaireStyles(html){return html.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi,(all,attrs,css)=>'<style'+attrs+'>'+css.replace(/(background(?:-color)?|color|border-color)\s*:\s*(#[0-9a-f]{3,8}|white|black)(?=\s*[;!}])/gi,(decl,prop,color)=>{
+ let hex=color.toLowerCase();if(hex==='white')hex='#ffffff';if(hex==='black')hex='#000000';hex=hex.slice(1);if(hex.length===3)hex=hex.split('').map(x=>x+x).join('');if(hex.length!==6)return decl;
+ const rgb=[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)),[r,g,b]=rgb,lo=Math.min(...rgb),hi=Math.max(...rgb),avg=(r+g+b)/3;
+ let token;if(prop==='border-color')token='--qp-selected';else if(prop==='color'){if(lo>230)return decl;token=g>r+8&&g>b+8?'--qp-green':avg>90?'--qp-muted':'--qp-text'}else{if(lo>250)token='--qp-pill';else if(lo>230)token='--qp-panel';else if(avg>175)token='--qp-selected';else if(g>=r&&g>b)token='--qp-green';else return decl}
+ return prop+':var('+token+')';})+'</style>')}
 function v2QuestionnaireHTML(html){
+ html=v2QuestionnaireStyles(html);
  const assets=JSON.stringify(qSelectionAssets()).replaceAll('<','\\u003c');
  const css=v2QThemeCSS();
- html += '<style>'+v2CompactQuestionnaireCSS+'</style><script>window.addEventListener("DOMContentLoaded",'+v2CompactQuestionnaireHeader.toString()+');<\/script>';
+ html += '<style>'+v2CompactQuestionnaireCSS+v2QuestionnaireSurfaces+'</style><script>window.addEventListener("DOMContentLoaded",'+v2CompactQuestionnaireHeader.toString()+');<\/script>';
  return '<style id="v2-qtheme">'+css+'</style><script>window.V2_Q_ASSETS='+assets+';window.addEventListener("message",e=>{if(e.source===parent&&e.data.type==="v2-theme")document.getElementById("v2-qtheme").textContent=e.data.css});<\/script>'+html;
 }
 (()=>{
@@ -54,7 +62,7 @@ function v2QuestionnaireHTML(html){
  function save(){const bid=snapshot();if(!bid)throw Error('Project not ready');localStorage.setItem('v2_project',JSON.stringify(bid));send('saved',{name:bid.S?.pi?.project||bid.S?.pi?.client||'Preview project'});return bid}
  function theme(t){const d=document.documentElement;d.dataset.v2theme=t;d.dataset.theme=['Dusk','Night'].includes(t)?'dark':'light';const colors=t==='Night'?['#11151C','#161B24','#1E2531','#EAEEF4','#A2AAB8','#6FA855','#1C2C1B']:t==='Dusk'?['#20251f','#292f28','#30382d','#edf0e8','#adb7a5','#82a96b','#354531']:t==='Day'?['#E1E9DC','#fff','#E1E9DC','#202b21','#42503f','#365D29','#D4E3C9']:t==='Afternoon'?['#E8ECE6','#fff','#E8ECE6','#202b21','#42503f','#3C622E','#DBE8D1']:['#faf9f6','#fff','#faf9f6','#263026','#65705e','#50793e','#eaf1e5'];['--bg','--card','--surface2','--tx','--tm','--gm','--brand-soft'].forEach((k,i)=>d.style.setProperty(k,colors[i]));d.style.setProperty('--outer',colors[0]);try{qPost('v2-theme',{css:v2QThemeCSS()})}catch{}}
  const routes={insights:()=>v2Insights(),homeinsights:()=>v2Insights(true),trace:()=>v2Programming(),reports:()=>openReports(),checklist:()=>openChecklist(),dashboard:()=>goEstimate(),settings:()=>openSettings(),clientbrief:()=>{document.querySelector('[data-view="questionnaire"]').click();qSwitchMode('client')},designerbrief:()=>{document.querySelector('[data-view="questionnaire"]').click();qSwitchMode('designer')},cities:()=>sbGoBook(),photos:()=>v2Photos()};
- window.addEventListener('message',e=>{if(e.source!==parent||!e.data?.v2cmd)return;const m=e.data;try{if(m.v2cmd==='plant-request'){try{send('plant-response',{requestId:m.requestId,result:v2PlantRequest(m)})}catch(err){send('plant-response',{requestId:m.requestId,error:err.message})}}else if(m.v2cmd==='catalog'){v2ApplyCatalog(m)}else if(m.v2cmd==='route'){insDetClose();document.querySelectorAll('#tk-start,.reports-modal,#v2-programming,#v2-photos,#v2-photo-editor,#v2-insights,#vi-customize').forEach(el=>el.remove());if(routes[m.route])routes[m.route]();else{const b=document.querySelector('.tab[data-view="'+m.route+'"]');if(!b)throw Error('This workspace is not connected yet');b.click()}setTimeout(()=>send('route',{route:m.route}),0)}else if(m.v2cmd==='theme')theme(m.theme);else if(m.v2cmd==='save')save();else if(m.v2cmd==='export'){save();saveBid()}else if(m.v2cmd==='import'){if(!m.bid?.S)throw Error('Choose a Studio H project JSON file');restoreBid(m.bid);CLOUD_BID_ID=null;CLOUD_BID_NAME=null;save();if(document.getElementById('v2-insights'))v2InsightRender()}else if(m.v2cmd==='sample'){loadSampleProject();setTimeout(()=>{save();if(document.getElementById('v2-insights'))v2InsightRender()},200)}else if(m.v2cmd==='snapshot')send('snapshot',{bid:snapshot()});}catch(err){send('error',{message:err.message})}});
+ window.addEventListener('message',e=>{if(e.source!==parent||!e.data?.v2cmd)return;const m=e.data;try{if(m.v2cmd==='plant-request'){try{send('plant-response',{requestId:m.requestId,result:v2PlantRequest(m)})}catch(err){send('plant-response',{requestId:m.requestId,error:err.message})}}else if(m.v2cmd==='catalog'){v2ApplyCatalog(m)}else if(m.v2cmd==='route'){insDetClose();document.querySelectorAll('#tk-start,.reports-modal,#v2-programming,#v2-photos,#v2-photo-editor,#v2-insights,#vi-customize').forEach(el=>el.remove());if(routes[m.route])routes[m.route]();else{const b=document.querySelector('.tab[data-view="'+m.route+'"]');if(!b)throw Error('This workspace is not connected yet');b.click()}setTimeout(()=>send('route',{route:m.route}),0)}else if(m.v2cmd==='experience'){window.v2ExperienceRole=['developer','designer','customer'].includes(m.role)?m.role:'developer';v2InsightRole=window.v2ExperienceRole;document.documentElement.dataset.experience=v2InsightRole;if(document.getElementById('v2-insights'))v2InsightRender();if(v2InsightRole==='customer'&&typeof _qMode!=='undefined'&&_qMode==='designer')qSwitchMode('client');try{qPost('v2-theme',{css:v2QThemeCSS()})}catch{}}else if(m.v2cmd==='theme')theme(m.theme);else if(m.v2cmd==='save')save();else if(m.v2cmd==='export'){save();saveBid()}else if(m.v2cmd==='import'){if(!m.bid?.S)throw Error('Choose a Studio H project JSON file');restoreBid(m.bid);CLOUD_BID_ID=null;CLOUD_BID_NAME=null;save();if(document.getElementById('v2-insights'))v2InsightRender()}else if(m.v2cmd==='sample'){loadSampleProject();setTimeout(()=>{save();if(document.getElementById('v2-insights'))v2InsightRender()},200)}else if(m.v2cmd==='snapshot')send('snapshot',{bid:snapshot()});}catch(err){send('error',{message:err.message})}});
  window.addEventListener('load',()=>{setTimeout(()=>{
  // Keep save actions meaningful and local, including questionnaire Save progress.
  window.cloudSaveBid=()=>{try{save();_toast('Saved in V2 on this device')}catch(e){send('error',{message:e.message})}};
@@ -122,3 +130,17 @@ function v2ArrangeRequirements(){
 const v2OriginalRequirementRenderer=_renderPInfoCards;
 _renderPInfoCards=function(...args){const result=v2OriginalRequirementRenderer.apply(this,args);v2ArrangeRequirements();return result};
 window.addEventListener('load',()=>{_piRenderStyle();v2ArrangeRequirements()});
+
+const v2QuestionnaireSurfaces=`
+.p7 .card,.p7 .overview,.s3-gallery article,.q-dialog{background:var(--qp-pill)!important;color:var(--qp-text)!important}
+.p7 .scope-card,.p7 .area-entry input,.p7 .specific,.p7 textarea{background:var(--qp-panel)!important;color:var(--qp-text)!important}
+.p7 .scope-card.picked{background:var(--qp-selected)!important}
+.p7 .scope-card b,.p7 .facts b,.p7 h2,.budget-total{color:var(--qp-text)!important}
+.p7 .hint,.p7 .facts small,.p7 .scope-card small,.p7 .explain,.reviewline small,.sliderends,.mini,.status{color:var(--qp-muted)!important}
+.p7 .choice-mark{background:var(--qp-pill)!important;color:var(--qp-green)!important}
+.p7 .picked .choice-mark{background:var(--qp-green)!important;color:var(--qp-pill)!important}
+.tile,.readonly,.card,.empty{background:var(--qp-pill)!important;color:var(--qp-text)!important}
+.upload-card,.q-drop,.q-notes,.callout{background:var(--qp-selected)!important;color:var(--qp-text)!important}
+a,.q-quiet{color:var(--qp-green)!important}
+dialog{position:fixed;inset:0;margin:auto;max-height:90vh;overflow:auto;background:var(--qp-pill);color:var(--qp-text)}
+`;
