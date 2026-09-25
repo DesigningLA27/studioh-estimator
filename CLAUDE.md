@@ -88,3 +88,10 @@ All AI-dependent features (narratives, plan review, PDF symbol counting) land in
 - Per-user accounts + per-user plant favorites (separate from shared master book)
 - Shareable client report URLs
 - **Per-user plant-report image framing** (zoom/pan). Currently stored globally on the shared plant-book record (`imgZoom`/`imgPanX`/`imgPanY`), so one user's adjustment would change the image for all users. Once user profiles exist, move this to per-user (or per-project) so reframing is scoped to that user and never affects the shared book.
+
+## V2 server storage requirement (Warwick, September 25)
+- Every built V2 feature must save its project data, uploaded files and preferences on the server by default. Never introduce localStorage or IndexedDB as the authoritative store or an offline fallback.
+- `v2/src/cloud.js` owns the authenticated Cloudflare persistence boundary. Its Storage-shaped adapter is memory only; legacy engine Storage calls are collected for server saving.
+- Only authentication cookies, transient working memory, ordinary public application-asset caching, and explicitly requested exports are exceptions. Failed saves must remain visibly unsaved.
+- Use revision checks and preserve older revisions. Recover browser-only V2 data to private server projects and verify it before clearing it. Never clear V1 data.
+- Every release reply includes the updated version, working public link and freshly checked remaining weekly usage.

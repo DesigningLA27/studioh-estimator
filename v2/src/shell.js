@@ -35,13 +35,13 @@
  if(m.v2==='workspace'){workspace();return}
  if(m.v2==='questionnaire-state'){root.classList.toggle('questionnaire-open',m.visible&&['clientbrief','designerbrief'].includes(current?.route));return}
  if(m.v2==='plant-response'){const task=plantRequests.get(m.requestId);if(task){clearTimeout(task.timer);plantRequests.delete(m.requestId);m.error?task.reject(Error(m.error)):task.resolve(m.result)}return}
- if(m.v2==='storage'){persistentStore=m.data;v2DevicePut('current',m.data).catch(()=>notice('Device storage could not save. Export your project to keep your work.'))}
- if(m.v2==='ready'){ready=true;window.v2Libraries?.sync();command({v2cmd:'experience',role:window.v2Experience?.role||'developer'});command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Day'});if(pending){const m=pending;pending=null;command(m)}document.getElementById('v2-state').textContent='Local preview · Cloud writes blocked'}
- if(m.v2==='saved'){document.getElementById('v2-state').textContent='Saved on this device';updateName(m.name)}
+ if(m.v2==='storage'&&ready){persistentStore=m.data;v2Cloud.storeEngine(m.data)}
+ if(m.v2==='ready'){ready=true;window.v2Libraries?.sync();command({v2cmd:'experience',role:window.v2Experience?.role||'developer'});command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Day'});if(pending){const m=pending;pending=null;command(m)}v2Cloud.status('Server saving enabled')}
+ if(m.v2==='saved'){updateName(m.name)}
  if(m.v2==='identity')window.v2Workspace?.identity(m.photo);
  if(m.v2==='open-project-info')show('projectinfo','Project info');
  if(m.v2==='open-photos')show('photos','Photos & references');
- if(m.v2==='snapshot'){project=m.bid;updateName(project?.S?.pi?.project||project?.S?.pi?.client||'Preview project')}
+ if(m.v2==='snapshot'&&ready){project=m.bid;v2Cloud.saveBid(m.bid);updateName(project?.S?.pi?.project||project?.S?.pi?.client||'Preview project')}
  if(m.v2==='error'){frame.style.visibility='visible';pane.removeAttribute('aria-busy');notice(m.message)};if(m.v2==='open-projects')document.getElementById('v2-projects').showModal();
  });
  function updateName(name){lastName=name;const p=root.querySelector('.project strong');if(p)p.textContent=name}
@@ -50,13 +50,15 @@
  document.getElementById('v2-export').onclick=()=>command({v2cmd:'export'});
  document.getElementById('v2-project-button').onclick=()=>document.getElementById('v2-projects').showModal();
  document.getElementById('v2-sample').onclick=()=>{v2OpenCloudSample()};
- document.getElementById('v2-import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>30*1024*1024)throw Error('Choose a project file under 30 MB');const bid=JSON.parse(await f.text());if(!bid?.S)throw Error('Choose an exported Studio H project JSON file');command({v2cmd:'import',bid});document.getElementById('v2-projects').close();show('projectinfo','Project info')}catch(err){notice(err.message)}e.target.value=''};
+ document.getElementById('v2-import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>30*1024*1024)throw Error('Choose a project file under 30 MB');const bid=JSON.parse(await f.text());if(!bid?.S)throw Error('Choose an exported Studio H project JSON file');await v2Cloud.createFromBid(bid);document.getElementById('v2-projects').close();show('projectinfo','Project info')}catch(err){notice(err.message)}e.target.value=''};
  const theme=localStorage.getItem(keys.theme);if(theme)root.querySelector('button[data-theme="'+theme+'"]')?.click();
- fetch('engine.html?v='+encodeURIComponent(document.querySelector('meta[name="studioh-version"]')?.content||'7')).then(r=>{if(!r.ok)throw Error('Engine could not load');return r.text()}).then(async html=>{let seed=await v2DeviceGet('current');if(!seed){try{seed=JSON.parse(localStorage.getItem(keys.store)||'{}')}catch{seed={}}}persistentStore=seed;const json=JSON.stringify(seed).replaceAll('<','\\u003c');frame.srcdoc=html.replace('/*V2_STORAGE_SEED*/{}',json)}).catch(e=>notice(e.message));
- window.v2Preview={get store(){return persistentStore},notice,show,workspace,command,plantRequest(action,data={}){return new Promise((resolve,reject)=>{if(!ready){reject(Error('Project tools are still loading. Try again in a moment.'));return}const requestId=++plantSeq;const timer=setTimeout(()=>{plantRequests.delete(requestId);reject(Error('Plant data took too long to load'))},10000);plantRequests.set(requestId,{resolve,reject,timer});command({v2cmd:'plant-request',requestId,action,...data})})},get ready(){return ready}};
+ async function reload(){ready=false;if(current)pending={v2cmd:'route',route:current.route};const r=await fetch('engine.html?v='+encodeURIComponent(document.querySelector('meta[name="studioh-version"]').content));if(!r.ok)throw Error('Project tools could not load');const html=await r.text(),seed=v2Cloud.seed;persistentStore=seed;frame.srcdoc=html.replace('/*V2_STORAGE_SEED*/{}',JSON.stringify(seed).replaceAll('<','\\u003c'));await new Promise((resolve,reject)=>{const started=Date.now();const timer=setInterval(()=>{if(ready){clearInterval(timer);resolve()}else if(Date.now()-started>30000){clearInterval(timer);reject(Error('Project tools took too long to reopen'))}},100)})}
+
+ reload();
+ window.v2Preview={reload,get store(){return persistentStore},notice,show,workspace,command,plantRequest(action,data={}){return new Promise((resolve,reject)=>{if(!ready){reject(Error('Project tools are still loading. Try again in a moment.'));return}const requestId=++plantSeq;const timer=setTimeout(()=>{plantRequests.delete(requestId);reject(Error('Plant data took too long to load'))},10000);plantRequests.set(requestId,{resolve,reject,timer});command({v2cmd:'plant-request',requestId,action,...data})})},get ready(){return ready}};
 })();
 
-// Read existing V1 projects through their existing Cloudflare API. No cloud writes.
+// Read V1 projects and import an independent copy into private V2 server storage.
 const v2CloudEndpoint='https://studioh-ai.warwick-cca.workers.dev';
 async function v2CloudRead(body){const r=await fetch(v2CloudEndpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('Cloudflare project read failed ('+r.status+').');return r.json()}
 let v2CloudOpening=false;
@@ -65,15 +67,9 @@ async function v2OpenCloudProject(id,openTrace=false){
  v2CloudOpening=true;v2Preview.notice('Opening saved project from Cloudflare…');
  try{for(let i=0;i<100&&!v2Preview.ready;i++)await new Promise(r=>setTimeout(r,100));if(!v2Preview.ready)throw Error('Project tools are still loading. Please try again.');const data=await v2CloudRead({type:'loadbid',id});if(!data.found||!data.bid?.S)throw Error('The saved project was not found.');
  if(data.bid.trace?.hasPdf&&!data.bid.trace.pdf){const r=await fetch(v2CloudEndpoint+'?pdfget='+encodeURIComponent(id));if(!r.ok)throw Error('The saved plan could not be downloaded.');const bytes=new Uint8Array(await r.arrayBuffer());if(new TextDecoder().decode(bytes.slice(0,5))!=='%PDF-')throw Error('The stored plan is not a valid PDF.');let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));data.bid.trace.pdf=btoa(text)}
- const previous=v2Preview.store;if(previous)await v2DevicePut('before-cloud-open',previous);
- v2Preview.show(openTrace?'trace':'projectinfo',openTrace?'Programming':'Project info');v2Preview.command({v2cmd:'import',bid:data.bid,openTrace});document.getElementById('v2-projects').close();v2Preview.notice('Saved project opened. V1 original unchanged.');
+ await v2Cloud.createFromBid(data.bid);
+ v2Preview.show(openTrace?'trace':'projectinfo',openTrace?'Programming':'Project info');v2Preview.command({v2cmd:'import',bid:data.bid,openTrace});document.getElementById('v2-projects').close();v2Preview.notice('Project imported and saved to Cloudflare. V1 original unchanged.');
  }catch(e){v2Preview.notice(e.message)}finally{v2CloudOpening=false}
 }
 async function v2OpenCloudSample(){try{const d=await v2CloudRead({type:'listbids'});const sample=d.bids?.find(b=>b.name?.trim().toUpperCase()==='SAMPLE DEMO');if(!sample)throw Error('SAMPLE DEMO was not found in saved projects.');await v2OpenCloudProject(sample.id,true)}catch(e){v2Preview.notice(e.message)}}
 document.getElementById('v2-cloud-list').onclick=async()=>{const box=document.getElementById('v2-cloud-projects');if(window.v2Experience?.role==='customer'){box.textContent='Use Designer or Developer mode to open studio projects.';return}box.textContent='Loading saved projects…';try{const d=await v2CloudRead({type:'listbids'});box.replaceChildren(...(d.bids||[]).map(b=>{const button=document.createElement('button');button.textContent=b.name||'Untitled project';button.onclick=()=>v2OpenCloudProject(b.id,false);return button}))}catch(e){box.textContent=e.message}};
-
-function v2DeviceDB(){return new Promise((resolve,reject)=>{const r=indexedDB.open('studioh-v2-projects',1);r.onupgradeneeded=()=>r.result.createObjectStore('projects');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
-async function v2DevicePut(key,value){const db=await v2DeviceDB();try{await new Promise((resolve,reject)=>{const t=db.transaction('projects','readwrite');t.objectStore('projects').put(value,key);t.oncomplete=resolve;t.onerror=()=>reject(t.error)})}finally{db.close()}}
-async function v2DeviceGet(key){const db=await v2DeviceDB();try{return await new Promise((resolve,reject)=>{const r=db.transaction('projects').objectStore('projects').get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}finally{db.close()}}
-
-document.getElementById('v2-restore-previous').onclick=async()=>{try{const store=await v2DeviceGet('before-cloud-open');const bid=store?.v2_project?JSON.parse(store.v2_project):null;if(!bid?.S)throw Error('No previous working copy is available.');v2Preview.show('projectinfo','Project info');v2Preview.command({v2cmd:'import',bid});document.getElementById('v2-projects').close();v2Preview.notice('Previous V2 working copy restored.')}catch(e){v2Preview.notice(e.message)}};

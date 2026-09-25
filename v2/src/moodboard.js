@@ -4,6 +4,7 @@
 'use strict';
 const baseRender=renderMoodBoard;
 let filter='all',present=false;
+const rememberedView=localStorage.getItem('studioh_v2_moodboard_view');if(['grid','editorial','wall'].includes(rememberedView))MB_VIEW.disp=rememberedView;
 const applyCatalog=v2ApplyCatalog;
 v2ApplyCatalog=function(m){if(m.id==='elements'&&Array.isArray(m.data)){SITE_ELEMENTS=m.data;_elementsPulled=true;}else applyCatalog(m);if(S.view==='moodboard')renderMoodBoard()};
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -13,7 +14,7 @@ _mbSectionBoardHtml=function(items){
  if(!items.length)return '<p class="vmb-empty">No selections here yet. Search your library to add an item.</p>';
  return `<div class="vmb-items">${items.map(x=>`<article class="vmb-item" data-vmb-item="${escape(x.kind+':'+x.pid)}">${_mbTile(x,MB_VIEW.disp==='wall'?'wall':'card')}</article>`).join('')}</div>`;
 };
-window.v2MoodboardSetView=function(view){if(!['grid','editorial','wall'].includes(view))return;MB_VIEW.disp=view;renderMoodBoard();document.querySelector(`[data-vmb-view="${view}"]`)?.focus()};
+window.v2MoodboardSetView=function(view){if(!['grid','editorial','wall'].includes(view))return;MB_VIEW.disp=view;localStorage.setItem('studioh_v2_moodboard_view',view);_bidSchedule();renderMoodBoard();document.querySelector(`[data-vmb-view="${view}"]`)?.focus()};
 window.v2MoodboardFilter=function(group){filter=group;renderMoodBoard();document.querySelector(`[data-vmb-filter="${group}"]`)?.focus()};
 window.v2MoodboardPresent=function(){present=!present;parent.postMessage({v2:'moodboard-presentation',present},'*');document.getElementById('view-moodboard')?.classList.toggle('vmb-present',present);const b=document.querySelector('[data-vmb-present]');if(b){b.textContent=present?'Exit presentation':'Present';b.setAttribute('aria-pressed',String(present))}};
 window.v2MoodboardLibrary=function(){
@@ -60,7 +61,7 @@ renderMoodBoard=function(){
  if(!visible||MB_VIEW.disp==='wall'&&!wall.children.length&&filter!=='palette'&&filter!=='insights'&&filter!=='inspiration'){const empty=document.createElement('p');empty.className='vmb-empty';empty.textContent='No visible selections in this category. Add a section or search a library to begin.';body.prepend(empty)}
  layout.append(body,side);frame.append(layout);
  if(addCard){addCard.id='vmb-add-sections';addCard.classList.add('vmb-edit','vmb-add-sections');frame.append(addCard)}else{const anchor=document.createElement('div');anchor.id='vmb-add-sections';frame.append(anchor)}
- const note=document.createElement('p');note.className='vmb-footnote';note.textContent='Hide changes the board presentation only; project specifications stay selected. View changes are temporary. V2 project edits are not yet synced to Cloudflare.';frame.append(note);host.replaceChildren(frame);
+ const note=document.createElement('p');note.className='vmb-footnote';note.textContent='Hide changes the board presentation only; project specifications stay selected. Project selections save to Cloudflare. Your view preference saves with this project.';frame.append(note);host.replaceChildren(frame);
  // Replace fixed light fills on legacy controls, not photos, swatches or insight graphics.
  view.querySelectorAll('button,input:not([type=color]),select,textarea').forEach(el=>{if(el.closest('.vmb-item'))return;el.classList.add('vmb-control')});
 };
