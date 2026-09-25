@@ -132,6 +132,14 @@ _renderPInfoCards=function(...args){const result=v2OriginalRequirementRenderer.a
 window.addEventListener('load',()=>{_piRenderStyle();v2ArrangeRequirements()});
 
 const v2QuestionnaireSurfaces=`
+/* Approved quiet panel with a green pill behind every step number. */
+.shell nav{background:var(--qp-pill)!important;border-radius:22px!important;padding:16px 12px!important}
+.shell nav button{min-height:46px!important;margin:3px 0!important;padding:12px!important}
+.shell nav .num,.shell nav small,.shell nav .active .num,.shell nav .on small,.shell nav .qp-reviewed .num,.shell nav .qp-reviewed small{background:var(--qp-selected)!important;color:var(--qp-green)!important;border:0!important;border-radius:9px!important;min-width:30px;height:26px;padding:3px 7px;font-weight:700}
+.shell nav button.active,.shell nav button.on{background:var(--qp-selected)!important}
+.shell nav .active .num,.shell nav .on small{background:color-mix(in srgb,var(--qp-selected) 75%,var(--qp-green))!important}
+@media(max-width:760px){.shell nav{padding:10px!important}.shell nav button{margin:0 3px!important}}
+
 .p7 .card,.p7 .overview,.s3-gallery article,.q-dialog{background:var(--qp-pill)!important;color:var(--qp-text)!important}
 .p7 .scope-card,.p7 .area-entry input,.p7 .specific,.p7 textarea{background:var(--qp-panel)!important;color:var(--qp-text)!important}
 .p7 .scope-card.picked{background:var(--qp-selected)!important}
