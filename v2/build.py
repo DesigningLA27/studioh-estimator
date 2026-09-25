@@ -20,7 +20,7 @@ assert expr in src
 src=src.replace(expr,'v2QuestionnaireHTML('+expr+')')
 # A blocked catalog read must not recursively repaint the Moodboard.
 src=src.replace('if(document.getElementById("mb-body")) renderMoodBoard();', 'if(_elementsPulled && _colorPalettesPulled && document.getElementById("mb-body")) renderMoodBoard();')
-guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text()+'\n'+(root/'src/programming.js').read_text()+'\n'+(root/'src/photos.js').read_text()+'\n'+(root/'src/insights.js').read_text()+'\n'+(root/'src/project-files.js').read_text();css=(root/'src/engine.css').read_text()+'\n'+(root/'src/moodboard.css').read_text();bridge+='\n'+(root/'src/catalog-state.js').read_text()+'\n'+(root/'src/moodboard.js').read_text()
+guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text()+'\n'+(root/'src/programming.js').read_text()+'\n'+(root/'src/photos.js').read_text()+'\n'+(root/'src/insights.js').read_text()+'\n'+(root/'src/project-files.js').read_text();css=(root/'src/engine.css').read_text()+'\n'+(root/'src/moodboard.css').read_text();bridge+='\n'+(root/'src/moodboard.js').read_text()
 # These restrictions are parsed before any original scripts. Production APIs,
 # forms, object plugins and workers cannot write to live services.
 csp="connect-src https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com; form-action 'none'; object-src 'none'; worker-src blob:; frame-src 'self' about: blob:; base-uri 'none'"
@@ -29,4 +29,4 @@ engine=src.replace('<head>','<head>'+boot,1).replace('</head>','<style>'+css+'</
 pos=engine.rfind('</body>');assert pos>0
 engine=engine[:pos]+'<script>'+bridge+'</script>'+engine[pos:]
 (root/'engine.html').write_text(engine)
-(root/'engine-source.json').write_text(json.dumps({'source':'../index.html','sha256':hashlib.sha256((root.parent/'index.html').read_bytes()).hexdigest(),'baseVersion':'v1571','isolation':'sandboxed opaque origin; Google Maps connections only; project reads through parent; authenticated parent service; private Cloudflare R2 storage'},indent=2)+'\n')
+(root/'engine-source.json').write_text(json.dumps({'source':'../index.html','sha256':hashlib.sha256((root.parent/'index.html').read_bytes()).hexdigest(),'baseVersion':'v1571','isolation':'sandboxed opaque origin; Google Maps connections only; project reads through parent; separate IndexedDB storage'},indent=2)+'\n')
