@@ -1,5 +1,5 @@
 /* Runs before every application script. The frame is also sandboxed without
-   allow-same-origin and has connect-src 'none': production APIs are unreachable. */
+   allow-same-origin. Only map connections are permitted; production writes remain blocked. */
 (()=>{
  const seed=/*V2_STORAGE_SEED*/{};const stores={localStorage:new Map(Object.entries(seed)),sessionStorage:new Map()};
  for(const [name,map] of Object.entries(stores)){
@@ -9,7 +9,11 @@
  }
  window.__V2_PREVIEW__=true;
  const blocked=()=>Promise.reject(new Error('Online services are disabled in the isolated V2 preview.'));
- window.fetch=blocked;
+ const nativeFetch=window.fetch.bind(window);
+ window.fetch=(input,options)=>{let u;try{u=new URL(typeof input==='string'?input:input.url,location.href)}catch{return blocked()}
+ // Only Google map service requests are enabled here. Project writes remain blocked.
+ if(u.protocol==='https:'&&['maps.googleapis.com','maps.gstatic.com','khms0.googleapis.com','khms1.googleapis.com'].includes(u.hostname))return nativeFetch(input,options);
+ return blocked();};
  try{navigator.sendBeacon=()=>false}catch{}
  try{Object.defineProperty(navigator,'serviceWorker',{value:{register:blocked,addEventListener(){},controller:null},configurable:false})}catch{}
 })();

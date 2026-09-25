@@ -2,7 +2,7 @@
 (()=>{
  const root=document.getElementById('sh-v2'),body=root.querySelector('.body'),main=root.querySelector('main');
  const pane=document.createElement('section');pane.id='v2-engine-pane';pane.hidden=true;pane.innerHTML='<div class="v2-toolhead"><button id="v2-back">← Workspace</button><strong id="v2-tooltitle"></strong><button id="v2-tool-save">Save progress</button></div><div id="v2-tooltabs"></div><iframe id="v2-engine" title="Studio H project workspace" sandbox="allow-scripts allow-downloads allow-modals"></iframe>';body.appendChild(pane);
- const frame=pane.querySelector('iframe');let ready=false,pending=null,current=null,project=null,lastName="";
+ const frame=pane.querySelector('iframe');let ready=false,pending=null,current=null,project=null,lastName="",persistentStore=null;
  const keys={store:'studioh_v2_preview_store_v1',theme:'studioh_v2_theme_v1'};
  if(!localStorage.getItem('studioh_v2_theme_mapping_v2')){if(localStorage.getItem(keys.theme)==='Afternoon')localStorage.setItem(keys.theme,'Morning');localStorage.setItem('studioh_v2_theme_mapping_v2','1')}
  const plantRequests=new Map();let plantSeq=0;
@@ -26,13 +26,14 @@
  },true);
  window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data?.v2)return;const m=e.data;
  if(m.v2==='route'&&m.route===current?.route){frame.style.visibility='visible';pane.removeAttribute('aria-busy')}
- if(m.v2==='open-demo'){location.href='mockups/brief-workflow/#demo';return}
+ if(m.v2==='open-demo'){v2OpenCloudSample();return}
+ if(m.v2==='tracer-state')root.classList.toggle('v2-tracer-open',!!m.open);
  if(m.v2==='insights-open'){window.v2Workspace.open('insights');return}
  if(m.v2==='workspace-page'&&['brief','design'].includes(m.page)){window.v2Workspace.open(m.page);return}
  if(m.v2==='workspace'){workspace();return}
  if(m.v2==='questionnaire-state'){root.classList.toggle('questionnaire-open',m.visible&&['clientbrief','designerbrief'].includes(current?.route));return}
  if(m.v2==='plant-response'){const task=plantRequests.get(m.requestId);if(task){clearTimeout(task.timer);plantRequests.delete(m.requestId);m.error?task.reject(Error(m.error)):task.resolve(m.result)}return}
- if(m.v2==='storage'){try{localStorage.setItem(keys.store,JSON.stringify(m.data))}catch{notice('Device storage is full. Export this preview to keep your work.')}}
+ if(m.v2==='storage'){persistentStore=m.data;v2DevicePut('current',m.data).catch(()=>notice('Device storage could not save. Export your project to keep your work.'))}
  if(m.v2==='ready'){ready=true;window.v2Libraries?.sync();command({v2cmd:'experience',role:window.v2Experience?.role||'developer'});command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Day'});if(pending){const m=pending;pending=null;command(m)}document.getElementById('v2-state').textContent='Local preview · Cloud writes blocked'}
  if(m.v2==='saved'){document.getElementById('v2-state').textContent='Saved on this device';updateName(m.name)}
  if(m.v2==='identity')window.v2Workspace?.identity(m.photo);
@@ -46,9 +47,31 @@
  document.getElementById('v2-save').onclick=()=>command({v2cmd:'save'});
  document.getElementById('v2-export').onclick=()=>command({v2cmd:'export'});
  document.getElementById('v2-project-button').onclick=()=>document.getElementById('v2-projects').showModal();
- document.getElementById('v2-sample').onclick=()=>{command({v2cmd:'sample'});document.getElementById('v2-projects').close();notice('Sample opened in V2 only.')};
+ document.getElementById('v2-sample').onclick=()=>{v2OpenCloudSample()};
  document.getElementById('v2-import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>30*1024*1024)throw Error('Choose a project file under 30 MB');const bid=JSON.parse(await f.text());if(!bid?.S)throw Error('Choose an exported Studio H project JSON file');command({v2cmd:'import',bid});document.getElementById('v2-projects').close();show('projectinfo','Project info')}catch(err){notice(err.message)}e.target.value=''};
  const theme=localStorage.getItem(keys.theme);if(theme)root.querySelector('button[data-theme="'+theme+'"]')?.click();
- fetch('engine.html?v='+encodeURIComponent(document.querySelector('meta[name="studioh-version"]')?.content||'7')).then(r=>{if(!r.ok)throw Error('Engine could not load');return r.text()}).then(html=>{let seed={};try{seed=JSON.parse(localStorage.getItem(keys.store)||'{}')}catch{}const json=JSON.stringify(seed).replaceAll('<','\\u003c');frame.srcdoc=html.replace('/*V2_STORAGE_SEED*/{}',json)}).catch(e=>notice(e.message));
- window.v2Preview={show,workspace,command,plantRequest(action,data={}){return new Promise((resolve,reject)=>{if(!ready){reject(Error('Project tools are still loading. Try again in a moment.'));return}const requestId=++plantSeq;const timer=setTimeout(()=>{plantRequests.delete(requestId);reject(Error('Plant data took too long to load'))},10000);plantRequests.set(requestId,{resolve,reject,timer});command({v2cmd:'plant-request',requestId,action,...data})})},get ready(){return ready}};
+ fetch('engine.html?v='+encodeURIComponent(document.querySelector('meta[name="studioh-version"]')?.content||'7')).then(r=>{if(!r.ok)throw Error('Engine could not load');return r.text()}).then(async html=>{let seed=await v2DeviceGet('current');if(!seed){try{seed=JSON.parse(localStorage.getItem(keys.store)||'{}')}catch{seed={}}}persistentStore=seed;const json=JSON.stringify(seed).replaceAll('<','\\u003c');frame.srcdoc=html.replace('/*V2_STORAGE_SEED*/{}',json)}).catch(e=>notice(e.message));
+ window.v2Preview={get store(){return persistentStore},notice,show,workspace,command,plantRequest(action,data={}){return new Promise((resolve,reject)=>{if(!ready){reject(Error('Project tools are still loading. Try again in a moment.'));return}const requestId=++plantSeq;const timer=setTimeout(()=>{plantRequests.delete(requestId);reject(Error('Plant data took too long to load'))},10000);plantRequests.set(requestId,{resolve,reject,timer});command({v2cmd:'plant-request',requestId,action,...data})})},get ready(){return ready}};
 })();
+
+// Read existing V1 projects through their existing Cloudflare API. No cloud writes.
+const v2CloudEndpoint='https://studioh-ai.warwick-cca.workers.dev';
+async function v2CloudRead(body){const r=await fetch(v2CloudEndpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('Cloudflare project read failed ('+r.status+').');return r.json()}
+let v2CloudOpening=false;
+async function v2OpenCloudProject(id,openTrace=false){
+ if(v2CloudOpening)return;if(window.v2Experience?.role==='customer'){v2Preview.notice('Saved studio projects are available in Designer or Developer mode.');return}
+ v2CloudOpening=true;v2Preview.notice('Opening saved project from Cloudflare…');
+ try{for(let i=0;i<100&&!v2Preview.ready;i++)await new Promise(r=>setTimeout(r,100));if(!v2Preview.ready)throw Error('Project tools are still loading. Please try again.');const data=await v2CloudRead({type:'loadbid',id});if(!data.found||!data.bid?.S)throw Error('The saved project was not found.');
+ if(data.bid.trace?.hasPdf&&!data.bid.trace.pdf){const r=await fetch(v2CloudEndpoint+'?pdfget='+encodeURIComponent(id));if(!r.ok)throw Error('The saved plan could not be downloaded.');const bytes=new Uint8Array(await r.arrayBuffer());if(new TextDecoder().decode(bytes.slice(0,5))!=='%PDF-')throw Error('The stored plan is not a valid PDF.');let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));data.bid.trace.pdf=btoa(text)}
+ const previous=v2Preview.store;if(previous)await v2DevicePut('before-cloud-open',previous);
+ v2Preview.show(openTrace?'trace':'projectinfo',openTrace?'Programming':'Project info');v2Preview.command({v2cmd:'import',bid:data.bid,openTrace});document.getElementById('v2-projects').close();v2Preview.notice('Saved project opened. V1 original unchanged.');
+ }catch(e){v2Preview.notice(e.message)}finally{v2CloudOpening=false}
+}
+async function v2OpenCloudSample(){try{const d=await v2CloudRead({type:'listbids'});const sample=d.bids?.find(b=>b.name?.trim().toUpperCase()==='SAMPLE DEMO');if(!sample)throw Error('SAMPLE DEMO was not found in saved projects.');await v2OpenCloudProject(sample.id,true)}catch(e){v2Preview.notice(e.message)}}
+document.getElementById('v2-cloud-list').onclick=async()=>{const box=document.getElementById('v2-cloud-projects');if(window.v2Experience?.role==='customer'){box.textContent='Use Designer or Developer mode to open studio projects.';return}box.textContent='Loading saved projects…';try{const d=await v2CloudRead({type:'listbids'});box.replaceChildren(...(d.bids||[]).map(b=>{const button=document.createElement('button');button.textContent=b.name||'Untitled project';button.onclick=()=>v2OpenCloudProject(b.id,false);return button}))}catch(e){box.textContent=e.message}};
+
+function v2DeviceDB(){return new Promise((resolve,reject)=>{const r=indexedDB.open('studioh-v2-projects',1);r.onupgradeneeded=()=>r.result.createObjectStore('projects');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+async function v2DevicePut(key,value){const db=await v2DeviceDB();try{await new Promise((resolve,reject)=>{const t=db.transaction('projects','readwrite');t.objectStore('projects').put(value,key);t.oncomplete=resolve;t.onerror=()=>reject(t.error)})}finally{db.close()}}
+async function v2DeviceGet(key){const db=await v2DeviceDB();try{return await new Promise((resolve,reject)=>{const r=db.transaction('projects').objectStore('projects').get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}finally{db.close()}}
+
+document.getElementById('v2-restore-previous').onclick=async()=>{try{const store=await v2DeviceGet('before-cloud-open');const bid=store?.v2_project?JSON.parse(store.v2_project):null;if(!bid?.S)throw Error('No previous working copy is available.');v2Preview.show('projectinfo','Project info');v2Preview.command({v2cmd:'import',bid});document.getElementById('v2-projects').close();v2Preview.notice('Previous V2 working copy restored.')}catch(e){v2Preview.notice(e.message)}};
