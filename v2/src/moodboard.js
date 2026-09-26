@@ -10,8 +10,11 @@ const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>'
 const button=(name,action,cls='')=>`<button type="button" class="vmb-button ${cls}" ${action}>${name}</button>`;
 const groups=[['all','All'],['plant','Plants'],['materials','Materials'],['furnishings','Furniture'],['products','Products'],['siteelements','Site elements'],['inspiration','Inspiration'],['palette','Color palette'],['insights','Insights']];
 _mbSectionBoardHtml=function(items){
- if(!items.length)return '<p class="vmb-empty">No selections here yet. Search your library to add an item.</p>';
- return `<div class="vmb-items">${items.map(x=>`<article class="vmb-item" data-vmb-item="${escape(x.kind+':'+x.pid)}">${_mbTile(x,'card')}</article>`).join('')}</div>`;
+ const visible=items.filter(x=>typeof x.img==='string'&&x.img.trim()),missing=items.filter(x=>!visible.includes(x));
+ const counts=new Map();missing.forEach(x=>{const label=x.kind==='plants'?({shrub:'shrub',tree:'tree',palm:'palm',gc:'groundcover'}[x.kind0]||'plant'):'item';counts.set(label,(counts.get(label)||0)+1)});
+ const summary=[...counts].map(([label,n])=>`${n} ${label}${n===1?'':'s'}`).join(', ');
+ const note=missing.length?`<details class="vmb-missing"><summary>${escape(summary)} excluded due to no image</summary><p>Still included in your project and estimate. Add a library image to show them here.</p><ul>${missing.map(x=>`<li>${escape(x.label)}</li>`).join('')}</ul></details>`:'';
+ return (visible.length?`<div class="vmb-items">${visible.map(x=>`<article class="vmb-item" data-vmb-item="${escape(x.kind+':'+x.pid)}">${_mbTile(x,'card')}</article>`).join('')}</div>`:items.length?'':'<p class="vmb-empty">Add a library selection to build this section.</p>')+note;
 };
 window.v2MoodboardSetView=function(view){if(!['grid','editorial','wall'].includes(view))return;MB_VIEW.disp=view;renderMoodBoard();document.querySelector(`[data-vmb-view="${view}"]`)?.focus()};
 window.v2MoodboardFilter=function(group){filter=group;renderMoodBoard();document.querySelector(`[data-vmb-filter="${group}"]`)?.focus()};
@@ -55,13 +58,13 @@ renderMoodBoard=function(){
  if(MB_VIEW.disp==='wall'){const intro=document.createElement('section');intro.className='vmb-wall-intro';intro.innerHTML='<div><span class="vmb-eyebrow">Visual collection</span><h2>One direction. Every detail.</h2></div>'+swatches;frame.append(intro);}
  const layout=document.createElement('div');layout.className='vmb-layout';const body=document.createElement('div');body.className='vmb-content';const side=document.createElement('aside');side.className='vmb-side';
  const colorCard=document.createElement('section');colorCard.className='vmb-summary';colorCard.innerHTML=`<span class="vmb-eyebrow">Color direction</span><h3>${escape(palette?.name||(isSample?'Warm neutrals. Soft greens.':'Choose your project palette'))}</h3>${swatches}${!palette&&isSample?'<small>Sample color direction</small>':''}${button('Edit palette',"onclick=\"v2MoodboardPalette()\"",'vmb-edit')}`;side.append(colorCard);
- if(budgetText){const card=document.createElement('section');card.className='vmb-summary';card.innerHTML='<h3>Project connection</h3>';card.append(budgetText);side.append(card)}
+ if(budgetText){const card=document.createElement('section');card.className='vmb-summary';card.innerHTML='<span class="vmb-eyebrow">Project connection</span><h3>'+allItems.filter(x=>x.img?.trim()).length+' visual selections</h3>';card.append(budgetText);side.append(card)}
  const brief=document.createElement('section');brief.className='vmb-summary vmb-brief';brief.innerHTML=`<span class="vmb-eyebrow">Design brief</span><h3>${escape(title)}</h3><p>${escape(description)}</p>${button('Style & goals guide','onclick="mbWizardToggle()"','vmb-edit')}`;side.append(brief);
  const wall=document.createElement('div');wall.className='vmb-wall';const seen=new Set();
  if(filter==='all'&&(photo||isSample)){const leadTile=document.createElement('article');leadTile.className='vmb-wall-lead';leadTile.innerHTML=`<div class="vmb-cover">${scene}</div><h3>${escape(title)}</h3><small>${isSample&&!photo?'Sample inspiration':'Project reference'} · design direction</small>`;wall.append(leadTile);}
  let visible=0;
  sectionCards.forEach(({d,card})=>{
- card.classList.add('vmb-section');card.dataset.section=d.key;card.dataset.group=d.group;const match=filter==='all'||filter===d.group||filter==='inspiration'&&!['palette','insights'].includes(d.group);card.hidden=!match;if(match)visible++;
+ card.classList.add('vmb-section');card.dataset.section=d.key;const shownCount=card.querySelector('div:first-child>div:first-child>span');if(shownCount&&!['palette','insights'].includes(d.group))shownCount.textContent=card.querySelectorAll('.vmb-item').length+' shown';card.dataset.group=d.group;const match=filter==='all'||filter===d.group||filter==='inspiration'&&!['palette','insights'].includes(d.group);card.hidden=!match;if(match)visible++;
  if(filter==='inspiration'){card.innerHTML='<h3>'+escape(d.label)+'</h3>'+_mbInspirationStripHtml(d.key);body.append(card);return;}
  const query=card.querySelector('input[oninput*=mbSetQuery]')?.parentElement;if(query){const tools=document.createElement('details');tools.className='vmb-query vmb-edit';tools.innerHTML='<summary>Ask for a suggestion</summary>';query.before(tools);tools.append(query);}
  // Original controls, suggestions and inspiration strips remain attached to their section.
@@ -69,9 +72,9 @@ renderMoodBoard=function(){
   card.querySelectorAll('.vmb-item').forEach(tile=>{if(match&&!seen.has(tile.dataset.vmbItem)){seen.add(tile.dataset.vmbItem);wall.append(tile)}else tile.remove()});
   card.querySelectorAll('.vmb-items').forEach(e=>e.remove());
   const detail=document.createElement('details');detail.className='vmb-section-tools';detail.hidden=!match;detail.innerHTML=`<summary>${escape(d.label)} · add, suggest & organize</summary>`;detail.append(card);body.append(detail);
- }else if(filter==='all'&&['palette','insights'].includes(d.group)&&MB_VIEW.disp!=='editorial'){card.classList.add('vmb-detail-palette');side.append(card);}else body.append(card);
+ }else if(filter==='all'&&d.group==='palette'){card.hidden=true;body.append(card);}else body.append(card);
  });
- if(MB_VIEW.disp==='wall')body.prepend(wall);
+ if(MB_VIEW.disp==='wall'){body.prepend(wall);const omitted=new Map();selected.filter(d=>filter==='all'||filter===d.group).forEach(d=>{try{_mbItemsForSection(d).shown.filter(x=>!x.img?.trim()).forEach(x=>omitted.set(x.kind+':'+x.pid,x))}catch{}});if(omitted.size){const note=document.createElement('p');note.className='vmb-missing';note.textContent=omitted.size+' selections excluded due to no image. They remain in your project and estimate.';body.prepend(note);}}
  if(!visible||MB_VIEW.disp==='wall'&&!wall.children.length&&filter!=='palette'&&filter!=='insights'&&filter!=='inspiration'){const empty=document.createElement('p');empty.className='vmb-empty';empty.textContent='No visible selections in this category. Add a section or search a library to begin.';body.prepend(empty)}
  layout.append(body,side);frame.append(layout);
  if(addCard){addCard.id='vmb-add-sections';addCard.classList.add('vmb-edit','vmb-add-sections');frame.append(addCard)}else{const anchor=document.createElement('div');anchor.id='vmb-add-sections';frame.append(anchor)}
