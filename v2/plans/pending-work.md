@@ -31,3 +31,8 @@ Real SAMPLE DEMO read from Cloudflare: 16 shapes, live satellite base, 14,204 SF
 - [x] Connect Add to Moodboard from V2 Plant Book/material/furnishing records and palette selection. Keep native quantity/pricing checks.
 - [ ] Account-bound moodboard cloud writes remain part of the server-persistence dependency above; view controls do not claim that edits are synced.
 - [ ] Verify and connect existing AI suggestions/import services before presenting those actions as available.
+
+## V2.035 shared moodboard builder
+- [x] Build the real section planner plus inline section controls, shared by all three moodboard views.
+- [x] Persist section order, supporting-card choices and selected view with existing project saving.
+- Account/server-only migration is still isolated; this UI release uses the restored browser persistence.
