@@ -29,7 +29,7 @@ function arrangeSheet(gap=state.gap){
   $('#scale-status').textContent=`Centered plan frame: ${(w/px).toFixed(2)} × ${(h/px).toFixed(2)} in. ${state.planScale?'Measured scale locked.':'Illustrative fit; not to scale.'}`;
  }else $('#scale-status').textContent='No plan: images grow outward from the middle.';
  const tiles=state.tiles.filter(t=>!state.includePlan||t.id!==1).filter(t=>state.includePlan||t.id!==1);
- const rows=Math.floor((H+gap)/unit);
+ const rows=Math.floor((H+gap)/unit),unitY=(H+gap)/rows;
  const order=[...tiles.filter(t=>t.pin),...tiles.filter(t=>!t.pin)];let missing=[];
  for(const tile of order){
   const requested=tile.size||((tile.id===2&&state.preset==='smart')?5:4);
@@ -37,10 +37,10 @@ function arrangeSheet(gap=state.gap){
   for(let cw=requested;cw>=2&&!found;cw--){
    if(tile.size&&cw!==requested)break;
    let ch=Math.max(3,Math.round(cw/ratio));ch=Math.min(ch,rows);
-   const w=cw*unit-gap,h=ch*unit-gap,candidates=[];
+   const w=cw*unit-gap,h=ch*unitY-gap,candidates=[];
    for(let row=0;row<=rows-ch;row++)for(let col=0;col<=24-cw;col++){
-    let box={x:col*unit,y:row*unit,w,h,col,row,cw,ch,id:tile.id};
-    if(box.y+h>H+.1||occupied.some(o=>overlap(box,o,gap)))continue;
+    let box={x:col*unit,y:row*unitY,w,h,col,row,cw,ch,id:tile.id};
+    if(tile.pin&&(col!==tile.pin.col||row!==tile.pin.row))continue;if(box.y+h>H+.1||occupied.some(o=>overlap(box,o,gap)))continue;
     const dist=Math.abs(box.x+w/2-W/2);
     box.score=tile.pin?Math.hypot(col-tile.pin.col,row-tile.pin.row):state.includePlan?-(row+ch)*10000+dist:Math.hypot(box.x+w/2-W/2,box.y+h/2-H/2);
     candidates.push(box);
@@ -51,7 +51,7 @@ function arrangeSheet(gap=state.gap){
   const el=nodes.get(tile.id);if(!el)continue;Object.assign(el.style,{position:'absolute',left:found.x+'px',top:found.y+'px',width:found.w+'px',height:found.h+'px'});
   el.querySelector('small').textContent='';board.append(el);
  }
- sheetGeometry={W,H,unit,gap,placed,plan,missing,badPlan};
+ sheetGeometry={W,H,unit,unitY,rows,gap,placed,plan,missing,badPlan};
  $('#placement-status').textContent=missing.length?`${missing.length} images do not fit. Reduce image sizes or use a larger sheet. Export is blocked until all fit.`:state.includePlan?'Images fill the bottom first, then rise along the sides. Drag or use arrows to snap to open grid positions.':'Images start in the middle and work outward. Drag or use arrows to snap to open grid positions.';
  $('#export-pdf').disabled=badPlan||missing.length>0;
  $('#edge-note').textContent='Sheet placement uses one alignment grid and equal minimum gutters. Image frames snap to the grid; the centered plan stays fixed.';
@@ -60,7 +60,8 @@ function arrangeSheet(gap=state.gap){
  // Handle drops at the board level, including drops onto other cards.
  board.querySelectorAll('.tile').forEach(el=>{el.ondrop=null;el.ondragover=null;el.onkeydown=e=>{const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(d){e.preventDefault();state.selected=+el.dataset.id;nudge(...d)}}});
 }
-function moveTo(id,col,row){editPresentation(()=>{const t=state.tiles.find(t=>t.id===id);if(t)t.pin={col:Math.max(0,col),row:Math.max(0,row)};state.selected=id})}
+function moveTo(id,col,row){const box=sheetGeometry?.placed.get(id);if(!box)return;col=Math.max(0,Math.min(24-box.cw,col));row=Math.max(0,Math.min(sheetGeometry.rows-box.ch,row));editPresentation(()=>{const t=state.tiles.find(t=>t.id===id);if(t){t.pin={col,row};t.size=box.cw}state.selected=id})}
+
 function nudge(dx,dy){if(!state.sheetView){change(()=>state.sheetView=true);notify('Sheet preview opened. Use the arrows to move the selected image.');return}const box=sheetGeometry?.placed.get(state.selected);if(!box){notify('The plan stays centered. Select a supporting image to move.');return}moveTo(state.selected,box.col+dx,box.row+dy)}
 function resizeSelected(delta){const t=state.tiles.find(t=>t.id===state.selected);if(!t)return;if(t.id===1&&state.includePlan&&state.planScale){notify('The plan is scale-locked. Change Drawing scale instead.');return}change(()=>{t.size=Math.max(2,Math.min(10,(t.size||(t.id===1?6:t.id===2&&state.preset==='smart'?5:4))+delta));state.sheetView=true});notify(delta>0?'Image enlarged on grid':'Image reduced on grid')}
 for(const [id,key] of [['include-plan','includePlan'],['show-scale','showScale'],['show-north','showNorth'],['show-grid','showGrid']])$('#'+id).onchange=e=>change(()=>{state[key]=e.target.checked;state.sheetView=true});
