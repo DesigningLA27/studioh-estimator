@@ -79,6 +79,12 @@ $('#auto-arrange').onclick=()=>change(()=>{state.tiles.forEach(t=>delete t.pin);
 function straightFrames(tiles,W,H,plan,gap){
  const result=new Map();if(!tiles.length)return result;
  const put=(items,r,vertical=false)=>{if(!items.length)return;const length=vertical?r.h:r.w;const weights=items.map(t=>state.preset==='smart'&&t.id===2?1.6:1);const total=weights.reduce((a,b)=>a+b,0);let offset=0;items.forEach((t,i)=>{const n=(length-gap*(items.length-1))*weights[i]/total;result.set(t.id,{x:r.x+(vertical?0:offset),y:r.y+(vertical?offset:0),w:vertical?r.w:n,h:vertical?n:r.h,id:t.id});offset+=n+gap})};
+ if(!plan&&(state.preset==='feature'||state.preset==='smart')){
+ const hero=tiles.find(t=>t.id===2)||tiles[0],rest=tiles.filter(t=>t!==hero),heroWidth=W*(state.preset==='smart'?.48:.38);
+ result.set(hero.id,{x:0,y:0,w:heroWidth,h:H,id:hero.id});
+ const x=heroWidth+gap,width=W-x,rows=state.preset==='smart'?3:2;let index=0;
+ for(let r=0;r<Math.min(rows,rest.length);r++){const count=Math.ceil((rest.length-index)/(Math.min(rows,rest.length)-r));put(rest.slice(index,index+count),{x,y:r*(H+gap)/Math.min(rows,rest.length),w:width,h:(H+gap)/Math.min(rows,rest.length)-gap});index+=count}return result
+ }
  if(!plan){const rows=Math.max(1,Math.round(Math.sqrt(tiles.length*H/W)));let index=0;for(let r=0;r<rows;r++){const count=Math.ceil((tiles.length-index)/(rows-r));put(tiles.slice(index,index+count),{x:0,y:r*(H+gap)/rows,w:W,h:(H+gap)/rows-gap});index+=count}return result}
  const zones=[{x:0,y:plan.y+plan.h+gap,w:W,h:H-plan.y-plan.h-gap},{x:0,y:plan.y,w:plan.x-gap,h:plan.h,v:true},{x:plan.x+plan.w+gap,y:plan.y,w:W-plan.x-plan.w-gap,h:plan.h,v:true},{x:0,y:0,w:W,h:plan.y-gap}].filter(r=>r.w>gap&&r.h>gap);
  if(!zones.length)return result;
