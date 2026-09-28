@@ -36,3 +36,11 @@ Real SAMPLE DEMO read from Cloudflare: 16 shapes, live satellite base, 14,204 SF
 - [x] Build the real section planner plus inline section controls, shared by all three moodboard views.
 - [x] Persist section order, supporting-card choices and selected view with existing project saving.
 - Account/server-only migration is still isolated; this UI release uses the restored browser persistence.
+
+## V2.037 presentation editor integration
+- [x] Keep Studio board, Editorial and Visual wall dashboards and their section builder; Build board opens the separate presentation editor.
+- [x] Use project selections, chosen palette and client-visible insight data; return uploads to the shared Inspiration collection. Presentation removal does not remove dashboard selections.
+- [x] Store presentation arrangements in the existing project payload; current V2 working-copy save behavior is unchanged and explicitly labeled.
+- [ ] Cloudflare write-back remains required for cross-device persistence. No new browser storage system was introduced.
+- [ ] Studio-wide General settings logo upload needs authenticated server settings; the production presentation editor does not pretend the mockup's per-session logo upload is a studio setting.
+- [ ] Smart Layout currently uses layout rules, not image-analysis AI.
