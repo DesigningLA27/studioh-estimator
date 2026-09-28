@@ -44,3 +44,7 @@ Real SAMPLE DEMO read from Cloudflare: 16 shapes, live satellite base, 14,204 SF
 - [ ] Cloudflare write-back remains required for cross-device persistence. No new browser storage system was introduced.
 - [ ] Studio-wide General settings logo upload needs authenticated server settings; the production presentation editor does not pretend the mockup's per-session logo upload is a studio setting.
 - [ ] Smart Layout currently uses layout rules, not image-analysis AI.
+
+## V2.038 moodboard corrections
+- [x] Open section builder by default, with dropdown groups first and close/reopen controls.
+- [x] Disable the retired V1 moodboard wizard in V2. Styles and goals now open the client questionnaire at Style & inspiration, with a return to the moodboard.
