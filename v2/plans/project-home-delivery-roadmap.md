@@ -81,3 +81,14 @@ Test two different projects to prove Home switches all data; unfinished prior-ph
 ## Mockup round two
 
 `v2/mockups/project-home-r2/` contains D: Project pulse, E: Delivery planner, F: Studio briefing. Only project identity, address and the $450,000 sample budget are grounded in the built-in sample definition. All schedule, staff, counts, activity, estimate/fee/bid figures, savings and AI prose are explicitly illustrative. The preview week is September 28, 2026. Controls are in-memory demonstrations and do not persist or send anything.
+
+## Visual refinement — September 28, round three
+
+Use a project cover image and a small default selection of cards. Align cards in shared grid rows; avoid uneven independent columns. Keep the page calm and consistent with Studio H: white, existing green, and restrained blush or powder-blue accents. Offer more cards through customization, rather than showing everything by default. Project shortcuts can use simple text links.
+
+- Delivery-risk alerts: user-controlled enablement, immediate/daily/weekly timing, dismissal, and a settings entry for restoring them. Store per-user preferences; notification scheduling remains future work. Dismissal must not erase actual milestone or risk records.
+- Brief: optional swipeable text and accessible diagrams with actual source values, keyboard/arrow alternatives, no automatic rotation.
+- Milestone: countdown color thresholds with readable text, and a swipeable remaining-task view.
+- Quick approval: record the designer acknowledging an approval, with identity, timestamp, exact selection/revision, optional evidence and an undo/correction history. A checkbox is not a client signature.
+
+`v2/mockups/project-home-r3/` offers G: The gallery, H: The studio journal, and I: The quiet workspace. Controls and values are illustrative, in-memory previews only.
