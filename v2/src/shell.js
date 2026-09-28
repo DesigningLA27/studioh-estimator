@@ -26,7 +26,7 @@
  if(b.dataset.theme){localStorage.setItem(keys.theme,b.dataset.theme);command({v2cmd:'theme',theme:b.dataset.theme})}
  },true);
  window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data?.v2)return;const m=e.data;
- if(m.v2==='moodboard-presentation'){root.classList.toggle('v2-moodboard-present',!!m.present&&current?.route==='moodboard');return}
+ if(m.v2==='moodboard-editor'){root.classList.toggle('v2-moodboard-present',!!m.present&&current?.route==='moodboard');return}
  if(m.v2==='route'&&m.route===current?.route){if(m.route==='moodboard')window.v2Libraries?.prepareMoodboard();frame.style.visibility='visible';pane.removeAttribute('aria-busy')}
  if(m.v2==='open-demo'){v2OpenCloudSample();return}
  if(m.v2==='tracer-state')root.classList.toggle('v2-tracer-open',!!m.open);
@@ -41,6 +41,7 @@
  if(m.v2==='identity')window.v2Workspace?.identity(m.photo);
  if(m.v2==='open-project-info')show('projectinfo','Project info');
  if(m.v2==='moodboard-questionnaire'){moodboardReturn=true;show('clientbrief','Questionnaire',false,4);document.getElementById('v2-back').textContent='← Moodboard';return}
+ if(m.v2==='moodboard-library-record'&&['materials','furnishings'].includes(m.book)){show(m.book,m.book==='materials'?'Materials':'Furnishings',true);command({v2cmd:'moodboard-library-record',book:m.book,id:m.id});const back=document.getElementById('v2-back');back.textContent='← Moodboard';back.onclick=()=>{back.onclick=workspace;show('moodboard','Mood board')};return}
  if(m.v2==='open-photos')show('photos','Photos & references');
  if(m.v2==='snapshot'){project=m.bid;updateName(project?.S?.pi?.project||project?.S?.pi?.client||'Preview project')}
  if(m.v2==='error'){frame.style.visibility='visible';pane.removeAttribute('aria-busy');notice(m.message)};if(m.v2==='open-projects')document.getElementById('v2-projects').showModal();

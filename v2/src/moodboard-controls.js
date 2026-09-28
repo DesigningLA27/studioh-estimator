@@ -26,3 +26,38 @@ function fill(el){const style=getComputedStyle(el),match=style.backgroundImage.m
 const oldFrameRender=_mbFrameRender;_mbFrameRender=function(){oldFrameRender();const el=document.getElementById('mbfr-img');if(el){el.style.aspectRatio=_mbEnsure().imageDisplay?.ratio||'3/2';el.style.setProperty('--vmb-photo-zoom',Math.max(1,_mbFrame.z/100));fill(el);photoObserver?.observe(el)}const hint=document.querySelector('#mbfr .gfrh');if(hint)hint.textContent='Drag to move and zoom to crop. The image always fills its frame. Changes apply only to this moodboard.'};
 const oldFrameApply=_mbFrameApply;_mbFrameApply=function(){oldFrameApply();const el=document.getElementById('mbfr-img');if(el){el.style.setProperty('--vmb-photo-zoom',Math.max(1,_mbFrame.z/100));fill(el)}};
 })();
+
+// Browse library selections with photographs first; keep estimate pricing rules intact.
+(()=>{
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+_mbGoodsSearchResults=function(sec){const q=(MB_GOODSEARCH.q||'').trim().toLowerCase(),specified=new Set(projSpecs().map(s=>s.gid)),book=sec.group==='materials'?'materials':'furnishings',lib=book==='materials'?MATERIALS:FURNISHINGS;return (lib||[]).filter(g=>g&&!specified.has(g.id)&&(!sec.cat||g.cat===sec.cat)&&[g.nm,g.cat,g.fin].some(s=>String(s||'').toLowerCase().includes(q))).sort((a,b)=>Number(!!b.img?.trim())-Number(!!a.img?.trim())||String(a.nm).localeCompare(String(b.nm))).map(g=>({g,book}))};
+function details(book,g){const d=document.createElement('dialog');d.className='vmb-dialog';d.innerHTML=`<header><h2>${esc(g.nm)}</h2><button data-close>Close</button></header>${g.img?.trim()?`<img src="${esc(g.img)}" alt="${esc(g.nm)}" style="width:100%;max-height:45vh;object-fit:contain">`:'<p>No image yet. Open this library record to upload a photo or add an image link.</p>'}<p>${esc([g.cat,g.fin].filter(Boolean).join(' · '))}</p><button data-library>${g.img?.trim()?'Open library record ↗':'Add image in library ↗'}</button>`;document.body.append(d);d.querySelector('[data-close]').onclick=()=>d.close();d.onclose=()=>d.remove();d.querySelector('[data-library]').onclick=()=>{d.close();mbSearchClose();parent.postMessage({v2:'moodboard-library-record',book,id:g.id},'*')};d.showModal()}
+function renderGoods(host){
+  const sec=_mbSectionDefs().find(d=>d.key===MB_GOODSEARCH.sectionKey);
+  if(!sec){ host.innerHTML=''; return; }
+  const libName = sec.group==="materials"?"Materials":sec.group==="products"?"Products":"Furnishings";
+  const q=(MB_GOODSEARCH.q||"").trim();
+
+  const secForSearch=Object.assign({},sec,{cat:MB_SEARCH_CAT||null});
+  const res=_mbGoodsSearchResults(secForSearch);
+  if(!res.length){ host.innerHTML=`<div style="font-size:.82rem;color:var(--tl);padding:2rem 1rem;text-align:center">No matches${MB_SEARCH_CAT?` in ${escAttr(MB_SEARCH_CAT)}`:''}.</div>`; return; }
+  host.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px">${res.map(({g,book})=>{
+      const hasPrice=!!goodsEstPrice(g), hasLine=!!specLineOf(g), addable=hasPrice&&hasLine;
+      const price=hasPrice?fmtN(goodsEstPrice(g))+(book==="materials"?"/"+(g.u||"SF"):" ea"):'';
+      // Two different reasons an item can't be added yet, told apart rather than lumped
+      // into one "needs a rate" — the item itself has no price at all (fix that in the
+      // library, out of scope for this popup) vs. it has a price but no trade line is
+      // matched (fixable right here, materials only — see mbSearchSetRate's comment).
+      let action;
+      if(addable) action=`<button class="btn" onclick="mbAddExistingGoods('${book}','${escAttr(g.id)}');mbSearchClose();" style="width:100%;padding:.45rem;border-radius:8px;border:none;background:var(--gm);color:#fff;font-size:.76rem;font-weight:700;cursor:pointer">+ Add</button>`;
+      else if(!hasPrice) action=`<span title="Add a price for this item in the Materials/Furnishings library first" style="display:block;text-align:center;padding:.4rem;border-radius:8px;background:var(--surface2);color:var(--tl);font-size:.64rem;font-weight:600">No price set yet</span>`;
+      else if(book==="materials") action=`<button class="btn" onclick="mbSearchSetRate('${escAttr(g.id)}')" style="width:100%;padding:.4rem;border-radius:8px;border:1px dashed var(--gold);background:var(--brand-soft);color:var(--gold);font-size:.66rem;font-weight:700;line-height:1.3;cursor:pointer">Needs a trade line · Set rate →</button>`;
+      else action=`<span title="No estimate line set yet — use &quot;Wrong trade? Rate&quot; on this item in the Furnishings library" style="display:block;text-align:center;padding:.4rem;border-radius:8px;background:var(--surface2);color:var(--tl);font-size:.64rem;font-weight:600">Needs a trade line</span>`;
+      return _mbSearchCardHtml(g.img,g.nm,[g.cat,g.fin].filter(Boolean).join(" · "),price,action);
+    }).join('')}</div>`;
+  host.firstElementChild?.querySelectorAll(':scope > div').forEach((card,i)=>{const {g,book}=res[i],photo=card.firstElementChild;photo.tabIndex=0;photo.setAttribute('role','button');photo.setAttribute('aria-label','View '+g.nm+' details');if(!g.img?.trim())photo.append(document.createTextNode('No image · view library details'));photo.style.cursor='pointer';photo.onclick=()=>details(book,g);photo.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();details(book,g)}}});
+}
+
+_mbSearchRenderGoodsResults=renderGoods;
+window.addEventListener('message',e=>{if(e.source!==parent||e.data?.v2cmd!=='moodboard-library-record')return;const {book,id}=e.data;if(!['materials','furnishings'].includes(book)||!specGoods(book,id))return;goodsLbxOpen(book==='materials'?'mat':'fur',id)});
+})();

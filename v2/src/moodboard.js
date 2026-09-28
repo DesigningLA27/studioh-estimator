@@ -41,7 +41,7 @@ renderMoodBoard=function(){
  baseRender();
  MB_WIZ_OPEN=wizardPreference;_mbWizardPanelRender();
  const host=document.getElementById('mb-body'),view=document.getElementById('view-moodboard');if(!host||!view)return;
- parent.postMessage({v2:'moodboard-presentation',present},'*');view.classList.add('vmb');view.dataset.boardView=MB_VIEW.disp;view.classList.toggle('vmb-present',present);
+ view.classList.add('vmb');view.dataset.boardView=MB_VIEW.disp;view.classList.toggle('vmb-present',present);
  const mb=_mbEnsure(),defs=_mbSectionDefs(),selected=mb.sections.map(k=>defs.find(d=>d.key===k)).filter(Boolean);
  const cards=Array.from(host.children).filter(e=>e.classList.contains('card'));const sectionCards=selected.map((d,i)=>({d,card:cards[i]})).filter(x=>x.card);const addCard=cards[selected.length];
  const oldTop=view.firstElementChild;oldTop.classList.add('vmb-top');oldTop.querySelector('.sct').childNodes.forEach(n=>{if(n.nodeType===3&&n.textContent.includes('Mood Board'))n.textContent='Your project, brought together. '});
@@ -49,9 +49,9 @@ renderMoodBoard=function(){
  const budget=document.getElementById('mb-budget-slot');let budgetText=budget.firstElementChild?.firstElementChild;budgetText=budgetText?budgetText.cloneNode(true):null;
  budget.replaceChildren();budget.classList.add('vmb-toolbar');
  const toggles=document.createElement('nav');toggles.className='vmb-views';toggles.setAttribute('aria-label','Moodboard view');toggles.innerHTML=[['grid','01 · Studio board'],['editorial','02 · Editorial'],['wall','03 · Visual wall']].map(([id,label])=>button(label,`data-vmb-view="${id}" onclick="v2MoodboardSetView('${id}')" aria-pressed="${MB_VIEW.disp===id}"`,MB_VIEW.disp===id?'selected':'')).join('');budget.append(toggles);
- const actions=document.createElement('div');actions.className='vmb-actions';actions.innerHTML=button(builderOpen?'Close sections':'Edit sections',`data-vmb-builder-toggle onclick="v2MoodboardBuilder()" aria-expanded="${builderOpen}"`,'vmb-edit')+button('Build board','onclick="v2MoodboardBuildPresentation()"','vmb-edit primary')+button(present?'Exit presentation':'Present',`data-vmb-present onclick="v2MoodboardPresent()" aria-pressed="${present}"`)+button('＋ Add from library','onclick="v2MoodboardLibrary()"','vmb-edit primary');budget.append(actions);
+ const actions=document.createElement('div');actions.className='vmb-actions';actions.innerHTML=button(builderOpen?'Close sections':'Edit sections',`data-vmb-builder-toggle onclick="v2MoodboardBuilder()" aria-expanded="${builderOpen}"`,'vmb-edit')+button('＋ Add from library','onclick="v2MoodboardLibrary()"','vmb-edit primary');budget.append(actions);
  const frame=document.createElement('div');frame.className='vmb-frame';
- const heading=document.createElement('header');heading.className='vmb-heading';heading.innerHTML='<div><span class="vmb-eyebrow">DESIGN / MOODBOARD</span><h1>Your project, <span>brought together.</span></h1><p>Plants, materials and pieces that belong in this design.</p></div>';frame.append(heading);
+ const heading=document.createElement('header');heading.className='vmb-heading';heading.innerHTML='<div><span class="vmb-eyebrow">DESIGN / MOODBOARD</span><h1>Your project, <span>brought together.</span></h1><p>Plants, materials and pieces that belong in this design.</p></div>';frame.append(heading);const launch=document.createElement('div');launch.className='vmb-launch';launch.innerHTML=button('Build your moodboard ↗','onclick="v2MoodboardBuildPresentation()"','vmb-edit')+'<small>Arrange your selections on a presentation sheet and export a PDF.</small>';heading.append(launch);
  const allItems=selected.filter(d=>!['palette','insights'].includes(d.group)).flatMap(d=>{try{return _mbItemsForSection(d).shown}catch{return []}});const lead=allItems.find(x=>x.img&&x.kind!=='elements');
  const hero=document.createElement('section');hero.className='vmb-hero';
  const project=S.pi?.project||S.pi?.client||'Your project';
@@ -78,9 +78,10 @@ renderMoodBoard=function(){
  card.classList.add('vmb-section');card.dataset.section=d.key;const shownCount=card.querySelector('div:first-child>div:first-child>span');if(shownCount&&!['palette','insights'].includes(d.group))shownCount.textContent=card.querySelectorAll('.vmb-item').length+' shown';card.dataset.group=d.group;const match=filter==='all'||filter===d.group;card.hidden=!match;if(match)visible++;
  if(filter==='inspiration'&&d.group!=='inspiration'){card.innerHTML='<h3>'+escape(d.label)+'</h3>'+_mbInspirationStripHtml(d.key);body.append(card);return;}
  const query=card.querySelector('input[oninput*=mbSetQuery]')?.parentElement;if(query){const tools=document.createElement('details');tools.className='vmb-query vmb-edit';tools.innerHTML='<summary>Ask for a suggestion</summary>';query.before(tools);tools.append(query);}
+ const head=card.firstElementChild,content=document.createElement('div');content.className='vmb-section-content';while(head?.nextSibling)content.append(head.nextSibling);card.append(content);const collapsed=!!mb.collapsedSections?.[d.key];content.hidden=collapsed;const toggle=document.createElement('button');toggle.className='vmb-button vmb-collapse';toggle.textContent=collapsed?'Expand ▾':'Collapse ▴';toggle.setAttribute('aria-label',(collapsed?'Expand ':'Collapse ')+d.label);toggle.setAttribute('aria-expanded',String(!collapsed));toggle.onclick=()=>{mb.collapsedSections={...mb.collapsedSections,[d.key]:!collapsed};_bidSchedule();renderMoodBoard()};head?.append(toggle);
  // Original controls, suggestions and inspiration strips remain attached to their section.
  if(MB_VIEW.disp==='wall'&&!['palette','insights'].includes(d.group)){
-  card.querySelectorAll('.vmb-item').forEach(tile=>{if(match&&!seen.has(tile.dataset.vmbItem)){seen.add(tile.dataset.vmbItem);wall.append(tile)}else tile.remove()});
+  card.querySelectorAll('.vmb-item').forEach(tile=>{if(match&&!seen.has(tile.dataset.vmbItem)){seen.add(tile.dataset.vmbItem);tile.hidden=collapsed;wall.append(tile)}else tile.remove()});
   card.querySelectorAll('.vmb-items').forEach(e=>e.remove());
   const detail=document.createElement('details');detail.className='vmb-section-tools';detail.hidden=!match;detail.innerHTML=`<summary>${escape(d.label)} · add, suggest & organize</summary>`;detail.append(card);body.append(detail);
  }else if(filter==='all'&&d.group==='palette'){card.hidden=true;body.append(card);}else body.append(card);
