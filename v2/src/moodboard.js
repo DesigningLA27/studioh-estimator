@@ -25,7 +25,7 @@ _mbSectionBoardHtml=function(items){
  const note=missing.length?`<details class="vmb-missing"><summary>${escape(summary)} excluded due to no image</summary><p>Still included in your project and estimate. Add a library image to show them here.</p><ul>${missing.map(x=>`<li>${escape(x.label)}</li>`).join('')}</ul></details>`:'';
  return (visible.length?`<div class="vmb-items">${visible.map(x=>`<article class="vmb-item" data-vmb-item="${escape(x.kind+':'+x.pid)}">${_mbTile(x,'card')}</article>`).join('')}</div>`:items.length?'':'<p class="vmb-empty">Add a library selection to build this section.</p>')+note;
 };
-window.v2MoodboardSetView=function(view){if(!['grid','editorial','wall'].includes(view))return;MB_VIEW.disp=view;_mbEnsure().view=view;try{_bidSchedule()}catch{}renderMoodBoard();document.querySelector(`[data-vmb-view="${view}"]`)?.focus()};
+window.v2MoodboardSetView=function(view){if(!['grid','wall'].includes(view))return;MB_VIEW.disp=view;_mbEnsure().view=view;try{_bidSchedule()}catch{}renderMoodBoard();document.querySelector(`[data-vmb-view="${view}"]`)?.focus()};
 window.v2MoodboardFilter=function(group){filter=group;renderMoodBoard();document.querySelector(`[data-vmb-filter="${group}"]`)?.focus()};
 window.v2MoodboardPresent=function(){present=!present;parent.postMessage({v2:'moodboard-presentation',present},'*');document.getElementById('view-moodboard')?.classList.toggle('vmb-present',present);const b=document.querySelector('[data-vmb-present]');if(b){b.textContent=present?'Exit presentation':'Present';b.setAttribute('aria-pressed',String(present))}};
 window.v2MoodboardLibrary=function(){
@@ -36,7 +36,7 @@ window.v2MoodboardLibrary=function(){
 };
 window.v2MoodboardRestore=function(){const mb=_mbEnsure();mb.hidden=[];try{_bidSchedule()}catch{}renderMoodBoard()};
 renderMoodBoard=function(){
- const storedView=_mbEnsure().view;if(['grid','editorial','wall'].includes(storedView))MB_VIEW.disp=storedView;
+ if(_mbEnsure().view==='editorial')_mbEnsure().view='grid';if(MB_VIEW.disp==='editorial')MB_VIEW.disp='grid';const storedView=_mbEnsure().view;if(['grid','editorial','wall'].includes(storedView))MB_VIEW.disp=storedView;
  const wizardPreference=MB_WIZ_OPEN;
  baseRender();
  MB_WIZ_OPEN=wizardPreference;_mbWizardPanelRender();
@@ -48,10 +48,9 @@ renderMoodBoard=function(){
  const wizardButton=document.getElementById('mb-wiz-togglebtn');if(wizardButton)wizardButton.textContent='Styles & goals · Questionnaire';
  const budget=document.getElementById('mb-budget-slot');let budgetText=budget.firstElementChild?.firstElementChild;budgetText=budgetText?budgetText.cloneNode(true):null;
  budget.replaceChildren();budget.classList.add('vmb-toolbar');
- const toggles=document.createElement('nav');toggles.className='vmb-views';toggles.setAttribute('aria-label','Moodboard view');toggles.innerHTML=[['grid','01 · Studio board'],['editorial','02 · Editorial'],['wall','03 · Visual wall']].map(([id,label])=>button(label,`data-vmb-view="${id}" onclick="v2MoodboardSetView('${id}')" aria-pressed="${MB_VIEW.disp===id}"`,MB_VIEW.disp===id?'selected':'')).join('');budget.append(toggles);
- const actions=document.createElement('div');actions.className='vmb-actions';actions.innerHTML=button(builderOpen?'Close sections':'Edit sections',`data-vmb-builder-toggle onclick="v2MoodboardBuilder()" aria-expanded="${builderOpen}"`,'vmb-edit')+button('＋ Add from library','onclick="v2MoodboardLibrary()"','vmb-edit primary');budget.append(actions);
+ parent.postMessage({v2:'moodboard-controls',view:MB_VIEW.disp},'*');
  const frame=document.createElement('div');frame.className='vmb-frame';
- const heading=document.createElement('header');heading.className='vmb-heading';heading.innerHTML='<div><span class="vmb-eyebrow">DESIGN / MOODBOARD</span><h1>Your project, <span>brought together.</span></h1><p>Plants, materials and pieces that belong in this design.</p></div>';frame.append(heading);const launch=document.createElement('div');launch.className='vmb-launch';launch.innerHTML=button('Build your moodboard ↗','onclick="v2MoodboardBuildPresentation()"','vmb-edit')+'<small>Arrange your selections on a presentation sheet and export a PDF.</small>';heading.append(launch);
+ const heading=document.createElement('header');heading.className='vmb-heading';heading.innerHTML='<div><span class="vmb-eyebrow">DESIGN / MOODBOARD</span><h1>Your project, <span>brought together.</span></h1><p>Plants, materials and pieces that belong in this design.</p></div>';frame.append(heading);
  const allItems=selected.filter(d=>!['palette','insights'].includes(d.group)).flatMap(d=>{try{return _mbItemsForSection(d).shown}catch{return []}});const lead=allItems.find(x=>x.img&&x.kind!=='elements');
  const hero=document.createElement('section');hero.className='vmb-hero';
  const project=S.pi?.project||S.pi?.client||'Your project';
@@ -62,9 +61,9 @@ renderMoodBoard=function(){
  const palette=mb.themePaletteId?colorPaletteFind(mb.themePaletteId):null;
  const colors=palette?CANON_KEYS.map(k=>palette.sw?.[k]?.[1]).filter(c=>/^#[0-9a-f]{3,8}$/i.test(c)):isSample?['#798668','#b6bca5','#e3ddce','#b99878','#454b42']:[];
  const swatches=`<div class="vmb-swatches">${colors.map(c=>`<span style="background:${c}" aria-label="${c}"></span>`).join('')}</div>`;
- hero.innerHTML=`<div class="vmb-story"><span class="vmb-eyebrow">${MB_VIEW.disp==='editorial'?'01 / Design story':'Concept direction'}${isSample?' · sample':''}</span><h2>${escape(title)}</h2><p>${escape(description)}</p>${MB_VIEW.disp==='editorial'?swatches:''}${button('Edit styles & goals','onclick="v2MoodboardQuestionnaire()"','vmb-edit')}${button('Edit headline & story','onclick="v2MoodboardDirection()"','vmb-edit vmb-direction-edit')}</div><div class="vmb-cover">${scene}</div>`;
- if(MB_VIEW.disp==='grid')frame.append(hero);
- const tabs=document.createElement('div');tabs.className='vmb-filters';tabs.innerHTML=`<nav aria-label="Moodboard category">${groups.map(([id,label])=>button(label,`data-vmb-filter="${id}" onclick="v2MoodboardFilter('${id}')" aria-pressed="${filter===id}"`,filter===id?'selected':'')).join('')}</nav><div class="vmb-edit">${button('Sections','onclick="v2MoodboardBuilder(true)"')}${button('Restore hidden ('+mb.hidden.length+')','onclick="v2MoodboardRestore()"')}</div>`;frame.append(tabs);if(MB_VIEW.disp==='editorial')frame.append(hero);
+ hero.innerHTML=`<div class="vmb-story"><span class="vmb-eyebrow">${MB_VIEW.disp==='editorial'?'01 / Design story':'Concept direction'}${isSample?' · sample':''}</span><h2>${escape(title)}</h2><p>${escape(description)}</p>${MB_VIEW.disp==='editorial'?swatches:''}<div class="vmb-story-actions">${button('Edit styles & goals','onclick="v2MoodboardQuestionnaire()"','vmb-edit')}${button('Edit headline & story','onclick="v2MoodboardDirection()"','vmb-edit vmb-direction-edit')}${button('Build moodboard ↗','onclick="v2MoodboardBuildPresentation()" title="Arrange selections on a presentation sheet and export PDF"','vmb-edit primary')}</div></div><div class="vmb-cover">${scene}</div>`;
+ if(MB_VIEW.disp!=='editorial')frame.append(hero);
+ const tabs=document.createElement('div');tabs.className='vmb-filters';tabs.innerHTML=`<nav aria-label="Moodboard category">${button(builderOpen?'Close sections':'Edit sections',`data-vmb-builder-toggle onclick="v2MoodboardBuilder()" aria-expanded="${builderOpen}"`,'vmb-edit')}${groups.map(([id,label])=>button(label,`data-vmb-filter="${id}" onclick="v2MoodboardFilter('${id}')" aria-pressed="${filter===id}"`,filter===id?'selected':'')).join('')}</nav><div class="vmb-edit">${button('Sections','onclick="v2MoodboardBuilder(true)"')}${button('Restore hidden ('+mb.hidden.length+')','onclick="v2MoodboardRestore()"')}</div>`;frame.append(tabs);if(MB_VIEW.disp==='editorial')frame.append(hero);
  if(MB_VIEW.disp==='wall'){const intro=document.createElement('section');intro.className='vmb-wall-intro';intro.innerHTML='<div><span class="vmb-eyebrow">Visual collection</span><h2>One direction. Every detail.</h2></div>'+swatches;frame.append(intro);}
  const layout=document.createElement('div');layout.className='vmb-layout';const body=document.createElement('div');body.className='vmb-content';const side=document.createElement('aside');side.className='vmb-side';
  const colorCard=document.createElement('section');colorCard.className='vmb-summary';colorCard.innerHTML=`<span class="vmb-eyebrow">Color direction</span><h3>${escape(palette?.name||(isSample?'Warm neutrals. Soft greens.':'Choose your project palette'))}</h3>${swatches}${!palette&&isSample?'<small>Sample color direction</small>':''}${button('Edit palette',"onclick=\"v2MoodboardPalette()\"",'vmb-edit')}`;colorCard.dataset.support='palette';colorCard.hidden=mb.supportCards?.palette===false;side.append(colorCard);
@@ -140,5 +139,6 @@ window.addEventListener('message',async e=>{
  }catch(err){parent.postMessage({v2:'error',message:err.message},'*')}
 });
 
+window.addEventListener('message',e=>{if(e.source!==parent||e.data?.v2cmd!=='moodboard-controls')return;if(e.data.action==='library')v2MoodboardLibrary();else v2MoodboardSetView(e.data.view)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&present)v2MoodboardPresent()});
 })();
