@@ -3,11 +3,26 @@ from pathlib import Path
 import hashlib,json,re,base64
 root=Path(__file__).resolve().parent
 src=(root.parent/'index.html').read_text()
+# Ship static reference images separately so opening tools does not parse megabytes
+# of base64. Content-addressed URLs are cacheable and load only when displayed.
+assets=root/'assets'/'engine-images';assets.mkdir(parents=True,exist_ok=True)
+def external_images(html):
+    def image(match):
+        mime,data=match.groups()
+        try: raw=base64.b64decode(data,validate=True)
+        except ValueError: return match[0]
+        extension={'jpeg':'jpg','png':'png','webp':'webp','gif':'gif','svg+xml':'svg'}.get(mime)
+        if not extension or len(raw)<4096:return match[0]
+        name=hashlib.sha256(raw).hexdigest()+'.'+extension
+        (assets/name).write_bytes(raw)
+        return 'https://designingla27.github.io/studioh-estimator/v2/assets/engine-images/'+name
+    return re.sub(r'data:image/([a-zA-Z0-9+.-]+);base64,([A-Za-z0-9+/=]+)',image,html)
+
 # Adapt only iframe boundaries for opaque-origin isolation; questionnaire logic stays.
 for name in ['Q_FRAME_HTML','Q_DESIGNER_HTML']:
     pattern=r'const '+name+r'\s*=\s*"([^"]+)"'
     match=re.search(pattern,src)
-    q=base64.b64decode(match[1]).decode()
+    q=external_images(base64.b64decode(match[1]).decode())
     q=q.replace('parent.location.origin',"'*'")
     q=q.replace("||e.origin!=='*'",'').replace("&&e.origin==='*'",'')
     q=q.replace('parent.qSelectionAssets()','window.V2_Q_ASSETS')
@@ -20,6 +35,7 @@ assert expr in src
 src=src.replace(expr,'v2QuestionnaireHTML('+expr+')')
 # A blocked catalog read must not recursively repaint the Moodboard.
 src=src.replace('if(document.getElementById("mb-body")) renderMoodBoard();', 'if(_elementsPulled && _colorPalettesPulled && document.getElementById("mb-body")) renderMoodBoard();')
+src=external_images(src)
 guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text()+'\n'+(root/'src/programming.js').read_text()+'\n'+(root/'src/photos.js').read_text()+'\n'+(root/'src/insights.js').read_text()+'\n'+(root/'src/project-files.js').read_text();css=(root/'src/engine.css').read_text()+'\n'+(root/'src/moodboard.css').read_text();bridge+='\n'+(root/'src/moodboard.js').read_text()+'\n'+(root/'src/moodboard-presentation.js').read_text()+'\n'+(root/'src/moodboard-controls.js').read_text()
 bridge+='\n'+(root/'src/catalog-state.js').read_text()+'\n'+(root/'src/button-cleanup.js').read_text()
 # These restrictions are parsed before any original scripts. Production APIs,

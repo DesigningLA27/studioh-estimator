@@ -11,3 +11,11 @@ The native browser storage object is replaced with a memory adapter before appli
 Validation: Worker account isolation, anonymous denial, media hashes, stale-revision rejection, history and session revocation; Chrome and Firefox fresh-context restore, preferences, navigation, moodboard editor, interrupted save retry, valid/incomplete migration. Live Cloudflare verification uses the isolated verification-20260925 owner, never user project records.
 
 Not included: individual user invitations, Dropbox synchronization, copying every externally linked image, all-project downloadable archives, or AI assistant integration. The developer icon A/B test intentionally remains session-only.
+
+## Startup correction (V2.051)
+
+Returning sessions load the saved workspace before hydrating private media and large library blocks. Tool initialization waits for complete data, and saves are suspended until hydration succeeds. Repeated immutable asset references share one read; independent reads run concurrently with an eight-request limit. Engine code is prefetched while authentication runs. Static bundled reference images now use content-addressed public files instead of embedded base64; V1 source is unchanged.
+
+A bearer session is retained in sessionStorage for same-tab reloads (never project data). It is validated on every startup and cleared on expiry or logout. A new tab without a session or existing authorized publishing key still requires sign-in. A first-paint opening state prevents the obsolete preview layout from flashing. Existing server projects skip all legacy browser recovery scans; explicit recovery remains in Settings. First connection without a server project still attempts recovery.
+
+Regression coverage includes a deliberately stalled private asset: the workspace opens, no incomplete project is written, duplicated assets load once, and full data arrives before the editor becomes ready. Chrome and Firefox verify automatic same-tab reconnect. Timing on the isolated real Cloudflare test project: old full startup approximately 33 seconds; revised workspace approximately 1 second and all project tools approximately 9–13 seconds. These are test measurements, not a guarantee for every connection or project.

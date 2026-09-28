@@ -37,6 +37,11 @@ html=html.replace('<script>', '<script type="application/x-studioh-bootstrap" id
 html=re.sub(r'<script src="src/[^" ]+"></script>', '', html)
 html=html.replace('</head>', '<link rel="stylesheet" href="src/cloud.css?v='+release+'"></head>')
 html=html.replace('</body>', '<script src="src/cloud.js?v='+release+'"></script></body>')
+# Render one stable opening state from the first paint, before JavaScript arrives.
+html=html.replace('<html lang="en">','<html lang="en" data-cloud-opening>')
+html=html.replace('</head>', '<style>html[data-cloud-opening] #sh-v2{visibility:hidden}body{background:#faf9f6}</style>'+''.join('<link rel="preload" as="script" href="src/'+name+'.js?v='+release+'">' for name in ['shell','icons','libraries','workspace','experience','top-controls','button-cleanup'])+'</head>')
+html=html.replace('<body>','<body><section id="v2-cloud-gate"><div><span>STUDIO H</span><h1>Opening your workspace</h1><p role="status">Loading your project…</p></div></section>',1)
+
 html=html.replace('Save on device', 'Save to Cloudflare').replace('Save this working project on this device. Cloudflare saving is not connected.', 'Save the current project to your private Cloudflare workspace.')
 html=html.replace('Cloud projects can be read here. V2 changes are saved on this device; cloud write-back is not connected.', 'V2 projects and uploads save privately to Cloudflare. Importing a V1 project creates a separate V2 copy.')
 (root/'index.html').write_text(html)
