@@ -22,7 +22,7 @@ _mbSectionBoardHtml=function(items){
  const visible=items.filter(x=>typeof x.img==='string'&&x.img.trim()),missing=items.filter(x=>!visible.includes(x));
  const counts=new Map();missing.forEach(x=>{const label=x.kind==='plants'?({shrub:'shrub',tree:'tree',palm:'palm',gc:'groundcover'}[x.kind0]||'plant'):'item';counts.set(label,(counts.get(label)||0)+1)});
  const summary=[...counts].map(([label,n])=>`${n} ${label}${n===1?'':'s'}`).join(', ');
- const note=missing.length?`<details class="vmb-missing"><summary>${escape(summary)} excluded due to no image</summary><p>Still included in your project and estimate. Add a library image to show them here.</p><ul>${missing.map(x=>`<li>${escape(x.label)}</li>`).join('')}</ul></details>`:'';
+ const note='';
  return (visible.length?`<div class="vmb-items">${visible.map(x=>`<article class="vmb-item" data-vmb-item="${escape(x.kind+':'+x.pid)}">${_mbTile(x,'card')}</article>`).join('')}</div>`:items.length?'':'<p class="vmb-empty">Add a library selection to build this section.</p>')+note;
 };
 window.v2MoodboardSetView=function(view){if(!['grid','wall'].includes(view))return;MB_VIEW.disp=view;_mbEnsure().view=view;try{_bidSchedule()}catch{}renderMoodBoard();document.querySelector(`[data-vmb-view="${view}"]`)?.focus()};
@@ -36,7 +36,7 @@ window.v2MoodboardLibrary=function(){
 };
 window.v2MoodboardRestore=function(){const mb=_mbEnsure();mb.hidden=[];try{_bidSchedule()}catch{}renderMoodBoard()};
 renderMoodBoard=function(){
- if(_mbEnsure().view==='editorial')_mbEnsure().view='grid';if(MB_VIEW.disp==='editorial')MB_VIEW.disp='grid';const storedView=_mbEnsure().view;if(['grid','editorial','wall'].includes(storedView))MB_VIEW.disp=storedView;
+ if(_mbEnsure().view==='editorial')_mbEnsure().view='grid';if(MB_VIEW.disp==='editorial')MB_VIEW.disp='grid';const storedView=_mbEnsure().view||'grid';if(['grid','editorial','wall'].includes(storedView))MB_VIEW.disp=storedView;
  const wizardPreference=MB_WIZ_OPEN;
  baseRender();
  MB_WIZ_OPEN=wizardPreference;_mbWizardPanelRender();
@@ -85,7 +85,7 @@ renderMoodBoard=function(){
   const detail=document.createElement('details');detail.className='vmb-section-tools';detail.hidden=!match;detail.innerHTML=`<summary>${escape(d.label)} · add, suggest & organize</summary>`;detail.append(card);body.append(detail);
  }else if(filter==='all'&&d.group==='palette'){card.hidden=true;body.append(card);}else body.append(card);
  });
- if(MB_VIEW.disp==='wall'){body.prepend(wall);const omitted=new Map();selected.filter(d=>filter==='all'||filter===d.group).forEach(d=>{try{_mbItemsForSection(d).shown.filter(x=>!x.img?.trim()).forEach(x=>omitted.set(x.kind+':'+x.pid,x))}catch{}});if(omitted.size){const note=document.createElement('p');note.className='vmb-missing';note.textContent=omitted.size+' selections excluded due to no image. They remain in your project and estimate.';body.prepend(note);}}
+ if(MB_VIEW.disp==='wall')body.prepend(wall);
  if(!visible||MB_VIEW.disp==='wall'&&!wall.children.length&&filter!=='palette'&&filter!=='insights'&&filter!=='inspiration'){const empty=document.createElement('p');empty.className='vmb-empty';empty.textContent='No visible selections in this category. Add a section or search a library to begin.';if(filter!=='all'){const choices=defs.filter(d=>d.group===filter&&!mb.sections.includes(d.key));if(choices.length){empty.append(document.createElement('br'));choices.forEach(d=>{const b=document.createElement('button');b.className='vmb-button';b.textContent='＋ Add '+d.label;b.onclick=()=>{mb.sections.push(d.key);_bidSchedule();renderMoodBoard();if(d.group==='insights')v2MoodboardInsights()};empty.append(b)})}}body.prepend(empty)}
  layout.append(body,side);layout.classList.toggle('vmb-no-side',!Array.from(side.children).some(x=>!x.hidden));frame.append(layout);
  const inline=document.createElement('section');inline.id='vmb-add-sections';inline.className='vmb-inline-builder vmb-edit';

@@ -26,7 +26,7 @@
  if(b.dataset.theme){localStorage.setItem(keys.theme,b.dataset.theme);command({v2cmd:'theme',theme:b.dataset.theme})}
  },true);
  window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data?.v2)return;const m=e.data;
- if(m.v2==='moodboard-controls'){const controls=document.getElementById('v2-mood-controls');controls.hidden=current?.route!=='moodboard';controls.replaceChildren();for(const [view,label] of [['grid','01 · Studio board'],['wall','03 · Visual wall']]){const b=document.createElement('button');b.textContent=label;b.setAttribute('aria-pressed',String(m.view===view));b.onclick=()=>command({v2cmd:'moodboard-controls',view});controls.append(b)}const add=document.createElement('button');add.textContent='＋ Add from library';add.onclick=()=>command({v2cmd:'moodboard-controls',action:'library'});controls.append(add);return}
+ if(m.v2==='moodboard-controls'){const controls=document.getElementById('v2-mood-controls');controls.hidden=current?.route!=='moodboard';controls.replaceChildren();const add=document.createElement('button');add.textContent='＋ Add from library';add.onclick=()=>command({v2cmd:'moodboard-controls',action:'library'});controls.append(add);return}
  if(m.v2==='moodboard-editor'){root.classList.toggle('v2-moodboard-present',!!m.present&&current?.route==='moodboard');return}
  if(m.v2==='route'&&m.route===current?.route){if(m.route==='moodboard')window.v2Libraries?.prepareMoodboard();frame.style.visibility='visible';pane.removeAttribute('aria-busy')}
  if(m.v2==='open-demo'){v2OpenCloudSample();return}
