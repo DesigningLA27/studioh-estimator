@@ -36,7 +36,7 @@ function arrangeSheet(gap=state.gap){
   const ratio=(tile.rw||tile.w)/(tile.rh||tile.h);let found=null;
   for(let cw=requested;cw>=2&&!found;cw--){
    if(tile.size&&cw!==requested)break;
-   let ch=Math.max(3,Math.round(cw/ratio));ch=Math.min(ch,rows);
+   let ch=tile.gridHeight||Math.max(2,Math.round(cw/ratio));ch=Math.min(ch,rows);
    const w=cw*unit-gap,h=ch*unitY-gap,candidates=[];
    for(let row=0;row<=rows-ch;row++)for(let col=0;col<=24-cw;col++){
     let box={x:col*unit,y:row*unitY,w,h,col,row,cw,ch,id:tile.id};
@@ -60,7 +60,9 @@ function arrangeSheet(gap=state.gap){
  // Handle drops at the board level, including drops onto other cards.
  board.querySelectorAll('.tile').forEach(el=>{el.ondrop=null;el.ondragover=null;el.onkeydown=e=>{const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(d){e.preventDefault();state.selected=+el.dataset.id;nudge(...d)}}});
 }
-function moveTo(id,col,row){const box=sheetGeometry?.placed.get(id);if(!box)return;col=Math.max(0,Math.min(24-box.cw,col));row=Math.max(0,Math.min(sheetGeometry.rows-box.ch,row));editPresentation(()=>{const t=state.tiles.find(t=>t.id===id);if(t){t.pin={col,row};t.size=box.cw}state.selected=id})}
+function moveTo(id,col,row){const g=sheetGeometry,box=g?.placed.get(id);if(!box)return;col=Math.max(0,Math.min(24-box.cw,col));const bottom=row+box.ch>=g.rows-1;let choice;
+for(let ch=box.ch;ch>=2;ch--){const rr=bottom?g.rows-ch:Math.max(0,Math.min(g.rows-ch,row));const candidate={x:col*g.unit,y:rr*g.unitY,w:box.w,h:ch*g.unitY-g.gap};const blocked=g.plan&&overlap(candidate,g.plan,g.gap)||state.tiles.filter(t=>t.id!==id&&t.pin).some(t=>{const r=g.placed.get(t.id);return r&&overlap(candidate,r,g.gap)});if(!blocked){choice={col,row:rr,ch};break}}
+if(!choice){notify('That space is blocked by the plan or a pinned image. Try another grid cell.');return}editPresentation(()=>{const t=state.tiles.find(t=>t.id===id);if(t){t.pin={col:choice.col,row:choice.row};t.size=box.cw;t.gridHeight=choice.ch}state.selected=id});if(choice.ch<box.ch)notify('Frame height adjusted to fit below the plan. Image kept on the grid.')}
 
 function nudge(dx,dy){if(!state.sheetView){change(()=>state.sheetView=true);notify('Sheet preview opened. Use the arrows to move the selected image.');return}const box=sheetGeometry?.placed.get(state.selected);if(!box){notify('The plan stays centered. Select a supporting image to move.');return}moveTo(state.selected,box.col+dx,box.row+dy)}
 function resizeSelected(delta){const t=state.tiles.find(t=>t.id===state.selected);if(!t)return;if(t.id===1&&state.includePlan&&state.planScale){notify('The plan is scale-locked. Change Drawing scale instead.');return}change(()=>{t.size=Math.max(2,Math.min(10,(t.size||(t.id===1?6:t.id===2&&state.preset==='smart'?5:4))+delta));state.sheetView=true});notify(delta>0?'Image enlarged on grid':'Image reduced on grid')}
