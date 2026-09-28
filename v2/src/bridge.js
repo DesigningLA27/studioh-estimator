@@ -52,6 +52,7 @@ function v2QuestionnaireHTML(html){
  html=v2QuestionnaireStyles(html);
  const assets=JSON.stringify(qSelectionAssets()).replaceAll('<','\\u003c');
  const css=v2QThemeCSS();
+ html += '<script>'+v2CleanButtonIcons.toString()+';document.addEventListener("DOMContentLoaded",v2CleanButtonIcons);<\/script>';
  html += '<style>'+v2CompactQuestionnaireCSS+v2QuestionnaireSurfaces+'</style><script>window.addEventListener("DOMContentLoaded",'+v2CompactQuestionnaireHeader.toString().replace('← Workspace',window.v2MoodQuestionnaire?'← Moodboard':'← Workspace')+');<\/script>';
  return '<style id="v2-qtheme">'+css+'</style><script>window.V2_Q_ASSETS='+assets+';window.addEventListener("message",e=>{if(e.source===parent&&e.data.type==="v2-theme")document.getElementById("v2-qtheme").textContent=e.data.css});<\/script>'+html;
 }
