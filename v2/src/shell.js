@@ -38,7 +38,7 @@
  if(m.v2==='plant-response'){const task=plantRequests.get(m.requestId);if(task){clearTimeout(task.timer);plantRequests.delete(m.requestId);m.error?task.reject(Error(m.error)):task.resolve(m.result)}return}
  if(m.v2==='storage'){persistentStore=m.data;v2DevicePut('current',m.data).catch(()=>notice('Device storage could not save. Export your project to keep your work.'))}
  if(m.v2==='ready'){ready=true;window.v2Libraries?.sync();command({v2cmd:'experience',role:window.v2Experience?.role||'developer'});command({v2cmd:'theme',theme:localStorage.getItem(keys.theme)||'Day'});if(pending){const m=pending;pending=null;command(m)}document.getElementById('v2-state').textContent='Local preview · Cloud writes blocked'}
- if(m.v2==='saved'){document.getElementById('v2-state').textContent='Saved on this device';updateName(m.name)}
+ if(m.v2==='saved'){updateName(m.name);if(m.manual){v2DevicePut('current',persistentStore).then(()=>{document.getElementById('v2-state').textContent='Saved on this device';notice('Project saved on this device. Cloudflare saving is not connected yet.')}).catch(()=>notice('Could not save on this device. Export your project data to keep a backup.'))}else document.getElementById('v2-state').textContent='Saved on this device'}
  if(m.v2==='identity')window.v2Workspace?.identity(m.photo);
  if(m.v2==='open-project-info')show('projectinfo','Project info');
  if(m.v2==='moodboard-questionnaire'){moodboardReturn=true;show('clientbrief','Questionnaire',false,4);document.getElementById('v2-back').textContent='← Moodboard';return}
@@ -49,13 +49,13 @@
  });
  function updateName(name){lastName=name;const p=root.querySelector('.project strong');if(p)p.textContent=name}
  root.addEventListener('click',()=>setTimeout(()=>{if(lastName)updateName(lastName)},0));
- document.getElementById('v2-save').onclick=()=>command({v2cmd:'save'});
+ document.getElementById('v2-save').onclick=()=>{notice('Saving project on this device…');command({v2cmd:'save'})};
  document.getElementById('v2-export').onclick=()=>command({v2cmd:'export'});
  document.getElementById('v2-project-button').onclick=()=>document.getElementById('v2-projects').showModal();
  document.getElementById('v2-sample').onclick=()=>{v2OpenCloudSample()};
  document.getElementById('v2-import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>30*1024*1024)throw Error('Choose a project file under 30 MB');const bid=JSON.parse(await f.text());if(!bid?.S)throw Error('Choose an exported Studio H project JSON file');command({v2cmd:'import',bid});document.getElementById('v2-projects').close();show('projectinfo','Project info')}catch(err){notice(err.message)}e.target.value=''};
  const theme=localStorage.getItem(keys.theme);if(theme)root.querySelector('button[data-theme="'+theme+'"]')?.click();
- fetch('engine.html?v='+encodeURIComponent(document.querySelector('meta[name="studioh-version"]')?.content||'7')).then(r=>{if(!r.ok)throw Error('Engine could not load');return r.text()}).then(async html=>{let seed=await v2DeviceGet('current');if(!seed){try{seed=JSON.parse(localStorage.getItem(keys.store)||'{}')}catch{seed={}}}persistentStore=seed;const json=JSON.stringify(seed).replaceAll('<','\\u003c');frame.srcdoc=html.replace('/*V2_STORAGE_SEED*/{}',json)}).catch(e=>notice(e.message));
+ fetch('engine.html?v='+encodeURIComponent(document.querySelector('meta[name="studioh-version"]')?.content||'7')).then(r=>{if(!r.ok)throw Error('Engine could not load');return r.text()}).then(async html=>{let seed=await v2DeviceGet('current');if(!seed){try{seed=JSON.parse(localStorage.getItem(keys.store)||'{}')}catch{seed={}}}persistentStore=seed;const json=JSON.stringify(seed).replaceAll('<','\\u003c');const boardSource=new URL('presentation-board/',location.href).href.replace(/[&"<>]/g,c=>({'&':'&amp;','"':'&quot;','<':'&lt;','>':'&gt;'}[c]));frame.srcdoc=html.replace("frame-src 'self' https://designingla27.github.io/studioh-estimator/v2/presentation-board/","frame-src 'self' "+boardSource).replace('/*V2_STORAGE_SEED*/{}',json)}).catch(e=>notice(e.message));
  window.v2Preview={get store(){return persistentStore},notice,show,workspace,command,plantRequest(action,data={}){return new Promise((resolve,reject)=>{if(!ready){reject(Error('Project tools are still loading. Try again in a moment.'));return}const requestId=++plantSeq;const timer=setTimeout(()=>{plantRequests.delete(requestId);reject(Error('Plant data took too long to load'))},10000);plantRequests.set(requestId,{resolve,reject,timer});command({v2cmd:'plant-request',requestId,action,...data})})},get ready(){return ready}};
 })();
 

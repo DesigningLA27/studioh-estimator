@@ -18,7 +18,7 @@ mock=mock.replace('data-theme="Morning" aria-label=', 'data-theme="Day" aria-lab
 mock=re.sub(r'<i data-lucide="[^"]*" aria-hidden="true"></i>','',mock)
 mock=mock.replace("page:'financials',detail:'',theme:","page:'home',detail:'',theme:")
 mock=mock.replace('V2 concept','V2 preview').replace('V2 layout proposal','Workspace preview')
-mock=mock.replace('<div class="body">','''<div id="v2-global"><span id="v2-state">Loading isolated workspace…</span><button id="v2-project-button">Preview project</button><button id="v2-save">Save preview</button><button id="v2-export">Export project</button></div><div class="body">''',1)
+mock=mock.replace('<div class="body">','''<div id="v2-global"><span id="v2-state">Loading isolated workspace…</span><button id="v2-project-button">Preview project</button><button id="v2-save" title="Save this working project on this device. Cloudflare saving is not connected.">Save on device</button><button id="v2-export" title="Download one project as a restorable JSON data file. Linked files are not bundled.">Export project data</button></div><div class="body">''',1)
 # V2 has a working engine, but future services must remain explicitly marked.
 mock=mock.replace('<div class="heading"><div class="sectionhead"><span class="tag">${project.some', '<div class="heading"><div class="sectionhead"><span class="tag">${project.some')
 mock=mock.replace("if(state.detail){const item=", "if(['client','community','business','resources','assistant'].includes(state.page))content.innerHTML+='<div class=\"below\" style=\"margin-bottom:16px\"><span class=\"small\">Planned workspace · Preview only</span></div>';if(state.detail){const item=")

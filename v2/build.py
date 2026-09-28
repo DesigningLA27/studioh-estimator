@@ -24,7 +24,7 @@ guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text(
 bridge+='\n'+(root/'src/button-cleanup.js').read_text()
 # These restrictions are parsed before any original scripts. Production APIs,
 # forms, object plugins and workers cannot write to live services.
-csp="connect-src https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com; form-action 'none'; object-src 'none'; worker-src blob:; frame-src 'self' about: blob:; base-uri 'none'"
+csp="connect-src https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com; form-action 'none'; object-src 'none'; worker-src blob:; frame-src 'self' https://designingla27.github.io/studioh-estimator/v2/presentation-board/ about: blob:; base-uri 'none'"
 boot='<meta http-equiv="Content-Security-Policy" content="'+csp+'"><script>'+guard+'</script>'
 engine=src.replace('<head>','<head>'+boot,1).replace('</head>','<style>'+css+'</style></head>',1)
 pos=engine.rfind('</body>');assert pos>0
