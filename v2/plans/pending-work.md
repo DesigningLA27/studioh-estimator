@@ -60,3 +60,18 @@ Real SAMPLE DEMO read from Cloudflare: 16 shapes, live satellite base, 14,204 SF
 - [x] Recover valid older V2 device copies as separate server projects. Keep original browser backups untouched; no new device project/catalog writes.
 - [x] Verify fresh-browser project/file restore, interrupted save/retry, preference restore, full navigation, and builder return in Chrome and Firefox. Live private test account verified separately.
 - Individual designer/client accounts, invitations, studio logo management, Dropbox and complete ZIP archives remain separate unfinished integrations. UI role previews are not authorization.
+
+## Project Home and delivery planning (requested September 28, 2026)
+
+Design study: [Project Home, round two](../mockups/project-home-r2/index.html). Detailed implementation roadmap: [Project Home and delivery planning](project-home-delivery-roadmap.md). Mockup interactions are not working integrations.
+
+- [ ] Connect Project Home to the selected project's actual records; remove fixed metrics, invented activity and placeholder deadlines.
+- [ ] Build an editable, versioned step-by-step task roadmap across project phases, with prerequisites, effort estimates, completion evidence, and carried-over tasks. Use this as the foundation for next-action suggestions.
+- [ ] Assign tasks and milestones to specific staff, with working hours, availability, leave, and capacity across all studio projects.
+- [ ] Build a milestone planner with exact dates or estimated windows (for example 2–4 weeks), fixed versus flexible deadlines, owner, task dependencies, and automatic forecast delivery dates.
+- [ ] Build weekly staff schedules with “Finish ASAP” and “Spread to deadline” preferences. Show infeasible schedules and staffing gaps instead of overbooking silently.
+- [ ] Model project health, approval blockers, holds, and resumption. Shift dependent flexible work under explicit rules; preserve fixed deadlines and flag risk. Keep baseline, forecast, and committed dates distinct.
+- [ ] Build an AI project brief grounded in actual phase, tasks, approvals, cost estimate, design-fee financials, and activity, with source links and freshness. Construction budget overruns alone must not trigger a design-fee change order.
+- [ ] Connect email to projects, starting with last incoming/outgoing communication metadata, optional content access later, reviewed project matching, and role-based visibility. Do not infer approval or project holds from email age alone.
+- [ ] Provide principal/admin, staff, and client Home variants with server-enforced access rules, configurable Home cards, and conditional savings/bid cards. Role previews are not authorization.
+- [ ] Add real project activity, document revisions, and client approval history; Home shortcuts open existing workspaces rather than duplicating them.
