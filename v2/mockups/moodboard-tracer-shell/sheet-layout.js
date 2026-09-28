@@ -31,9 +31,10 @@ function arrangeSheet(gap=state.gap){
  const tiles=state.tiles.filter(t=>!state.includePlan||t.id!==1).filter(t=>state.includePlan||t.id!==1);
  const rows=Math.floor((H+gap)/unit),unitY=(H+gap)/rows;
  const order=[...tiles.filter(t=>t.pin),...tiles.filter(t=>!t.pin)];let missing=[];
+ const straight=state.edge==='straight'?straightFrames(tiles,W,H,plan,gap):null;
  for(const tile of order){
   const requested=tile.size||((tile.id===2&&state.preset==='smart')?5:4);
-  const ratio=(tile.rw||tile.w)/(tile.rh||tile.h);let found=null;
+  const ratio=(tile.rw||tile.w)/(tile.rh||tile.h);let found=straight?.get(tile.id)||null;
   for(let cw=requested;cw>=2&&!found;cw--){
    if(tile.size&&cw!==requested)break;
    let ch=tile.gridHeight||Math.max(2,Math.round(cw/ratio));ch=Math.min(ch,rows);
@@ -47,14 +48,14 @@ function arrangeSheet(gap=state.gap){
    }
    candidates.sort((a,b)=>a.score-b.score);found=candidates[0];
   }
-  if(!found){missing.push(tile.id);continue}occupied.push(found);placed.set(tile.id,found);
+  if(found&&straight){found.col=Math.round(found.x/unit);found.row=Math.round(found.y/unitY);found.cw=Math.max(2,Math.round((found.w+gap)/unit));found.ch=Math.max(2,Math.round((found.h+gap)/unitY))}if(!found){missing.push(tile.id);continue}occupied.push(found);placed.set(tile.id,found);
   const el=nodes.get(tile.id);if(!el)continue;Object.assign(el.style,{position:'absolute',left:found.x+'px',top:found.y+'px',width:found.w+'px',height:found.h+'px'});
   el.querySelector('small').textContent='';board.append(el);
  }
  sheetGeometry={W,H,unit,unitY,rows,gap,placed,plan,missing,badPlan};
  $('#placement-status').textContent=missing.length?`${missing.length} images do not fit. Reduce image sizes or use a larger sheet. Export is blocked until all fit.`:state.includePlan?'Images fill the bottom first, then rise along the sides. Drag or use arrows to snap to open grid positions.':'Images start in the middle and work outward. Drag or use arrows to snap to open grid positions.';
  $('#export-pdf').disabled=badPlan||missing.length>0;
- $('#edge-note').textContent='Sheet placement uses one alignment grid and equal minimum gutters. Image frames snap to the grid; the centered plan stays fixed.';
+ $('#edge-note').textContent=state.edge==='straight'?'Straight automatically resizes frames into an aligned outer rectangle. Dragging or resizing switches to Staggered for free grid placement.':'Staggered keeps individual frame sizes and an uneven outer edge. Drag to any open grid position.';
  board.ondragover=e=>{e.preventDefault();e.dataTransfer.dropEffect='move'};
  board.ondrop=e=>{e.preventDefault();e.stopPropagation();const id=Number(e.dataTransfer.getData('text/plain'));const rect=board.getBoundingClientRect();const tile=state.tiles.find(t=>t.id===id);if(!tile||!placed.has(id))return;const g=placed.get(id),col=Math.round(((e.clientX-rect.left)*W/rect.width-g.w/2)/unit),row=Math.round(((e.clientY-rect.top)*H/rect.height-g.h/2)/unit);moveTo(id,col,row)};
  // Handle drops at the board level, including drops onto other cards.
@@ -62,7 +63,7 @@ function arrangeSheet(gap=state.gap){
 }
 function moveTo(id,col,row){const g=sheetGeometry,box=g?.placed.get(id);if(!box)return;col=Math.max(0,Math.min(24-box.cw,col));const bottom=row+box.ch>=g.rows-1;let choice;
 for(let ch=box.ch;ch>=2;ch--){const rr=bottom?g.rows-ch:Math.max(0,Math.min(g.rows-ch,row));const candidate={x:col*g.unit,y:rr*g.unitY,w:box.w,h:ch*g.unitY-g.gap};const blocked=g.plan&&overlap(candidate,g.plan,g.gap)||state.tiles.filter(t=>t.id!==id&&t.pin).some(t=>{const r=g.placed.get(t.id);return r&&overlap(candidate,r,g.gap)});if(!blocked){choice={col,row:rr,ch};break}}
-if(!choice){notify('That space is blocked by the plan or a pinned image. Try another grid cell.');return}editPresentation(()=>{const t=state.tiles.find(t=>t.id===id);if(t){t.pin={col:choice.col,row:choice.row};t.size=box.cw;t.gridHeight=choice.ch}state.selected=id});if(choice.ch<box.ch)notify('Frame height adjusted to fit below the plan. Image kept on the grid.')}
+if(!choice){notify('That space is blocked by the plan or a pinned image. Try another grid cell.');return}editPresentation(()=>{const t=state.tiles.find(t=>t.id===id);state.edge='staggered';if(t){t.pin={col:choice.col,row:choice.row};t.size=box.cw;t.gridHeight=choice.ch}state.selected=id});if(choice.ch<box.ch)notify('Frame height adjusted to fit below the plan. Image kept on the grid.')}
 
 function nudge(dx,dy){if(!state.sheetView){change(()=>state.sheetView=true);notify('Sheet preview opened. Use the arrows to move the selected image.');return}const box=sheetGeometry?.placed.get(state.selected);if(!box){notify('The plan stays centered. Select a supporting image to move.');return}moveTo(state.selected,box.col+dx,box.row+dy)}
 function resizeSelected(delta){const t=state.tiles.find(t=>t.id===state.selected);if(!t)return;if(t.id===1&&state.includePlan&&state.planScale){notify('The plan is scale-locked. Change Drawing scale instead.');return}change(()=>{t.size=Math.max(2,Math.min(10,(t.size||(t.id===1?6:t.id===2&&state.preset==='smart'?5:4))+delta));state.sheetView=true});notify(delta>0?'Image enlarged on grid':'Image reduced on grid')}
@@ -73,3 +74,17 @@ $('#size-down').onclick=()=>resizeSelected(-1);$('#size-up').onclick=()=>resizeS
 $('#detail-smaller').onclick=()=>resizeSelected(-1);$('#detail-larger').onclick=()=>resizeSelected(1);
 document.querySelectorAll('[data-nudge]').forEach(b=>b.onclick=()=>nudge(...b.dataset.nudge.split(',').map(Number)));
 $('#auto-arrange').onclick=()=>change(()=>{state.tiles.forEach(t=>delete t.pin);state.sheetView=true});
+
+// Justified regions share one outer rectangle, with the calibrated plan untouched.
+function straightFrames(tiles,W,H,plan,gap){
+ const result=new Map();if(!tiles.length)return result;
+ const put=(items,r,vertical=false)=>{if(!items.length)return;const length=vertical?r.h:r.w;const weights=items.map(t=>state.preset==='smart'&&t.id===2?1.6:1);const total=weights.reduce((a,b)=>a+b,0);let offset=0;items.forEach((t,i)=>{const n=(length-gap*(items.length-1))*weights[i]/total;result.set(t.id,{x:r.x+(vertical?0:offset),y:r.y+(vertical?offset:0),w:vertical?r.w:n,h:vertical?n:r.h,id:t.id});offset+=n+gap})};
+ if(!plan){const rows=Math.max(1,Math.round(Math.sqrt(tiles.length*H/W)));let index=0;for(let r=0;r<rows;r++){const count=Math.ceil((tiles.length-index)/(rows-r));put(tiles.slice(index,index+count),{x:0,y:r*(H+gap)/rows,w:W,h:(H+gap)/rows-gap});index+=count}return result}
+ const zones=[{x:0,y:plan.y+plan.h+gap,w:W,h:H-plan.y-plan.h-gap},{x:0,y:plan.y,w:plan.x-gap,h:plan.h,v:true},{x:plan.x+plan.w+gap,y:plan.y,w:W-plan.x-plan.w-gap,h:plan.h,v:true},{x:0,y:0,w:W,h:plan.y-gap}].filter(r=>r.w>gap&&r.h>gap);
+ if(!zones.length)return result;
+ const counts=zones.map(()=>0);for(let i=0;i<tiles.length;i++){let z=i<zones.length?i:counts.map((n,j)=>({j,score:(zones[j].v?zones[j].h/zones[j].w:zones[j].w/zones[j].h)/((n+1)*(n+1))})).sort((a,b)=>b.score-a.score)[0].j;counts[z]++}
+ const pool=[...tiles],parts=zones.map(()=>[]);
+ // Give the taller side regions to the hero and data cards, which need legible area.
+ zones.forEach((r,i)=>{if(!r.v||!counts[i])return;const preferred=pool.findIndex(t=>t.id===2||/^Insights/.test(t.source||''));if(preferred>=0)parts[i].push(pool.splice(preferred,1)[0])});
+ zones.forEach((r,i)=>{while(parts[i].length<counts[i]&&pool.length)parts[i].push(pool.shift());put(parts[i],r,r.v)});return result;
+}
