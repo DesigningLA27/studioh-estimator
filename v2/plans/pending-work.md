@@ -3,7 +3,7 @@
 Update this list at each release. Raise a dependency when the current feature needs it. Do not treat a mockup as a completed integration.
 
 - [ ] Authenticated user accounts and project access rules. Needed before customer invitations, private shared files, or customer cloud saves. Developer/Designer/Customer switches currently preview UI; they are not authorization.
-- [ ] Cloudflare V2 write-back and private media storage. Needed before cross-device photo/file editing. Existing V1 project reads work; V2 changes remain on-device. Source document uploads currently have a 1.5 MB per-project preview limit.
+- [x] Cloudflare V2 write-back and private media storage connected in V2.049 for authenticated studio-admin use. Uploaded files allow up to 50 MB each; individual account sharing remains pending.
 - [ ] Register/connect Studio H's Dropbox app and choose project folder. Needed before Dropbox imports and folder sync. Codex's Dropbox connection does not authorize the website.
 - [ ] AI document extraction and source review: address, HOA, proposals/fees, plans. Depends on account-bound storage and Dropbox/upload sources. Preserve source/page and require review of conflicting project values.
 - [ ] DWG conversion. Native tracer accepts PDF and supported DXF entities; DWG needs PDF export or a conversion service. Do not advertise direct DWG tracing as working.
@@ -53,3 +53,10 @@ Real SAMPLE DEMO read from Cloudflare: 16 shapes, live satellite base, 14,204 SF
 - [x] Visual client-facing insight catalog, category add actions, full Inspiration image upload/URL/drop dialog, and centered design-story editing.
 - [x] Dashboard image cards/titles toggles, aspect choices, swipe rows and presentation card contrast on white sheets.
 - Dropbox uploads remain unavailable until the website Dropbox connection exists. Existing on-device save behavior remains unchanged; server write-back is still pending.
+
+## V2.049 cloud saving
+- [x] Connect the existing private Cloudflare V2 storage service to the current interface, with studio-admin sign-in.
+- [x] Automatic project, presentation, upload and preference saves; server revision conflicts block overwrites.
+- [x] Recover valid older V2 device copies as separate server projects. Keep original browser backups untouched; no new device project/catalog writes.
+- [x] Verify fresh-browser project/file restore, interrupted save/retry, preference restore, full navigation, and builder return in Chrome and Firefox. Live private test account verified separately.
+- Individual designer/client accounts, invitations, studio logo management, Dropbox and complete ZIP archives remain separate unfinished integrations. UI role previews are not authorization.
