@@ -48,3 +48,8 @@ Real SAMPLE DEMO read from Cloudflare: 16 shapes, live satellite base, 14,204 SF
 ## V2.038 moodboard corrections
 - [x] Open section builder by default, with dropdown groups first and close/reopen controls.
 - [x] Disable the retired V1 moodboard wizard in V2. Styles and goals now open the client questionnaire at Style & inspiration, with a return to the moodboard.
+
+## V2.039 moodboard controls
+- [x] Visual client-facing insight catalog, category add actions, full Inspiration image upload/URL/drop dialog, and centered design-story editing.
+- [x] Dashboard image cards/titles toggles, aspect choices, swipe rows and presentation card contrast on white sheets.
+- Dropbox uploads remain unavailable until the website Dropbox connection exists. Existing on-device save behavior remains unchanged; server write-back is still pending.
