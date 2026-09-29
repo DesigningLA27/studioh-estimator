@@ -12,7 +12,7 @@ const empty=(text,label,route)=>`<div class="home-empty"><p>${esc(text)}</p>${bu
 const card=(title,body)=>`<article class="card"><div class="card-head"><h2>${title}</h2></div>${body}</article>`;
 function storage(){ctx.data.tasks??=[];ctx.data.approvals??=[];ctx.data.events??=[];return ctx.data}
 function save(event){const s=storage();s.events.unshift({text:event,time:new Date().toISOString()});s.events=s.events.slice(0,30);ctx.save();draw()}
-const canEdit=()=>window.v2Experience?.role!=='customer';
+const canEdit=()=>!window.v2Cloud?.readOnly&&window.v2Experience?.role!=='customer';
 const remaining=()=>storage().tasks.filter(t=>!t.done).length;
 function days(){const date=storage().milestone?.date;if(!date)return null;const now=new Date();return Math.round((new Date(date+'T00:00:00')-new Date(now.getFullYear(),now.getMonth(),now.getDate()))/86400000)}
 function pager(id,count){return `<div class="pager"><div class="dots">${Array.from({length:count},(_,i)=>`<button data-home-slide="${id}" data-n="${i}" aria-label="View ${i+1}" aria-current="${!i}"></button>`).join('')}</div><div class="arrows"><button data-home-step="-1" data-target="${id}" aria-label="Previous view">‹</button><button data-home-step="1" data-target="${id}" aria-label="Next view">›</button></div></div>`}

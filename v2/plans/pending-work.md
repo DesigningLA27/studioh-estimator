@@ -81,3 +81,8 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - P/Q/R use their approved Today cards, six Numbers cards and four Progress cards. Requested revisions remain: P/R equal-height swipe images, P four updates, Q blush focus highlight, R additional approval metric.
 - Sample projects receive versioned, project-saved demonstration workflow records (tasks, approvals, milestone, fee/cash forecast, hours, roadmap and visual updates), without overwriting existing Home records. Real projects are not seeded. Estimate, water and questionnaire values read the engine.
 - AI recap remains a deterministic project summary. Automated scheduling, real staff accounts, fee accounting integration and external activity ingestion still need their separate implementations.
+
+## V2.055 public demo and private invitations
+- Public demo runs without login or cloud calls; sample edits stay in memory and reset on reload.
+- Email code sign-in and project-specific viewer/editor access are implemented and fixture-tested. Sharing is owner-only; storage and asset routes enforce access on every request.
+- Activation dependency: Warwick must supply the owner email and verified email sender/service credential. No email secrets are configured on the worker. Do not claim delivery works until a real verification email has been received and tested. See `worker-v2/EMAIL-SETUP.md`.

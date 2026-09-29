@@ -1,6 +1,6 @@
 import {createRequire} from 'node:module';import assert from 'node:assert/strict';import {gzipSync} from 'node:zlib';import {createHash} from 'node:crypto';import worker,{hash} from '../../worker-v2/src/index.js';import {environment} from '../../worker-v2/tests/fixture.mjs';
 const require=createRequire(import.meta.url),{chromium,firefox}=require(process.env.PLAYWRIGHT_MODULE||'playwright'),env=environment(),token='b'.repeat(64),id='startup-test';
-await env.PROJECTS.put('sessions/'+await hash(token),JSON.stringify({owner:'test-studio',user:'admin',expires:Date.now()+3600000}));
+await env.PROJECTS.put('sessions/'+await hash(token),JSON.stringify({owner:'test-studio',user:'admin',role:'admin',expires:Date.now()+3600000}));
 const bytes=gzipSync(JSON.stringify(Array.from({length:5000},(_,i)=>({id:i,label:'Private library detail '+i})))),digest=createHash('sha256').update(bytes).digest('hex'),ref={__v2asset:digest,project:id,mime:'application/gzip',json:true,encoding:'gzip'};
 await env.PROJECTS.put(`accounts/test-studio/projects/${id}/assets/${digest}`,bytes);
 await env.PROJECTS.put(`accounts/test-studio/projects/${id}/state.json`,JSON.stringify({schema:1,projectId:id,name:'Startup project',bid:{S:{pi:{project:'Startup project'},testData:ref,secondCopy:ref}},engine:{},workspace:{notes:{marker:'server workspace'}}}));
