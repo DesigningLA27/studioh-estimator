@@ -35,11 +35,12 @@ html=html.replace('<title>Studio H · V2 Preview</title>', '<title>Studio H · '
 html=re.sub(r'((?:src|href)="src/[^"?]+)(?:\?v=[^"]+)?"', lambda m: m.group(1)+'?v='+release+'"', html)
 html=html.replace('<script>', '<script type="application/x-studioh-bootstrap" id="v2-app-bootstrap">', 1)
 html=re.sub(r'<script src="src/[^" ]+"></script>', '', html)
+html=html.replace('</head>', '<link rel="stylesheet" href="src/project-home.css?v='+release+'"></head>')
 html=html.replace('</head>', '<link rel="stylesheet" href="src/cloud.css?v='+release+'"></head>')
 html=html.replace('</body>', '<script src="src/cloud.js?v='+release+'"></script></body>')
 # Render one stable opening state from the first paint, before JavaScript arrives.
 html=html.replace('<html lang="en">','<html lang="en" data-cloud-opening>')
-html=html.replace('</head>', '<style>html[data-cloud-opening] #sh-v2{visibility:hidden}body{background:#faf9f6}</style>'+''.join('<link rel="preload" as="script" href="src/'+name+'.js?v='+release+'">' for name in ['shell','icons','libraries','workspace','experience','top-controls','button-cleanup'])+'</head>')
+html=html.replace('</head>', '<style>html[data-cloud-opening] #sh-v2{visibility:hidden}body{background:#faf9f6}</style>'+''.join('<link rel="preload" as="script" href="src/'+name+'.js?v='+release+'">' for name in ['shell','icons','libraries','project-home','workspace','experience','top-controls','button-cleanup'])+'</head>')
 html=html.replace('<body>','<body><section id="v2-cloud-gate"><div><span>STUDIO H</span><h1>Opening your workspace</h1><p role="status">Loading your project…</p></div></section>',1)
 
 html=html.replace('Save on device', 'Save to Cloudflare').replace('Save this working project on this device. Cloudflare saving is not connected.', 'Save the current project to your private Cloudflare workspace.')

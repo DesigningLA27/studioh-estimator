@@ -1,4 +1,12 @@
 function v2PlantRequest(m){
+ if(m.action==='home-summary'){
+ const images=[],seen=new Set();const add=(url,name)=>{if(typeof url!=='string'||!(/^(https?:|data:image\/|blob:)/.test(url))||seen.has(url)||images.length>=18)return;seen.add(url);images.push({url,name:String(name||'Project image')})};
+ const photos=S.designBrief?.photos||[];const primary=photos.find(p=>p.id===S.v2PrimaryPhotoId);if(primary)add(primary.url,primary.name);for(const p of photos)add(p.url,p.name);
+ try{for(const def of _mbSectionDefs()){if(['siteelements','insights','palette'].includes(def.group))continue;try{for(const x of _mbItemsForSection(def).shown||[])add(x.img,x.label)}catch{}}}catch{}
+ let d=null;try{d=_proCardData()}catch{}
+ return {name:S.pi?.project||S.pi?.client||'Untitled project',address:S.pi?.address||S.pi?.addr||'',sample:!!S._sample,budget:Number(S.budget)||null,estimate:d?.grand??null,area:d?.land||null,groups:(d?.groups||[]).map(g=>({name:g.nm,amount:g.amt})),active:d?.active??null,total:d?.total??null,empty:d?.empty||[],images,photoCount:photos.length,files:(S.v2ProjectFiles||[]).map(f=>({name:f.name,date:f.date,category:f.category})),briefStarted:!!S.designBrief,briefCompleted:(S.designBrief?.completed||[]).length};
+ }
+
  if(m.action==='record'){
  const [kind,...rest]=m.key.split(':'),p=plantDbFind(kind,rest.join(':'));if(!p)throw Error('Plant not found');
  return {fields:_pbFieldsFor(kind).map(f=>({k:f.k,sec:f.sec,lab:f.lab,type:f.type,a:f.a,b:f.b,aLab:f.aLab,bLab:f.bLab,opts:f.opts,value:f.read(p)})).concat([{k:'estimatedWater',sec:'Water',lab:'Estimated annual use',type:'readonly',value:Math.round(plantAnnualGal(p,kind,1)).toLocaleString()+' gal/yr each'}]),lights:lightSetOf(p),fire:dsZoneOf(p)};
