@@ -75,3 +75,9 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - [ ] Connect email to projects, starting with last incoming/outgoing communication metadata, optional content access later, reviewed project matching, and role-based visibility. Do not infer approval or project holds from email age alone.
 - [ ] Provide principal/admin, staff, and client Home variants with server-enforced access rules, configurable Home cards, and conditional savings/bid cards. Role previews are not authorization.
 - [ ] Add real project activity, document revisions, and client approval history; Home shortcuts open existing workspaces rather than duplicating them.
+
+## V2.054 approved Home fidelity
+- Approved mockups are the implementation specification. Preserve their cards, order, layout, styling and interactions. Ask Warwick before any unrequested design change; missing data is not permission to substitute cards.
+- P/Q/R use their approved Today cards, six Numbers cards and four Progress cards. Requested revisions remain: P/R equal-height swipe images, P four updates, Q blush focus highlight, R additional approval metric.
+- Sample projects receive versioned, project-saved demonstration workflow records (tasks, approvals, milestone, fee/cash forecast, hours, roadmap and visual updates), without overwriting existing Home records. Real projects are not seeded. Estimate, water and questionnaire values read the engine.
+- AI recap remains a deterministic project summary. Automated scheduling, real staff accounts, fee accounting integration and external activity ingestion still need their separate implementations.
