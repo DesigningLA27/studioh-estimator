@@ -1,3 +1,4 @@
+import {managedReady} from './managed-login.js';
 // Email verification and project access. Never grant access from an unverified address.
 const TTL=30*86400;
 const normalize=value=>typeof value==='string'?value.trim().toLowerCase():'';
@@ -10,11 +11,11 @@ async function send(env,to,subject,text,id){
  if(!response.ok)throw Object.assign(Error('Email could not be sent. Please try again shortly.'),{status:503});
 }
 async function rate(env,key,limit,windowMs,hash){const name='auth-rate/'+await hash(key)+'/'+Math.floor(Date.now()/windowMs),old=await env.PROJECTS.get(name),n=old?Number(await old.text()):0;if(n>=limit)throw Object.assign(Error('Please wait before trying again.'),{status:429});const saved=await env.PROJECTS.put(name,String(n+1),{onlyIf:old?{etagMatches:old.etag}:{etagDoesNotMatch:'*'}});if(!saved)throw Object.assign(Error('Please wait a moment and try again.'),{status:429})}
-async function member(env,email,hash){if(email===normalize(env.OWNER_EMAIL))return true;let cursor;do{const page=await env.PROJECTS.list({prefix:'access/'+await hash(email)+'/',cursor});for(const o of page.objects||[]){const row=await env.PROJECTS.get(o.key);if((await row?.json())?.active)return true}cursor=page.truncated?page.cursor:null}while(cursor);return false}
+export async function member(env,email,hash){if(email===normalize(env.OWNER_EMAIL))return true;let cursor;do{const page=await env.PROJECTS.list({prefix:'access/'+await hash(email)+'/',cursor});for(const o of page.objects||[]){const row=await env.PROJECTS.get(o.key);if((await row?.json())?.active)return true}cursor=page.truncated?page.cursor:null}while(cursor);return false}
 export async function permission(env,s,id,hash){if(s.role==='admin')return 'owner';if(!s.email)return null;const row=await env.PROJECTS.get('access/'+await hash(s.email)+'/'+id+'.json'),d=row?await row.json():null;return d?.active?d.role:null}
 export async function emailRoute(req,env,{hash,reply,body,session}){
  const path=new URL(req.url).pathname;
- if(path==='/auth/config'&&req.method==='GET')return reply(200,{emailEnabled:emailReady(env)});
+ if(path==='/auth/config'&&req.method==='GET')return reply(200,{emailEnabled:emailReady(env),managedLogin:managedReady(env)});
  if(path==='/auth/request'&&req.method==='POST'){
   if(!emailReady(env))return reply(503,{error:'Email sign-in is being set up. You can explore the public demo now.'});
   const d=JSON.parse(new TextDecoder().decode(await body(req,10000))),email=normalize(d.email);if(!valid(email))return reply(400,{error:'Enter a valid email address.'});

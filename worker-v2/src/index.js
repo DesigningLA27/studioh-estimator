@@ -1,6 +1,7 @@
+import {managedLogin,managedReady} from './managed-login.js';
 import {ownerRecovery} from './owner-recovery.js';
 import {authPage} from './auth-page.js';
-import {emailRoute,emailReady,permission} from './email-auth.js';
+import {emailRoute,emailReady,permission,member} from './email-auth.js';
 const ORIGIN='https://designingla27.github.io';
 const TTL=14*86400;
 const enc=new TextEncoder();
@@ -15,9 +16,10 @@ async function session(req,env,allowCookie=false){const token=(req.headers.get('
 export default {async fetch(req,env){try{
  const url=new URL(req.url),path=url.pathname,origin=req.headers.get('Origin');if(origin&&origin!==ORIGIN&&origin!==url.origin)return reply(403,{error:'Origin denied'});
  if(req.method==='OPTIONS')return new Response(null,{status:204,headers:headers()});
+ const managed=await managedLogin(req,env,{hash,reply,body,headers,member});if(managed)return managed;
  const recovery=await ownerRecovery(req,env,{hash,reply,body,headers});if(recovery)return recovery;
  const emailed=await emailRoute(req,env,{hash,reply,body,session});if(emailed)return emailed;
- if(path==='/authorize'&&req.method==='GET'){const s=await session(req,env,true);return authPage((url.searchParams.get('state')||'').replace(/[^a-zA-Z0-9-]/g,'').slice(0,100),s?.token,emailReady(env),headers,ORIGIN)}
+ if(path==='/authorize'&&req.method==='GET'){if(managedReady(env))return new Response(null,{status:302,headers:{...headers(),Location:'https://designingla27.github.io/studioh-estimator/v2/?release=V2.057&signin=1'}});const s=await session(req,env,true);return authPage((url.searchParams.get('state')||'').replace(/[^a-zA-Z0-9-]/g,'').slice(0,100),s?.token,emailReady(env),headers,ORIGIN)}
  if(path==='/session'&&req.method==='POST'){
   const ip=await hash(req.headers.get('CF-Connecting-IP')||'unknown'),minute=Math.floor(Date.now()/60000),rk=`rate/${ip}/${minute}`;
   const prior=await env.PROJECTS.get(rk),count=prior?Number(await prior.text()):0;if(count>=8)return reply(429,{error:'Too many attempts. Please wait a minute.'});
