@@ -1,3 +1,4 @@
+import {ownerRecovery} from './owner-recovery.js';
 import {authPage} from './auth-page.js';
 import {emailRoute,emailReady,permission} from './email-auth.js';
 const ORIGIN='https://designingla27.github.io';
@@ -14,6 +15,7 @@ async function session(req,env,allowCookie=false){const token=(req.headers.get('
 export default {async fetch(req,env){try{
  const url=new URL(req.url),path=url.pathname,origin=req.headers.get('Origin');if(origin&&origin!==ORIGIN&&origin!==url.origin)return reply(403,{error:'Origin denied'});
  if(req.method==='OPTIONS')return new Response(null,{status:204,headers:headers()});
+ const recovery=await ownerRecovery(req,env,{hash,reply,body,headers});if(recovery)return recovery;
  const emailed=await emailRoute(req,env,{hash,reply,body,session});if(emailed)return emailed;
  if(path==='/authorize'&&req.method==='GET'){const s=await session(req,env,true);return authPage((url.searchParams.get('state')||'').replace(/[^a-zA-Z0-9-]/g,'').slice(0,100),s?.token,emailReady(env),headers,ORIGIN)}
  if(path==='/session'&&req.method==='POST'){

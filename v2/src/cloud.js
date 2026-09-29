@@ -4,6 +4,9 @@ const endpoint='https://studioh-v2-storage.warwick-cca.workers.dev',nativeStorag
 const memory=new Map();let token='',user=null,projectId='',etag='',prefsTag='',current=null,engineStore={},pending=false,dirty=false,saving=null,prefsDirty=false,timer,started=false,loading=false,conflict=false,lastBid=null,bidSignature='',engineSignature='',recoveryWarning='';
 const demoMode=new URLSearchParams(location.search).get('demo')==='1';
 const sessionKey='studioh_v2_session_tab';
+// A recovery session travels in the URL fragment, never in a request or referrer.
+const recoverySession=new URLSearchParams(location.hash.slice(1)).get('session');
+if(new URLSearchParams(location.search).has('owner-access')&&/^[a-f0-9]{64}$/.test(recoverySession||'')){sessionStorage.setItem(sessionKey,recoverySession);const clean=new URL(location.href);clean.hash='';clean.searchParams.delete('owner-access');history.replaceState(null,'',clean.href)}
 let projectAccess='owner',capabilities={emailEnabled:false};
 let seedReady=Promise.resolve();
 const assetReads=new Map();let assetActive=0;const assetQueue=[];
