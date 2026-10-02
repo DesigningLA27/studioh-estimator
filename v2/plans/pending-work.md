@@ -102,3 +102,9 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Older GitHub sign-in callbacks retained for existing frontend compatibility.
 - No public GitHub push: automatic approval review blocked publishing new source given user's copying concern. Existing public repository remains public and must be addressed separately; cannot promise browser-delivered code is uncopyable.
 - V1 parity work remains per v1-v2-feature-parity.md; route smoke checks do not mean all workflows/services migrated.
+
+## V2.104 — Independent Proposal studio
+- [x] Studio-level proposal library, approved A/B/C document layouts (A default), editable blocks, shared billing setup views, real rate-sheet pricing, sample creation and private revision-controlled persistence.
+- [x] PDF/DOCX upload and review-before-apply AI extraction route; executed-PDF recordkeeping and explicit project conversion. No automatic sending.
+- [ ] Select native versus embedded-provider signing. Enable only after verified recipient access, consent, immutable document version, retained evidence, completed PDF and client portal permissions are implemented and reviewed. Recording an externally signed PDF is not an e-signing certificate.
+- [ ] Run a live AI extraction acceptance check against a chosen real proposal; service failure retains the source/draft unchanged.

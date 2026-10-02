@@ -1,3 +1,4 @@
+import {proposalRoute} from './proposals.js';
 import {financialRoute} from './project-financials.js';
 import {timeRoute} from './time-tracking.js';
 import {knowledgeQuery} from './knowledge-search.js';
@@ -57,6 +58,7 @@ export default {async fetch(req,env){try{
  if(path==='/session'&&req.method==='GET')return reply(200,{user:s.user,role:s.role,email:s.email||null,name:s.name||'',hasPassword:!!s.credentialVersion,studioOwner:s.owner==='studioh'&&s.role==='admin',demo:!!s.demo},{'Set-Cookie':`studioh_v2_session=${s.token}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0,Math.floor((s.expires-Date.now())/1000))}`});
  if(path==='/logout'&&req.method==='POST'){await env.PROJECTS.delete('sessions/'+await hash(s.token));return reply(200,{ok:true},{'Set-Cookie':'studioh_v2_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0'})}
  if(s.demo)return reply(403,{error:'Demo accounts cannot access private project storage.'});
+ const proposal=await proposalRoute(req,env,s,{reply,body,hash});if(proposal)return proposal;
  const financial=await financialRoute(req,env,s,{reply,body,permission,hash});if(financial)return financial;
  const time=await timeRoute(req,env,s,{reply,body,permission,hash});if(time)return time;
  if(path==='/projects'&&req.method==='GET'){let cursor;const projects=[];do{const page=await env.PROJECTS.list({prefix:base+'projects/',delimiter:'/',cursor});for(const p of page.delimitedPrefixes||[]){const o=await env.PROJECTS.head(p+'state.json');if(o&&await permission(env,s,p.split('/').at(-2),hash))projects.push({id:p.split('/').at(-2),name:o.customMetadata?.name||'Project',created:o.customMetadata?.created||null,updated:o.uploaded})}cursor=page.truncated?page.cursor:null}while(cursor);return reply(200,{projects})}
