@@ -467,3 +467,104 @@ these three is the strongest argument for the proposal and the estimate living i
 | Signature window | 21 days | fee model |
 | Referral discount | 10% | fee model |
 | Preferred-contractor discount | $1,000–$4,000 | fee model |
+
+---
+
+# Appendix 2 · Four years of actual proposals, read
+
+**55 proposals, 2023–2026**, every one in `/PROPOSALS/` from 2023 on, downloaded and parsed.
+This is what the rate sheet alone could not tell us.
+
+## Fee against the contractual construction cap
+
+| Band | n | List price | Median fee | Median fee ÷ cap |
+|---|---|---|---|---|
+| 0–50k | 11 | $5,995 | **$5,995** | 11.5% |
+| 50–75k | 4 | $7,495 | $4,937 | 6.6% |
+| 75–125k | 7 | $8,995 | $8,490 | 6.8% |
+| 125–175k | 4 | $10,995 | $12,935 | 5.9% |
+| 175–250k | 3 | $13,995 | $13,985 | 5.4% |
+| 250–350k | 3 | $17,995 | $15,561 | 4.4% |
+| 350–500k | 7 | $23,995 | $23,090 | 4.6% |
+
+**The curve is real.** Fee as a share of construction falls 11.5% → 4.4% across the bands,
+which tracks the rate sheet's own 12.97% → 3.86%. The model is internally consistent and
+holds up in practice. **Show this curve while pricing** — it is the honest benchmark.
+
+## Where practice diverges from the list, and it is not random
+
+- **0–50k is the most discounted band.** Half the proposals land under list: $3,000 (−50%),
+  $3,995 (−33%), $4,500 (−25%). Two land at **+43%** ($8,600, both early 2023). Widest spread
+  of any band.
+- **50–75k never once hits list.** All four proposals are 29–53% under $7,495. Either the list
+  price is wrong for this band or nobody will pay it. Worth deciding which.
+- **75–125k is the most disciplined band.** Seven proposals, all within −6% to +1%, and
+  **$8,490 appears four times** — the same combination sold repeatedly (Conceptual $3,495 +
+  Full CD upgrade $3,900 + Irrigation $1,095). That is a package in practice but not in the
+  rate sheet. It should be a named bundle.
+- **125–175k runs consistently OVER list** — +15%, +21%, +27%. The list price for this band
+  looks low against what clients actually pay.
+- **350–500k clusters tightly** at $22,990–$23,275 against a $23,995 list, with two outliers
+  at +20% and +22%.
+
+**Implication for the builder:** show the list price, the band median from history, and the
+spread — not just the list. A proposal at −50% should say so before it is sent.
+
+## The construction cap is missing on 9 of 55
+
+`23032-Puma · 23040-MX3 · 24027-Shirloo · 24028-WattsPower · 24034-Fisher · 25054-TowerGrove ·
+25056-Lazarus · 25060-Kato · 26012-Garibay`
+
+On every one of these, clause 17 reads *"over the maximum allowable N/A"* and clause 24 has
+nothing to measure against. **Garibay is signed.** This is roughly one proposal in six going
+out with the fee-adjustment mechanism disabled — not a one-off typo. **The builder must block
+sending without a cap.**
+
+## What actually sells
+
+| Appears on | Service | Price range seen |
+|---|---|---|
+| 23 × | Pottery & Plants Plan | $395 – $795 |
+| 21 × | Outdoor Furnishings Plan | $595 – $1,695 |
+| 17 × | Irrigation Plan / Details / Specs | $995 – $3,295 |
+| 16 × | Conceptual Plan | $2,400 – $10,500 |
+| 12 × | Planting Plan / Details / Specs | $595 – $2,695 |
+| 10 × | Construction Details / Specs | $700 – $4,295 |
+| 10 × | Construction Plan | $995 – $3,195 |
+| 9 × | Enhanced Conceptual Plan | $3,495 – $6,795 |
+| 9 × | Full CD Set Upgrade | $2,695 – $15,095 |
+| 8 × | Lighting Plan | $395 – $695 |
+| 6 × | Enhanced Concept CD Set | $2,195 – $3,995 |
+| 1 × | Fuel Modification Plan | $1,995 |
+| 0 × | MWELO / WUCOLS water-use calcs | — |
+
+**Pottery & Plants and Outdoor Furnishings lead the list** — they are on nearly every
+proposal and should be offered by default, not buried under Optional.
+
+**Fuel Modification sold once in four years. MWELO never appeared as a selected line** — and
+both are *legally required* on a great many Southern California jobs. Either they are being
+sold outside the proposal or they are being missed. **This is the single biggest revenue
+finding in the set**, and it is exactly what §7's automatic suggestions would fix: the app
+already knows the fire severity zone and the rehabilitated area.
+
+## One-off line items worth folding into the catalogue
+
+Seen once each, created by hand: *Conceptual Plan – Front Entry ($1,595)*, *Conceptual Plan –
+Full Site ($7,995)*, *Conceptual Plan – Black/White CAD ($2,995)*, *CAD Base Setup / Sheet Prep
+($595)*, *Conceptual Plan Revisions ($2,000)*, *Construction Documents Upgrade ($1,895)*.
+Partial-scope concepts and base-file setup are recurring needs with no catalogue entry.
+
+## Design style is captured, and mostly blank
+
+Of the proposals that record one, **"TBD" is the most common answer (9)**, then Modern Zen (3),
+Minimalist Modern, Modern, Modern Coastal, Spanish Modern (2 each). The field exists in the
+narrative and is usually unanswered at proposal time — it belongs in the questionnaire, not
+the proposal, and should flow from there.
+
+## Method
+
+55 PDFs pulled from Dropbox via temporary links and parsed locally with `pypdf`; text never
+entered the session. Fee read from the cover `Fee:` field and cross-checked against the
+pricing-table `Total`. Cap read from *"maximum landscape construction cost of"* and
+*"maximum allowable"*. Band derived from the cap. Line items read from the PandaDoc product
+blocks. `parsed.json` holds the full extraction.
