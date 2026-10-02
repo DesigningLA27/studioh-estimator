@@ -356,7 +356,57 @@ inside the usage-metering cap (§10), counted in documents and searches, not tok
 
 ---
 
-## 13 · How to keep this correct
+## 14 · New capability — agreed 2 October 2026
+
+Seven additions. Each notes where the data already exists, because that is what makes them
+cheap and difficult for anyone else to copy.
+
+**14.1 · Maintenance plan generator.** From the plant list already in the project: what to
+prune and when, seasonal irrigation adjustment, fertiliser, expected replacement cycles. A
+closeout deliverable that writes itself, and the natural hook for a recurring maintenance
+contract. *Data already present.* Pairs with 14.2.
+
+**14.2 · MWELO / water compliance package.** California requires a Landscape Documentation
+Package. The app already computes plant water use **both ways** — real-world established and
+MWELO, kept as separate models — so the Water Efficient Landscape Worksheet and the
+certificate of completion are mostly a formatting job on numbers that exist. Legally required,
+billable, and should have been on this list already. *Data already present.*
+
+**14.3 · Nurseries named on the plant report.** Plant availability is already uploaded for
+updates; what is missing is the last step — showing **which nursery carries each plant**, in
+the size specified, on the report itself. Removes the commonest cause of a substitution at
+installation. Lead times are the obvious extension.
+
+**14.4 · Contractor scorecard across jobs.** Bid Compare grades one job. Across twenty:
+who bids accurately, who change-orders the most, who finishes on time, whose allowances are
+consistently thin. The dataset can only be built by someone using the tool repeatedly, which
+is exactly why it is worth building.
+
+**14.5 · Client option comparison — one design at three scopes.** NOT three different
+designs. The Savings engine pointed outward: publish the same design at two or three priced
+scopes (as designed / without the pool house / spa deferred to phase 2), the client picks in
+their portal, and the pick writes back to the estimate. Three designs would be three times
+the work; this is the Savings tab with a share button. Depends on Client Center for the
+portal half.
+
+**14.6 · Estimate accuracy feedback loop.** Compare the estimate at each phase against the
+bids that actually came back, and keep doing it. Shows where the engine is systematically
+high or low, by section and by project type, and corrects it from real history rather than
+assumption. The bid log is half of this already; Bid Compare is the other half.
+
+**14.7 · Site visit reports and punch lists.** Walk the job on the iPad, photograph issues
+against the plant list and the plan, generate the observation report before leaving site.
+Billable work that is universally hated to write.
+
+**Offered and not taken up (2 Oct):**
+- *Progress time-lapse / proof-of-render* — declined: plants take years to grow in, so the
+  comparison has nothing to show for most of a project's life.
+- *Warranty and replacement tracker* and *soil & drainage intelligence from the address* —
+  raised, not taken up.
+
+---
+
+## 15 · How to keep this correct
 
 The gap this sweep closed was structural: **capture depended on Warwick saying the word "roadmap."**
 Anything deferred mid-build — including every "Not done" line at the end of a version — had no home
