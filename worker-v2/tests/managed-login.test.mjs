@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import worker,{hash} from '../src/index.js';
-import {verifyIdentity} from '../src/managed-login.js';
+import {verifyIdentity,privateReturnUrl} from '../src/managed-login.js';
 import {environment} from './fixture.mjs';
 const enc=new TextEncoder(),b64=v=>Buffer.from(typeof v==='string'?v:JSON.stringify(v)).toString('base64url');
 const pair=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
@@ -26,6 +26,14 @@ test('managed login binds single-use handoff to originating browser, opens exist
  const result=await exchange(verifier);assert.equal(result.status,200);const {token}=await result.json();assert.equal((await exchange(verifier)).status,401);
  const saved=await(await env.PROJECTS.get('sessions/'+await hash(token))).json();assert.equal(saved.owner,'studioh');assert.equal(saved.user,'studio-admin');assert.equal(saved.role,'admin');
  assert.equal((await worker.fetch(new Request(base+'/projects'),env)).status,401);
+ env.PUBLIC_ACCOUNTS='true';const stranger=await login(await signed({email:'new@example.com'}));assert.equal(stranger.status,302);const newCode=new URL(stranger.headers.get('Location')).searchParams.get('login-code');const newResult=await worker.fetch(new Request(base+'/auth/exchange',{method:'POST',body:JSON.stringify({code:newCode,state,verifier})}),env);assert.equal(newResult.status,200);const newToken=(await newResult.json()).token;const newSession=await(await env.PROJECTS.get('sessions/'+await hash(newToken))).json();assert.equal(newSession.owner,'user-'+await hash('new@example.com'));assert.notEqual(newSession.owner,'studioh');delete env.PUBLIC_ACCOUNTS;
+
  const expired='f'.repeat(64);await env.PROJECTS.put('login-grants/'+await hash(expired),JSON.stringify({email:env.OWNER_EMAIL,state,challenge,expires:0}));assert.equal((await worker.fetch(new Request(base+'/auth/exchange',{method:'POST',body:JSON.stringify({code:expired,state,verifier})}),env)).status,401);
  }finally{globalThis.fetch=original}
+});
+
+test('private verification callback stays on approved originating app; arbitrary redirects rejected',()=>{
+ const fallback={APP_URL:'https://studioh-v2-storage.warwick-cca.workers.dev/app/'};
+ for(const origin of ['https://app.warwick.design','https://studioh-v2-storage.warwick-cca.workers.dev'])assert.equal(privateReturnUrl(new URL('https://example.test/login?return_origin='+encodeURIComponent(origin)),fallback),origin+'/app/');
+ for(const origin of ['https://evil.test','https://app.warwick.design.evil.test','https://app.warwick.design@evil.test','http://app.warwick.design','null'])assert.equal(privateReturnUrl(new URL('https://example.test/login?return_origin='+encodeURIComponent(origin)),fallback),fallback.APP_URL);
 });

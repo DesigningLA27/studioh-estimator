@@ -1,7 +1,8 @@
 /* Compact workspace controls and a contextual assistant dialog. */
 (()=>{
+window.v2Time?.install();
 const root=document.getElementById('sh-v2'),top=root.querySelector('.topright'),ask=top.querySelector('.quiet');
-const menu=document.createElement('details');menu.id='v2-display-menu';menu.innerHTML='<summary>Workspace options <span aria-hidden="true">⌄</span></summary><div class="v2-display-panel"><h3>Preview mode</h3><div data-modes></div><p>These modes preview the interface; they do not change account permissions.</p><h3>Color theme</h3><div data-themes></div></div>';
+const menu=document.createElement('details');menu.id='v2-display-menu';menu.innerHTML='<summary>Workspace <span aria-hidden="true">⌄</span></summary><div class="v2-display-panel"><h3>Preview mode</h3><div data-modes></div><p>These modes preview the interface; they do not change account permissions.</p><h3>Color theme</h3><div data-themes></div></div>';
 menu.querySelector('[data-modes]').append(root.querySelector('.experience-switch'));menu.querySelector('[data-themes]').append(root.querySelector('.themebar'));top.prepend(menu);
 ask.removeAttribute('data-page');ask.removeAttribute('data-go');ask.id='v2-ask';ask.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/></svg>Ask Studio H';
 // Save and export remain wired in the hidden global area; Settings exposes the actions.

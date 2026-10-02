@@ -86,3 +86,19 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Public demo runs without login or cloud calls; sample edits stay in memory and reset on reload.
 - Email code sign-in and project-specific viewer/editor access are implemented and fixture-tested. Sharing is owner-only; storage and asset routes enforce access on every request.
 - Activation dependency: Warwick must supply the owner email and verified email sender/service credential. No email secrets are configured on the worker. Do not claim delivery works until a real verification email has been received and tested. See `worker-v2/EMAIL-SETUP.md`.
+
+## V2.058 accounts and V1 parity
+- Built password login, verified email account/password setup, password recovery, visible account controls and a project picker before opening the workspace.
+- Owner storage remains unchanged; new-user isolation and cloud save/reload are covered by tests. Registration remains owner-only at Warwick’s request; the owner's first password is entered by the owner, not the agent.
+- Full V1 workflow migration is not complete. See `v1-v2-feature-parity.md` for the source-audited queue, existing tool connections, demonstration pages and required acceptance checks.
+
+## Controlled demo access — deployed 2026-09-28
+- Live private-hosted app: https://studioh-v2-storage.warwick-cca.workers.dev/app/ (V2.058).
+- Worker version e63e303f-0b2f-44a1-82c9-20ca59439383, prior rollback version 47dc768b-8949-43b0-bb79-45adf4b82914.
+- Registration remains owner-only; Cloudflare Access policy unchanged. Owner creates password through email verification. Actual owner password setup has not been completed by agent.
+- Owner Account > Demo logins creates expiring demo usernames/passwords and revokes access. Demo workspace is session-only sample data, cannot read/write private projects.
+- Tests: 12 backend cases passed, private-host account/save/reset browser test passed, Chrome and Firefox demo + moodboard builder tests passed. Production login UI verified; production anonymous engine denied (401), registration false.
+- Private staging embeds sandboxed presentation assets in authenticated engine so opaque iframe needs no cookie-bearing nested requests.
+- Older GitHub sign-in callbacks retained for existing frontend compatibility.
+- No public GitHub push: automatic approval review blocked publishing new source given user's copying concern. Existing public repository remains public and must be addressed separately; cannot promise browser-delivered code is uncopyable.
+- V1 parity work remains per v1-v2-feature-parity.md; route smoke checks do not mean all workflows/services migrated.

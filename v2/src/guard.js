@@ -9,10 +9,24 @@
  }
  window.__V2_PREVIEW__=true;
  const blocked=()=>Promise.reject(new Error('This service is not connected in V2.'));
+ const requests=new Map();
+ window.addEventListener('message',e=>{if(e.source!==parent||!e.data?.v2library)return;const q=requests.get(e.data.v2library);if(!q)return;requests.delete(e.data.v2library);clearTimeout(q.timer);e.data.error?q.reject(Error(e.data.error)):q.resolve(new Response(JSON.stringify(e.data.data),{headers:{'Content-Type':'application/json'}}))});
+ function retainEdits(data,payload){
+ if(payload.type==='loadconfig'&&data.config?.data){for(const k of Object.keys(data.config.data)){const own=localStorage.getItem(k);if(own!==null){if(k==='studioh_pricebook_v5'){try{const local=JSON.parse(own),server=JSON.parse(data.config.data[k]);if(Array.isArray(local)&&Array.isArray(server)){const merged=structuredClone(local);for(const section of server){const found=merged.find(x=>x.id===section.id);if(!found)merged.push(section);else {const ids=new Set((found.items||[]).map(x=>x.id||x.n));found.items=[...(found.items||[]),...(section.items||[]).filter(x=>!ids.has(x.id||x.n))]}}data.config.data[k]=JSON.stringify(merged);continue}}catch{}}data.config.data[k]=own}}}
+ let edits={};try{edits=JSON.parse(localStorage.getItem('v2_private_catalog_edits')||'{}')}catch{}
+ const overlay=(rows,kind)=>{const delta=edits[kind]||{},seen=new Set();const out=(rows||[]).filter(p=>delta[p.id]!==null).map(p=>{seen.add(p.id);return {...p,...delta[p.id]}});for(const[id,p]of Object.entries(delta))if(p&&!seen.has(id))out.push(p);return out};
+ if(payload.type==='loadbook'&&data.book)for(const kind of ['tree','shrub','gc','palm'])data.book[kind]=overlay(data.book[kind],kind);
+ if(payload.type==='loadgoods'&&Array.isArray(data.data))data.data=overlay(data.data,payload.book);
+ return data;
+ }
+ function catalog(payload){return new Promise((resolve,reject)=>{const id=crypto.randomUUID(),timer=setTimeout(()=>{requests.delete(id);reject(Error('Library request timed out'))},45000);requests.set(id,{resolve:async response=>{try{const data=retainEdits(await response.json(),payload);resolve(new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}}))}catch(e){reject(e)}},reject,timer});parent.postMessage({v2:'library-read',id,payload},'*')})}
  const nativeFetch=window.fetch.bind(window);
  window.fetch=(input,options)=>{let u;try{u=new URL(typeof input==='string'?input:input.url,location.href)}catch{return blocked()}
  // Direct requests are limited to Maps. The parent owns authenticated project storage.
  if(u.protocol==='https:'&&['maps.googleapis.com','maps.gstatic.com','khms0.googleapis.com','khms1.googleapis.com'].includes(u.hostname))return nativeFetch(input,options);
+ if(u.protocol==='https:'&&['studioh-ai.warwick-cca.workers.dev','studioh-goods.warwick-cca.workers.dev'].includes(u.hostname)&&options?.method==='POST'){
+ try{const d=JSON.parse(options.body);if(['loadbook','loadconfig','loadgoods'].includes(d.type))return catalog(d)}catch{}
+ }
  return blocked();};
  try{navigator.sendBeacon=()=>false}catch{}
  try{Object.defineProperty(navigator,'serviceWorker',{value:{register:blocked,addEventListener(){},controller:null},configurable:false})}catch{}

@@ -1,4 +1,23 @@
 function v2PlantRequest(m){
+ if(m.action==='studio-settings')return {profile:PREFS.profile,defaults:PREFS.defaults,quality:QL.map(q=>q.label),traceHints:PREFS.traceHints!==false,infoIcons:!!PREFS.infoIcons,showHydroseed:!!PREFS.showHydroseed,showEarnings:!!PREFS.showEarnings};
+ if(m.action==='save-studio-settings'){
+  const d=m.settings||{};
+  for(const k of ['company','contact','addr','phone','email','web','license','location'])if(typeof d[k]!=='string'||d[k].length>500)throw Error('Check the studio details.');
+  const ql=Number(d.ql),markup=Number(d.markup);if(!Number.isInteger(ql)||!QL[ql]||!Number.isFinite(markup)||markup<0||markup>100||!['commission','markup','costplus'].includes(d.goodsModel))throw Error('Check the project defaults.');
+  for(const k of ['company','contact','addr','phone','email','web','license'])PREFS.profile[k]=d[k].trim();
+  Object.assign(PREFS.defaults,{ql,markup,location:d.location.trim(),goodsModel:d.goodsModel});
+  for(const k of ['traceHints','infoIcons','showHydroseed','showEarnings'])PREFS[k]=!!d[k];prefsSave();_applyProfileText();return {saved:true};
+ }
+
+ if(m.action==='setup-summary'){
+ const home=v2PlantRequest({action:'home-summary'}),pi=S.pi||{},brief=S.designBrief||{};
+ const info=[['Project name',!!String(pi.project||'').trim()],['Site address',!!String(pi.address||pi.addr||'').trim()],['Client name',!!String(pi.client||'').trim()],['Landscape budget',Number(S.budget)>0]];
+ const questionnaire=home.briefSteps.map(x=>[x.name,x.done]);
+ const photos=[['Add site photos or references',home.photoCount>0],['Review photos & references',(brief.completed||[]).includes(7)]];
+ const trace=typeof PT==='undefined'?{}:PT;
+ const programming=[['Choose a plan source',!!(trace.pdfData||trace.satBase)],['Confirm scale',Number(trace.ppf)>0],['Define areas',(trace.polys||[]).length>0]];
+ return {...home,setup:[info,questionnaire,photos,programming],traceCount:(trace.polys||[]).length+(trace.trees||[]).length};
+ }
  if(m.action==='home-summary'){
  const images=[],seen=new Set();const add=(url,name)=>{if(typeof url!=='string'||!(/^(https?:|data:image\/|blob:)/.test(url))||seen.has(url)||images.length>=18)return;seen.add(url);images.push({url,name:String(name||'Project image')})};
  const photos=S.designBrief?.photos||[];const primary=photos.find(p=>p.id===S.v2PrimaryPhotoId);if(primary)add(primary.url,primary.name);for(const p of photos)add(p.url,p.name);
@@ -35,11 +54,23 @@ function v2CompactQuestionnaireHeader(){
  const header=document.querySelector('header');if(!header)return;
  header.classList.add('v2-compact-header');
  [...header.children].forEach(el=>{if(!el.matches('.right,.q-progress'))el.classList.add('v2-old-heading')});
- const back=document.createElement('button');back.id='v2-q-back';back.textContent='← Workspace';back.onclick=()=>parent.postMessage({type:'v2-q-workspace'},'*');
+ const back=document.createElement('button');back.id='v2-q-back';back.textContent='← Project setup';back.onclick=()=>parent.postMessage({type:'v2-q-workspace'},'*');
  const title=document.createElement('strong');title.className='v2-q-title';title.textContent='Questionnaire';
  header.prepend(back,title);
+ const bar=document.createElement('div');bar.id='v2-q-savebar';bar.setAttribute('aria-label','Questionnaire saving');
+ const summary=document.createElement('span');summary.className='v2-q-save-summary';bar.append(summary);
+ header.querySelectorAll('button').forEach(button=>{if(/q-save/.test(button.getAttribute('onclick')||'')||button.id==='designer-save'){button.textContent='Save progress';button.setAttribute('aria-label','Save questionnaire progress');bar.append(button)}});
+ if(bar.querySelector('button'))document.body.append(bar);
+ const update=()=>{header.querySelectorAll('button').forEach(button=>{if(/q-save/.test(button.getAttribute('onclick')||'')||button.id==='designer-save'){button.textContent='Save progress';button.setAttribute('aria-label','Save questionnaire progress');bar.append(button)}});if(bar.querySelector('button')&&!bar.isConnected)document.body.append(bar);const progress=header.querySelector('.q-progress');summary.textContent=progress?.textContent.trim()||'Save your questionnaire progress'};
+ update();new MutationObserver(update).observe(header,{childList:true,subtree:true,characterData:true});
 }
 const v2CompactQuestionnaireCSS=`
+/* Sticky questionnaire navigation; the questionnaire document owns scrolling. */
+@media(min-width:761px){.shell nav{position:-webkit-sticky!important;position:sticky!important;top:12px!important;align-self:start!important;max-height:calc(100dvh - 24px)!important;overflow-y:auto!important}.shell{overflow:visible!important}}
+header .q-roles{gap:8px!important;padding:0!important;background:transparent!important}
+header .q-roles button{background:var(--qp-pill)!important;border:1px solid var(--qp-selected)!important;min-height:44px!important;padding:10px 14px!important;border-radius:11px!important;color:var(--qp-text)!important}
+header .q-roles button.on{background:var(--qp-selected)!important;color:var(--qp-green)!important;border-color:var(--qp-selected)!important}
+
 html,body{margin:0!important;padding:0!important;background:var(--qp-bg)!important}
 header.v2-compact-header{padding:18px 24px 12px!important;min-height:0!important;gap:12px!important;border:0!important;border-radius:0!important;max-width:none!important;display:flex!important;flex-wrap:wrap!important;position:static!important}
 header .v2-old-heading{display:none!important}
@@ -53,6 +84,20 @@ header .q-progress [role=progressbar]{max-width:160px!important;height:5px!impor
 .shell nav{top:12px!important;max-height:calc(100vh - 24px)!important}
 @media(max-width:760px){header.v2-compact-header{padding:14px 14px 10px!important}.shell{padding:4px 14px 14px!important}header .right{flex-basis:100%;justify-content:space-between}.q-roles{flex:1}header .q-roles button{padding:10px 8px;font-size:11px}header .v2-q-title{flex:1}.shell nav{max-height:none!important}}
 `;
+
+/* Approved header B: role buttons in the heading row; save anchored below. */
+const v2QuestionnaireHeaderBCSS=`
+header.v2-compact-header{align-items:center!important;padding-bottom:16px!important}
+header .q-roles{background:var(--qp-selected)!important;padding:4px!important;gap:4px!important;border-radius:13px!important}
+header .q-roles button{background:transparent!important;border:0!important}
+header .q-roles button.on{background:var(--qp-pill)!important;box-shadow:0 1px 5px #00000009}
+header .q-progress{border-top:1px solid var(--qp-selected);padding-top:14px!important;margin-top:4px!important}
+#v2-q-savebar{position:fixed;bottom:0;left:24px;right:24px;z-index:1000;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 18px calc(12px + env(safe-area-inset-bottom));background:var(--qp-pill);border-radius:18px 18px 0 0;box-shadow:0 -4px 18px #00000005;box-sizing:border-box}
+#v2-q-savebar button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 18px;background:var(--qp-green);color:white;border:0;border-radius:12px;font:inherit;cursor:pointer}
+.v2-q-save-summary{font-size:12px;color:var(--qp-muted);white-space:pre-wrap}
+.shell{padding-bottom:104px!important}
+@media(max-width:760px){#v2-q-savebar{left:14px;right:14px;padding-inline:12px}header .right{flex-basis:100%}.v2-q-save-summary{max-width:52%}}
+`;
 // Normalize stylesheet colors, including the newer questionnaire section styles.
 // Photo pixels, SVG artwork, palette swatches and inline user colors are untouched.
 function v2QuestionnaireStyles(html){return html.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi,(all,attrs,css)=>'<style'+attrs+'>'+css.replace(/(background(?:-color)?|color|border-color)\s*:\s*(#[0-9a-f]{3,8}|white|black)(?=\s*[;!}])/gi,(decl,prop,color)=>{
@@ -65,7 +110,7 @@ function v2QuestionnaireHTML(html){
  const assets=JSON.stringify(qSelectionAssets()).replaceAll('<','\\u003c');
  const css=v2QThemeCSS();
  html += '<script>'+v2CleanButtonIcons.toString()+';document.addEventListener("DOMContentLoaded",v2CleanButtonIcons);<\/script>';
- html += '<style>'+v2CompactQuestionnaireCSS+v2QuestionnaireSurfaces+'</style><script>window.addEventListener("DOMContentLoaded",'+v2CompactQuestionnaireHeader.toString().replace('← Workspace',window.v2MoodQuestionnaire?'← Moodboard':'← Workspace')+');<\/script>';
+ html += '<style>'+v2CompactQuestionnaireCSS+v2QuestionnaireSurfaces+v2QuestionnaireHeaderBCSS+'</style><script>window.addEventListener("DOMContentLoaded",'+v2CompactQuestionnaireHeader.toString().replace('← Workspace',window.v2MoodQuestionnaire?'← Moodboard':'← Workspace')+');<\/script>';
  return '<style id="v2-qtheme">'+css+'</style><script>window.V2_Q_ASSETS='+assets+';window.addEventListener("message",e=>{if(e.source===parent&&e.data.type==="v2-theme")document.getElementById("v2-qtheme").textContent=e.data.css});<\/script>'+html;
 }
 (()=>{
@@ -75,8 +120,9 @@ function v2QuestionnaireHTML(html){
  function save(manual=false){v2PublishIdentity();const bid=snapshot();if(!bid)throw Error('Project not ready');localStorage.setItem('v2_project',JSON.stringify(bid));send('snapshot',{bid});send('saved',{manual,name:bid.S?.pi?.project||bid.S?.pi?.client||'Preview project'});return bid}
  function theme(t){const d=document.documentElement;d.dataset.v2theme=t;d.dataset.theme=['Dusk','Night'].includes(t)?'dark':'light';const colors=t==='Night'?['#11151C','#161B24','#1E2531','#EAEEF4','#A2AAB8','#6FA855','#1C2C1B']:t==='Dusk'?['#20251f','#292f28','#30382d','#edf0e8','#adb7a5','#82a96b','#354531']:t==='Day'?['#E1E9DC','#fff','#E1E9DC','#202b21','#42503f','#365D29','#D4E3C9']:t==='Afternoon'?['#E8ECE6','#fff','#E8ECE6','#202b21','#42503f','#3C622E','#DBE8D1']:['#faf9f6','#fff','#faf9f6','#263026','#65705e','#50793e','#eaf1e5'];['--bg','--card','--surface2','--tx','--tm','--gm','--brand-soft'].forEach((k,i)=>d.style.setProperty(k,colors[i]));d.style.setProperty('--outer',colors[0]);try{qPost('v2-theme',{css:v2QThemeCSS()})}catch{}}
  const routes={projectfiles:()=>v2ProjectFiles(),insights:()=>v2Insights(),homeinsights:()=>v2Insights(true),trace:()=>v2Programming(),reports:()=>openReports(),checklist:()=>openChecklist(),dashboard:()=>goEstimate(),settings:()=>openSettings(),clientbrief:()=>{document.querySelector('[data-view="questionnaire"]').click();qSwitchMode('client')},designerbrief:()=>{document.querySelector('[data-view="questionnaire"]').click();qSwitchMode('designer')},cities:()=>sbGoBook(),photos:()=>v2Photos()};
- window.addEventListener('message',e=>{if(e.source!==parent||!e.data?.v2cmd)return;const m=e.data;try{if(m.v2cmd==='plant-request'){try{send('plant-response',{requestId:m.requestId,result:v2PlantRequest(m)})}catch(err){send('plant-response',{requestId:m.requestId,error:err.message})}}else if(m.v2cmd==='catalog'){v2ApplyCatalog(m)}else if(m.v2cmd==='route'){insDetClose();document.querySelectorAll('#tk-start,.reports-modal,#v2-project-files,#v2-programming,#v2-photos,#v2-photo-editor,#v2-insights,#vi-customize').forEach(el=>el.remove());window.v2MoodQuestionnaire=!!m.fromMoodboard;if(m.route==='clientbrief'&&Number.isInteger(m.section))piOpenBrief('client',m.section);else if(routes[m.route])routes[m.route]();else{const b=document.querySelector('.tab[data-view="'+m.route+'"]');if(!b)throw Error('This workspace is not connected yet');b.click()}setTimeout(()=>send('route',{route:m.route}),0)}else if(m.v2cmd==='experience'){window.v2ExperienceRole=['developer','designer','customer'].includes(m.role)?m.role:'developer';v2InsightRole=window.v2ExperienceRole;document.documentElement.dataset.experience=v2InsightRole;if(document.getElementById('v2-insights'))v2InsightRender();if(v2InsightRole==='customer'&&typeof _qMode!=='undefined'&&_qMode==='designer')qSwitchMode('client');try{qPost('v2-theme',{css:v2QThemeCSS()})}catch{}}else if(m.v2cmd==='theme')theme(m.theme);else if(m.v2cmd==='close-trace')ptClose();else if(m.v2cmd==='save')save(true);else if(m.v2cmd==='export'){save();saveBid()}else if(m.v2cmd==='import'){if(!m.bid?.S)throw Error('Choose a Studio H project JSON file');restoreBid(m.bid);CLOUD_BID_ID=null;CLOUD_BID_NAME=null;save();if(document.getElementById('v2-insights'))v2InsightRender();if(document.getElementById('v2-programming'))v2Programming();if(m.openTrace)v2OpenActualTrace()}else if(m.v2cmd==='sample'){loadSampleProject();setTimeout(()=>{save();if(document.getElementById('v2-insights'))v2InsightRender()},200)}else if(m.v2cmd==='snapshot'){const data={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);data[k]=localStorage.getItem(k)}send('storage',{data});send('snapshot',{bid:snapshot(),requestId:m.requestId})};}catch(err){send('error',{message:err.message})}});
- window.addEventListener('load',()=>{setTimeout(()=>{
+ window.addEventListener('message',e=>{if(e.source!==parent||!e.data?.v2cmd)return;const m=e.data;try{if(m.v2cmd==='plant-request'){try{send('plant-response',{requestId:m.requestId,result:v2PlantRequest(m)})}catch(err){send('plant-response',{requestId:m.requestId,error:err.message})}}else if(m.v2cmd==='catalog'){v2ApplyCatalog(m)}else if(m.v2cmd==='route'){insDetClose();document.querySelectorAll('#tk-start,.reports-modal,#v2-project-files,#v2-programming,#v2-photos,#v2-photo-editor,#v2-insights,#vi-customize').forEach(el=>el.remove());window.v2MoodQuestionnaire=!!m.fromMoodboard;if(m.route==='clientbrief'&&Number.isInteger(m.section))piOpenBrief('client',m.section);else if(routes[m.route])routes[m.route]();else{const b=document.querySelector('.tab[data-view="'+m.route+'"]');if(!b)throw Error('This workspace is not connected yet');b.click()}setTimeout(()=>send('route',{route:m.route}),0)}else if(m.v2cmd==='experience'){window.v2ExperienceRole=['developer','designer','customer'].includes(m.role)?m.role:'developer';v2InsightRole=window.v2ExperienceRole;document.documentElement.dataset.experience=v2InsightRole;if(document.getElementById('v2-insights'))v2InsightRender();if(v2InsightRole==='customer'&&typeof _qMode!=='undefined'&&_qMode==='designer')qSwitchMode('client');try{qPost('v2-theme',{css:v2QThemeCSS()})}catch{}}else if(m.v2cmd==='theme')theme(m.theme);else if(m.v2cmd==='close-trace')ptClose();else if(m.v2cmd==='save')save(true);else if(m.v2cmd==='export'){save();saveBid()}else if(m.v2cmd==='import'){if(!m.bid?.S)throw Error('Choose a Studio H project JSON file');restoreBid(m.bid);CLOUD_BID_ID=null;CLOUD_BID_NAME=null;save();if(document.getElementById('v2-insights'))v2InsightRender();if(document.getElementById('v2-programming'))v2Programming();if(m.openTrace)v2OpenActualTrace()}else if(m.v2cmd==='demo-sample'){_buildSampleProject();save()}else if(m.v2cmd==='sample'){loadSampleProject();setTimeout(()=>{save();if(document.getElementById('v2-insights'))v2InsightRender()},200)}else if(m.v2cmd==='snapshot'){const data={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);data[k]=localStorage.getItem(k)}send('storage',{data});send('snapshot',{bid:snapshot(),requestId:m.requestId})};}catch(err){send('error',{message:err.message})}});
+ document.addEventListener('DOMContentLoaded',()=>{
+ // Project readiness must not wait for images or external resources.
  // Keep save actions meaningful and local, including questionnaire Save progress.
  window.cloudSaveBid=()=>{try{save();_toast('Changes sent for cloud saving')}catch(e){send('error',{message:e.message})}};
  window.cloudOpenBids=()=>send('open-projects',{});
@@ -90,7 +136,7 @@ function v2QuestionnaireHTML(html){
  if(!localStorage.getItem('v2_project')&&!localStorage.getItem('studioh_bid_last')&&!S._sample&&!_projectHasWork())_buildSampleProject();
  theme('Day');v2PublishIdentity();send('ready',{});send('snapshot',{bid:snapshot()});
  document.addEventListener('change',()=>{clearTimeout(window._v2Save);window._v2Save=setTimeout(()=>{try{save()}catch{}},800)});
- },2000);});
+ },{once:true});
 })();
 
 // Preserve existing form nodes and handlers while arranging the approved Clear cards layout.

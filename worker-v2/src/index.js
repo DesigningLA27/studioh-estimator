@@ -1,3 +1,10 @@
+import {financialRoute} from './project-financials.js';
+import {timeRoute} from './time-tracking.js';
+import {knowledgeQuery} from './knowledge-search.js';
+import {designLibrary} from './design-library.js';
+import {libraryRead} from './library-read.js';
+import {importSamples} from './legacy-import.js';
+import {accountRoute,credentialKey,demoAdminRoute} from './accounts.js';
 import {managedLogin,managedReady} from './managed-login.js';
 import {ownerRecovery} from './owner-recovery.js';
 import {authPage} from './auth-page.js';
@@ -11,15 +18,30 @@ const reply=(s,d,h={})=>new Response(JSON.stringify(d),{status:s,headers:{...hea
 async function body(req,max=2e6){if(Number(req.headers.get('Content-Length'))>max)throw Object.assign(Error('Request too large'),{status:413});const b=await req.arrayBuffer();if(b.byteLength>max)throw Object.assign(Error('Request too large'),{status:413});return b}
 function fail(status,message){throw Object.assign(Error(message),{status})}
 function cookie(req){return (req.headers.get('Cookie')||'').match(/(?:^|;\s*)studioh_v2_session=([a-f0-9]{64})(?:;|$)/)?.[1]||''}
-async function session(req,env,allowCookie=false){const token=(req.headers.get('Authorization')||'').replace(/^Bearer /,'')||(allowCookie?cookie(req):'');if(!/^[a-f0-9]{64}$/.test(token))return null;const record=await env.PROJECTS.get('sessions/'+await hash(token));if(!record)return null;const s=await record.json();return s.expires>Date.now()?{...s,token}:null}
+async function session(req,env,allowCookie=false){const token=(req.headers.get('Authorization')||'').replace(/^Bearer /,'')||(allowCookie?cookie(req):'');if(!/^[a-f0-9]{64}$/.test(token))return null;const record=await env.PROJECTS.get('sessions/'+await hash(token));if(!record)return null;const s=await record.json();if(s.expires<=Date.now())return null;const email=s.email||(s.owner==='studioh'&&s.role==='admin'?env.OWNER_EMAIL:null);if(email){const row=await env.PROJECTS.get(await credentialKey(email,hash));if(row){const c=await row.json();if(c.version!==s.credentialVersion||c.disabled||(c.expires&&c.expires<Date.now()))return null;s.name=c.name||s.name}}return {...s,token}}
 
 export default {async fetch(req,env){try{
  const url=new URL(req.url),path=url.pathname,origin=req.headers.get('Origin');if(origin&&origin!==ORIGIN&&origin!==url.origin)return reply(403,{error:'Origin denied'});
+ if(path==='/'&&req.method==='GET')return Response.redirect(url.origin+'/app/',302);
  if(req.method==='OPTIONS')return new Response(null,{status:204,headers:headers()});
+ if(env.ASSETS&&(path==='/app'||path.startsWith('/app/'))&&['GET','HEAD'].includes(req.method)){
+  if(path==='/app')return Response.redirect(url.origin+'/app/',302);
+  if(/%2e|%2f|%5c|\\/i.test(path))return reply(404,{error:'Not found'});const assetPath=path.slice(4)||'/';const publicAsset=assetPath==='/'||assetPath==='/index.html'||assetPath==='/src/cloud.js'||assetPath.endsWith('.css')||assetPath.startsWith('/assets/');
+  if(assetPath.startsWith('/src/design-knowledge/')){const owner=await session(req,env,true);if(owner?.owner!=='studioh'||owner.role!=='admin')return reply(403,{error:'Studio owner access required.'})}
+  if(!publicAsset&&!await session(req,env,true))return reply(401,{error:'Log in to open Studio H.'});
+  const target=new URL(req.url);target.pathname=assetPath.endsWith('/')?assetPath+'index.html':assetPath;const result=await env.ASSETS.fetch(new Request(target,req));const h=new Headers(result.headers);h.set('Cache-Control','private, no-store');h.set('X-Content-Type-Options','nosniff');h.set('Referrer-Policy','same-origin');return new Response(result.body,{status:result.status,headers:h});
+ }
+
+ const query=await knowledgeQuery(req,env,{session,reply});if(query)return query;
+ const design=await designLibrary(req,env,{session,reply});if(design)return design;
+ const catalog=await libraryRead(req,env,{session,reply});if(catalog)return catalog;
+ const imported=await importSamples(req,env,{session,reply,hash});if(imported)return imported;
+ const demoAdmin=await demoAdminRoute(req,env,{hash,reply,body,session});if(demoAdmin)return demoAdmin;
+ const account=await accountRoute(req,env,{hash,reply,body,session,member});if(account)return account;
  const managed=await managedLogin(req,env,{hash,reply,body,headers,member});if(managed)return managed;
  const recovery=await ownerRecovery(req,env,{hash,reply,body,headers});if(recovery)return recovery;
  const emailed=await emailRoute(req,env,{hash,reply,body,session});if(emailed)return emailed;
- if(path==='/authorize'&&req.method==='GET'){if(managedReady(env))return new Response(null,{status:302,headers:{...headers(),Location:'https://designingla27.github.io/studioh-estimator/v2/?release=V2.057&signin=1'}});const s=await session(req,env,true);return authPage((url.searchParams.get('state')||'').replace(/[^a-zA-Z0-9-]/g,'').slice(0,100),s?.token,emailReady(env),headers,ORIGIN)}
+ if(path==='/authorize'&&req.method==='GET'){if(managedReady(env))return new Response(null,{status:302,headers:{...headers(),Location:(env.APP_URL||'https://designingla27.github.io/studioh-estimator/v2/')+'?release=V2.058&signin=1'}});const s=await session(req,env,true);return authPage((url.searchParams.get('state')||'').replace(/[^a-zA-Z0-9-]/g,'').slice(0,100),s?.token,emailReady(env),headers,ORIGIN)}
  if(path==='/session'&&req.method==='POST'){
   const ip=await hash(req.headers.get('CF-Connecting-IP')||'unknown'),minute=Math.floor(Date.now()/60000),rk=`rate/${ip}/${minute}`;
   const prior=await env.PROJECTS.get(rk),count=prior?Number(await prior.text()):0;if(count>=8)return reply(429,{error:'Too many attempts. Please wait a minute.'});
@@ -32,9 +54,14 @@ export default {async fetch(req,env){try{
   return reply(200,{token},{'Set-Cookie':`studioh_v2_session=${token}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${TTL}`});
  }
  const s=await session(req,env);if(!s)return reply(401,{error:'Sign in to save and open private projects.'});const base=`accounts/${s.owner}/`;
- if(path==='/session'&&req.method==='GET')return reply(200,{user:s.user,role:s.role,email:s.email||null});
+ if(path==='/session'&&req.method==='GET')return reply(200,{user:s.user,role:s.role,email:s.email||null,name:s.name||'',hasPassword:!!s.credentialVersion,studioOwner:s.owner==='studioh'&&s.role==='admin',demo:!!s.demo},{'Set-Cookie':`studioh_v2_session=${s.token}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0,Math.floor((s.expires-Date.now())/1000))}`});
  if(path==='/logout'&&req.method==='POST'){await env.PROJECTS.delete('sessions/'+await hash(s.token));return reply(200,{ok:true},{'Set-Cookie':'studioh_v2_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0'})}
- if(path==='/projects'&&req.method==='GET'){let cursor;const projects=[];do{const page=await env.PROJECTS.list({prefix:base+'projects/',delimiter:'/',cursor});for(const p of page.delimitedPrefixes||[]){const o=await env.PROJECTS.head(p+'state.json');if(o&&await permission(env,s,p.split('/').at(-2),hash))projects.push({id:p.split('/').at(-2),name:o.customMetadata?.name||'Project',updated:o.uploaded})}cursor=page.truncated?page.cursor:null}while(cursor);return reply(200,{projects})}
+ if(s.demo)return reply(403,{error:'Demo accounts cannot access private project storage.'});
+ const financial=await financialRoute(req,env,s,{reply,body,permission,hash});if(financial)return financial;
+ const time=await timeRoute(req,env,s,{reply,body,permission,hash});if(time)return time;
+ if(path==='/projects'&&req.method==='GET'){let cursor;const projects=[];do{const page=await env.PROJECTS.list({prefix:base+'projects/',delimiter:'/',cursor});for(const p of page.delimitedPrefixes||[]){const o=await env.PROJECTS.head(p+'state.json');if(o&&await permission(env,s,p.split('/').at(-2),hash))projects.push({id:p.split('/').at(-2),name:o.customMetadata?.name||'Project',created:o.customMetadata?.created||null,updated:o.uploaded})}cursor=page.truncated?page.cursor:null}while(cursor);return reply(200,{projects})}
+ const studioAsset=path.match(/^\/studio\/assets\/([a-f0-9]{64})$/);
+ if(studioAsset){if(s.role!=='admin')return reply(403,{error:'Studio settings require administrator access.'});const key=base+'studio/assets/'+studioAsset[1];if(req.method==='PUT'){const bytes=await body(req,50*1024*1024);if(await hash(bytes)!==studioAsset[1])return reply(400,{error:'Upload checksum mismatch'});await env.PROJECTS.put(key,bytes,{httpMetadata:{contentType:req.headers.get('Content-Type')||'application/octet-stream'}});return reply(200,{saved:true})}if(req.method==='GET'){const o=await env.PROJECTS.get(key);return o?new Response(o.body,{headers:{...headers(),'Content-Type':o.httpMetadata?.contentType||'application/octet-stream'}}):reply(404,{error:'File not found'})}}
  const asset=path.match(/^\/projects\/([a-zA-Z0-9_-]{1,100})\/assets\/([a-f0-9]{64})$/);
  if(asset){const access=await permission(env,s,asset[1],hash);if(!access||(req.method==='PUT'&&!['owner','editor'].includes(access)))return reply(403,{error:'You do not have permission for this project.'});const key=base+`projects/${asset[1]}/assets/${asset[2]}`;
   if(req.method==='PUT'){const bytes=await body(req,50*1024*1024);if(await hash(bytes)!==asset[2])return reply(400,{error:'Upload checksum mismatch'});const type=(req.headers.get('Content-Type')||'application/octet-stream').split(';')[0];await env.PROJECTS.put(key,bytes,{httpMetadata:{contentType:type}});return reply(200,{saved:true})}
@@ -50,7 +77,7 @@ export default {async fetch(req,env){try{
    if(!prefs&&(d.projectId!==project[1]||d.schema!==1))return reply(400,{error:'Project identity mismatch'});
    if(text.includes('data:image/')||text.includes('data:application/pdf;base64,'))return reply(400,{error:'Upload media separately before saving'});
    const prior=await env.PROJECTS.get(key),expected=match?.replace(/^"|"$/g,'');if((create&&prior)||(!create&&prior?.etag!==expected))return reply(409,{error:'Another device saved changes. Reopen the server version or save your edits as a new project.'});if(prior){await env.PROJECTS.put(base+`history/${prefs?'preferences':project[1]}/${Date.now()}-${crypto.randomUUID()}.json`,prior.body,{httpMetadata:{contentType:'application/json'}})}
-   let result;try{result=await env.PROJECTS.put(key,text,{onlyIf:create?{etagDoesNotMatch:'*'}:{etagMatches:expected},httpMetadata:{contentType:'application/json'},customMetadata:{name:String(d.name||'Preferences').slice(0,200)}})}catch(error){const latest=await env.PROJECTS.head(key);if((create&&latest)||(!create&&latest?.etag!==expected))return reply(409,{error:'Another device saved changes. Save your edits as a new project.'});throw error}
+   let result;try{result=await env.PROJECTS.put(key,text,{onlyIf:create?{etagDoesNotMatch:'*'}:{etagMatches:expected},httpMetadata:{contentType:'application/json'},customMetadata:{name:String(d.name||'Preferences').slice(0,200),created:prior?.customMetadata?.created||(!prior?new Date().toISOString():'')}})}catch(error){const latest=await env.PROJECTS.head(key);if((create&&latest)||(!create&&latest?.etag!==expected))return reply(409,{error:'Another device saved changes. Save your edits as a new project.'});throw error}
    if(!result)return reply(409,{error:'Another device saved changes. Reopen the server version or save your edits as a new project.'});
    return reply(200,{saved:true,updated:new Date().toISOString()},{ETag:result.httpEtag,'X-StudioH-Revision':result.httpEtag});
   }

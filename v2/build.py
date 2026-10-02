@@ -3,6 +3,21 @@ from pathlib import Path
 import hashlib,json,re,base64
 root=Path(__file__).resolve().parent
 src=(root.parent/'index.html').read_text()
+src=src.replace('Saved as you type · stored on this device','Changes sync with your workspace · check the cloud-save status')
+# V1 invokes estimate renderers before later builder scripts have been parsed.
+# Defer that first paint until its dependencies exist; keep later renders synchronous.
+src=src.replace('function buildProCats(){', """function buildProCats(){
+ if(document.readyState==='loading' && typeof nlbBar!=='function'){
+  if(!window._v2EstimatePaintQueued){window._v2EstimatePaintQueued=true;
+   document.addEventListener('DOMContentLoaded',()=>{window._v2EstimatePaintQueued=false;buildProCats()},{once:true});
+  }
+  return;
+ }
+""")
+
+# A saved V2 project, including an empty new project, must never become the V1 boot sample.
+src=src.replace('if(PREFS.autoSample===false) return;', "if(localStorage.getItem('v2_project')||PREFS.autoSample===false) return;")
+
 # Ship static reference images separately so opening tools does not parse megabytes
 # of base64. Content-addressed URLs are cacheable and load only when displayed.
 assets=root/'assets'/'engine-images';assets.mkdir(parents=True,exist_ok=True)
@@ -35,6 +50,8 @@ assert expr in src
 src=src.replace(expr,'v2QuestionnaireHTML('+expr+')')
 # A blocked catalog read must not recursively repaint the Moodboard.
 src=src.replace('if(document.getElementById("mb-body")) renderMoodBoard();', 'if(_elementsPulled && _colorPalettesPulled && document.getElementById("mb-body")) renderMoodBoard();')
+# Keep Price Book navigation discoverable at narrow embedded widths.
+src=src.replace('let _th="";', 'let _th=\'<button class="pbz-fold" onclick="pbTreeToggle()" aria-label="Toggle price book sections">Sections</button>\';')
 src=external_images(src)
 guard=(root/'src/guard.js').read_text();bridge=(root/'src/bridge.js').read_text()+'\n'+(root/'src/programming.js').read_text()+'\n'+(root/'src/photos.js').read_text()+'\n'+(root/'src/insights.js').read_text()+'\n'+(root/'src/project-files.js').read_text();css=(root/'src/engine.css').read_text()+'\n'+(root/'src/moodboard.css').read_text();bridge+='\n'+(root/'src/moodboard.js').read_text()+'\n'+(root/'src/moodboard-presentation.js').read_text()+'\n'+(root/'src/moodboard-controls.js').read_text()
 bridge+='\n'+(root/'src/catalog-state.js').read_text()+'\n'+(root/'src/button-cleanup.js').read_text()

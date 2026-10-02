@@ -1,0 +1,21 @@
+import {elementView} from './design-elements.js';
+// The original evidence library stays in its own studio bucket, outside projects.
+export async function designLibrary(req,env,{session,reply}){
+ const u=new URL(req.url);if(!u.pathname.startsWith('/design-library/'))return null;
+ const s=await session(req,env,true);if(s?.owner!=='studioh'||s.role!=='admin')return reply(403,{error:'Sign in to your studio owner account to open this library.'});
+ if(!['GET','HEAD'].includes(req.method))return reply(405,{error:'Read-only library'});
+ let rel;try{rel=decodeURIComponent(u.pathname.slice('/design-library/'.length))||'index.html'}catch{return reply(400,{error:'Invalid path'})}
+ if(rel.includes('..')||rel.includes('\\'))return reply(404,{error:'Not found'});if(rel.endsWith('/'))rel+='index.html';
+ if(rel==='index.html'&&u.searchParams.get('view')!=='records')return new Response(null,{status:302,headers:{Location:'/design-library/elements.html','Cache-Control':'private, no-store'}});
+ if(rel==='insights/index.html'&&u.searchParams.get('report')!=='full')return new Response(null,{status:302,headers:{Location:'/design-library/elements.html'+u.hash,'Cache-Control':'private, no-store'}});
+ if(rel==='design-rules/index.html')return new Response(null,{status:302,headers:{Location:'/design-library/elements.html#rules','Cache-Control':'private, no-store'}});
+ if(rel==='elements.html'||['knowledge.css','knowledge.js','knowledge-catalog.json','knowledge-rules.json'].includes(rel)||/^knowledge-\d+(?:-\d+)?\.json$/.test(rel)||['data.js','app.js'].includes(rel)||/^records-\d+\.json$/.test(rel)){const target=new URL(req.url);target.pathname='/src/design-knowledge/'+rel;const r=await env.ASSETS.fetch(new Request(target,req));const h=new Headers(r.headers);h.set('Cache-Control','private, no-store');h.set('X-Content-Type-Options','nosniff');return new Response(req.method==='HEAD'?null:r.body,{status:r.status,headers:h})}
+ const manifest=await env.DESIGN_LIBRARY.get('release/manifest.json');if(!manifest)return reply(503,{error:'Design library unavailable'});const files=(await manifest.json()).files;
+ if(!Object.hasOwn(files,rel))return reply(404,{error:'Library page not found'});const o=await env.DESIGN_LIBRARY.get('release/'+rel);if(!o)return reply(404,{error:'Library file unavailable'});
+ const ext=rel.split('.').pop(),mime={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',json:'application/json',css:'text/css',svg:'image/svg+xml',pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',csv:'text/csv',md:'text/plain'}[ext]||o.httpMetadata?.contentType||'application/octet-stream';
+ let body=o.body;if(['html','css'].includes(ext)){const roots=new Set(Object.keys(files).filter(k=>k.includes('/')).map(k=>k.split('/')[0]));let text=await o.text();text=text.replace(/(["'])\/([^"'\s]*)/g,(whole,quote,target)=>{if(!target||Object.hasOwn(files,target)||roots.has(target.split('/')[0]))return quote+'/design-library/'+target;return whole});if(rel==='insights/index.html')text=text.replace('10 projects in the library does not mean 10 comparable measurements.','This report uses the reviewed measurement subset, not every project in the library.');
+ if(rel==='design-rules/index.html')text+=`<script>const headings=[...document.querySelectorAll('h2')];const nav=document.createElement('nav');nav.style.cssText='display:flex;gap:12px;flex-wrap:wrap;margin:20px 0';headings.forEach((h,i)=>{h.id='rule-section-'+i;const a=document.createElement('a');a.href='#'+h.id;a.textContent=h.textContent;nav.append(a)});const input=document.createElement('input');input.type='search';input.placeholder='Search design rules';input.setAttribute('aria-label','Search design rules');input.style.cssText='width:100%;padding:14px;border:1px solid #cbd6c6;border-radius:12px;font:inherit';input.oninput=()=>{const q=input.value.toLowerCase();document.querySelectorAll('article').forEach(a=>a.hidden=!a.textContent.toLowerCase().includes(q))};document.querySelector('h1').after(nav,input);</script>`;
+ if(rel==='insights/index.html'&&u.searchParams.get('view')==='elements')text=elementView(text);
+ body=text}
+ return new Response(req.method==='HEAD'?null:body,{headers:{'Content-Type':mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'}});
+}

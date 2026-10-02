@@ -15,7 +15,7 @@ export async function member(env,email,hash){if(email===normalize(env.OWNER_EMAI
 export async function permission(env,s,id,hash){if(s.role==='admin')return 'owner';if(!s.email)return null;const row=await env.PROJECTS.get('access/'+await hash(s.email)+'/'+id+'.json'),d=row?await row.json():null;return d?.active?d.role:null}
 export async function emailRoute(req,env,{hash,reply,body,session}){
  const path=new URL(req.url).pathname;
- if(path==='/auth/config'&&req.method==='GET')return reply(200,{emailEnabled:emailReady(env),managedLogin:managedReady(env)});
+ if(path==='/auth/config'&&req.method==='GET')return reply(200,{emailEnabled:emailReady(env),managedLogin:managedReady(env),passwordLogin:true,registration:env.PUBLIC_ACCOUNTS==='true'});
  if(path==='/auth/request'&&req.method==='POST'){
   if(!emailReady(env))return reply(503,{error:'Email sign-in is being set up. You can explore the public demo now.'});
   const d=JSON.parse(new TextDecoder().decode(await body(req,10000))),email=normalize(d.email);if(!valid(email))return reply(400,{error:'Enter a valid email address.'});
