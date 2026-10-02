@@ -356,7 +356,7 @@ inside the usage-metering cap (§10), counted in documents and searches, not tok
 
 ---
 
-## 14 · New capability — agreed 2 October 2026
+## 13 · New capability — agreed 2 October 2026
 
 Seven additions. Each notes where the data already exists, because that is what makes them
 cheap and difficult for anyone else to copy.
@@ -406,7 +406,7 @@ Billable work that is universally hated to write.
 
 ---
 
-## 15 · How to keep this correct
+## 14 · How to keep this correct
 
 The gap this sweep closed was structural: **capture depended on Warwick saying the word "roadmap."**
 Anything deferred mid-build — including every "Not done" line at the end of a version — had no home
