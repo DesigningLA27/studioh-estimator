@@ -406,7 +406,120 @@ Billable work that is universally hated to write.
 
 ---
 
-## 14 · How to keep this correct
+## 14 · Signing, in the app — **TOP PRIORITY**, immediately after the proposal builder
+
+Agreed 3 October 2026. Sequenced to start **the week the proposal builder works**, not before
+and not at launch.
+
+**The goal:** cancel PandaDoc (**$85/month**) and send proposals for signature from the app,
+without Studio H becoming the signature provider.
+
+### The rule that shapes the whole thing
+
+**Build the document. Never own the signature.** E-signature validity rests on four pillars
+under ESIGN and California UETA (Civ. Code §1633.1): intent to sign, consent to transact
+electronically, association with the record, and retention. The one that decides disputes is
+**attribution** — if a client denies signing, the burden of proof is on us. Owning that means
+owning identity verification, trusted timestamping, tamper-evident sealing and an immutable
+audit log, and being the party sued over it. A provider does it for cents an envelope.
+
+**This matters more once the app is sold.** Every subscriber's enforceability would run
+through our implementation. That is the point at which counsel stops being optional.
+
+### Stage 1 · the document pane must be print-ready HTML · *part of the builder*
+
+Not a separate task — a constraint on work already planned. **The preview pane becomes the
+PDF**, so build it as a real paginated document (`@page`, page breaks, the 15–22 page
+structure), not a screen-only summary. Build it screen-only and the layout gets written twice,
+and the two then drift.
+
+While writing it, embed invisible **anchor strings** — `\sig_designer\`, `\sig_client\`,
+`\date_client\`. Providers place signature tabs by searching document text for them. Fixed
+x/y coordinates break, because the proposal length changes with the options selected.
+
+### Stage 2 · single-tenant signing · **this is the stage that saves the $85**
+
+Small build on top of Stage 1, and it is the whole thing needed to leave PandaDoc.
+
+- **Server-side PDF.** `window.print()` hands the *user* a file; our code never sees the bytes
+  and so cannot send them. Render the same HTML in the worker — Cloudflare Browser Rendering,
+  needs a Workers Paid plan — and the code gets the actual file, text layer intact so the
+  anchors are findable. (The existing jsPDF path wraps an *image*; an image has no text layer
+  and anchors cannot be found in it.)
+- **One provider, one key.** BoldSign first: ~25 envelopes/month free, against real usage of
+  20–25 **a year** (55 proposals over 3¾ years, plus revisions — Shirloo alone went out four
+  times). API key as a worker secret alongside `FAL_KEY`. Paid tier ~$30/month if a free tier
+  feels too fragile to sign contracts on; still saves $660 a year.
+- **Remote signing by email**, which is exactly today's flow — designer signs first, client
+  second, matching the existing routing.
+- **Webhook on completion** → store, then file the executed PDF to Dropbox
+  `/PROPOSALS/{year}/{project}/` automatically. That is a manual step today.
+
+**Before cancelling PandaDoc:** export everything; verify every signed PDF in Dropbox carries
+its audit-certificate page (spot-checked on Garibay and Lundy — both do); and run two real
+proposals through the new path in parallel.
+
+### Stage 3 · per-subscriber connections · *with accounts*
+
+**Never resell envelopes.** Each designer connects their own account by OAuth — their
+envelope, their audit trail, their bill, their liability. A subscriber already on DocuSign
+keeps DocuSign.
+
+One adapter, `signatureProvider`, same seam pattern as `bcProvider` and `sbProvider`:
+
+```
+createEnvelope(pdf, anchors, recipients, routingOrder)
+getSigningUrl(envelopeId, recipient)     // embedded
+onWebhook(event)
+fetchExecuted(envelopeId)                // PDF bytes + audit certificate
+```
+
+Implementations: BoldSign, DocuSign, Dropbox Sign. **Design the interface during Stage 2**,
+even though only one implementation exists — hard-coding BoldSign means rewriting later.
+
+A **Connections** panel in studio settings: Dropbox, e-signature provider, later Intuit.
+
+Envelope economics are why this must be their account, not ours: 100 subscribers × 20
+proposals is 2,000 envelopes a year — ~$1,500 at BoldSign, ~$9,600 at DocuSign.
+
+### Stage 4 · embedded signing in the client portal · *with Client Center*
+
+The signing ceremony renders inside Studio H rather than in the provider's email. The portal
+requests a **one-time recipient-view URL** when the client clicks — short-lived (DocuSign's
+expires in about five minutes) and single use, so it is generated on demand and never stored.
+
+**The catch:** embedded signing means *we* assert who the client is, which weakens the
+provider's own attribution evidence. So the client must be authenticated into the portal
+first, and email verification should stay switched on at the envelope. Usually gated to a
+higher API tier — check before committing to a provider.
+
+### Storage · the requirement that is easy to get wrong
+
+**Store the executed PDF bytes. Never regenerate the document.**
+
+If the app stores *data* and re-renders the proposal on demand, what it shows later is not
+what was signed — it is a fresh render from a template that has since changed. The phase
+narratives, the 24 clauses and the rate schedule are all editable studio text: edit a clause
+in 2027 and every "signed" proposal silently changes.
+
+On completion, store: **the PDF bytes**, a **SHA-256** of them, the **audit certificate**, and
+the provider's document reference. Verify the hash on retrieval. A signed proposal is
+**read-only** — revisions are new versions with their own signature, which is already how
+Studio H works (`26012-Garibay-2.pdf`).
+
+**Retention: ten years minimum.** California's limit on written contracts is four years
+(CCP §337), but latent construction defect claims run ten (CCP §337.15) and the design
+professional is named in them. R2 is cheap.
+
+### Effort, honestly
+
+The PDF is not the large cost **provided Stage 1 is built print-ready**. Then Stage 2 is a
+worker endpoint, one API call, a webhook and R2 storage. Stages 3 and 4 are gated on accounts
+and Client Center and arrive with them.
+
+---
+
+## 15 · How to keep this correct
 
 The gap this sweep closed was structural: **capture depended on Warwick saying the word "roadmap."**
 Anything deferred mid-build — including every "Not done" line at the end of a version — had no home
