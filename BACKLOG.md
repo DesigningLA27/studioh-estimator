@@ -305,3 +305,12 @@ lands on the spec's own worked figure to the dollar ($13,900). What is **not** d
 - **§26 automatic code retrieval.** The fence reads a city height limit off `SETBACKS` when one is
   there and marks it verified only when that record is — but nothing *fetches* a fence height limit,
   and `SETBACKS` does not carry `fenceFront`/`fenceSide` for any city. See item 1b.
+
+## Proposal revision follow-through — V2.105
+
+- Parcel area lookup: choose a reliable parcel dataset/provider with coverage, attribution and manual correction. Lot area must remain separate from designed landscape area.
+- Client-view analytics: authenticated recipient viewer first, then opened/revisited/active section time, approximate engagement labels and disclosure. See signing stages in ROADMAP.md.
+- Profession/scope/region-specific design fee benchmark research and comparable cohorts; metadata saved now, automatic recommendations still pending.
+- Full block-layout designer and further visual templates: body galleries/video/text/legal/fee block arrangement. V2.105 adds actual private cover uploads, slideshow/video and PDF photo fallback only.
+- Cancellation final-account integration: calculate from recorded completed hours at agreed client rates, optional exclusions, penalty basis, ceiling, payments and credits. Configuration plus standalone calculation tests are implemented; no final invoice is issued automatically.
+- Broader editable studio fee matrix persists only in review concept so far; live proposals use the real imported 2024 catalogue with proposal overrides.
