@@ -1,3 +1,4 @@
+import {feeImportRoute} from './fee-import.js';
 import {validateBook} from '../../v2/assets/proposals/fee-book.mjs';
 // Financial ledgers never enter shared project snapshots or client payloads.
 export function validateFinancialState(s){
@@ -12,6 +13,7 @@ export function validateFinancialState(s){
  if(JSON.stringify(s).length>900000)throw Error('Financial ledger is too large.');return s;
 }
 export async function financialRoute(req,env,s,{reply,body,permission,hash}){
+ if(new URL(req.url).pathname==='/financials/fee-import')return feeImportRoute(req,env,s,{reply,body});
  const path=new URL(req.url).pathname,doc=path.match(/^\/financials\/([\w-]{1,100})\/documents\/([a-f0-9]{64})$/);
  if(doc){if(s.role!=='admin'||s.demo||await permission(env,s,doc[1],hash)!=='owner')return reply(403,{error:'Project financial access required.'});const key=`accounts/${s.owner}/financials/documents/${doc[1]}/${doc[2]}`;if(req.method==='PUT'){const bytes=await body(req,20*1024*1024);if(await hash(bytes)!==doc[2])return reply(400,{error:'Document checksum mismatch.'});await env.PROJECTS.put(key,bytes,{httpMetadata:{contentType:req.headers.get('Content-Type')||'application/octet-stream'}});return reply(200,{saved:true,id:doc[2]})}if(req.method==='GET'){const d=await env.PROJECTS.get(key);return d?new Response(d.body,{headers:{'Content-Type':d.httpMetadata?.contentType||'application/octet-stream','Content-Disposition':'attachment','Cache-Control':'no-store'}}):reply(404,{error:'Document not found.'})}return reply(405,{error:'Method not allowed.'})}
  const m=path.match(/^\/financials\/(defaults|[\w-]{1,100})(?:\/(sign|report|extract|start-phase))?$/);if(!m)return null;
