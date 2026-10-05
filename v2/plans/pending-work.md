@@ -122,3 +122,10 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 ## V2.106 — Fee book and proposal setup
 - Implemented editable studio fee book, proposal snapshots, package discounts, visual template examples, formatted currency, cap-off default, grouped scope and explicit project phase commencement.
 - Parcel lookup is still blocked on a reliable attributed data provider; manual lot and designed-area inputs remain separate and editable. No new dependency reminder is needed until that integration is the active work.
+
+## V2.110 — Proposal lot areas and package pricing
+- Connected proposal address selection and existing blank lot areas to the same public LA/Orange county GIS parcel layers used by Project Info. County boundary area is an editable estimate, with parcel/source/date retained; missing or ambiguous parcels remain manual. Other counties are not covered. Designed landscape area remains separate.
+- Live county metadata and browser CORS headers verified. Actual sample-address query was blocked by automatic approval review; awaits permission to send 1205 Patton Way, San Marino to LA County GIS for acceptance testing. Local geometry/coverage/failure tests pass.
+- Multiplier uses direct employee pay, excluding employer taxes, benefits and overhead. Saved rates previously marked inclusive require explicit review; no invented payroll percentage. Existing allowance overrides remain untouched.
+- Packages support percentage and dollar reductions, with proportional cent-exact phase allocation, subtotal cap, individual prices and net package totals in the proposal. Pricing groups remain separate. Packages apply only when all member services are included in base fixed-fee scope.
+- 87 automated tests pass. Browser verified dollar-discount save and proposal display ($7,190 less $1,000 = $6,190), and direct pay example ($3,000 / 3 / $50 = 20 hours).
