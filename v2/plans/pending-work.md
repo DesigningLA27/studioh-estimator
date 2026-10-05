@@ -153,3 +153,11 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Prototype direct editing, image selection/crop/upload/slideshow membership, system styles and saved template copies. State is memory-only in the review tab, clearly labeled. Permanent studio media/template storage and integration into the live builder remain future work.
 - Optional-service cards include full scope and format inline, explanatory dialogs and recalculating totals. Signing handoff is a demonstrator: final letter preview/print only, no provider API or portal integration, no emails/signatures.
 - Four regression checks cover selected-option/payment reconciliation, discount bounds, matching web/letter content and text escaping. Reference legal wording remains a proof requiring studio review; no executable agreement is generated.
+
+## V2.115 — Visual phase cards and section composition
+- Reworked the existing proposal-refinement-r3 review with two-column phase cards, editable plan examples, prominent net phase prices, duration pills and explicit per-phase package savings. Construction Observation is an optional numbered phase with one hourly rate or staff-based billing, also shown in the investment summary.
+- Fixed slideshow frame growth by replacing only the absolutely positioned image content; added previous/next controls. Increased budget figures and fee-summary phase totals; removed the final additions divider.
+- Replaced jargon-heavy milestones with a client-facing What to expect guide, identifying Client, Designer and shared actions. Deliverables and Commencement Date labels now match user wording.
+- Build sections supports show/hide, native drag reordering and accessible move buttons, optional Why hire us, global image visibility, and text/image/split/three-card blocks. Review-only memory state; not permanent studio storage.
+- Letter composition now breaks between scope items and timeline steps, uses compact optional-service rows and numbered legal rows. Default sample reduced from 16 to 11 pages with no overflow detected; no contract wording removed. Browser verified section ordering, custom blocks, example popup, slideshow frame bounds and letter layouts.
+- Added regression coverage for section order/numbering, observation numbering/rate modes and image visibility. No signing or infrastructure changes.
