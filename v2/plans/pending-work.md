@@ -129,3 +129,7 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Multiplier uses direct employee pay, excluding employer taxes, benefits and overhead. Saved rates previously marked inclusive require explicit review; no invented payroll percentage. Existing allowance overrides remain untouched.
 - Packages support percentage and dollar reductions, with proportional cent-exact phase allocation, subtotal cap, individual prices and net package totals in the proposal. Pricing groups remain separate. Packages apply only when all member services are included in base fixed-fee scope.
 - 87 automated tests pass. Browser verified dollar-discount save and proposal display ($7,190 less $1,000 = $6,190), and direct pay example ($3,000 / 3 / $50 = 20 hours).
+
+## V2.111 — Property boundary parity repair
+- Found the V2-only failure: both its fetch guard and engine Content Security Policy omitted the existing V1 county parcel query endpoints. Restored exact read-only query paths, with credentials omitted and redirects rejected; unrelated requests remain blocked.
+- Existing V1 parcel polygon drawing and fitting remain intact. 88 tests pass, including guard regression coverage and inline-source parity. Real-property visual acceptance still requires the user to reopen Project Info or authorize the pending sample-address test.

@@ -22,7 +22,11 @@
  function catalog(payload){return new Promise((resolve,reject)=>{const id=crypto.randomUUID(),timer=setTimeout(()=>{requests.delete(id);reject(Error('Library request timed out'))},45000);requests.set(id,{resolve:async response=>{try{const data=retainEdits(await response.json(),payload);resolve(new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}}))}catch(e){reject(e)}},reject,timer});parent.postMessage({v2:'library-read',id,payload},'*')})}
  const nativeFetch=window.fetch.bind(window);
  window.fetch=(input,options)=>{let u;try{u=new URL(typeof input==='string'?input:input.url,location.href)}catch{return blocked()}
- // Direct requests are limited to Maps. The parent owns authenticated project storage.
+ // Public, read-only parcel queries used by the existing property-boundary map.
+ // Exact paths only; do not send studio cookies or enable arbitrary county requests.
+ const parcelQueries=['https://public.gis.lacounty.gov/public/rest/services/LACounty_Cache/LACounty_Parcel/MapServer/0/query', 'https://services3.arcgis.com/GVgbJbqm8hXASVYi/arcgis/rest/services/LA_County_Parcels/FeatureServer/0/query', 'https://www.ocgis.com/arcpub/rest/services/Map_Layers/Parcels/MapServer/0/query', 'https://services.arcgis.com/jIL9msH9OI208GCb/arcgis/rest/services/CA_Statewide_Parcels/FeatureServer/0/query', 'https://services.arcgis.com/ue9rwulIoeLEI9bj/arcgis/rest/services/CA_Parcels/FeatureServer/0/query'];
+ if(parcelQueries.includes(u.origin+u.pathname)&&(options?.method||input?.method||'GET').toUpperCase()==='GET')return nativeFetch(u.href,{method:'GET',mode:'cors',credentials:'omit',redirect:'error',signal:options?.signal});
+ // The parent continues to own authenticated project storage.
  if(u.protocol==='https:'&&['maps.googleapis.com','maps.gstatic.com','khms0.googleapis.com','khms1.googleapis.com'].includes(u.hostname))return nativeFetch(input,options);
  if(u.protocol==='https:'&&['studioh-ai.warwick-cca.workers.dev','studioh-goods.warwick-cca.workers.dev'].includes(u.hostname)&&options?.method==='POST'){
  try{const d=JSON.parse(options.body);if(['loadbook','loadconfig','loadgoods'].includes(d.type))return catalog(d)}catch{}
