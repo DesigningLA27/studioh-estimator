@@ -118,3 +118,7 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Cover media is implemented; a free-form drag-and-drop page-layout builder, additional template designs and inline body media blocks remain design work. Current source clause library is Studio H's, not generic counsel-approved templates.
 - Next-band quotes are list-price suggestions, not automatic amendments. New custom fees, bundle overlap, phase discounts and allocation instructions require review. No signed agreement is modified.
 - Browser evidence: actual Google address selection populates city/state/ZIP; private image uploaded/rendered; field changes save/reload; cap-off survives reload; new step scrollTop=0; next-band sample 17,985; no browser errors in tested flow.
+
+## V2.106 — Fee book and proposal setup
+- Implemented editable studio fee book, proposal snapshots, package discounts, visual template examples, formatted currency, cap-off default, grouped scope and explicit project phase commencement.
+- Parcel lookup is still blocked on a reliable attributed data provider; manual lot and designed-area inputs remain separate and editable. No new dependency reminder is needed until that integration is the active work.

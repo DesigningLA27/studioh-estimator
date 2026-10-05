@@ -313,4 +313,4 @@ lands on the spec's own worked figure to the dollar ($13,900). What is **not** d
 - Profession/scope/region-specific design fee benchmark research and comparable cohorts; metadata saved now, automatic recommendations still pending.
 - Full block-layout designer and further visual templates: body galleries/video/text/legal/fee block arrangement. V2.105 adds actual private cover uploads, slideshow/video and PDF photo fallback only.
 - Cancellation final-account integration: calculate from recorded completed hours at agreed client rates, optional exclusions, penalty basis, ceiling, payments and credits. Configuration plus standalone calculation tests are implemented; no final invoice is issued automatically.
-- Broader editable studio fee matrix persists only in review concept so far; live proposals use the real imported 2024 catalogue with proposal overrides.
+- Completed in V2.106: private studio fee book, editable budget bands, service fees/hours/costs, default phase/optional assignments, explicit package discounts and proposal snapshots.

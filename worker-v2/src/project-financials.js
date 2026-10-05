@@ -1,10 +1,11 @@
+import {validateBook} from '../../v2/assets/proposals/fee-book.mjs';
 // Financial ledgers never enter shared project snapshots or client payloads.
 export function validateFinancialState(s){
  if(!s||typeof s!=='object'||Array.isArray(s)||s.schema!==1)throw Error('Invalid financial ledger.');
  for(const k of ['invoices','changes','outsideCosts'])if(!Array.isArray(s[k])||s[k].length>1000)throw Error('Invalid '+k+' records.');
  const seen=new Set();for(const rows of [s.invoices,s.changes,s.outsideCosts])for(const r of rows){if(typeof r.id!=='string'||!r.id||seen.has(r.id))throw Error('Each record needs a unique ID.');seen.add(r.id);for(const k of ['amount','paid','fee','cost','hours'])if(r[k]!=null&&(!Number.isFinite(r[k])||r[k]<0||r[k]>1e9))throw Error('Enter non-negative amounts.');if(r.paid>r.amount)throw Error('Recorded payment cannot exceed the invoice.');if(r.due&&!/^\d{4}-\d{2}-\d{2}$/.test(r.due))throw Error('Enter an invoice due date.');}
  for(const k of ['costBudget','remainingLabor','overhead','earnedFee','constructionEstimate'])if(s[k]!=null&&(!Number.isFinite(s[k])||s[k]<0||s[k]>1e10))throw Error('Enter valid forecast values.');
- const a=s.agreement;if(!a||!Array.isArray(a.phases)||!Array.isArray(a.items)||a.phases.length>40||a.items.length>300)throw Error('Invalid agreement.');
+ const a=s.agreement;if(a?.feeBook)validateBook(a.feeBook);if(!a||!Array.isArray(a.phases)||!Array.isArray(a.items)||a.phases.length>40||a.items.length>300)throw Error('Invalid agreement.');
  for(const r of [...a.phases,...a.items,...(a.rates||[])])for(const k of ['fee','rate','hours','cost','duration','end','net'])if(r[k]!==''&&r[k]!=null&&(!Number.isFinite(r[k])||r[k]<0||r[k]>1e9))throw Error('Check fee, rate and duration fields.');
  if(a.budgetType==='Range'&&a.budgetMax<a.budget)throw Error('The budget range is reversed.');
  for(const r of [...a.phases,...a.items])if(r.range&&r.duration!==''&&r.end!==''&&r.end<r.duration)throw Error('The duration range is reversed.');
@@ -13,7 +14,7 @@ export function validateFinancialState(s){
 export async function financialRoute(req,env,s,{reply,body,permission,hash}){
  const path=new URL(req.url).pathname,doc=path.match(/^\/financials\/([\w-]{1,100})\/documents\/([a-f0-9]{64})$/);
  if(doc){if(s.role!=='admin'||s.demo||await permission(env,s,doc[1],hash)!=='owner')return reply(403,{error:'Project financial access required.'});const key=`accounts/${s.owner}/financials/documents/${doc[1]}/${doc[2]}`;if(req.method==='PUT'){const bytes=await body(req,20*1024*1024);if(await hash(bytes)!==doc[2])return reply(400,{error:'Document checksum mismatch.'});await env.PROJECTS.put(key,bytes,{httpMetadata:{contentType:req.headers.get('Content-Type')||'application/octet-stream'}});return reply(200,{saved:true,id:doc[2]})}if(req.method==='GET'){const d=await env.PROJECTS.get(key);return d?new Response(d.body,{headers:{'Content-Type':d.httpMetadata?.contentType||'application/octet-stream','Content-Disposition':'attachment','Cache-Control':'no-store'}}):reply(404,{error:'Document not found.'})}return reply(405,{error:'Method not allowed.'})}
- const m=path.match(/^\/financials\/(defaults|[\w-]{1,100})(?:\/(sign|report|extract))?$/);if(!m)return null;
+ const m=path.match(/^\/financials\/(defaults|[\w-]{1,100})(?:\/(sign|report|extract|start-phase))?$/);if(!m)return null;
  if(s.role!=='admin'||s.demo)return reply(403,{error:'Financial records require administrator access.'});
  const id=m[1],action=m[2],base=`accounts/${s.owner}/financials/`;
  if(id!=='defaults'&&await permission(env,s,id,hash)!=='owner')return reply(403,{error:'Project owner access required for financial records.'});
@@ -22,6 +23,17 @@ export async function financialRoute(req,env,s,{reply,body,permission,hash}){
  if(req.method!=='POST')return reply(405,{error:'Method not allowed.'});
  let d;try{d=JSON.parse(new TextDecoder().decode(await body(req,1e6)))}catch{return reply(400,{error:'Invalid financial data.'})}
 
+ if(action==='start-phase'){
+  if(!value?.signed)return reply(400,{error:'Record the signed agreement before starting phase timing.'});
+  if(d.revision!==(old?.etag||null))return reply(409,{error:'Project changed. Reload before starting the phase.'});
+  const p=value.agreement.phases.find(p=>p.id===d.phaseId);if(!p)return reply(400,{error:'Choose an existing phase.'});
+  if(!d.requirementsConfirmed)return reply(400,{error:'Confirm the phase commencement requirements first.'});
+  const starts=value.phaseStarts||{};if(starts[p.id])return reply(200,{state:value,revision:old.etag});
+  const next={...value,phaseStarts:{...starts,[p.id]:{at:new Date().toISOString(),by:s.user,rule:p.startRule||'Designer starts the phase',requirements:p.startRequirements||'',confirmed:true}}};
+  await env.PROJECTS.put(base+'history/'+id+'/'+Date.now()+'-'+crypto.randomUUID()+'.json',JSON.stringify(value));
+  const saved=await env.PROJECTS.put(key,JSON.stringify(next),{onlyIf:{etagMatches:old.etag},httpMetadata:{contentType:'application/json'}});
+  return saved?reply(200,{state:next,revision:saved.etag}):reply(409,{error:'Project changed. Reload before starting the phase.'});
+ }
  if(action==='extract'){
   if(!/^[a-f0-9]{64}$/.test(d.documentId||''))return reply(400,{error:'Upload a proposal first.'});
   const document=await env.PROJECTS.get(base+'documents/'+id+'/'+d.documentId);if(!document)return reply(404,{error:'Proposal document not found.'});
@@ -39,7 +51,7 @@ export async function financialRoute(req,env,s,{reply,body,permission,hash}){
  }
  if(d.revision!==(old?.etag||null))return reply(409,{error:'Financial records changed on another device. Reload before saving.'});
  let next;
- try{if(id==='defaults'){next={schema:1,rates:d.state.rates,profession:String(d.state.profession??value?.profession??'Not specified').slice(0,100)};if(!Array.isArray(next.rates)||next.rates.length>100||next.rates.some(r=>typeof r.name!=='string'||!Number.isFinite(r.rate)||r.rate<0||r.rate>1e6))throw Error('Check the staff billing rates.')}else{next=validateFinancialState(d.state);next.signed=value?.signed||null;next.signedHistory=value?.signedHistory||[];if(action==='sign'){if(!d.reference?.trim())throw Error('Enter the signed proposal reference.');if(!Number.isFinite(d.signedFee)||d.signedFee<0)throw Error('Enter the signed fixed fee.');if(next.signed)next.signedHistory=[...next.signedHistory,next.signed];next.signed={reference:String(d.reference).slice(0,200),fee:d.signedFee,at:new Date().toISOString(),by:s.user,agreement:structuredClone(next.agreement)};}}}catch(e){return reply(400,{error:e.message})}
+ try{if(id==='defaults'){next={schema:1,feeBook:d.state.feeBook??value?.feeBook??null,rates:d.state.rates,profession:String(d.state.profession??value?.profession??'Not specified').slice(0,100)};if(next.feeBook)validateBook(next.feeBook);if(!Array.isArray(next.rates)||next.rates.length>100||next.rates.some(r=>typeof r.name!=='string'||!Number.isFinite(r.rate)||r.rate<0||r.rate>1e6))throw Error('Check the staff billing rates.')}else{next=validateFinancialState(d.state);next.phaseStarts=value?.phaseStarts||{};next.signed=value?.signed||null;next.signedHistory=value?.signedHistory||[];if(action==='sign'){if(!d.reference?.trim())throw Error('Enter the signed proposal reference.');if(!Number.isFinite(d.signedFee)||d.signedFee<0)throw Error('Enter the signed fixed fee.');if(next.signed)next.signedHistory=[...next.signedHistory,next.signed];next.signed={reference:String(d.reference).slice(0,200),fee:d.signedFee,at:new Date().toISOString(),by:s.user,agreement:structuredClone(next.agreement)};}}}catch(e){return reply(400,{error:e.message})}
  if(old)await env.PROJECTS.put(base+'history/'+id+'/'+Date.now()+'-'+crypto.randomUUID()+'.json',JSON.stringify(value));
  const saved=await env.PROJECTS.put(key,JSON.stringify(next),{onlyIf:old?{etagMatches:old.etag}:{etagDoesNotMatch:'*'},httpMetadata:{contentType:'application/json'}});if(!saved)return reply(409,{error:'Financial records changed. Reload before saving.'});return reply(200,{state:next,revision:saved.etag});
 }
