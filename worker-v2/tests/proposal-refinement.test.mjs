@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {initial,totals} from '../../v2/assets/reviews/proposal-refinement-r3/data.mjs';
+import {renderBlocks} from '../../v2/assets/reviews/proposal-refinement-r3/render.mjs';
+const reference=JSON.parse(fs.readFileSync(new URL('../../v2/assets/reviews/proposal-refinement-r3/reference.json',import.meta.url)));
+test('selected additions and discount reconcile to phase payments, including fractional cents',()=>{const d=initial(reference);d.phases[0].services[0].fee=18000.03;d.discount=1000.01;d.options[0].selected=true;d.options[2].selected=true;const t=totals(d);assert.equal(t.total,38700.02);assert.equal(Math.round(t.phases.reduce((n,p)=>n+p.total,0)*100),Math.round(t.total*100));assert.equal(Math.round(t.phases.reduce((n,p)=>n+p.saving,0)*100),100001);});
+test('discount cannot exceed base scope or consume optional-service fees',()=>{const d=initial(reference);d.discount=100000;d.options[0].selected=true;const t=totals(d);assert.equal(t.total,2500);assert.equal(t.phases[0].total,2500);assert.equal(t.phases[1].total,0);});
+test('web and letter share selected scope, terms and current cap',()=>{const d=initial(reference);d.cap=300000;d.options[0].selected=true;for(const paged of [false,true]){const html=renderBlocks(d,{paged}).join('');assert.match(html,/\$37,500/);assert.match(html,/maximum allowable \$300,000/);assert.match(html,/Three still views of the approved landscape concept/);assert.match(html,/Three digital JPG images/);assert.match(html,/1\.5%\/month/);assert.doesNotMatch(html,/maximum allowable \$250,000/);if(paged){assert.match(html,/Included in agreement/);assert.doesNotMatch(html,/data-option=/);}}});
+test('custom text and uploaded asset labels render as text',()=>{const d=initial(reference);d.headline='<img src=x onerror=alert(1)>';d.custom=[{title:'<script>x</script>',text:'A & B'}];const html=renderBlocks(d).join('');assert.match(html,/&lt;img/);assert.match(html,/A &amp; B/);assert.doesNotMatch(html,/<script>x/);});
