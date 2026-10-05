@@ -133,3 +133,8 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 ## V2.111 — Property boundary parity repair
 - Found the V2-only failure: both its fetch guard and engine Content Security Policy omitted the existing V1 county parcel query endpoints. Restored exact read-only query paths, with credentials omitted and redirects rejected; unrelated requests remain blocked.
 - Existing V1 parcel polygon drawing and fitting remain intact. 88 tests pass, including guard regression coverage and inline-source parity. Real-property visual acceptance still requires the user to reopen Project Info or authorize the pending sample-address test.
+
+## V2.112 — Design packages review
+- Interactive design review at assets/reviews/design-packages-r1/: saved package library, a-la-carte/packages tabs, searchable service switches, budget-linked sample pricing, editable fees, private allowances, percentage/dollar savings, proposal versus saved-package edits, and a simulated add action. This is fictional in-memory review data, not a live package library implementation.
+- Live maintenance: package-member search, full-travel switch CSS, explicit fee-book-copy label, and proposal budget validation before range-price application. Existing Apply copied the fee book without selecting package member services; the review proposes a separate Add package action.
+- 88 tests pass; browser verified review search, selecting another member, recalculated total and missing-budget blocking.
