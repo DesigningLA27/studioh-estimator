@@ -3,10 +3,11 @@ const idPattern=/^[\w-]{1,100}$/;
 export async function proposalRoute(req,env,s,{reply,body,hash}){
  const path=new URL(req.url).pathname;if(!path.startsWith('/proposals'))return null;
  if(s.demo||s.role!=='admin')return reply(403,{error:'Proposal access requires a studio administrator.'});
- const base=`accounts/${s.owner}/proposals/`,m=path.match(/^\/proposals(?:\/([\w-]{1,100}))?(?:\/(document|media|extract|archive|signed|project|client)(?:\/([a-f0-9]{64}))?)?$/);if(!m)return reply(404,{error:'Not found.'});
+ const base=`accounts/${s.owner}/proposals/`,m=path.match(/^\/proposals(?:\/([\w-]{1,100}))?(?:\/(document|media|extract|archive|trash|signed|project|client)(?:\/([a-f0-9]{64}))?)?$/);if(!m)return reply(404,{error:'Not found.'});
  const id=m[1],action=m[2],fileId=m[3];
  if(!id){if(req.method!=='GET')return reply(405,{error:'Method not allowed.'});let cursor,records=[];do{const page=await env.PROJECTS.list({prefix:base+'records/',cursor});for(const o of page.objects||[]){const row=await env.PROJECTS.get(o.key);if(!row)continue;const r=await row.json();records.push({id:r.id,name:r.draft.name,client:r.draft.client,status:r.status,sample:!!r.draft.sample,kind:r.kind||'proposal',fee:total(r.draft),updated:r.updated,projectId:r.projectId||null})}cursor=page.truncated?page.cursor:null}while(cursor);return reply(200,{records:records.sort((a,b)=>b.updated.localeCompare(a.updated)),signingEnabled:false})}
  const key=base+'records/'+id+'.json',old=await env.PROJECTS.get(key),record=old?await old.json():null;
+ if(record?.status==='Trash'&&req.method!=='GET'&&action!=='trash')return reply(409,{error:'Restore this proposal from Trash before making changes.'});
  if(action==='media'){
   if(!record||!fileId)return reply(404,{error:'Save a proposal before adding media.'});const fk=base+'media/'+fileId;
   if(req.method==='PUT'){if(record.signed)return reply(409,{error:'Signed agreements are locked.'});const bytes=await body(req,20*1024*1024),b=new Uint8Array(bytes),type=(req.headers.get('Content-Type')||'').split(';')[0],ascii=(a,z)=>new TextDecoder().decode(b.slice(a,z));const valid=type==='image/jpeg'&&b[0]===255&&b[1]===216&&b[2]===255||type==='image/png'&&b[0]===137&&ascii(1,4)==='PNG'||type==='image/webp'&&ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP'||type==='video/mp4'&&ascii(4,8)==='ftyp'||type==='video/webm'&&b[0]===26&&b[1]===69&&b[2]===223&&b[3]===163;if(!valid||await hash(bytes)!==fileId)return reply(400,{error:'Use a valid JPG, PNG, WebP, MP4 or WebM under 20 MB.'});await env.PROJECTS.put(fk,bytes,{httpMetadata:{contentType:type}});return reply(200,{id:fileId,type})}
@@ -28,7 +29,9 @@ export async function proposalRoute(req,env,s,{reply,body,hash}){
  if((old?.etag||null)!==(d.revision||null))return reply(409,{error:'Another session saved this proposal. Your edits remain open. Reload or save a separate copy.'});
  if(action&&!record)return reply(404,{error:'Proposal not found.'});
  const now=new Date().toISOString();let next=record?structuredClone(record):{id,status:'Draft',kind:'proposal',created:now,createdBy:s.user};
+ if(record?.status==='Trash'&&action!=='trash')return reply(409,{error:'Restore this proposal from Trash before making changes.'});
  if(!action){if(record?.signed)return reply(409,{error:'Signed agreements are immutable. Duplicate this proposal to revise it.'});try{validate(d.draft)}catch(e){return reply(400,{error:e.message})}next.draft=d.draft;next.kind=d.kind==='template'?'template':'proposal';}
+ else if(action==='trash'){if(d.restore===true){next.status=record.statusBeforeTrash||(record.signed?'Signed':'Draft');delete next.trashedAt;delete next.statusBeforeTrash;}else{next.statusBeforeTrash=record.status==='Trash'?record.statusBeforeTrash:record.status;next.status='Trash';next.trashedAt=now;}}
  else if(action==='archive'){next.status=d.archived===false?(record.signed?'Signed':'Draft'):'Archived'}
  else if(action==='signed'){
   // Records an existing executed PDF; this is not an electronic-signature ceremony.
