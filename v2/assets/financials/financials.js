@@ -1,3 +1,4 @@
+import {addPackage} from '../proposals/packages.mjs';
 import {openFeeBook} from '../proposals/fee-book-ui.mjs';
 import {syncBookItems,autoPhaseFees} from '../proposals/fee-book.mjs';
 import {phaseFinish,nextBand,mileageReferences,mileageSource} from '../proposals/rules.mjs';
@@ -62,7 +63,7 @@ window.addEventListener('scroll',hideTooltip,{passive:true});
 
 function bindPricing(){
  const old=document.querySelector('[data-ag-suggest]');
- if(old){const b=old.cloneNode(true);old.replaceWith(b);b.textContent='Studio fee book →';b.onclick=()=>openFeeBook({modal,token:()=>sessionStorage.getItem('studioh_v2_session_tab')||localStorage.getItem('studioh_v2_login_session')||'',current:ag.feeBook,proposalBudget:ag.budgetType==='Range'?ag.budgetMax:ag.budget,onApply:(book,fixedGroup,pricingMode)=>{ag.feeBook=book;if(pricingMode==='bands')ag.feeMethod='Fee by construction budget band';if(fixedGroup){ag.fixedGroup=fixedGroup;ag.feeMethod='Fixed design fee';}ag.autoPhaseFees=true;syncBookItems(ag,ag.budgetType==='Range'?ag.budgetMax:ag.budget,{replace:true});document.querySelector('#detail').close();ag.status='Fee book copied into this project draft. Review and save settings.';render()}}).catch(e=>modal('Fee book',esc(e.message)));}
+ if(old){const b=old.cloneNode(true);old.replaceWith(b);b.textContent='Studio fee book →';b.onclick=()=>openFeeBook({modal,token:()=>sessionStorage.getItem('studioh_v2_session_tab')||localStorage.getItem('studioh_v2_login_session')||'',current:ag.feeBook,proposalBudget:ag.budgetType==='Range'?ag.budgetMax:ag.budget,onApplyPackage:(book,key,options)=>{Object.assign(ag,addPackage(ag,book,key,options));document.querySelector('#detail').close();ag.status='Package added to this project draft. Review and save settings.';render()},onApply:(book,fixedGroup,pricingMode)=>{ag.feeBook=book;if(pricingMode==='bands')ag.feeMethod='Fee by construction budget band';if(fixedGroup){ag.fixedGroup=fixedGroup;ag.feeMethod='Fixed design fee';}ag.autoPhaseFees=true;syncBookItems(ag,ag.budgetType==='Range'?ag.budgetMax:ag.budget,{replace:true});document.querySelector('#detail').close();ag.status='Fee book copied into this project draft. Review and save settings.';render()}}).catch(e=>modal('Fee book',esc(e.message)));}
  const host=document.querySelector('.ag-heading');
  if(host){const b=document.createElement('button');b.className='quiet';b.textContent='Proposal text library';b.onclick=showProposalText;host.append(b);}
  const rates=document.querySelector('.ag-rate-list');

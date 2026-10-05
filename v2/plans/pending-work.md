@@ -138,3 +138,11 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Interactive design review at assets/reviews/design-packages-r1/: saved package library, a-la-carte/packages tabs, searchable service switches, budget-linked sample pricing, editable fees, private allowances, percentage/dollar savings, proposal versus saved-package edits, and a simulated add action. This is fictional in-memory review data, not a live package library implementation.
 - Live maintenance: package-member search, full-travel switch CSS, explicit fee-book-copy label, and proposal budget validation before range-price application. Existing Apply copied the fee book without selecting package member services; the review proposes a separate Add package action.
 - 88 tests pass; browser verified review search, selecting another member, recalculated total and missing-budget blocking.
+
+## V2.113 — Saved design packages and full proposal proofs
+- Built Design Packages beside À la carte: saved library, searchable service switches, percentage/dollar discounts, editable draft-only prices/costs/hours, and explicit saved-price updates per pricing context.
+- Add package uses the actual proposal construction budget, requires complete prices, selects/updates matching services without duplicate rows, and replaces overlapping active discounts. Manual phase-fee mismatches and percentage/hourly proposal conversions require review rather than silently changing fees.
+- Client document shows service prices, subtotal, saving and package total; internal hours/costs remain private. Browser verified save/reload and an edited $6,695 subtotal less 10% = $6,025.50.
+- Three complete nine-page design PDFs plus matching live review at assets/reviews/proposal-signing-r2/. A portfolio, B editorial serif, C image-led. Live slideshow and local video preview; PDF signature-placement demonstration and downloads. Fictional sample data, existing reference imagery, full 24 reference terms and 10 exclusions.
+- PDFs are design proofs, not executable agreements. Legacy terms contain inconsistent payment/cancellation provisions; studio review is needed before signature. No signing provider integration was added.
+- Reproducible PDF generator: worker-v2/build-proposal-proofs.py. Requires ReportLab and Liberation fonts (STUDIOH_SANS_FONTS / STUDIOH_SERIF_FONT optional overrides).
