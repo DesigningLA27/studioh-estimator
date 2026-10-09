@@ -32,4 +32,4 @@ assets={k:(out/k.lstrip('/')).read_text() for k in manifest['embeddedAssets']}
 pages={k:((repo/k.lstrip('/')) if k.endswith('.html') else (repo/k.lstrip('/')/'index.html')).read_text() for k in manifest['reviewRoutes']}
 gen=root/'generated';gen.mkdir(exist_ok=True)
 (gen/'runtime-assets.mjs').write_text('export const studioInterfaceAssets = '+json.dumps(assets)+';\nexport const dashboardPreviewPages = '+json.dumps(pages)+';\n')
-print('Packaged V2.169 source: '+str(len(assets))+' overrides and '+str(len(pages))+' review routes. No deployment performed.')
+print('Packaged '+manifest['release']+' source: '+str(len(assets))+' overrides and '+str(len(pages))+' review routes. No deployment performed.')

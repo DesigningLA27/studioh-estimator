@@ -167,3 +167,11 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Builder examples use normal fixed-size switches, wide section labels and actual layout thumbnails. Template examples use the same system typeface, landscape previews, spacing, search and six sample templates across grid/rail/master-detail treatments.
 - Fixed the existing refinement review checkbox width conflict with generic dialog input styling. Added requested pink responsibility pills, blue role-rate cards, softly tinted exclusions/terms and consistent heading font. Replaced glyph-only block icons with miniature layouts.
 - Browser checked all twelve options at desktop and 820px width with no page overflow or broken images; tested template search, carousel navigation and example popup. Verified original review switches remain 46px wide while labels use the available space. PDF layout work remains deferred at user request.
+
+## V2.170 — adopted full phase model (October 9)
+- Canonical engine phases: Consultation; Programming & Site Analysis; Schematic Design; optional Design Development; Construction Documents; Bidding / Negotiation; optional Construction Observation; Closeout.
+- Added 9 DD, 10 observation and 5 closeout source checks. Existing source IDs and both Programming/Site Analysis groups preserved.
+- Permitting has independent status alongside design. Existing permit/HOA work migrates by source identity, retaining saved details. Conditional approval injection remains project-driven.
+- Standard phase fee shares are displayed as defaults, not applied to existing agreements. Task durations remain unassigned.
+- Phase approval remains the current review stage. Deliverable structure and detailed task defaults require the user's subsequent review; the previous authored draft is not an approved project template.
+- Runtime phase-model.js updates the preserved deployed engine before Process initializes; source snapshots are also updated. Release source must be committed and pushed with deployment.
