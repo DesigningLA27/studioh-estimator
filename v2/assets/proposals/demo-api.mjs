@@ -1,0 +1,18 @@
+// Uses the current proposal renderer with tab-scoped fictional records only.
+export async function installProposalDemo(session,{example,total,validate,defaultBook}){
+ if(!session.demo)return;const original=window.fetch.bind(window),key='studioh_proposal_demo_'+session.user;let state;try{state=JSON.parse(sessionStorage.getItem(key)||'null')}catch{}
+ if(!state){const seeded=await (await original(new URL('showcase.json',import.meta.url))).json();const draft=seeded.draft;state={records:{'sample-san-marino':{id:'sample-san-marino',draft,kind:'proposal',status:'Draft',versions:[],documents:[],updated:new Date().toISOString(),revision:'1'}},defaults:{schema:1,rates:draft.agreement.rates||[],feeBook:defaultBook()}}}
+ for(const r of Object.values(state.records))r.created||=r.updated;
+ const persist=()=>sessionStorage.setItem(key,JSON.stringify(state));const reply=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});persist();
+ window.fetch=async(input,options={})=>{const u=new URL(typeof input==='string'?input:input.url,location.href),method=options.method||'GET';if(u.origin!==location.origin)return original(input,options);let body={};try{body=JSON.parse(options.body||'{}')}catch{}
+ if(u.pathname==='/financials/defaults'){if(method!=='GET'){state.defaults=body.state||body;persist()}return reply({state:state.defaults,revision:'demo'})}
+ if(!u.pathname.startsWith('/proposals'))return original(input,options);
+ const parts=u.pathname.split('/').filter(Boolean),id=parts[1],action=parts[2];if(!id)return reply({records:Object.values(state.records).map(r=>({id:r.id,name:r.draft.name,client:r.draft.client,status:r.status,sample:true,kind:r.kind,fee:total(r.draft),updated:r.updated})),signingEnabled:false});
+ let record=state.records[id];if(action){if(!record)return reply({error:'Sample proposal not found.'},404);if(!['archive','trash'].includes(action))return reply({error:'Demo: document uploads, extraction, signing and live project creation are not performed. You can edit the sample scope, fees and proposal preview.'},400);record.status=action==='trash'?(body.restore?'Draft':'Trash'):(body.archived?'Archived':'Draft');record.revision=String(+record.revision+1);record.updated=new Date().toISOString();persist();return reply({record,revision:record.revision})}
+ if(method==='GET')return record?reply({record,revision:record.revision}):reply({error:'Sample proposal not found.'},404);
+ if(record&&body.revision!==record.revision)return reply({error:'This sample changed. Reopen it before saving.'},409);
+ try{validate(body.draft)}catch(e){return reply({error:e.message},400)}record={...record,id,created:record?.created||new Date().toISOString(),draft:body.draft,kind:body.kind||'proposal',status:record?.status||'Draft',versions:record?.versions||[],documents:record?.documents||[],updated:new Date().toISOString(),revision:String(+(record?.revision||0)+1)};record.draft.sample=true;state.records[id]=record;persist();return reply({record,revision:record.revision});
+ };
+ const banner=document.createElement('div');banner.textContent='Demo workspace · Sample — San Marino · Edits stay in this browser tab.';banner.style.cssText='padding:12px 24px;background:#eae3f3;color:#193f35;font:14px system-ui';document.body.prepend(banner);
+ const status=document.getElementById('save-status');if(status)new MutationObserver(()=>{const text=status.textContent;const next=text.replace('Private studio proposals','Sample proposals · Demo').replace(/Saved to your studio/g,'Saved in this demo tab').replace(/Saving to your studio…/g,'Saving sample…');if(next!==text)status.textContent=next}).observe(status,{childList:true,subtree:true});
+}

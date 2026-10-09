@@ -130,7 +130,7 @@ export const catalogue = {
     },
     {
       "id": "construction-details",
-      "name": "Construction Details",
+      "name": "Construction Details & Specs",
       "fees": [
         1395,
         1795,

@@ -1,0 +1,81 @@
+import {categories,PRINCIPAL,ENTERTAINMENT,DEPRECIATION,defaultDeductible,isBurdenName} from './categories.mjs';
+import {annualWage,personCost,payrollTotals} from './payroll.mjs';
+export {categories} from './categories.mjs';
+export {annualWage,personCost,payrollTotals} from './payroll.mjs';
+export const industries=['Landscape architecture','Landscape design','Architecture','Interior design','Other design services'];
+export const blankPlan=()=>({schema:3,industry:'',year:new Date().getFullYear(),currency:'USD',costs:[],people:[],defaultBurdenPct:null,unallocatedBurden:0,margin:20,reviewedCosts:false,reviewedPeople:false,imports:[],migration:null});
+const number=(v,min,max,nullable=false)=>{if(nullable&&(v===null||v===undefined))return null;if(!Number.isFinite(v)||v<min||v>max)throw Error('Check amounts, percentages and reporting year.');return v};
+const str=(v,max,required=false)=>{if(typeof v!=='string'||v.length>max||required&&!v.trim())throw Error('Check names and notes.');return v.trim()};
+const ident=v=>{if(typeof v!=='string'||!/^[-\w]{1,100}$/.test(v))throw Error('Invalid record identifier.');return v};
+export const grossMonthly=c=>c.grossMonthly!==undefined?c.grossMonthly:c.amount===null?null:c.amount*c.freq/12;
+export const netMonthly=c=>grossMonthly(c)===null?null:grossMonthly(c)*(c.businessPct??100)/100;
+export function migratePlan(source){
+ if(source.schema===3)return structuredClone(source);
+ const s=structuredClone(source),base=s.people.reduce((n,p)=>n+(p.wage??0),0),direct=s.people.reduce((n,p)=>n+(p.wage??0)*(p.share??0)/100,0);
+ const before=base-direct+(s.benefits??0)+s.costs.reduce((n,c)=>n+(netMonthly(c)??0)*12,0),moved=s.costs.filter(c=>isBurdenName(c.name));
+ const known=moved.every(c=>netMonthly(c)!==null)&&Number.isFinite(s.benefits),burden=(s.benefits??0)+moved.reduce((n,c)=>n+(netMonthly(c)??0)*12,0);
+ const canAllocate=known&&base>0&&s.people.every(p=>Number.isFinite(p.wage));
+ s.costs=s.costs.filter(c=>!moved.includes(c)).map(c=>({...c,category:/^debt principal$/i.test(c.name.trim())?PRINCIPAL:/entertainment/i.test(c.name)?ENTERTAINMENT:c.category,deductible:/^debt principal$/i.test(c.name.trim())||/entertainment/i.test(c.name)?false:c.deductible??true}));
+ s.people=s.people.map(p=>({id:p.id,name:p.name,baseWage:p.wage,wageBasis:'annual',hoursPerYear:null,burdenPct:canAllocate?burden/base*100:null,billableTargetPct:p.share,owner:false,compensation:'paid'}));
+ s.defaultBurdenPct=null;s.unallocatedBurden=canAllocate?0:burden;s.burdenNeedsReview=!canAllocate;s.schema=3;s.reviewedPeople=false;
+ const after=canAllocate&&s.people.every(p=>Number.isFinite(p.billableTargetPct))?(base-direct)*(1+burden/base)+s.costs.filter(c=>c.category!==PRINCIPAL).reduce((n,c)=>n+(netMonthly(c)??0)*12,0):null;
+ s.migration={acknowledged:false,beforeOverhead:before,afterOverhead:after,previousEmployerCosts:s.benefits??null,moved:moved.map(c=>({name:c.name,annual:netMonthly(c)===null?null:netMonthly(c)*12})),reason:'Employer costs now follow direct and non-billable time. The multiplier denominator is burdened direct labour. No industry percentage was assumed.'};
+ delete s.benefits;return s;
+}
+function normalizeExpenseGroups(s){
+ const groups=(s.costGroups||[]).map(g=>({id:ident(g.id),name:str(g.name,150,true),category:g.category,notes:str(g.notes||'',2000),legacy:(g.legacy||[]).slice(0,300).map(x=>({name:str(x.name||'',150),notes:str(x.notes||'',2000),source:str(x.source||'',30),documentId:x.documentId?ident(x.documentId):null}))}));
+ if(groups.length>300||new Set(groups.map(g=>g.id)).size!==groups.length)throw Error('Invalid expense groups.');
+ for(const g of groups)if(!Number.isInteger(g.category)||g.category<0||g.category>=categories.length)throw Error('Choose a valid expense category.');
+ const legacyKeys=new Map();const records=s.costs.map(c=>({...c}));
+ for(const c of records){c.renameDefault=!c.groupId;
+  let g=c.groupId?groups.find(g=>g.id===c.groupId):null;
+  if(c.groupId&&!g)throw Error('Expense group not found.');
+  if(!g){const key=c.expenseGroup?c.category+'|'+c.expenseGroup:'item|'+c.id;g=legacyKeys.get(key);if(!g){g={id:'g_'+ident(c.id).slice(0,98),name:str(c.expenseGroup||c.name,150,true),category:c.category,notes:'',legacy:[]};if(groups.some(x=>x.id===g.id))throw Error('Duplicate expense group.');groups.push(g);legacyKeys.set(key,g)}c.legacyParent=!!c.expenseGroup&&c.name===c.expenseGroup;}
+  c.groupId=g.id;c.expenseGroup=g.name;c.category=g.category;
+ }
+ s.costs=records.filter(c=>{if(c.legacyParent&&grossMonthly(c)===null&&records.some(x=>x.id!==c.id&&x.groupId===c.groupId)){const g=groups.find(g=>g.id===c.groupId);g.legacy.push({name:c.name,notes:str(c.notes||'',2000),source:str(c.source||'',30),documentId:c.documentId?ident(c.documentId):null});return false}return true});
+ for(const c of s.costs)if(c.renameDefault&&c.name===c.expenseGroup)c.name='Item 1';
+ s.costGroups=groups.filter(g=>s.costs.some(c=>c.groupId===g.id));return s;
+}
+
+export function validatePlan(source){
+ if(!source||![1,2,3].includes(source.schema)||source.currency!=='USD'||!industries.includes(source.industry)&&source.industry!=='')throw Error('Choose a valid industry and USD currency.');
+ if(!Array.isArray(source.costs)||source.costs.length>300||!Array.isArray(source.people)||source.people.length>100||!Array.isArray(source.imports)||source.imports.length>100)throw Error('Too many records.');
+ const s=normalizeExpenseGroups(migratePlan(source)),seen=new Set(),id=v=>{ident(v);if(seen.has(v))throw Error('Duplicate record identifier.');seen.add(v);return v};
+ if(new Set(s.imports.map(i=>i.id)).size!==s.imports.length)throw Error('A report can only be applied once.');
+ const costs=s.costs.map(c=>{if(isBurdenName(c.name))throw Error('Employer taxes, workers compensation and benefits belong in People & capacity, not operating costs.');if(!Number.isInteger(c.category)||c.category<0||c.category>=categories.length)throw Error('Choose a valid expense category.');if(c.grossMonthly===undefined&&![1,4,12].includes(c.freq))throw Error('Choose monthly, quarterly or annual costs.');return {id:id(c.id),name:str(c.name,150,true),expenseGroup:str(c.expenseGroup||'',150),groupId:ident(c.groupId),category:c.category,grossMonthly:number(grossMonthly(c),-1e9,1e9,true),businessPct:Number.isInteger(c.businessPct??100)?number(c.businessPct??100,0,100):(()=>{throw Error('Business use must be a whole percentage from 0 to 100.')})(),avoidability:['avoidable','committed'].includes(c.avoidability??'avoidable')?(c.avoidability??'avoidable'):(()=>{throw Error('Choose avoidable or committed.')})(),deductible:c.category===PRINCIPAL?false:typeof c.deductible==='boolean'?c.deductible:defaultDeductible(c.category),nonCash:c.category===PRINCIPAL?false:c.nonCash===true||c.category===DEPRECIATION,notes:str(c.notes||'',2000),source:['Imported','imported'].includes(c.source)?'imported':'manual',documentId:c.documentId?ident(c.documentId):null}});
+ const people=s.people.map(p=>{if(!['annual','hourly'].includes(p.wageBasis)||!['paid','imputed'].includes(p.compensation))throw Error('Choose wage frequency and compensation type.');if(p.compensation==='imputed'&&!p.owner)throw Error('Imputed compensation applies to owners only.');return {id:id(p.id),name:str(p.name,150,true),baseWage:number(p.baseWage,0,1e9,true),wageBasis:p.wageBasis,hoursPerYear:number(p.hoursPerYear,0,8784,true),burdenPct:number(p.burdenPct,0,200,true),billableTargetPct:number(p.billableTargetPct,0,100,true),owner:p.owner===true,compensation:p.compensation}});
+ const migration=s.migration?{acknowledged:s.migration.acknowledged===true,beforeOverhead:number(s.migration.beforeOverhead,-1e12,1e12,true),afterOverhead:number(s.migration.afterOverhead,-1e12,1e12,true),previousEmployerCosts:number(s.migration.previousEmployerCosts,0,1e12,true),reason:str(s.migration.reason||'',1000),moved:(s.migration.moved||[]).slice(0,300).map(r=>({name:str(r.name,150,true),annual:number(r.annual,-1e12,1e12,true)}))}:null;
+ return {schema:3,sampleLabel:str(s.sampleLabel||'',200),industry:s.industry,year:Number.isInteger(s.year)?number(s.year,2000,2100):(()=>{throw Error('Enter a whole year.')})(),currency:'USD',defaultBurdenPct:number(s.defaultBurdenPct,0,200,true),unallocatedBurden:number(s.unallocatedBurden??0,0,1e12),burdenNeedsReview:s.burdenNeedsReview===true,margin:number(s.margin,0,60),reviewedCosts:s.reviewedCosts===true,reviewedPeople:s.reviewedPeople===true,costs,costGroups:s.costGroups,people,migration,imports:s.imports.map(i=>({id:ident(i.id),name:str(i.name,200,true),from:str(i.from||'',10),to:str(i.to||'',10),basis:str(i.basis||'',30),reviewedAt:str(i.reviewedAt||'',40)}))};
+}
+export function calculate(source){
+ const s=source.schema===3?source:validatePlan(source),p=payrollTotals(s),operating=s.costs.filter(c=>c.category!==PRINCIPAL),sum=rows=>rows.reduce((n,c)=>n+(netMonthly(c)??0)*12,0),other=sum(operating),principal=sum(s.costs.filter(c=>c.category===PRINCIPAL)),nonCash=sum(operating.filter(c=>c.nonCash||c.category===DEPRECIATION));
+ const committed=sum(operating.filter(c=>c.avoidability==='committed')),avoidable=other-committed,unknown=s.costs.filter(c=>netMonthly(c)===null).length,overhead=p.indirect+other,total=p.cost+other;
+ const complete=!!s.industry&&s.reviewedCosts&&s.reviewedPeople&&!s.burdenNeedsReview&&!unknown&&p.complete&&p.direct>0&&other>=0&&avoidable>=0&&committed>=0&&principal>=0;
+ const target=complete?total/(1-s.margin/100):null;
+ return {unknown,other,avoidable,committed,principal,nonCash,payroll:p.base,burdenedPayroll:p.cost,benefits:p.cost-p.base,direct:p.direct,directBase:p.directBase,indirect:p.indirect,ownerIndirect:p.ownerIndirect,imputedIndirect:p.imputedIndirect,imputedCost:p.imputedCost,overhead,avoidableOverhead:overhead-committed,total,complete,target,breakEven:complete?total/p.direct:null,floor:complete?(total-committed)/p.direct:null,multiplier:complete?target/p.direct:null,withoutImputedOwner:complete?(total-p.imputedIndirect)/(1-s.margin/100)/p.direct:null,breakEvenWithoutImputedOwner:complete?(total-p.imputedIndirect)/p.direct:null,cashAnnual:complete?total-p.imputedCost-nonCash+principal:null,cashOverhead:complete?overhead-p.imputedIndirect-nonCash+principal:null,cashMultiplier:complete?(total-p.imputedCost-nonCash+principal)/p.direct:null,directPayMultiplier:complete&&p.directBase>0?target/p.directBase:null,allocationRate:complete?overhead/p.direct:null,avoidableRate:complete?(overhead-committed)/p.direct:null};
+}
+export function allocationSchedule(s,{deductibleOnly=false}={}){return s.costs.filter(c=>!deductibleOnly||(c.deductible??defaultDeductible(c.category))&&c.category!==PRINCIPAL).map(c=>({category:categories[c.category],name:c.expenseGroup?c.expenseGroup+' / '+c.name:c.name,grossAnnual:grossMonthly(c)===null?null:grossMonthly(c)*12,businessPct:c.businessPct??100,netAnnual:netMonthly(c)===null?null:netMonthly(c)*12,avoidability:c.avoidability||'avoidable',deductible:c.category!==PRINCIPAL&&(c.deductible??defaultDeductible(c.category)),nonCash:c.nonCash===true||c.category===DEPRECIATION,note:c.notes||'',source:c.source||'manual',basisMissing:(c.businessPct??100)<100&&!c.notes?.trim()})).sort((a,b)=>categories.indexOf(a.category)-categories.indexOf(b.category));}
+export function allocateProject(m,remainingStaffCost,rates){
+ const ready=m.burdenedBasis===true&&rates&&Number.isFinite(rates.full)&&!m.missing;
+ const calc=(gross,revenue,labour)=>ready&&Number.isFinite(gross)&&Number.isFinite(labour)?{fullOverhead:labour*rates.full,avoidableOverhead:Number.isFinite(rates.avoidable)?labour*rates.avoidable:null,fullProfit:gross-labour*rates.full,cashProfit:Number.isFinite(rates.avoidable)?gross-labour*rates.avoidable:null,fullMargin:revenue>0?(gross-labour*rates.full)/revenue:null,cashMargin:Number.isFinite(rates.avoidable)&&revenue>0?(gross-labour*rates.avoidable)/revenue:null}:null;
+ return {toDate:calc(m.gross,m.earned,m.cost),atFinish:calc(Number.isFinite(m.fee)&&Number.isFinite(m.forecast)?m.fee-m.forecast:null,m.fee,Number.isFinite(remainingStaffCost)?m.cost+remainingStaffCost:null)};
+}
+const importCategory=(category,expanded)=>!expanded&&category>=10&&category<=13?category+90:category;
+export function normalizeExtraction(x){
+ if(!x||!Array.isArray(x.lines)||!x.lines.length||x.lines.length>200)throw Error('The report needs 1–200 readable expense lines.');
+ const date=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)?v:'';
+ return {categorySchema:'expanded',from:date(x.from),to:date(x.to),currency:typeof x.currency==='string'?x.currency.slice(0,10):'',basis:['Cash','Accrual'].includes(x.basis)?x.basis:'Unknown',notes:Array.isArray(x.notes)?x.notes.filter(n=>typeof n==='string').slice(0,30).map(n=>n.slice(0,1000)):[],lines:x.lines.map((r,i)=>{let category=importCategory(r.category,x.categorySchema==='expanded');if(isBurdenName(r.name))category=100;if(!Number.isInteger(category)||!(category>=0&&category<categories.length||category>=100&&category<=103))category=103;return {id:'line-'+i,name:str(r.name,150,true),amount:number(r.amount,-1e9,1e9,true),category,evidence:str(r.evidence,700,true),note:typeof r.note==='string'?r.note.slice(0,700):'',reviewed:false,include:category<categories.length||category===100,sourceAmount:r.amount}})}
+}
+export function applyImport(plan,report,lines,{from,to,basis,annualize=false,confirmed=false}){
+ if(!confirmed)throw Error('Confirm the reviewed expense mappings.');if(plan.imports.some(i=>i.id===report.id))throw Error('This report has already been applied to this plan.');
+ const dates=[from,to].map(d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'')?Date.parse(d+'T00:00:00Z'):NaN);if(dates.some((d,i)=>!Number.isFinite(d)||new Date(d).toISOString().slice(0,10)!==[from,to][i])||dates[1]<dates[0])throw Error('Confirm the report dates.');
+ const days=(dates[1]-dates[0])/86400000+1;if(days>366)throw Error('Import one year or less at a time.');if(days<360&&!annualize)throw Error('For a partial year, confirm annualization or use a full-year report.');
+ const factor=days>=360?1:365/days,included=lines.map(r=>({...r,category:importCategory(r.category,report.extracted?.categorySchema==='expanded')})).filter(r=>r.include&&(r.category<categories.length||r.category===100));
+ if(!included.length)throw Error('Select at least one overhead or benefits line.');if(included.some(r=>!r.reviewed||!Number.isFinite(r.amount)||!Number.isInteger(r.category)||r.category<0))throw Error('Review each selected amount and category.');
+ const next=validatePlan(plan),cats=new Set(included.filter(r=>r.category<categories.length).map(r=>r.category));next.costs=next.costs.filter(c=>!cats.has(c.category));
+ for(const r of included.filter(r=>r.category<categories.length))next.costs.push({id:crypto.randomUUID(),name:r.name,category:r.category,grossMonthly:r.amount*factor/12,businessPct:100,avoidability:'avoidable',deductible:defaultDeductible(r.category),nonCash:r.category===DEPRECIATION,notes:`Source ${from} to ${to}; ${basis}. ${factor!==1?'Annualized × '+factor.toFixed(4)+'. ':''}${r.evidence}`.slice(0,2000),source:'imported',documentId:report.id});
+ const benefits=included.filter(r=>r.category===100);if(benefits.length){const amount=benefits.reduce((n,r)=>n+r.amount,0)*factor;if(amount<0)throw Error('Review employer-cost credits against the full payroll total before applying.');next.unallocatedBurden=amount;next.burdenNeedsReview=true;next.reviewedPeople=false;}
+ next.imports.push({id:report.id,name:report.name,from,to,basis,reviewedAt:new Date().toISOString()});next.reviewedCosts=false;return validatePlan(next);
+}
+export function allocateBurdenPool(source){const s=validatePlan(source),base=s.people.reduce((n,p)=>n+(annualWage(p)??0),0);if(!base||s.people.some(p=>annualWage(p)===null))throw Error('Enter annual pay for every person before allocating the imported employer costs.');if(s.people.some(p=>p.compensation==='imputed'))throw Error('Allocate actual employer costs to paid people individually when your plan contains imputed owner compensation.');const pct=s.unallocatedBurden/base*100;if(pct>200)throw Error('Employer costs exceed 200% of pay; review the source totals.');s.people=s.people.map(p=>({...p,burdenPct:pct}));s.unallocatedBurden=0;s.burdenNeedsReview=false;s.reviewedPeople=false;return s;}

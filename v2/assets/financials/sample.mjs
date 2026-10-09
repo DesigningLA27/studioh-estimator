@@ -1,5 +1,5 @@
 // Explicit fictional fixture. Used only for the app's sample project.
-export function completeSample(s){
+function baseSample(s){
  if(!s.sample||s.sampleVersion>=2)return s;
  const a=s.agreement,base=a.phases[0];
  a.phases=[{...base,id:'sample-phase-1',name:'Concept design',method:'Fixed fee',fee:18000,trigger:'Before commencement',net:15},{...base,id:'sample-phase-2',name:'Construction documents',method:'Fixed fee',fee:18000,trigger:'After completion',net:15},{...base,id:'sample-phase-3',name:'Construction observation',method:'Hourly',fee:175,approvedUnbilledHours:8,trigger:'Monthly',net:15}];
@@ -17,4 +17,15 @@ export function completeSample(s){
  s.outsideCosts=[{id:'sample-consultant',name:'Irrigation coordination',amount:300,kind:'1099 fixed consultant',treatment:'Absorbed in fee'},{id:'sample-expense',name:'Site printing & travel',amount:50,kind:'Reimbursable expense',treatment:'Absorbed in fee'}];
  s.changes=[{id:'CO-01',name:'Additional terrace',state:'Approved',fee:2000,cost:800,hours:10,notes:'Included in the fictional signed base fee.',reference:'Sample client approval',includedInSigned:true},{id:'CO-02',name:'Construction budget band',state:'Proposed',fee:8000,cost:null,hours:null,notes:'Estimate exceeds the $125k–$175k allowance.',reference:'',includedInSigned:false},{id:'CO-03',name:'3D rendering',state:'Proposed',fee:2400,cost:1000,hours:12,notes:'New request outside the base scope.',reference:'',includedInSigned:false},{id:'CO-04',name:'Pool layout alternative',state:'Declined',fee:1000,cost:500,hours:6,notes:'Excluded from approved revenue.',reference:'Sample declined request',includedInSigned:false}];
  s.history=[{name:'Oak courtyard',construction:138000,fee:28000,cost:12600},{name:'Canyon garden',construction:165000,fee:34000,cost:14960},{name:'Palm residence',construction:192000,fee:39000,cost:17550},{name:'Ridge terrace',construction:225000,fee:45000,cost:21600},{name:'Laurel garden',construction:245000,fee:47000,cost:24440}];s.samplePeople.forEach(p=>{const c=s.people[p.user];c.days=p.user==='sample-alex'?[7,7,7,7,6]:p.user==='sample-maya'?[8,8,8,8,6]:[6,6,6,6,4]});s.revisionAllowance=3;s.revisionsUsed=2;s.exclusions='Pool engineering · 3D rendering · furnishings plan';return s;
+}
+
+// Complete fictional forecast inputs without overwriting edited sample values.
+export function completeSample(s){
+ baseSample(s);
+ if(s.sample && s.sampleVersion===2){
+  if(s.overhead==null)s.overhead=2000;
+  if(s.remainingOverhead==null)s.remainingOverhead=2000;
+  s.sampleVersion=3;
+ }
+ return s;
 }
