@@ -1,4 +1,4 @@
-# Current release: V2.180
+# Current release: V2.181
 
 Current runtime, backend recovery details, build instructions and verification limitations: [V2.169 recovery notes](../worker-v2/recovered/README.md). The older builder instructions below describe the earlier V1-derived prototype; use `python3 worker-v2/build-current.py` from the repository root for this release.
 
