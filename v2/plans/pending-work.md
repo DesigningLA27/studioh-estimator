@@ -175,3 +175,19 @@ Design study: [Project Home, round two](../mockups/project-home-r2/index.html). 
 - Standard phase fee shares are displayed as defaults, not applied to existing agreements. Task durations remain unassigned.
 - Phase approval remains the current review stage. Deliverable structure and detailed task defaults require the user's subsequent review; the previous authored draft is not an approved project template.
 - Runtime phase-model.js updates the preserved deployed engine before Process initializes; source snapshots are also updated. Release source must be committed and pushed with deployment.
+
+## Process intelligence programme — approved October 11, 2026
+The user wants the complete set of capabilities below. Deliver in focused releases and update this checklist; approval of the first release does not remove the wider scope.
+
+- [x] V2.188 foundation: shared, deterministic Project health facts; Home summary and reasoned next actions; same facts supplied to on-demand project AI review. Past-due dates, required gates, earlier-phase carryover, missing inputs, current phase, recorded hours and hours-allowance comparison. No automatic decisions or invented finish forecasts.
+- [ ] Designer daily priorities across projects: apply shared ranking to authorized assigned work, show why, and link to the canonical task. Needs studio-wide project projection, not duplicated task records.
+- [ ] Studio workload board: available hours, leave and consultant availability, assigned remaining effort by week, overload/availability and principal overview. Needs person capacity calendars and project access filtering.
+- [ ] Schedule forecasts: explicit dependencies, start/finish constraints, refreshed remaining hours, waiting durations and calendar rules. Forecast dates must remain distinguishable from promised dates; proposed changes require review.
+- [ ] Profitability warnings: reconcile fee, actual labor costs, consultant/expense commitments and refreshed cost to complete. Current hours-allowance comparison is not a profit forecast.
+- [ ] Scope-change detection: compare confirmed agreement scope with later additions; show incremental effort and draft a fee-review action without changing signed terms.
+- [ ] Client progress updates: approved deliverable progress and requested decisions; recipient permissions; no internal margins, staffing details or unapproved AI text exposed. Sending remains an explicit user action.
+- [ ] Estimate learning: task-linked actual time, repeated review/visit counts and completion history; compare scope/budget/conditions using adequate samples, show evidence and uncertainty; proposed template changes require review.
+- [ ] Weekly studio report and done-by-person history: completion events/reopens, linked assignee identity and chosen period; use the same facts as daily priorities.
+- [ ] Project onboarding: reusable approved process templates with explanations/evidence and applicable conditions; guided next steps draw from the same facts.
+
+Next release: remaining-effort updates + task dependencies and staff availability, then the cross-project workload board. Preserve the approved Process journey/tree design throughout. Health itself is a derived read-only view of server-backed records; generated AI prose is an ephemeral review, never authoritative project state.

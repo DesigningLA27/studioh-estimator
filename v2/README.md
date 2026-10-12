@@ -199,3 +199,6 @@ The current app version is stored in `version.json`, formatted as `V2.011`.
 For every subsequent published V2 app update, run `python3 v2/build-shell.py --bump` once, then commit both `version.json` and the regenerated `index.html` with the changes. For a rebuild of the same release, omit `--bump`. Mockup-only publications do not change the live app version.
 
 The build injects the visible header/sidebar label and uses the same version on shell assets and the engine URL to refresh cached files. The version comes from the build, not the URL query parameter.
+
+## V2.188 — Project health
+Home shows shared Process health and reasoned next actions by default. Process AI review uses the same facts. Original unfinished-task estimates and saved milestone targets are explicitly distinguished from remaining-effort and finish forecasts. Wider approved capabilities are tracked in plans/pending-work.md.
