@@ -1,3 +1,4 @@
+import '../../src/budget-ranges.js';
 export const catalogue = {
   "version": "studio-h-2024-v1",
   "source": "PROPOSAL-BUILDER.md · 2024 rate sheet",
@@ -19,16 +20,7 @@ export const catalogue = {
       "rate": 100
     }
   ],
-  "caps": [
-    50000,
-    75000,
-    125000,
-    175000,
-    250000,
-    350000,
-    500000,
-    750000
-  ],
+  "caps": globalThis.StudioHBudgetRanges.map(b=>b.max),
   "services": [
     {
       "id": "conceptual-plan",

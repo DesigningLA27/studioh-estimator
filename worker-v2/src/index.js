@@ -1,3 +1,4 @@
+import {processPeopleRoute} from './process-people.js';
 import {studioInterfaceAssets,dashboardPreviewPages} from '../generated/runtime-assets.mjs';
 
 async function ensureSampleShowcase(env,s){
@@ -3319,6 +3320,7 @@ var index_default = { async fetch(req, env) {
       return reply(200, { ok: true }, { "Set-Cookie": "studioh_v2_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0" });
     }
     if (s.demo) return reply(403, { error: "Demo accounts cannot access private project storage." });
+    const processPeople = await processPeopleRoute(req,env,s,{reply,body});if(processPeople)return processPeople;
     const bidComparison = await bidCompareRoute(req,env,s,{reply,body,permission,hash});
     if(bidComparison)return bidComparison;
     const dashboardLayout = await dashboardLayoutRoute(req,env,s,{reply,body});
