@@ -95,3 +95,6 @@ All AI-dependent features (narratives, plan review, PDF symbol counting) land in
 - Only authentication cookies, transient working memory, ordinary public application-asset caching, and explicitly requested exports are exceptions. Failed saves must remain visibly unsaved.
 - Use revision checks and preserve older revisions. Recover browser-only V2 data to private server projects and verify it before clearing it. Never clear V1 data.
 - Every release reply includes the updated version, working public link and freshly checked remaining weekly usage.
+
+## Visual changes — Warwick, October 11, 2026
+Never implement or deploy a visual/layout change without first discussing mockups and receiving Warwick’s approval of a mockup. A request for functionality does not authorize a new layout. Keep mockups separate from the live app. Project Home is single-project context; the proposed all-project studio dashboard requires design approval before implementation.
